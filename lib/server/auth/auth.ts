@@ -227,10 +227,17 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
  * occupies a COLLEGE/UNIVERSITY node; PROPERTY_ADMIN and PROCUREMENT are approvers by role
  * regardless of node, per scope.ts's own global-reach list.
  *
+ * STORE_KEEPER is grouped with PROPERTY_ADMIN/PROCUREMENT — university-wide reach by role,
+ * same as those two offices — even though its actual resource-register reach will come
+ * through the access-view system (Phase 11 of the replatforming plan), not org edges.
+ *
  * Anyone who doesn't match admin/department/approver — a plain CUSTODIAN, STAFF or
  * STUDENT — falls back to the "custodian" shell. For an actual custodian that's their
  * real workspace; for STAFF/STUDENT it's the closest fit (their own resources: bookings,
- * loans, requests) rather than a fifth shell this phase does not build.
+ * loans, requests) rather than a fifth shell this phase does not build. EXTERNAL falls
+ * back the same way for now — nothing in this phase creates an EXTERNAL session, and this
+ * whole 4-workspace model is itself scheduled for removal (replatforming Phase 5) in
+ * favour of one sidebar with server-enforced scope.
  */
 function workspacesFor(
   roles: string[],
@@ -242,6 +249,7 @@ function workspacesFor(
   if (
     roles.includes("PROPERTY_ADMIN") ||
     roles.includes("PROCUREMENT") ||
+    roles.includes("STORE_KEEPER") ||
     (roles.includes("MANAGER") && occupiedNodeKind !== null && occupiedNodeKind !== "DEPARTMENT")
   ) {
     set.add("approver");

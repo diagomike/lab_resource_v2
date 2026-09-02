@@ -16,10 +16,20 @@ import { EntityPicker } from "@/components/EntityPicker";
  * enforces the narrower rule for a MANAGER, so this just hides what a head could not do
  * anyway rather than duplicating that logic client-side.
  */
-// Defined locally rather than imported as a value from @sc-lab/shared's `roleKinds` —
-// see CLAUDE.md's note on Vite/Rollup's cjs-interop failing to resolve a freshly
-// re-exported const array from the shared barrel (hit before with `units` in Phase 6).
-const ALL_ROLE_KINDS: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STUDENT"];
+// Defined locally rather than imported as a value from lib/shared's `roleKinds` — this
+// file only imports TYPES from lib/shared (see lib/shared's own module-boundary
+// discipline), so the runtime array is restated here.
+const ALL_ROLE_KINDS: RoleKind[] = [
+  "SYS_ADMIN",
+  "PROPERTY_ADMIN",
+  "PROCUREMENT",
+  "MANAGER",
+  "CUSTODIAN",
+  "STAFF",
+  "STUDENT",
+  "STORE_KEEPER",
+  "EXTERNAL",
+];
 const MANAGER_INVITABLE: RoleKind[] = ["CUSTODIAN", "STAFF"];
 
 export default function PersonnelPage() {

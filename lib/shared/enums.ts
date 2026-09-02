@@ -1,14 +1,9 @@
 /**
  * Every enum the API and the web app both need to name.
  *
- * These are duplicated as Prisma enums in apps/api/prisma/schema.prisma — Prisma cannot
- * generate zod schemas, and importing @prisma/client into the browser bundle is not an
- * option, so the two lists are kept in sync by hand.
- *
- * This is the identity + org-structure foundation only. Lab-management enums (location
- * kinds, tracking modes, units, catalog status, asset lifecycle/condition, stock ledger
- * kinds, ...) are deliberately not here yet — each is added when its owning module is
- * designed and built, one at a time.
+ * These are duplicated as Prisma enums in prisma/schema.prisma — Prisma cannot generate
+ * zod schemas, and importing @prisma/client into the browser bundle is not an option, so
+ * the two lists are kept in sync by hand.
  */
 import { z } from "zod";
 
@@ -23,7 +18,10 @@ export type UserStatus = (typeof userStatuses)[number];
  *
  * PROPERTY_ADMIN and PROCUREMENT are university-wide offices, not academic managers: they
  * reach every node through cross-cutting hierarchy edges (see ScopeService.GLOBAL_ROLES),
- * not through a magic flag.
+ * not through a magic flag. STORE_KEEPER is the same shape for the resource register
+ * specifically — university-wide reach granted through the access-view system rather than
+ * org-hierarchy edges (a store keeper occupies no OrgNode). EXTERNAL is a person outside
+ * the university entirely, reaching nothing by default.
  */
 export const roleKinds = [
   "SYS_ADMIN",
@@ -33,6 +31,8 @@ export const roleKinds = [
   "CUSTODIAN",
   "STAFF",
   "STUDENT",
+  "STORE_KEEPER",
+  "EXTERNAL",
 ] as const;
 export const RoleKindSchema = z.enum(roleKinds);
 export type RoleKind = (typeof roleKinds)[number];

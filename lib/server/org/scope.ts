@@ -75,11 +75,13 @@ export async function hasGlobalReach(userId: string): Promise<boolean> {
 /**
  * Purchase cost, estimated cost and disposal valuations are restricted. A student
  * browsing the catalog to book a microscope has no business seeing what it cost, and a
- * shared-lab view must not leak one department's spend to another.
+ * shared-lab view must not leak one department's spend to another. STORE_KEEPER is
+ * included — receiving goods against a purchase order means reading the cost the order
+ * was raised for.
  */
 export async function canSeeCost(userId: string): Promise<boolean> {
   const hit = await prisma.userRole.findFirst({
-    where: { userId, kind: { in: ["PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "SYS_ADMIN"] } },
+    where: { userId, kind: { in: ["PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "SYS_ADMIN", "STORE_KEEPER"] } },
   });
   return hit !== null;
 }

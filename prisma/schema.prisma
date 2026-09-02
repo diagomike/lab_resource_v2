@@ -31,6 +31,11 @@ enum UserStatus {
 /// Roles stack. An ARA/SARA lab holder is routinely CUSTODIAN + STAFF; a department head
 /// is MANAGER + STAFF. PROPERTY_ADMIN and PROCUREMENT are university-wide offices that
 /// reach every node through cross-cutting hierarchy edges, not through a magic flag.
+/// STORE_KEEPER is the same shape — a store keeper works across every department's
+/// incoming goods, so their register reach is university-wide too, granted through the
+/// resource-management access-view system rather than org-hierarchy edges (a store keeper
+/// occupies no OrgNode). EXTERNAL is a person outside the university entirely; they occupy
+/// no node, reach nothing by default, and every door open to them is an approval away.
 enum RoleKind {
   SYS_ADMIN
   PROPERTY_ADMIN
@@ -39,6 +44,8 @@ enum RoleKind {
   CUSTODIAN
   STAFF
   STUDENT
+  STORE_KEEPER
+  EXTERNAL
 }
 
 model User {
