@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Placeholder — the real design tokens (apps/web/src/index.css: fonts, colour
+   variables, theme attribute selectors) move here in Phase 6, alongside the rest of
+   the frontend. This stub exists only to prove the Tailwind toolchain end to end. */
