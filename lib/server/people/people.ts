@@ -1,5 +1,12 @@
 import "server-only";
-import type { CreatePersonInput, DeactivateResultDto, PersonDto, RoleKind, UpdatePersonRolesInput } from "@/lib/shared";
+import type {
+  CreatePersonInput,
+  DeactivateResultDto,
+  PersonDto,
+  PersonSummaryDto,
+  RoleKind,
+  UpdatePersonRolesInput,
+} from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "../org/scope";
@@ -300,6 +307,25 @@ export async function assignNode(
   }
 
   return one(targetUserId);
+}
+
+/**
+ * Just enough of a people directory to power pickers — a handover recipient, a transfer
+ * contact. Was org/people.controller.ts's inline query (no separate service) in the
+ * NestJS app; moved here for the same reason `me()` moved into auth.ts.
+ */
+export async function custodians(q: string | undefined): Promise<PersonSummaryDto[]> {
+  const rows = await prisma.user.findMany({
+    where: {
+      roles: { some: { kind: "CUSTODIAN" } },
+      status: "ACTIVE",
+      ...(q?.trim() ? { name: { contains: q.trim(), mode: "insensitive" as const } } : {}),
+    },
+    include: { homeNode: { select: { name: true } } },
+    orderBy: { name: "asc" },
+    take: 50,
+  });
+  return rows.map((r) => ({ id: r.id, name: r.name, email: r.email, homeNodeName: r.homeNode?.name ?? null }));
 }
 
 async function one(id: string): Promise<PersonDto> {

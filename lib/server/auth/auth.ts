@@ -3,14 +3,17 @@ import * as argon2 from "argon2";
 import type {
   ForgotPasswordInput,
   LoginInput,
+  MeContextDto,
   RegisterInput,
   ResetPasswordInput,
   SessionUserDto,
   RoleKind,
+  WorkspaceKind,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as mail from "../mail/mail";
+import * as scope from "../org/scope";
 import { generateToken, hashIp, hashToken } from "./token";
 
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7);
@@ -148,6 +151,106 @@ export async function changePassword(userId: string, currentPassword: string, ne
     prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
     prisma.session.deleteMany({ where: { userId } }),
   ]);
+}
+
+/**
+ * Everything the shell needs on first paint: who you are, which unit you are acting for,
+ * and which of the four workspace shells you open into. Was embedded directly in
+ * auth.controller.ts's `me()` handler (not a service method) in the NestJS app; moved
+ * here so the route handler stays a thin wrapper like every other endpoint.
+ */
+export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeContextDto> {
+  const row = await prisma.user.findUniqueOrThrow({
+    where: { id: user.id },
+    include: { orgNode: true },
+  });
+
+  const reachable = await scope.visibleNodeIds(user.id);
+  const isGlobal = await scope.hasGlobalReach(user.id);
+
+  // Occupancy first, homeNodeId second — the SAME two branches scope.ts's own
+  // reachRootNodeId() uses. Reading only row.orgNode here is what left every CUSTODIAN
+  // with `scope: null` despite having genuine reach, so the client and the server
+  // disagreed about which unit that person acts for. This aligns them; it grants no
+  // reach that scope.ts was not already granting.
+  const occupied = row.orgNode;
+  const node = occupied ?? (row.homeNodeId ? await prisma.orgNode.findUnique({ where: { id: row.homeNodeId } }) : null);
+
+  // A leaf is a node with no children of its own — a department, in practice. It is
+  // computed rather than stored because adding a child under a department must
+  // silently stop it being a leaf, with no migration and no stale flag.
+  const childCount = node ? await prisma.orgEdge.count({ where: { parentId: node.id } }) : 0;
+
+  return {
+    user: {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      phone: row.phone,
+      status: row.status,
+      roles: user.roles,
+    },
+    scope: node
+      ? {
+          nodeId: node.id,
+          name: node.name,
+          level: node.level,
+          kind: node.kind,
+          isLeaf: childCount === 0,
+          isGlobal,
+          isOccupant: occupied !== null,
+          reachableNodeCount: reachable.length,
+        }
+      : isGlobal
+        ? {
+            // SYS_ADMIN and the university offices occupy no node on purpose: giving
+            // them one would add a phantom level to the org chart.
+            nodeId: null,
+            name: "Entire university",
+            level: 0,
+            kind: null,
+            isLeaf: false,
+            isGlobal: true,
+            isOccupant: false,
+            reachableNodeCount: reachable.length,
+          }
+        : null,
+    canSeeCost: await scope.canSeeCost(user.id),
+    ...workspacesFor(user.roles, node?.kind ?? null),
+  };
+}
+
+/**
+ * Which of the four purpose-built shells this role set opens into — computed here, once,
+ * server-side, rather than re-derived in the client (the same discipline canSeeCost
+ * already follows). A department head occupies a DEPARTMENT node; a dean or the AVP
+ * occupies a COLLEGE/UNIVERSITY node; PROPERTY_ADMIN and PROCUREMENT are approvers by role
+ * regardless of node, per scope.ts's own global-reach list.
+ *
+ * Anyone who doesn't match admin/department/approver — a plain CUSTODIAN, STAFF or
+ * STUDENT — falls back to the "custodian" shell. For an actual custodian that's their
+ * real workspace; for STAFF/STUDENT it's the closest fit (their own resources: bookings,
+ * loans, requests) rather than a fifth shell this phase does not build.
+ */
+function workspacesFor(
+  roles: string[],
+  occupiedNodeKind: string | null,
+): { workspace: WorkspaceKind; availableWorkspaces: WorkspaceKind[] } {
+  const set = new Set<WorkspaceKind>();
+  if (roles.includes("SYS_ADMIN")) set.add("admin");
+  if (roles.includes("MANAGER") && occupiedNodeKind === "DEPARTMENT") set.add("department");
+  if (
+    roles.includes("PROPERTY_ADMIN") ||
+    roles.includes("PROCUREMENT") ||
+    (roles.includes("MANAGER") && occupiedNodeKind !== null && occupiedNodeKind !== "DEPARTMENT")
+  ) {
+    set.add("approver");
+  }
+  if (set.size === 0 || roles.includes("CUSTODIAN")) set.add("custodian");
+
+  const precedence: WorkspaceKind[] = ["admin", "department", "approver", "custodian"];
+  const availableWorkspaces = precedence.filter((w) => set.has(w));
+  return { workspace: availableWorkspaces[0], availableWorkspaces };
 }
 
 function toDto(
