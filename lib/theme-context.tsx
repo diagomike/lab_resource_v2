@@ -49,55 +49,75 @@ function readStored<T extends string>(_key: string, _valid: readonly T[], fallba
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(readInitialTheme);
-  const [fontSize, setFontSize] = useState<FontSize>(() =>
+  const [theme, setThemeState] = useState<Theme>(readInitialTheme);
+  const [fontSize, setFontSizeState] = useState<FontSize>(() =>
     readStored(FONT_SIZE_KEY, FONT_SIZES.map((f) => f.key), "medium"),
   );
-  const [fontFamily, setFontFamily] = useState<FontFamily>(() =>
+  const [fontFamily, setFontFamilyState] = useState<FontFamily>(() =>
     readStored(FONT_FAMILY_KEY, FONT_FAMILIES.map((f) => f.key), "sans"),
   );
 
   // Runs once, after hydration — safe to touch localStorage/matchMedia here since this
-  // is a real client-only effect, unlike a useState initializer.
+  // is a real client-only effect, unlike a useState initializer. Calls the RAW state
+  // setters only — never localStorage.setItem — so this bootstrap read can never race
+  // against, or be clobbered by, a write. See setTheme/setFontSize/setFontFamily below
+  // for why persistence is never inferred from a state-change effect.
   useEffect(() => {
     const storedTheme = localStorage.getItem(THEME_KEY);
-    if (storedTheme === "light" || storedTheme === "dark") setTheme(storedTheme);
-    else if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) setTheme("dark");
+    if (storedTheme === "light" || storedTheme === "dark") setThemeState(storedTheme);
+    else if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) setThemeState("dark");
 
     const storedSize = localStorage.getItem(FONT_SIZE_KEY);
-    if (FONT_SIZES.some((f) => f.key === storedSize)) setFontSize(storedSize as FontSize);
+    if (FONT_SIZES.some((f) => f.key === storedSize)) setFontSizeState(storedSize as FontSize);
 
     const storedFamily = localStorage.getItem(FONT_FAMILY_KEY);
-    if (FONT_FAMILIES.some((f) => f.key === storedFamily)) setFontFamily(storedFamily as FontFamily);
+    if (FONT_FAMILIES.some((f) => f.key === storedFamily)) setFontFamilyState(storedFamily as FontFamily);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Every colour utility resolves through a CSS variable keyed off this attribute, so
-  // flipping it re-themes the whole app without a single `dark:` variant.
+  // DOM/CSS sync only, deliberately with NO localStorage write here. Every colour utility
+  // resolves through this attribute, so flipping it re-themes the whole app without a
+  // single `dark:` variant. Re-running this on every render of `theme` (including the
+  // mount effect's own correction above) is safe precisely because it never touches
+  // storage — an earlier version wrote localStorage from this same effect, which meant
+  // the FIRST run (still on the SSR-safe "light" placeholder, one commit before the
+  // mount effect's correction lands) would overwrite a real stored "dark" with "light"
+  // before the correction had a chance to apply.
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
-  // "medium" needs no attribute at all — :root's own --font-scale: 1 already covers
-  // it, so this only ever sets the attribute for a size that actually overrides it.
+  // "medium" needs no attribute at all — :root's own --font-scale: 1 already covers it.
   useEffect(() => {
     if (fontSize === "medium") document.documentElement.removeAttribute("data-font-size");
     else document.documentElement.setAttribute("data-font-size", fontSize);
-    localStorage.setItem(FONT_SIZE_KEY, fontSize);
   }, [fontSize]);
 
   useEffect(() => {
     if (fontFamily === "sans") document.documentElement.removeAttribute("data-font-family");
     else document.documentElement.setAttribute("data-font-family", fontFamily);
-    localStorage.setItem(FONT_FAMILY_KEY, fontFamily);
   }, [fontFamily]);
+
+  // The only places localStorage is ever written — at the exact point of a real user
+  // action, never speculatively inferred from a state change.
+  function setTheme(next: Theme) {
+    setThemeState(next);
+    localStorage.setItem(THEME_KEY, next);
+  }
+  function setFontSize(next: FontSize) {
+    setFontSizeState(next);
+    localStorage.setItem(FONT_SIZE_KEY, next);
+  }
+  function setFontFamily(next: FontFamily) {
+    setFontFamilyState(next);
+    localStorage.setItem(FONT_FAMILY_KEY, next);
+  }
 
   return (
     <ThemeContext.Provider
       value={{
         theme,
-        toggle: () => setTheme((t) => (t === "light" ? "dark" : "light")),
+        toggle: () => setTheme(theme === "light" ? "dark" : "light"),
         fontSize,
         setFontSize,
         fontFamily,
