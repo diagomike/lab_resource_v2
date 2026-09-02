@@ -54,20 +54,20 @@ conversion, and — preserved as an appendix — the pre-existing resource
 register/scheduling domain design) lives at
 `~/.claude/plans/act-as-the-principal-hazy-thompson.md`.
 
-**Phases 0–6 are done** (git history now exists at the repo root, one commit
+**Phases 0–7 are done** (git history now exists at the repo root, one commit
 per phase): checkpoint + a recorded runtime API reference; scaffold; shared
 Zod contracts moved; every server-side domain module ported to
-`lib/server/**`; all 24 Route Handlers; core UI primitives/contexts; and the
+`lib/server/**`; all 24 Route Handlers; core UI primitives/contexts; the
 frontend shell/routing/auth pages (`app/layout.tsx`, the four `(auth)/`
-pages, `app/(workspace)/layout.tsx`, `app/page.tsx`, `proxy.ts`) — verified
-live in-browser, including a byte-for-byte diff of login/logout cookie
-headers against the Phase 0 reference. **Remaining: Phase 7** (the
-data-table engine + its `useSearchParams` rework, Org Studio, Personnel,
-Admin Dashboard, Profile, and the resource register pages — none of which
-exist under `app/(workspace)/` yet, so e.g. `/admin/dashboard` currently
-404s), **Phase 8** (cutover acceptance pass), **Phase 9** (delete
-`apps/api`/`apps/web`/`packages/shared`), **Phase 10** (docs + extracting the
-resource-register/scheduling appendix into its own plan file).
+pages, `app/(workspace)/layout.tsx`, `app/page.tsx`, `proxy.ts`); and the
+remaining pages — the data-table engine (with its `useSearchParams` rework),
+Org Studio, Personnel, Admin Dashboard, Profile, and the resource register,
+mounted at all four workspaces. Every route in the app now exists and is
+live-verified. **Remaining: Phase 8** (cutover acceptance pass — §9 of the
+plan, full run-through), **Phase 9** (delete `apps/api`/`apps/web`/
+`packages/shared` and now-unused dependencies), **Phase 10** (update this
+file's stack/current-state sections for the finished conversion, and extract
+the resource-register/scheduling appendix into its own plan file).
 
 Everything below this point in the file (Stack's old-architecture note aside)
 was written before the conversion was decided on and describes the *domain*
@@ -400,6 +400,56 @@ sandbox actually did:
   cookie attributes matching the Phase 0 reference byte-for-byte (including
   logout's exact clearing header), `proxy.ts` gating protected pages but
   never `/api/**`, and correct role-based landing routing.
+
+- **2026-09-02 (later still)** — Phase 7 executed: the data-table engine
+  (`components/data-table/**` — filter/sort/URL-state/facets, all pure logic
+  ported unchanged), Org Studio (`components/org-studio/OrgStudioPage.tsx`,
+  dynamic-imported with `ssr:false` from a "use client" `page.tsx` per the
+  plan's §6.2 Client Component boundary requirement — ReactFlow cannot SSR),
+  Personnel, Admin Dashboard, Profile, and the resource register — mounted
+  as thin `page.tsx` wrappers under `app/(workspace)/**` at all four
+  workspaces (admin/department/approver/custodian), each behind
+  `RequireRole` and, where they use `DataTable`, a `<Suspense>` boundary for
+  `useSearchParams`.
+
+  `url-state.ts`'s `useTableUrlState` hook was the one genuinely non-trivial
+  rework the plan flagged in advance: `next/navigation`'s `useSearchParams()`
+  is read-only, unlike react-router's mutable version this was built
+  against. Reconstructed the functional-updater contract
+  (`setParams(prev => next)`) on top of `router.replace()`, using a ref to
+  track the params any pending `replace()` call is about to produce — so two
+  `setParams` calls made synchronously in the same tick (several actions do
+  this, e.g. `write()`) each see the other's effect instead of both
+  computing off the same stale render-time `searchParams`. Every pure
+  function (`decodeTableState`, `applyTableState`, `keysFor`, the whole
+  `filter-logic.ts` operator matrix) ported unchanged, and all 94 of their
+  existing Vitest cases still pass with no modification.
+
+  Live verification surfaced a real, separate bug in `theme-context.tsx`
+  (introduced by Phase 6's own SSR-guard fix): the persist effect wrote
+  `localStorage` from the SSR-safe placeholder render — one commit *before*
+  the mount effect's correction (reading the real stored value) landed —
+  permanently clobbering a real stored `"dark"`/`"large"` back to the
+  placeholder on the very next reload. Fixed architecturally rather than
+  patched: `localStorage` is now written only at the exact point of an
+  explicit user action (the `setTheme`/`setFontSize`/`setFontFamily`
+  wrappers), never inferred from a `[theme]`-dependent effect; the DOM-sync
+  effects are now idempotent and side-effect-free, immune to the ordering
+  race regardless of how many times they re-run (this also happens to make
+  the whole thing correct under React's dev-mode double-effect-invocation,
+  which is what surfaced the bug in the first place).
+
+  Verified live: Org Studio's Graph and Cards views under Turbopack, node
+  select/inspect in both; Personnel's `DataTable` — typing a search term
+  writes `?people_q=...` to the URL and the filtered view survives a hard
+  reload; the resource register across workspaces; Profile's theme/text-size
+  toggle now correctly persists across a reload (both the bug and the fix
+  confirmed via direct `localStorage` polling, not just visually); and the
+  cross-department scoping check via raw `curl` — signed in as
+  `head.se@astu.edu.et`, `GET /api/resources/search`'s response contains
+  exactly the 2 SE-owned items, no mention of Chemical Engineering's node or
+  item id. `npm run build` (every route now present, e.g. `/admin/dashboard`
+  no longer 404s) and `npm test` (112 tests) both clean.
 
 ## Working agreements for this project
 
