@@ -33,23 +33,19 @@ const THEME_KEY = "sc-theme";
 const FONT_SIZE_KEY = "sc-font-size";
 const FONT_FAMILY_KEY = "sc-font-family";
 
-// SSR guard: a Client Component's initializer still runs during the server render pass
-// (only useEffect callbacks are guaranteed client-only), so a bare localStorage/window
-// read here would throw server-side. Returning the same default index.html's hardcoded
-// data-theme="light" already assumed for first paint keeps behavior identical to
-// today's — corrected client-side after mount via the effect below, same as always.
+// SSR guard: `typeof window === "undefined"` only stops a crash on the server — during
+// the browser's OWN first (hydration) render `window` already exists, so a read here
+// would return the real stored/system value immediately and mismatch the server's
+// static "light" default, failing hydration. The initializer must always return the
+// same default the server rendered (index.html's hardcoded data-theme="light"); the
+// real value is read only inside the mount effect below, after hydration completes.
 // See the conversion plan §6.1.
 function readInitialTheme(): Theme {
-  if (typeof window === "undefined") return "light";
-  const stored = localStorage.getItem(THEME_KEY);
-  if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return "light";
 }
 
-function readStored<T extends string>(key: string, valid: readonly T[], fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  const stored = localStorage.getItem(key);
-  return (valid as readonly string[]).includes(stored ?? "") ? (stored as T) : fallback;
+function readStored<T extends string>(_key: string, _valid: readonly T[], fallback: T): T {
+  return fallback;
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -60,6 +56,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [fontFamily, setFontFamily] = useState<FontFamily>(() =>
     readStored(FONT_FAMILY_KEY, FONT_FAMILIES.map((f) => f.key), "sans"),
   );
+
+  // Runs once, after hydration — safe to touch localStorage/matchMedia here since this
+  // is a real client-only effect, unlike a useState initializer.
+  useEffect(() => {
+    const storedTheme = localStorage.getItem(THEME_KEY);
+    if (storedTheme === "light" || storedTheme === "dark") setTheme(storedTheme);
+    else if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) setTheme("dark");
+
+    const storedSize = localStorage.getItem(FONT_SIZE_KEY);
+    if (FONT_SIZES.some((f) => f.key === storedSize)) setFontSize(storedSize as FontSize);
+
+    const storedFamily = localStorage.getItem(FONT_FAMILY_KEY);
+    if (FONT_FAMILIES.some((f) => f.key === storedFamily)) setFontFamily(storedFamily as FontFamily);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Every colour utility resolves through a CSS variable keyed off this attribute, so
   // flipping it re-themes the whole app without a single `dark:` variant.

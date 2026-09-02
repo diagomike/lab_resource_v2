@@ -1,7 +1,21 @@
-/**
- * Phase 1 scaffold stub — proves the toolchain builds and renders. Replaced in Phase 6
- * by the ported LandingRedirect (role-aware landing).
- */
-export default function Page() {
-  return <div>Scaffold OK</div>;
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
+import { landingPathFor } from "@/lib/nav";
+import { SessionCheck } from "@/components/states";
+
+/** Sends each role to their workspace's first screen: an admin to personnel, everyone
+ *  else to their workspace's placeholder until it is built. */
+export default function LandingRedirect() {
+  const { me, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    router.replace(me ? landingPathFor(me.workspace, me.user.roles) : "/login");
+  }, [loading, me, router]);
+
+  return <SessionCheck />;
 }
