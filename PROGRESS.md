@@ -54,18 +54,19 @@ conversion, and — preserved as an appendix — the pre-existing resource
 register/scheduling domain design) lives at
 `~/.claude/plans/act-as-the-principal-hazy-thompson.md`.
 
-**Phases 0–7 are done** (git history now exists at the repo root, one commit
+**Phases 0–8 are done** (git history now exists at the repo root, one commit
 per phase): checkpoint + a recorded runtime API reference; scaffold; shared
 Zod contracts moved; every server-side domain module ported to
 `lib/server/**`; all 24 Route Handlers; core UI primitives/contexts; the
 frontend shell/routing/auth pages (`app/layout.tsx`, the four `(auth)/`
-pages, `app/(workspace)/layout.tsx`, `app/page.tsx`, `proxy.ts`); and the
+pages, `app/(workspace)/layout.tsx`, `app/page.tsx`, `proxy.ts`); the
 remaining pages — the data-table engine (with its `useSearchParams` rework),
 Org Studio, Personnel, Admin Dashboard, Profile, and the resource register,
-mounted at all four workspaces. Every route in the app now exists and is
-live-verified. **Remaining: Phase 8** (cutover acceptance pass — §9 of the
-plan, full run-through), **Phase 9** (delete `apps/api`/`apps/web`/
-`packages/shared` and now-unused dependencies), **Phase 10** (update this
+mounted at all four workspaces; and the full §9 cutover acceptance pass
+(clean, no code changes needed — see the timeline entry below). Every route
+in the app now exists and is live-verified. **Remaining: Phase 9** (delete
+`apps/api`/`apps/web`/`packages/shared` and now-unused dependencies),
+**Phase 10** (update this
 file's stack/current-state sections for the finished conversion, and extract
 the resource-register/scheduling appendix into its own plan file).
 
@@ -450,6 +451,28 @@ sandbox actually did:
   exactly the 2 SE-owned items, no mention of Chemical Engineering's node or
   item id. `npm run build` (every route now present, e.g. `/admin/dashboard`
   no longer 404s) and `npm test` (112 tests) both clean.
+
+- **2026-09-02 (Phase 8)** — Full cutover acceptance pass (the plan's §9),
+  no code changes needed. `npx prisma migrate status` clean against the same
+  database (`prisma generate` hit a Windows file lock from the running dev
+  server holding the query engine DLL — an OS/dev-workflow quirk, not a
+  schema issue; the already-generated client, unchanged since Phase 3,
+  already matches). Live in-browser: a full org-node lifecycle through Org
+  Studio's UI — create (Office under Software Engineering), deactivate
+  (custom `ConfirmDialog`, not a native one), reactivate, delete, each with
+  the panel updating correctly and no console errors. Personnel: invited a
+  test person through the UI, added a role via Manage, confirmed it
+  persisted in the table. (Personnel's own deactivate button uses a native
+  `window.confirm()` — ported verbatim from the original app, not a
+  conversion artifact — which the browser-automation tool can't answer, so
+  that action and node-parent-reassignment/assign-node were verified
+  directly against the Route Handlers instead: deactivate, `PUT
+  .../parents` reassignment, `assign-node`, and vacate (`nodeId: null`) all
+  returned the correct status codes.) Confirmed a STAFF/CUSTODIAN session
+  hitting the admin-only `POST /api/org/nodes` directly gets a real
+  server-side 403, not just a hidden UI button. All test fixtures created
+  during this pass were cleaned up afterward (deactivated/deleted) so the
+  seed data is unchanged.
 
 ## Working agreements for this project
 
