@@ -19,61 +19,71 @@ Rebuild of the Laboratory Resource Management System at
   CRUD pages, no canvas — was tried first but then explicitly rejected; see
   Decisions below.)
 
-**Scope of this rebuild**: identity + org-hierarchy foundation only —
-User/roles/sessions/invitations + the org chart (OrgNode/OrgEdge/OrgClosure/
-OrgNodeAssignment). Every lab-management domain table (Location, Asset,
-StockLine, Category, CatalogItem, procurement, bookings, chemicals, etc.) is
-**deliberately deferred** — to be designed and built one module at a time in
-future work, not ported wholesale.
+**Two prior conversions are complete** and are foundational, not
+in-progress: (1) the app is a single Next.js application, not the original
+NestJS API + Vite frontend npm-workspace split — see "Stack" below; (2) as
+of 2026-09-02, the project is **replatforming its resource-management
+surface** onto the full functional design worked out in the
+`D:\py_yaddessa\temp_works` sandbox, replacing the resource-register
+"Phase 1" flat list that a previous plan had landed. See "Resource
+management: replatforming onto temp_works" below — that is the module this
+project is actively building today.
+
+**Scope kept from the original rebuild**: identity + org-hierarchy
+foundation — User/roles/sessions/invitations + the org chart
+(OrgNode/OrgEdge/OrgClosure/OrgNodeAssignment) — plus personnel management
+and Org Studio. These are **not** touched by the resource-management
+replatforming; only the resource/inventory module and its navigation are
+being replaced.
 
 ## Stack
 
-**As of 2026-09-02, mid-conversion to a single Next.js app — see "Architecture
-conversion in progress" below before trusting anything in this section that
-mentions `apps/api`/`apps/web`/`packages/shared`.**
+One Next.js 16.3.x application (App Router, Turbopack), React 19. Route
+Handlers under `app/api/**`, `lib/server/**` (`import "server-only"`) for
+every server-side module, `lib/shared/**` for Zod contracts, Vitest, Tailwind
+3.4 (fully custom theme — `tailwind.config.js` replaces Tailwind's default
+scale wholesale; this is deliberate and is **not** being changed by the
+resource-management replatforming, which reuses these same tokens rather
+than adopting `temp_works`' Tailwind 4/shadcn setup). Root `package.json`,
+`prisma/`, `.env` all live at the repo root. `@xyflow/react`/`dagre` power
+the Org Studio canvas.
 
-- **New (target, landing phase-by-phase):** one Next.js 16.3.x app (App
-  Router, Turbopack), React 19, Route Handlers under `app/api/**` replacing
-  the NestJS controllers, `lib/server/**` (`import "server-only"`) replacing
-  the NestJS services with plain functions, `lib/shared/**` replacing
-  `packages/shared`, Vitest replacing Jest/ts-jest, Tailwind 3.4 unchanged.
-  Root `package.json`, `prisma/`, `.env` all now live at the repo root.
-- **Old (still on disk, frozen, not started since Phase 0, deleted in
-  Phase 9):** `apps/api` — NestJS 10.4.x; `apps/web` — React 18.3/Vite
-  5.4/react-router-dom 6.26; `packages/shared` — the old contracts package.
-  `@xyflow/react`/`dagre` for the org canvas carry over unchanged either way.
+The original npm-workspace split (`apps/api` NestJS + `apps/web` Vite/React
++ `packages/shared`) is **gone** — deleted in the conversion's Phase 9
+(commit `12de563`). Nothing on disk references it any more.
 
-## Architecture conversion in progress
+## Architecture: Next.js conversion (complete) and resource-management replatforming (in progress)
 
-The npm-workspace split (separate NestJS API + Vite frontend + a compiled
-shared-contracts package, glued by same-machine CORS) was never the intended
-architecture — the target has always been **one unified Next.js app**. A full
-replan + phased execution is underway; the plan (current state, target
-decisions, directory mapping, construct-translation rules, the phased
-conversion, and — preserved as an appendix — the pre-existing resource
-register/scheduling domain design) lives at
-`~/.claude/plans/act-as-the-principal-hazy-thompson.md`.
+**The Next.js conversion is done.** All ten phases of
+`~/.claude/plans/act-as-the-principal-hazy-thompson.md` are committed:
+checkpoint + runtime reference; scaffold; shared Zod contracts moved; every
+server-side domain module ported to `lib/server/**`; all Route Handlers;
+core UI primitives/contexts; the frontend shell/routing/auth pages; the
+data-table engine, Org Studio, Personnel, Admin Dashboard, Profile, and the
+(now superseded, see below) resource register; the full cutover acceptance
+pass; and Phase 9's deletion of the obsolete `apps/`/`packages/` trees. That
+plan's own Phase 10 (a documentation-only pass) is what this update
+finally closes out.
 
-**Phases 0–8 are done** (git history now exists at the repo root, one commit
-per phase): checkpoint + a recorded runtime API reference; scaffold; shared
-Zod contracts moved; every server-side domain module ported to
-`lib/server/**`; all 24 Route Handlers; core UI primitives/contexts; the
-frontend shell/routing/auth pages (`app/layout.tsx`, the four `(auth)/`
-pages, `app/(workspace)/layout.tsx`, `app/page.tsx`, `proxy.ts`); the
-remaining pages — the data-table engine (with its `useSearchParams` rework),
-Org Studio, Personnel, Admin Dashboard, Profile, and the resource register,
-mounted at all four workspaces; and the full §9 cutover acceptance pass
-(clean, no code changes needed — see the timeline entry below). Every route
-in the app now exists and is live-verified. **Remaining: Phase 9** (delete
-`apps/api`/`apps/web`/`packages/shared` and now-unused dependencies),
-**Phase 10** (update this
-file's stack/current-state sections for the finished conversion, and extract
-the resource-register/scheduling appendix into its own plan file).
-
-Everything below this point in the file (Stack's old-architecture note aside)
-was written before the conversion was decided on and describes the *domain*
-work (org hierarchy, resource register Phase 1, etc.), which the conversion
-carries forward unchanged — only its file layout is moving.
+**Resource management is now being replatformed**, superseding that plan's
+appendix ("Resource register & scheduling design"). The appendix's domain
+analysis was sound but scoped against a resource module that had only
+landed a flat scoped list (Phase 1) and treated the `temp_works` sandbox as
+a reference to selectively adopt from. The actual direction is different:
+keep auth/org/personnel/Org Studio exactly as they are, delete the Phase-1
+resource register and its `DataTable` engine entirely, and bring the
+`temp_works` functional surface across whole — register, categories,
+derived status, filters, hierarchy/rollup/search views, inspector, inline
+and bulk editing, images, change log, access views, approvals, transfers,
+procurement, and real-data imports. The full replacement plan — decisions,
+data model, server design, phase list, verification — lives at
+`~/.claude/plans/wait-i-want-gentle-haven.md`. Bookings are explicitly
+deferred to a later track (that plan's §2 records why: the sandbox's
+booking model has verified defects — unlimited room sharing when no seat
+count is set, bookability inferred rather than configured, materials
+modelled as time windows, indefinitely-held pending slots, an in-memory
+double-booking guard, and a timezone bug that silently shifts every class
+by 3 hours).
 
 ## Key architectural decisions
 
@@ -98,6 +108,15 @@ carries forward unchanged — only its file layout is moving.
   Anything that changes access, destroys something, or changes how a node is
   understood in the hierarchy goes through it. Anything reversible or
   purely-additive (reassigning parents, creating a node) does not.
+- **The 4-workspace shell (admin/department/approver/custodian) is being
+  retired**, not extended. It was designed for the old resource register's
+  per-workspace scoped list; `temp_works`' navigation model — one sidebar
+  for everyone, with an access view and server-enforced scope deciding what
+  a person sees rather than which menu they get — is replacing it (see
+  `~/.claude/plans/wait-i-want-gentle-haven.md`, Phase 5). `WorkspaceKind`,
+  `workspacesFor()`, and `lib/nav.ts`'s workspace-keyed structure are
+  scheduled for deletion, not preserved as-is. Auth/org/personnel do not
+  depend on the workspace concept surviving.
 
 ## Decisions made along the way (so we don't redo this debate)
 
@@ -124,116 +143,120 @@ carries forward unchanged — only its file layout is moving.
 
 ## Current state
 
-Both dev servers run via `npm run dev` (workspace root) and are normally
-left running during a work session:
-- API: NestJS, port from `apps/api/.env` (Postgres db `lrms_v2`)
-- Web: Vite dev server
+One `npm run dev` at the repo root (Next.js, Turbopack) — there is no
+second process any more; the old NestJS API and Vite dev server are gone.
+Postgres db `lrms_v2`.
 
-Seed data (`apps/api/prisma/seed.ts`): one SYS_ADMIN
-(`admin@astu.edu.et` / `astu1234`) + one UNIVERSITY root OrgNode
-("Adama Science and Technology University") — **plus, as of the resource
-register's Phase 1 (2026-09-02), a small scoping fixture**: 2 colleges, 2
-departments (SE / ChemE, each with a `code`), a department head + a
-custodian per department (`head.se@astu.edu.et` / `head.chem@astu.edu.et` /
-`custodian.se@astu.edu.et` / `custodian.chem@astu.edu.et`, all
-`astu1234`), one `Lab` category, and 3 seeded labs (2 owned by SE, 1 by
-ChemE) — enough to exercise `ItemScopeService`'s cross-department scoping
-live. This fixture is explicitly demo-only and gets replaced by the real
-ASTU data import in a later resource-register phase.
+Seed data (`prisma/seed.ts`): one SYS_ADMIN (`admin@astu.edu.et` /
+`astu1234`) + one UNIVERSITY root OrgNode ("Adama Science and Technology
+University"), plus a scoping fixture — 2 colleges, 2 departments (SE / ChemE,
+each with a `code`), a department head + a custodian per department
+(`head.se@astu.edu.et` / `head.chem@astu.edu.et` / `custodian.se@astu.edu.et`
+/ `custodian.chem@astu.edu.et`, all `astu1234`) — enough to exercise
+cross-department scoping live. **The resource-register Phase 1 half of this
+seed (the `Lab` category and 3 seeded labs) is being deleted along with the
+Phase-1 resource module itself** (replatforming Phase 1, see the
+architecture section above); the auth/org half of the seed is untouched.
 
-`.env` (apps/api) has real dev credentials copied from the user's own
+`.env` (repo root) has real dev credentials copied from the user's own
 sibling project (`DATABASE_URL`, Gmail `SMTP_*`, `MAIL_FROM`) — this is the
-user's own dev machine, not a shared secret; `.gitignore` already excludes
-`.env`. No git repo has been initialized for this project yet.
+user's own dev machine, not a shared secret; `.gitignore` excludes `.env`.
 
 ### Built so far
 
 - Identity: register-by-invite, login, forgot/reset/change password, session
-  auth (httpOnly cookie, hashed token, argon2).
-- Org Studio (`apps/web/src/pages/admin/OrgStudioPage.tsx`): ReactFlow+dagre
+  auth (httpOnly cookie, hashed token, argon2). `app/api/auth/**`,
+  `lib/server/auth/**`.
+- Org Studio (`components/org-studio/OrgStudioPage.tsx`): ReactFlow+dagre
   canvas, click a node to inspect/edit it. Inline-editable name (explicit
   Save button) and kind (dropdown). Occupant assign/vacate via
   `EntityPicker`, or invite-and-assign-in-one-step via a form on the same
   panel. Parent reassignment via checkboxes. Deactivate/reactivate/delete.
-  Confirmation pop-up before: assign occupant, vacate occupant, **change
-  kind**, deactivate, delete.
-- Personnel page: list/invite/assign-roles/assign-node, ported from
-  `sc_lab_resource` mostly unchanged.
-- Admin dashboard: stats computed client-side from `/org/nodes` + `/people`.
+  Confirmation pop-up before: assign occupant, vacate occupant, change kind,
+  deactivate, delete.
+- Personnel page (`components/admin/PersonnelPage.tsx`): list/invite/
+  assign-roles/assign-node, ported from `sc_lab_resource` mostly unchanged.
+- Admin dashboard: stats computed client-side from `/api/org/nodes` +
+  `/api/people`.
 - Auth screens (Login/AcceptInvite/ForgotPassword/ResetPassword) use shared
   `AuthChrome` (ASTU top bar + theme toggle, centered card) ported from
   `sc_feedback`.
 - Profile page: account details + change password (from `sc_lab_resource`)
-  merged with theme/text-size/typeface controls (`DisplayPanel`,
-  `SegmentedChoice`) ported from `sc_feedback`.
-- Nav: 4 workspaces; admin has Dashboard / People & roles / Org structure /
-  **Register**. department/approver/custodian each now have a **Register**
-  entry too (their "Coming soon" placeholder is gone — see the resource
-  register below); everything else in those three workspaces still awaits
-  its module, one at a time.
-- **Resource register, Phase 1** (`apps/api/src/resources/`,
-  `apps/web/src/pages/resources/RegisterPage.tsx`) — a flat, scoped item
-  list. `ResourceCategory`/`CategoryField`/`Item` in Postgres;
-  `ItemScopeService` (owner-or-current org reach, plus a narrower
-  recursive-query custody scope for a CUSTODIAN-without-MANAGER) gates
-  every read; `GET /resources/categories`, `GET /resources/search`,
-  `GET /resources/items/:id`. One `RegisterPage` mounted at all four
-  workspaces, scoped differently per caller server-side. Containment,
-  mutations and derived status are later phases — see
-  `~/.claude/plans/act-as-the-principal-hazy-thompson.md`.
+  merged with theme/text-size/typeface controls ported from `sc_feedback`.
+- Nav: 4 workspaces (admin/department/approver/custodian) — **scheduled for
+  replacement by a single sidebar**, see the architecture section above.
+- **Resource register, Phase 1** — a flat, scoped item list
+  (`ResourceCategory`/`CategoryField`/`Item` in Postgres, `ItemScopeService`,
+  `components/resources/RegisterPage.tsx`, the `components/data-table/**`
+  engine). **This entire module is being deleted**, not extended — see the
+  architecture section above and `~/.claude/plans/wait-i-want-gentle-haven.md`.
+  It is listed here only as a record of what existed before the
+  replatforming's Phase 1 (demolition) runs.
 
 ### Not yet done
 
-- Browser click-through verification of the round-3 features (confirm
-  dialogs, assignment email, invite-and-assign-from-Org-Studio) — code is
-  build-verified but not yet exercised live in-browser this session.
-- Everything domain-specific beyond identity/org and the resource
-  register's Phase 1 flat list: item containment/tree/rollup views,
-  mutations + audit log, category administration (fields, default child
-  templates), derived (never-stored) `IMPAIRED` status, server-side
-  filtering/pagination, images, the real ASTU data import, and — as their
-  own separate, later modules — access views, approval policies/requests,
-  transfers, procurement, and scheduling. Full phase-by-phase plan:
-  `~/.claude/plans/act-as-the-principal-hazy-thompson.md`.
+Everything the resource-management replatforming plan
+(`~/.claude/plans/wait-i-want-gentle-haven.md`) has not yet executed —
+currently all of it; this doc update is that plan's Phase 0. In order:
+demolition of the Phase-1 resource register and `DataTable` engine; the
+full `temp_works`-derived Prisma data model (categories, items, images,
+change log, access views, approval policies/requests, procurement); pure
+domain logic (`lib/domain/**`) with its ported tests; the scope/write-path/
+read-API server layer; the single-sidebar shell and navigation; the
+register's three views (hierarchy/rollup/search) on `@tanstack/react-table`;
+inline and bulk editing; category administration; images; the change log
+view; access views; approvals; transfers; procurement; the real ASTU data
+import. **Bookings are explicitly deferred** to a later track — see that
+plan's §2 for the specific defects in `temp_works`' booking model that must
+be fixed, not ported, when that track starts.
 
-### The resource module: sandboxed, then planned, now landing
+### The resource module: superseded — replatforming onto `temp_works` in full
+
+**This section describes a plan that is no longer being followed** — kept
+for history, not as current direction. See the architecture section above
+and `~/.claude/plans/wait-i-want-gentle-haven.md` for what actually happens
+next.
 
 The resource register's domain model was worked out in a sandbox first —
 `D:/py_yaddessa/temp_works` (Next.js + Zustand + localStorage) — because
 iterating a data model against Prisma migrations is slow. `Direction.md` in
-this repo is its founding brief. That sandbox is now feature-complete for
-its own purpose (register, categories, derived status, filters, access
-views, approval policies, transfers, procurement, personnel, bookings —
-~21k lines) and its worktree is committed
-(`7cdc473 feat: vacant offices block approval, custody is never null`).
+this repo is its founding brief. A first architectural plan for landing it
+(`~/.claude/plans/act-as-the-principal-hazy-thompson.md`'s appendix) treated
+`temp_works` as a domain *reference*: adopt the core `Item`/category model,
+but selectively defer or recreate access views, approvals, transfers,
+procurement, and scheduling as later modules, and reject the sandbox's own
+UI/store code outright. **Phase 1 of that plan landed** — a flat, scoped
+`Item`/`ResourceCategory` register (see "Built so far" above for what it
+was) — verified live across a SYS_ADMIN, two department heads and a
+custodian, including at the raw network-payload level.
 
-A full architectural plan for landing it — what to adopt, adapt, merge,
-defer or reject; the Prisma data model; NestJS module boundaries; a
-dependency-ordered phase list; and a scheduling-specific addendum covering
-weekly class timetables, ad hoc bookings and department/external
-occasions — was written after deep review of both codebases (including the
-sandbox's uncommitted worktree and documentation-vs-code drift) and lives
-at `~/.claude/plans/act-as-the-principal-hazy-thompson.md`. **Phase 1 of
-that plan has landed** (see "Built so far" above): the `Item`/
-`ResourceCategory`/`CategoryField` core, `ItemScopeService`, and a scoped
-flat register, verified live in-browser across a SYS_ADMIN, two department
-heads and a custodian — including confirming at the raw network-payload
-level, not just the UI, that a department head's response never mentions
-the other department's node id.
-
-Two decisions from the plan worth remembering, since they change what the
-sandbox actually did:
-- `currentOrgNodeId` is **NOT NULL**, defaulted to the owner at creation —
-  the sandbox left it nullable and special-cased the fallback in two
-  places (`filters.ts`, `scope.ts`); this repo's schema does not need to.
+**That direction has been superseded.** The actual requirement is to bring
+`temp_works`' functional surface across *whole* rather than selectively —
+its register, categories, derived status, filters, hierarchy/rollup/search
+views, inspector, inline and bulk editing, images, change log, access
+views, approvals, transfers, and procurement — with only its stubbed
+`Person`/`OrgNode`, its own auth, its org-reach re-derivation, and its
+Zustand/localStorage persistence replaced by the production equivalents.
+The Phase-1 flat register and the `DataTable` engine it used are being
+**deleted**, not extended. Two decisions from the superseded plan remain
+correct and carry forward into the new one:
+- `currentOrgNodeId`/`ownerOrgNodeId` stay **NOT NULL**, defaulted to the
+  owner at creation — the sandbox left them nullable and special-cased the
+  fallback in two places; this schema does not need to.
 - The sandbox's `README.md` claims a `NEVER`-impairment category can still
   be taken down by a critical child ("a lab is never impaired by its
   contents, but its switch rack is critical to it"). The algorithm
   (`status.ts`) does not implement that — `NEVER` ignores every child
-  unconditionally. The correct way to express "ignores ordinary contents
-  but fails on its rack" is `ANY_CRITICAL` with the ordinary contents
-  marked non-critical, which is what the sandbox's own seed data actually
-  does. Carry the seed's behavior forward, not the README's sentence.
+  unconditionally, no exception. The seed data's own configuration
+  (`Lab` = `ANY_CRITICAL` with an ordinary non-critical population and a
+  `critical: true` switch rack; only `Store` is `NEVER`) is what actually
+  produces "one dead switch takes the lab down," and it is what carries
+  forward — not the README's sentence, which the sandbox's own test suite
+  never exercised either (its fixture builds the lab as `NEVER`).
+
+Bookings are the one `temp_works` module deliberately left behind for now
+— see the architecture section above for the specific, verified defects in
+its model that make porting it as-is the wrong move.
 
 ## Timeline
 
@@ -473,6 +496,48 @@ sandbox actually did:
   server-side 403, not just a hidden UI button. All test fixtures created
   during this pass were cleaned up afterward (deactivated/deleted) so the
   seed data is unchanged.
+
+- **2026-09-02 (Phase 9)** — Deleted the obsolete npm-workspace
+  architecture now that Phase 8's cutover acceptance pass was clean:
+  `apps/api`, `apps/web`, `packages/shared`, `tsconfig.base.json`, and the
+  `apps`/`packages` excludes in `tsconfig.json`/`vitest.config.ts` (added in
+  Phase 1 to keep the two trees from interfering while they coexisted). A
+  clean `npm install`, `tsc --noEmit`, `npm run build`, `npm test` (112
+  tests), `npx prisma generate`, and `npx prisma migrate status` all
+  succeeded with the old trees physically absent, confirming nothing was
+  still depended on by path. The pre-conversion tree remains fully
+  recoverable from the Phase 0 commit if ever needed.
+
+- **2026-09-02 (Phase 10 / plan replacement)** — The Next.js-conversion
+  plan's own Phase 10 (a documentation-only pass) was interrupted mid-run
+  by a decision to replace the resource-management direction entirely,
+  rather than finish documenting the superseded one. Reviewed both
+  `lab_resource_v2` (the Phase-1 resource register that had landed) and
+  `D:/py_yaddessa/temp_works` (the sandbox's now much larger functional
+  surface — register, categories, derived status, filters, hierarchy/
+  rollup/search views, access views, approvals, transfers, procurement,
+  personnel, bookings, real-data imports) in detail, mapping every file in
+  both trees. Wrote a full replacement plan —
+  `~/.claude/plans/wait-i-want-gentle-haven.md` — that keeps auth/org/
+  personnel/Org Studio exactly as they are, deletes the Phase-1 resource
+  register and the `DataTable` engine entirely, and brings the
+  `temp_works` functional surface across whole rather than selectively,
+  reusing the current Tailwind 3.4 design system rather than adopting the
+  sandbox's Tailwind 4/shadcn one. Key decisions made along the way: the
+  4-workspace shell is replaced by `temp_works`' single sidebar plus a
+  server-enforced access-view/scope model; `RoleKind` gains
+  `STORE_KEEPER`/`EXTERNAL` so the sandbox's seeded views and policies land
+  unmodified; and bookings are explicitly deferred to a later track after
+  identifying six real defects in the sandbox's booking model (unlimited
+  room sharing when no seat count is set, an uncapped-capacity room that
+  can never clash, bookability inferred rather than configured, materials
+  modelled as time windows instead of an allocation ledger, indefinitely-
+  held pending slots, an in-memory double-booking guard, and a datetime-
+  local timezone bug that silently shifts every class by 3 hours in
+  Ethiopia). This update — updating `PROGRESS.md`'s stack/current-state/
+  built/not-yet-done sections for the completed conversion and marking the
+  old resource-register plan as superseded — is that new plan's own
+  Phase 0.
 
 ## Working agreements for this project
 
