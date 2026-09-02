@@ -539,6 +539,38 @@ its model that make porting it as-is the wrong move.
   old resource-register plan as superseded — is that new plan's own
   Phase 0.
 
+- **2026-09-02 (replatforming Phase 1)** — Deleted the resource-register
+  Phase 1 module in full: `lib/server/resources/**`, `app/api/resources/**`,
+  `lib/shared/resources/**`, `lib/resources/**`,
+  `components/resources/RegisterPage.tsx`, and the four workspace
+  `register/page.tsx` files. Dropped the Prisma `CategoryGroup`/
+  `ResourceCategory`/`CategoryField`/`Item` models and their four enums
+  (plus the back-relations they had added to `User`/`OrgNode`) via a
+  migration generated non-interactively — `prisma migrate dev` needs a TTY
+  for its destructive-change confirmation, which is not available here, so
+  the SQL was produced with `prisma migrate diff --from-url ... --to-schema-
+  datamodel ...` against the live dev database, written into a normal
+  timestamped migration directory, and applied with `prisma migrate
+  deploy`. `prisma/seed.ts` lost its demo Lab category and 3 seeded labs;
+  its org/personnel fixture (2 colleges, 2 departments, department heads,
+  custodians) is untouched and was re-seeded afterward.
+
+  `lib/nav.ts` keeps its 4-workspace scaffolding for now (Personnel/Org
+  Studio/Dashboard/Profile still render inside it — full removal is
+  replatforming Phase 5) but lost every Register nav entry;
+  department/approver/custodian now carry no items beyond the "You"
+  (Profile) group they always had.
+
+  Verified: `npm run build` (22 routes, no resource paths — a stale
+  `.next/` build-type cache briefly surfaced phantom errors for the
+  deleted routes, resolved by clearing it), `npm test` (103 tests, down
+  from 112 — the 9 deleted `item-scope.logic.spec.ts` cases), `npx prisma
+  migrate status` clean. Live in-browser: signed in as SYS_ADMIN (dashboard
+  renders, seed counts correct: 5 org nodes, 5 people), a department head
+  (`head.se@astu.edu.et`, lands on Profile with the correct scope shown),
+  and a custodian (`custodian.se@astu.edu.et`, same) — no console or
+  server errors, no stray requests to the deleted routes.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
