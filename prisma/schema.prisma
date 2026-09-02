@@ -61,6 +61,11 @@ model User {
   /// OrgNode.userId (occupancy). ScopeService falls back to this when a user occupies no
   /// node, which is what gives custodians and staff any hierarchy reach at all.
   homeNodeId   String?
+  /// Source role/title, e.g. ARA/SARA or laboratory responsible person. Free text —
+  /// distinct from RoleKind, which grants capability, not describes a job title.
+  title        String?
+  /// EXTERNAL only — which body they are here on behalf of.
+  organisation String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -74,6 +79,20 @@ model User {
   orgNodeAssignments     OrgNodeAssignment[] @relation("OrgNodeAssignmentUser")
   orgNodeAssignmentsMade OrgNodeAssignment[] @relation("OrgNodeAssignmentAssignedBy")
   invitationsSent        Invitation[]        @relation("InvitationInvitedBy")
+
+  // ── Resource management back-relations (replatforming onto temp_works) ──────────
+  custodyOf              Item[]               @relation("ItemCustodian")
+  uploadedImages         ItemImage[]          @relation("ItemImageUploadedBy")
+  itemChangesActed       ItemChange[]         @relation("ItemChangeActor")
+  accessViewAudienceOf   AccessViewAudience[] @relation("AccessViewAudiencePerson")
+  changeRequestsRaised   ChangeRequest[]      @relation("ChangeRequestRequester")
+  chainStepsToApprove    ChainStep[]          @relation("ChainStepApprover")
+  chainStepsDecided      ChainStep[]          @relation("ChainStepDecidedBy")
+  needsRaised            NeedLine[]           @relation("NeedLineRaisedBy")
+  needsHandled           NeedLine[]           @relation("NeedLineHandledBy")
+  purchaseRequestsRaised PurchaseRequest[]    @relation("PurchaseRequestRaisedBy")
+  purchaseLinesReceived  PurchaseLine[]       @relation("PurchaseLineReceivedBy")
+  purchaseEventsLogged   PurchaseEvent[]      @relation("PurchaseEventBy")
 
   @@index([emailLower])
   @@index([homeNodeId])
@@ -169,6 +188,13 @@ model OrgNode {
   residents        User[]              @relation("HomeNode")
   occupancyHistory OrgNodeAssignment[]
 
+  // ── Resource management back-relations (replatforming onto temp_works) ──────────
+  ownedItems       Item[]            @relation("ItemOwner")
+  heldItems        Item[]            @relation("ItemHolder")
+  chainStepsAt     ChainStep[]       @relation("ChainStepNode")
+  needLines        NeedLine[]
+  purchaseRequests PurchaseRequest[]
+
   @@index([level])
 }
 
@@ -214,4 +240,618 @@ model OrgNodeAssignment {
 
   @@index([nodeId, startedAt])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Resource register — replatformed onto the temp_works functional surface.
+//
+// ONE self-referential Item table: a lab, a workstation setup, a computer, a stick
+// of RAM are all Items, and `parentId` IS physical containment — "where is this?"
+// and "what is inside this?" are the same question asked in two directions.
+//
+// This is the SECOND hierarchy in the system and must never be confused with the
+// first: OrgNode edges are ACCOUNTABILITY. The two meet only at ownerOrgNodeId /
+// currentOrgNodeId, which is what lets an SE computer stand in a ChemE lab while
+// still belonging to SE. See lib/server/resources/scope.ts (ItemScopeService) for
+// how that split is enforced — the highest-risk logic in this module, same as
+// ScopeService is for the org hierarchy.
+//
+// Booking/scheduling is deliberately NOT modelled here — see
+// ~/.claude/plans/wait-i-want-gentle-haven.md §2 for why (six verified defects in
+// the temp_works sandbox's booking model, to be fixed rather than ported when that
+// track starts).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum CountingMode {
+  SERIALIZED // one row per physical unit, qty always 1
+  BULK //       a quantity at a place
+}
+
+enum CategoryFieldType {
+  TEXT
+  NUMBER
+  ENUM
+  BOOLEAN
+}
+
+/// How a parent reacts to broken critical children.
+///  · ANY_CRITICAL  — one critical child down impairs the parent (a Computer's Monitor)
+///  · ALL_CRITICAL  — only impaired when EVERY critical child is down (redundant switches)
+///  · NEVER         — never impaired by children, unconditionally, regardless of criticality
+///                    (a Store is not "broken" because one reagent ran out). This is NOT
+///                    "ignore ordinary contents but fail on a critical one" — that shape is
+///                    ANY_CRITICAL with ordinary contents marked non-critical instead.
+enum ImpairRule {
+  ANY_CRITICAL
+  ALL_CRITICAL
+  NEVER
+}
+
+/// STORED status only. IMPAIRED is DERIVED (see lib/domain/status.ts) and must never
+/// appear as a value here — a stored rollup is a value that can drift out of step with
+/// the facts beneath it.
+enum ItemStatus {
+  WORKING
+  BROKEN
+  UNDER_MAINTENANCE
+  LOST
+  CONSUMED
+}
+
+model CategoryGroup {
+  id         String             @id @default(cuid())
+  name       String             @unique
+  sortOrder  Int                @default(0)
+  categories ResourceCategory[]
+}
+
+/// A category is the SCHEMA for a kind of resource: its typed fields and how it fails.
+/// Named ResourceCategory, not Category, so it never collides with a catalog/procurement
+/// "category" a later module may want.
+model ResourceCategory {
+  id              String       @id @default(cuid())
+  /// Stable human key ("computer", "lab"). Seeds and imports target this, never the cuid.
+  key             String       @unique
+  name            String
+  iconKey         String
+  groupId         String
+  countingMode    CountingMode @default(SERIALIZED)
+  unit            String? // BULK only: ml, g, pcs
+  impairRule      ImpairRule   @default(ANY_CRITICAL)
+  defaultImageKey String? // object-storage key, set once image storage exists
+  /// Optimistic concurrency. A category edit reaches every item filed under it, so a
+  /// whole-object write from a stale editor must be refused, not merged.
+  version         Int          @default(0)
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  group  CategoryGroup   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  fields CategoryField[]
+  items  Item[]
+
+  templateAsParent CategoryTemplateChild[] @relation("TemplateParent")
+  templateAsChild  CategoryTemplateChild[] @relation("TemplateChild")
+  needLines        NeedLine[]
+  purchaseLines    PurchaseLine[]
+
+  @@index([groupId])
+  @@index([active])
+}
+
+model CategoryField {
+  id         String            @id @default(cuid())
+  categoryId String
+  key        String
+  label      String
+  type       CategoryFieldType
+  options    String[] // ENUM only
+  unit       String? // NUMBER only
+  /// Shown in the table's compact "Specs" cell. Everything shows in the inspector.
+  summary    Boolean           @default(false)
+  /// Render as a multi-line block in the inspector — descriptions, procedures.
+  longText   Boolean           @default(false)
+  required   Boolean           @default(false)
+  sortOrder  Int               @default(0)
+
+  category ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, key])
+  @@index([categoryId, sortOrder])
+}
+
+/// A slot in a category's default subtree: Computer contains 1 Motherboard, 2 Speakers…
+/// Instantiating a category scaffolds its whole subtree from these rows.
+model CategoryTemplateChild {
+  id               String  @id @default(cuid())
+  parentCategoryId String
+  childCategoryId  String
+  qty              Int     @default(1)
+  /// Does this child breaking break its parent? Monitor yes, Speaker no.
+  critical         Boolean @default(false)
+
+  parentCategory ResourceCategory @relation("TemplateParent", fields: [parentCategoryId], references: [id], onDelete: Cascade)
+  childCategory  ResourceCategory @relation("TemplateChild", fields: [childCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([parentCategoryId, childCategoryId])
+  @@index([childCategoryId])
+}
+
+/// ONE table for every physical thing. parentId IS physical containment.
+model Item {
+  id         String  @id @default(cuid())
+  /// null = a root (a Lab, a Store). Otherwise: what physically contains it.
+  parentId   String?
+  categoryId String
+  name       String
+
+  /// Denormalised from the category so the qty CHECK constraint (added by raw SQL in
+  /// this migration) can see it without a join. Rewritten for every affected row when a
+  /// category's counting mode changes.
+  countingMode CountingMode
+  /// SERIALIZED is always 1 (DB CHECK). BULK is a quantity at a place.
+  qty          Decimal      @default(1) @db.Decimal(18, 4)
+
+  /// This item's OWN status. Never the rolled-up one — IMPAIRED is derived, never stored.
+  status   ItemStatus @default(WORKING)
+  /// Is this item critical to its parent? Seeded from the category template, overridable
+  /// per item.
+  critical Boolean    @default(false)
+
+  /// Category-defined properties, validated on every write against CategoryField rows.
+  /// Values are stored TYPED — a NUMBER field holds a JSON number, never a string.
+  props Json @default("{}")
+
+  /// Accountability, which deliberately does NOT move when the item moves.
+  ownerOrgNodeId   String
+  /// The unit physically holding it right now. NOT NULL, defaulted to the owner at
+  /// creation — "on loan" is then simply currentOrgNodeId <> ownerOrgNodeId.
+  currentOrgNodeId String
+  /// Who is answerable. NEVER null: custody hands off, it never lapses.
+  custodianId      String
+
+  /// Optimistic concurrency. Bumped on every applied change; every mutation carries the
+  /// version it was composed against.
+  version Int @default(1)
+
+  /// Import provenance, for idempotent re-runs. Null for anything created in-app.
+  sourceSystem String?
+  sourceKey    String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  parent     Item?            @relation("ItemContains", fields: [parentId], references: [id], onDelete: Restrict)
+  children   Item[]           @relation("ItemContains")
+  category   ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  ownerOrg   OrgNode          @relation("ItemOwner", fields: [ownerOrgNodeId], references: [id], onDelete: Restrict)
+  currentOrg OrgNode          @relation("ItemHolder", fields: [currentOrgNodeId], references: [id], onDelete: Restrict)
+  custodian  User             @relation("ItemCustodian", fields: [custodianId], references: [id], onDelete: Restrict)
+  images     ItemImage[]
+
+  @@unique([sourceSystem, sourceKey])
+  @@index([parentId])
+  @@index([categoryId])
+  @@index([ownerOrgNodeId])
+  @@index([currentOrgNodeId])
+  @@index([custodianId])
+  @@index([status])
+  // The scope predicate's two halves, each answerable from an index.
+  @@index([ownerOrgNodeId, categoryId])
+  @@index([currentOrgNodeId, categoryId])
+  // Property filtering ("Computers with a 500 GB+ disk") reads this GIN index; hot
+  // fields get their own expression index later if this isn't enough at scale.
+  @@index([props(ops: JsonbPathOps)], type: Gin)
+}
+
+/// A picture of a thing. Holds a reference, never bytes — object storage owns the
+/// actual file; `storageKey` is server-generated, never client-supplied.
+model ItemImage {
+  id           String   @id @default(cuid())
+  itemId       String
+  storageKey   String   @unique
+  caption      String?
+  contentType  String
+  byteSize     Int
+  width        Int?
+  height       Int?
+  sortOrder    Int      @default(0)
+  uploadedById String?
+  /// Import provenance, for idempotent re-runs (the real ASTU equipment photographs).
+  sourceSystem String?
+  sourceKey    String?
+  createdAt    DateTime @default(now())
+
+  item       Item  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("ItemImageUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@unique([sourceSystem, sourceKey])
+  @@index([itemId, sortOrder])
+}
+
+enum ItemChangeKind {
+  createItem
+  deleteItem
+  setName
+  setStatus
+  setProperty
+  setQuantity
+  setCustodian
+  setOwnerOrg
+  setCurrentOrg
+  moveInTree
+  transferItem
+  addImage
+  removeImage
+  editCategory
+}
+
+enum ItemChangeTarget {
+  ITEM
+  CATEGORY
+}
+
+/// Append-only audit log. Every applied change writes one of these.
+///
+/// `actorId` only — the name is resolved at render, never stored redundantly.
+/// Deliberately NO FK to Item: a deleted item's log line must still read sensibly, so
+/// `itemId` is a plain column (null for a CATEGORY-targeted entry) and `itemName` is a
+/// snapshot, not a live join.
+model ItemChange {
+  id         String           @id @default(cuid())
+  at         DateTime         @default(now())
+  actorId    String
+  kind       ItemChangeKind
+  targetKind ItemChangeTarget
+  /// The Item id this entry is about. Null for a CATEGORY-targeted entry.
+  itemId     String?
+  /// Snapshot: a deleted item's (or edited category's) log line still has to read
+  /// sensibly after the row it names is gone.
+  itemName   String
+  /// The ResourceCategory id this entry is about — set for a CATEGORY-targeted entry,
+  /// and optionally on an ITEM entry too (lets a category's whole change history be
+  /// queried without a join through Item, which may itself be gone).
+  categoryId String?
+  /// Property key for setProperty, otherwise the Item/Category field that changed.
+  field      String?
+  before     Json?
+  after      Json?
+  /// Groups the N entries produced by one bulk operation.
+  batchId    String?
+  note       String?
+
+  actor User @relation("ItemChangeActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([itemId])
+  @@index([categoryId])
+  @@index([batchId])
+  @@index([at])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Access views — what an administrator hands to a kind of person.
+//
+// A view is authored the way a category is: named, saved, and assigned to an audience.
+// It answers two questions and no others — WHICH RESOURCES (a ScopeMode, optionally
+// narrowed by a saved filter) and MAY THEY EDIT. It deliberately does not choose
+// columns — those are the same for everyone.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum ScopeMode {
+  /// Everything. The borrow/browse surface, and how the property office works.
+  UNIVERSITY
+  /// The person's org reach — their node and everything under it.
+  ORG_SUBTREE
+  /// Only what this person is personally accountable for.
+  MY_CUSTODY
+  /// A hand-picked set of units, for a view an admin has drawn deliberately.
+  EXPLICIT_NODES
+}
+
+enum ViewAudienceType {
+  /// Available to anyone signed in — how the browse view reaches everybody.
+  EVERYONE
+  ROLE
+  PERSON
+}
+
+model AccessView {
+  id              String    @id @default(cuid())
+  name            String
+  description     String?
+  scope           ScopeMode @default(ORG_SUBTREE)
+  /// EXPLICIT_NODES only.
+  explicitNodeIds String[]
+  /// A saved query, applied on top of the scope. Authored with the ordinary filter bar;
+  /// stored as the filter engine's own FilterState shape.
+  extraFilters    Json?
+  /// false = look but do not touch. The borrow surface is the reason this exists.
+  canEdit         Boolean   @default(true)
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  audiences AccessViewAudience[]
+
+  @@index([active])
+}
+
+model AccessViewAudience {
+  id       String           @id @default(cuid())
+  viewId   String
+  type     ViewAudienceType
+  /// ROLE only.
+  role     RoleKind?
+  /// PERSON only. A named person outranks any role, and any role outranks EVERYONE —
+  /// see lib/domain/views.ts's specificity().
+  personId String?
+
+  view   AccessView @relation(fields: [viewId], references: [id], onDelete: Cascade)
+  person User?      @relation("AccessViewAudiencePerson", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([viewId])
+  @@index([role])
+  @@index([personId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Approvals.
+//
+// One idea, and it is the institution's own: THE ORG CHART IS THE APPROVAL ROUTE.
+// There is no "is this an approval office" flag — being a parent in the hierarchy is
+// what makes an office an approver. Policies key off ItemChangeKind; there is
+// deliberately no second operation vocabulary.
+//
+// The mutation seam this whole design depends on: `ChangeRequest.payload` stores the
+// exact ItemChangeInput a direct edit would carry, verbatim, so
+// `applyOnFinalApproval()` can call the SAME write function
+// (lib/server/resources/mutate.ts's applyChange) with the SAME input — a
+// routed-and-approved change must produce a record identical to applying it directly.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PolicyOutcome {
+  AUTO
+  CHAIN
+  DENY
+}
+
+/// Rules are (operation × who is acting × what kind of thing) and resolve to one of
+/// three answers. Most specific wins. No matching rule means DENY — refusal is the
+/// institution's own stated rule for anyone an approval path was never configured for.
+model ApprovalPolicy {
+  id        String         @id @default(cuid())
+  name      String
+  operation ItemChangeKind
+  /// Which resources this rule speaks about — an ObjectSelector (ANY / GROUP /
+  /// CATEGORY / COUNTING_MODE), stored as JSON since it is a discriminated union.
+  appliesTo Json
+  /// null = ANY role.
+  actorRole RoleKind?
+  outcome   PolicyOutcome
+  /// CHAIN only. An empty chain is treated as DENY — it routes to nobody. A
+  /// StepSelector[], stored as JSON for the same discriminated-union reason.
+  chain     Json?
+  enabled   Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([operation])
+  @@index([enabled])
+}
+
+enum RequestStatus {
+  PENDING
+  APPLIED
+  REJECTED
+  CANCELLED
+  STALE
+}
+
+/// A change that has been asked for but not yet made. `payload` is the exact
+/// ItemChangeInput that applyChange takes, stored verbatim — see the seam note above.
+model ChangeRequest {
+  id           String        @id @default(cuid())
+  payload      Json
+  requesterId  String
+  createdAt    DateTime      @default(now())
+  status       RequestStatus @default(PENDING)
+  /// Each affected item's `version` when the request was raised, re-checked before
+  /// applying — the field that stops an approval granted Monday from silently
+  /// overwriting Tuesday's correction. Keyed by item id.
+  baseVersions Json
+  summary      String
+  note         String?
+  resolvedAt   DateTime?
+  resolution   String?
+
+  requester User        @relation("ChangeRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  steps     ChainStep[]
+
+  @@index([requesterId])
+  @@index([status])
+}
+
+enum StepStatus {
+  PENDING
+  WAITING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+/// Which selector produced this step, so it can say how to re-resolve itself.
+/// Authorization must not hang off display text, which is why this exists as its own
+/// column rather than being inferred from `label`.
+enum StepSelectorType {
+  /// Walk up the org chart from the owning unit, stopping at a named kind inclusive.
+  HIERARCHY
+  /// A named office — Procurement and Property are not ancestors of anything.
+  NODE_OCCUPANT
+  /// The owning unit's nearest ancestor of a NAMED level (an external request runs
+  /// this way — VP, then dean, then head — because it arrives at the institution
+  /// rather than from inside a department).
+  OWNER_ANCESTOR
+  /// The head of the unit that owns the resource.
+  OWNER_HEAD
+  /// The head of the unit receiving it. Transfers only.
+  TARGET_HEAD
+  /// Whoever is answerable for the resource today.
+  ITEM_CUSTODIAN
+  /// Whoever will be answerable for it once it lands.
+  TARGET_CUSTODIAN
+  /// Back to the person who asked: "I have received it." Never skipped.
+  REQUESTER_RECEIPT
+}
+
+model ChainStep {
+  id          String           @id @default(cuid())
+  requestId   String
+  order       Int
+  selector    StepSelectorType
+  label       String
+  /// The office this step belongs to. Null for a custodian/receipt step.
+  nodeId      String?
+  /// Who may decide it, resolved at build time and re-checked live at decision time.
+  /// Null means the post is VACANT, which HOLDS the request rather than skipping it.
+  approverId  String?
+  status      StepStatus       @default(PENDING)
+  skipReason  String?
+  /// A receipt is the requester confirming delivery, not an approval.
+  receipt     Boolean          @default(false)
+  decidedById String?
+  decidedAt   DateTime?
+  note        String?
+
+  request   ChangeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  node      OrgNode?      @relation("ChainStepNode", fields: [nodeId], references: [id], onDelete: SetNull)
+  approver  User?         @relation("ChainStepApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  decidedBy User?         @relation("ChainStepDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([requestId, order])
+  @@index([approverId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Procurement. Deliberately separate from ChangeRequest — a purchase has no
+// resource to point at, which is the whole point of raising one. The two systems
+// meet at exactly one place: when goods land in the main store, the store keeper
+// registers them (receivePurchaseLine), and from that moment they are ordinary
+// Items that move by the ordinary applyChange path.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum NeedStatus {
+  OPEN
+  CARRIED
+  DECLINED
+}
+
+/// "We could use another balance." Raised by whoever feels the shortage; never
+/// auto-converted into a purchase line — a head decides what to carry forward.
+model NeedLine {
+  id             String     @id @default(cuid())
+  raisedById     String
+  /// The unit that feels the need — where the head who reads it sits.
+  orgNodeId      String
+  name           String
+  qty            Decimal    @db.Decimal(18, 4)
+  unit           String?
+  /// Optional: what kind of thing, when it is something the register already knows.
+  categoryId     String?
+  reason         String
+  createdAt      DateTime   @default(now())
+  status         NeedStatus @default(OPEN)
+  handledById    String?
+  handledAt      DateTime?
+  note           String?
+  /// Set when a head carries this need into a purchase line.
+  purchaseLineId String?
+
+  raisedBy     User              @relation("NeedLineRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
+  orgNode      OrgNode           @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
+  category     ResourceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  handledBy    User?             @relation("NeedLineHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
+  purchaseLine PurchaseLine?     @relation(fields: [purchaseLineId], references: [id], onDelete: SetNull)
+
+  @@index([orgNodeId])
+  @@index([status])
+  @@index([purchaseLineId])
+}
+
+enum PurchaseStage {
+  /// Being written. The head can still add, edit and drop lines.
+  DRAFT
+  /// Walking the approval ladder.
+  APPROVING
+  /// Sent back by an approver with feedback, and editable again.
+  REVISING
+  /// Approved; procurement is running it. These four are the reporting pipeline.
+  ORDER_PLACED
+  BUYER_FOUND
+  ON_DELIVERY
+  IN_STORE
+  /// Everything on it has been registered into the store.
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+/// The department's formal ask, compiled by the head. Walks Head → Dean → College
+/// Managing Directorate → Academic Vice President → Procurement Office.
+model PurchaseRequest {
+  id         String        @id @default(cuid())
+  reference  String        @unique
+  /// The department asking. Its head owns the request.
+  orgNodeId  String
+  raisedById String
+  createdAt  DateTime      @default(now())
+  title      String
+  stage      PurchaseStage @default(DRAFT)
+  /// The last feedback from an approver who sent it back.
+  feedback   String?
+
+  orgNode  OrgNode         @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
+  raisedBy User            @relation("PurchaseRequestRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
+  lines    PurchaseLine[]
+  events   PurchaseEvent[]
+
+  @@index([orgNodeId])
+  @@index([stage])
+}
+
+model PurchaseLine {
+  id                String    @id @default(cuid())
+  purchaseId        String
+  name              String
+  qty               Decimal   @db.Decimal(18, 4)
+  unit              String?
+  categoryId        String?
+  estimatedUnitCost Decimal?  @db.Decimal(18, 4)
+  justification     String?
+  /// Filled in by the store keeper as goods are registered.
+  receivedQty       Decimal?  @db.Decimal(18, 4)
+  receivedAt        DateTime?
+  receivedById      String?
+
+  purchase      PurchaseRequest   @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  category      ResourceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  receivedBy    User?             @relation("PurchaseLineReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  /// Which needs this line answers, so a line can be traced back to who felt it.
+  answeredNeeds NeedLine[]
+
+  @@index([purchaseId])
+}
+
+model PurchaseEvent {
+  id         String        @id @default(cuid())
+  purchaseId String
+  at         DateTime      @default(now())
+  byId       String
+  stage      PurchaseStage
+  note       String?
+
+  purchase PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  by       User            @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
+
+  @@index([purchaseId, at])
 }
