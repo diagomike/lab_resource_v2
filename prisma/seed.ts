@@ -1,13 +1,14 @@
 /**
  * Seeds the minimum needed to sign in and start building the org chart: one SYS_ADMIN and
- * the single UNIVERSITY root node — PLUS a small resource-register slice (one college, two
- * departments, a Lab category, three labs) so the Phase 1 vertical slice has something
- * real to scope, filter and cross-department-leak-test against.
+ * the single UNIVERSITY root node — PLUS a small scoping fixture (two colleges, two
+ * departments, a department head and a custodian per department) so cross-department
+ * scope enforcement (ScopeService) has something real to exercise.
  *
  * The rest of the org chart (further colleges, departments, offices, personnel) is created
- * through the app itself, by design — see PROGRESS.md. The resource register's later
- * phases (category administration, mutations, real ASTU data) replace this seed's Lab
- * category and demo labs with the genuine article; nothing here is meant to survive that.
+ * through the app itself, by design — see PROGRESS.md. This used to also seed a resource
+ * register slice (a Lab category, three labs); that module was deleted — see
+ * ~/.claude/plans/wait-i-want-gentle-haven.md — and its replacement will bring its own
+ * seed data when it lands.
  *
  * Idempotent by wipe-and-rebuild: every run clears the tables it owns and regenerates ids.
  */
@@ -23,12 +24,6 @@ const UNIVERSITY_NAME = "Adama Science and Technology University";
 
 async function main() {
   console.log("Seeding lab_resource_v2…");
-
-  // Resource-register rows first — they FK into OrgNode/User, which the block below wipes.
-  await prisma.item.deleteMany({});
-  await prisma.categoryField.deleteMany({});
-  await prisma.resourceCategory.deleteMany({});
-  await prisma.categoryGroup.deleteMany({});
 
   await prisma.orgNodeAssignment.deleteMany({});
   await prisma.orgClosure.deleteMany({});
@@ -135,64 +130,10 @@ async function main() {
     },
   });
 
-  // ── A Lab category and three labs, split across the two departments ────────
-  const placesGroup = await prisma.categoryGroup.create({ data: { name: "Places", sortOrder: 0 } });
-  const labCategory = await prisma.resourceCategory.create({
-    data: {
-      key: "lab",
-      name: "Lab",
-      iconKey: "Building2",
-      groupId: placesGroup.id,
-      countingMode: "SERIALIZED",
-      impairRule: "ANY_CRITICAL",
-      fields: {
-        create: [
-          { key: "room", label: "Room", type: "TEXT", options: [], summary: true, sortOrder: 0 },
-          { key: "seats", label: "Seats", type: "NUMBER", options: [], summary: true, sortOrder: 1 },
-          { key: "purpose", label: "Purpose", type: "TEXT", options: [], sortOrder: 2 },
-          { key: "source", label: "Source", type: "TEXT", options: [], sortOrder: 3 },
-        ],
-      },
-    },
-  });
-
-  await prisma.item.createMany({
-    data: [
-      {
-        name: "SE Lab X — Software Lab 3",
-        categoryId: labCategory.id,
-        countingMode: "SERIALIZED",
-        ownerOrgNodeId: se.id,
-        currentOrgNodeId: se.id,
-        custodianId: seCustodian.id,
-        props: { room: "IT-204", seats: 25 },
-      },
-      {
-        name: "SE Networking Lab",
-        categoryId: labCategory.id,
-        countingMode: "SERIALIZED",
-        ownerOrgNodeId: se.id,
-        currentOrgNodeId: se.id,
-        custodianId: seCustodian.id,
-        props: { room: "IT-118", seats: 20 },
-      },
-      {
-        name: "Chemical Engineering Unit Operations Lab",
-        categoryId: labCategory.id,
-        countingMode: "SERIALIZED",
-        ownerOrgNodeId: chem.id,
-        currentOrgNodeId: chem.id,
-        custodianId: chemCustodian.id,
-        props: { room: "B528-RG16", seats: 30 },
-      },
-    ],
-  });
-
   console.log(`  1 SYS_ADMIN (${SYS_ADMIN.email} / ${SEED_PASSWORD})`);
   console.log(`  1 UNIVERSITY root node ("${UNIVERSITY_NAME}")`);
   console.log(`  2 colleges, 2 departments (SE, ChemE)`);
   console.log(`  2 department heads, 2 custodians (all / ${SEED_PASSWORD})`);
-  console.log(`  1 category (Lab), 3 items (2 owned by SE, 1 by ChemE)`);
   console.log(`  admin user id: ${admin.id}`);
 }
 

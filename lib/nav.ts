@@ -4,10 +4,15 @@ import type { RoleKind, WorkspaceKind } from "@/lib/shared";
  * Navigation model + role-based visibility, organised by WHICH OF THE FOUR WORKSPACES
  * you are in: Admin, Department (head), Approver (dean/AVP/Property Admin/Procurement),
  * or Custodian (lab assistant/ARA/SARA, and the landing spot for plain STAFF/STUDENT
- * too). The resource register (see the resource-register plan) is the first
- * lab-management module and is now reachable from all four — one RegisterPage, scoped
- * differently per workspace server-side. Every other lab-management module still gets
- * built one at a time.
+ * too).
+ *
+ * The resource register that used to live here (one RegisterPage mounted at all four
+ * workspaces) has been deleted — see
+ * `~/.claude/plans/wait-i-want-gentle-haven.md`. Its replacement drops this whole
+ * 4-workspace model in favour of one sidebar for everyone, with an access view and
+ * server-enforced scope deciding what a person sees. Until that lands (that plan's
+ * Phase 5), this file still carries the workspace scaffolding Personnel/Org
+ * Studio/Dashboard/Profile depend on.
  *
  * `workspace` is computed SERVER-SIDE in auth.controller.ts's me() — this file never
  * re-derives it. A person holding several roles gets a primary workspace plus a switcher
@@ -53,34 +58,15 @@ export const NAV: Record<WorkspaceKind, NavGroup[]> = {
       label: "Structure",
       items: [{ key: "admin-org-structure", label: "Org structure", icon: "⑃", path: "/admin/org-structure" }],
     },
-    {
-      label: "Resources",
-      items: [{ key: "admin-register", label: "Register", icon: "▤", path: "/admin/register" }],
-    },
   ],
 
-  // The resource register is the first lab-management module — see the resource-
-  // register plan. Everything below it in each of these three workspaces is still
-  // "one module at a time" (LRMS.md/CLAUDE.md's roadmap), reached through Coming Soon
-  // until it exists.
-  department: [
-    {
-      label: "Resources",
-      items: [{ key: "dept-register", label: "Register", icon: "▤", path: "/department/register" }],
-    },
-  ],
-  approver: [
-    {
-      label: "Resources",
-      items: [{ key: "appr-register", label: "Register", icon: "▤", path: "/approver/register" }],
-    },
-  ],
-  custodian: [
-    {
-      label: "Resources",
-      items: [{ key: "cust-register", label: "Register", icon: "▤", path: "/custodian/register" }],
-    },
-  ],
+  // Resource management is being rebuilt from scratch — see
+  // ~/.claude/plans/wait-i-want-gentle-haven.md. These three workspaces have no nav
+  // items of their own until it lands; each still gets the "You" group (profile) via
+  // navFor.
+  department: [],
+  approver: [],
+  custodian: [],
 };
 
 /** Every workspace gets the same account section — profile is not workspace-specific. */
@@ -90,11 +76,6 @@ export const META: Record<string, [string, string, string]> = {
   "admin-dashboard": ["Admin ›", "Dashboard", "Org nodes, personnel, and where to start"],
   "admin-people": ["Admin ›", "People & roles", "Invite someone, change what they may do, or retire their account"],
   "admin-org-structure": ["Admin › Structure ›", "Org structure", "The reporting hierarchy — create a node of any kind, assign its head, redraw its parents"],
-  "admin-register": ["Admin › Resources ›", "Register", "Every resource in the university — scope is global for this workspace"],
-
-  "dept-register": ["Department › Resources ›", "Register", "Resources owned by or held in your department and everything under it"],
-  "appr-register": ["Approver › Resources ›", "Register", "Resources within your approval reach"],
-  "cust-register": ["Custodian › Resources ›", "Register", "Resources you are personally answerable for, and their contents"],
 
   profile: ["Me ›", "Profile & password", "Your details, your unit, and your sign-in password"],
 };
