@@ -114,7 +114,12 @@ custodian and expects a strict subset):
 [{"id":"cmtjtip3e000nv5x0o2nm3pyi","parentId":null,"name":"Chemical Engineering Unit Operations Lab","categoryId":"cmtjtip36000gv5x0l9p4kjhw","categoryName":"Lab","countingMode":"SERIALIZED","qty":1,"status":"WORKING","critical":false,"ownerOrgNodeId":"cmtjtip250005v5x0ug9lvzqy","ownerOrgName":"Chemical Engineering","currentOrgNodeId":"cmtjtip250005v5x0ug9lvzqy","currentOrgName":"Chemical Engineering","custodianId":"cmtjtip2z000dv5x04pke66v1","custodianName":"Hanna Bekele","version":1,"updatedAt":"2026-09-02T08:12:16.394Z"},{"id":"cmtjtip3e000lv5x0anzvev1f","parentId":null,"name":"SE Lab X — Software Lab 3","categoryId":"cmtjtip36000gv5x0l9p4kjhw","categoryName":"Lab","countingMode":"SERIALIZED","qty":1,"status":"WORKING","critical":false,"ownerOrgNodeId":"cmtjtip230004v5x0ufxny9pt","ownerOrgName":"Software Engineering","currentOrgNodeId":"cmtjtip230004v5x0ufxny9pt","currentOrgName":"Software Engineering","custodianId":"cmtjtip2v000bv5x0cb7xmpjb","custodianName":"Girma Wolde","version":1,"updatedAt":"2026-09-02T08:12:16.394Z"},{"id":"cmtjtip3e000mv5x067jp4q2o","parentId":null,"name":"SE Networking Lab","categoryId":"cmtjtip36000gv5x0l9p4kjhw","categoryName":"Lab","countingMode":"SERIALIZED","qty":1,"status":"WORKING","critical":false,"ownerOrgNodeId":"cmtjtip230004v5x0ufxny9pt","ownerOrgName":"Software Engineering","currentOrgNodeId":"cmtjtip230004v5x0ufxny9pt","currentOrgName":"Software Engineering","custodianId":"cmtjtip2v000bv5x0cb7xmpjb","custodianName":"Girma Wolde","version":1,"updatedAt":"2026-09-02T08:12:16.394Z"}]
 ```
 
-Note the ids above are stable (they come from the seed script's deterministic run order
-against a fresh `prisma:seed`, not randomly assigned per-request) — if the dev database is
-reseeded before Phase 4's comparison, re-run `prisma:seed` first and expect the same ids,
-or re-capture this section if the seed itself changes.
+**Correction (discovered running the seed a second time during Phase 3):** the ids above
+are **not** stable across reseeds — `cuid()` is randomly generated on every run, not
+deterministic from the seed script's fixed content/order as originally assumed here.
+Phase 4's comparison should match on **shape** (field names, types, array length, the
+relative structure of owner/current/custodian per item) rather than literal id values.
+The *names* (`"Chemical Engineering Unit Operations Lab"`, `"Girma Wolde"`, etc.) and
+their *relationships* (which items belong to which department) do stay stable across
+reseeds, since those come from literal strings in `prisma/seed.ts`, not generated ids —
+use those for the actual comparison.

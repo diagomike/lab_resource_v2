@@ -1,0 +1,169 @@
+import "server-only";
+import * as argon2 from "argon2";
+import type {
+  ForgotPasswordInput,
+  LoginInput,
+  RegisterInput,
+  ResetPasswordInput,
+  SessionUserDto,
+  RoleKind,
+} from "@/lib/shared";
+import { prisma } from "../prisma";
+import { HttpError } from "../http-error";
+import * as mail from "../mail/mail";
+import { generateToken, hashIp, hashToken } from "./token";
+
+const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7);
+const PASSWORD_RESET_TTL_HOURS = 2;
+// Renamed from WEB_ORIGIN: same purpose (the app's own public origin, for absolute
+// links in emails), no longer double-duty as "the frontend dev server's CORS origin"
+// now that everything is same-origin.
+const APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:3000";
+
+/**
+ * Returns the RAW session token, which the route handler puts straight into an httpOnly
+ * cookie and never returns in a body. Only its hash reaches the database.
+ */
+export async function login(
+  input: LoginInput,
+  meta: { ip?: string; userAgent?: string },
+): Promise<{ token: string; user: SessionUserDto }> {
+  const user = await prisma.user.findUnique({
+    where: { emailLower: input.email.toLowerCase() },
+    include: { roles: true },
+  });
+
+  // One message for "no such user" and "wrong password" alike — a distinct error would
+  // turn the login form into an account-enumeration oracle.
+  if (!user || !user.passwordHash) throw new HttpError(401, "Invalid email or password");
+  if (user.status === "DISABLED") throw new HttpError(401, "Account disabled");
+  if (!(await argon2.verify(user.passwordHash, input.password))) {
+    throw new HttpError(401, "Invalid email or password");
+  }
+
+  const raw = generateToken();
+  await prisma.session.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + SESSION_TTL_DAYS * 86_400_000),
+      ipHash: hashIp(meta.ip),
+      userAgent: meta.userAgent?.slice(0, 255),
+    },
+  });
+
+  return { token: raw, user: toDto(user, user.roles.map((r) => r.kind as RoleKind)) };
+}
+
+export async function logout(rawToken: string | undefined): Promise<void> {
+  if (!rawToken) return;
+  await prisma.session.deleteMany({ where: { tokenHash: hashToken(rawToken) } });
+}
+
+/** Consumes an invitation: sets the password, activates the user, burns the token. */
+export async function register(input: RegisterInput): Promise<{ email: string }> {
+  const invitation = await prisma.invitation.findUnique({
+    where: { tokenHash: hashToken(input.token) },
+  });
+  if (!invitation) throw new HttpError(400, "This invitation link is not valid");
+  if (invitation.consumedAt) throw new HttpError(400, "This invitation has already been used");
+  if (invitation.expiresAt < new Date()) throw new HttpError(400, "This invitation has expired");
+
+  const user = await prisma.user.findUnique({ where: { emailLower: invitation.emailLower } });
+  if (!user) throw new HttpError(400, "No account matches this invitation");
+
+  const passwordHash = await argon2.hash(input.password);
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: user.id },
+      data: { name: input.name, phone: input.phone ?? null, passwordHash, status: "ACTIVE" },
+    }),
+    prisma.invitation.update({
+      where: { id: invitation.id },
+      data: { consumedAt: new Date() },
+    }),
+  ]);
+
+  return { email: user.email };
+}
+
+/**
+ * Always resolves successfully whether or not the email matches an account, and whether
+ * or not that account has ever set a password — the same account-enumeration reasoning
+ * login's single error message follows. The mail only actually goes out on a real match.
+ */
+export async function forgotPassword(input: ForgotPasswordInput): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { emailLower: input.email.toLowerCase() },
+  });
+  if (!user || user.status === "DISABLED") return;
+
+  const raw = generateToken();
+  await prisma.passwordReset.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_HOURS * 3_600_000),
+    },
+  });
+
+  await mail.send({
+    to: user.email,
+    subject: "Reset your ASTU Lab Resources password",
+    html: `<p>Hello ${escapeHtml(user.name)},</p>
+           <p>Someone requested a password reset for this account. This link expires in ${PASSWORD_RESET_TTL_HOURS} hours.</p>
+           <p><a href="${APP_ORIGIN}/reset-password?token=${raw}">Reset your password</a></p>
+           <p>If you did not request this, you can ignore this email — your password will not change.</p>`,
+  });
+}
+
+export async function resetPassword(input: ResetPasswordInput): Promise<void> {
+  const reset = await prisma.passwordReset.findUnique({
+    where: { tokenHash: hashToken(input.token) },
+  });
+  if (!reset) throw new HttpError(400, "This reset link is not valid");
+  if (reset.consumedAt) throw new HttpError(400, "This reset link has already been used");
+  if (reset.expiresAt < new Date()) throw new HttpError(400, "This reset link has expired");
+
+  const passwordHash = await argon2.hash(input.newPassword);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: reset.userId }, data: { passwordHash } }),
+    prisma.passwordReset.update({ where: { id: reset.id }, data: { consumedAt: new Date() } }),
+    // A password reset is how you respond to a suspected compromise, same as
+    // changePassword — every existing session dies with the old password.
+    prisma.session.deleteMany({ where: { userId: reset.userId } }),
+  ]);
+}
+
+export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user?.passwordHash) throw new HttpError(400, "Account has no password set");
+  if (!(await argon2.verify(user.passwordHash, currentPassword))) {
+    throw new HttpError(400, "Current password is incorrect");
+  }
+  const passwordHash = await argon2.hash(newPassword);
+  // Changing a password invalidates every OTHER session — a password change is how you
+  // respond to a suspected compromise, so leaving old cookies alive would defeat it.
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.session.deleteMany({ where: { userId } }),
+  ]);
+}
+
+function toDto(
+  user: { id: string; email: string; name: string; phone: string | null; status: string },
+  roles: RoleKind[],
+): SessionUserDto {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    phone: user.phone,
+    status: user.status as SessionUserDto["status"],
+    roles,
+  };
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
