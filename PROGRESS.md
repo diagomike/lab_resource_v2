@@ -28,13 +28,51 @@ future work, not ported wholesale.
 
 ## Stack
 
-- Monorepo: npm workspaces — `apps/api`, `apps/web`, `packages/shared`
-- Backend: NestJS 10.4.x, Prisma 6.19.3, PostgreSQL, argon2, nodemailer
-  (Gmail SMTP with maildev fallback), zod validation (`ZodValidationPipe`)
-- Frontend: React 18.3, Vite 5.4, Tailwind 3.4, react-router-dom 6.26,
-  `@xyflow/react` (ReactFlow) 12.3.6 + `dagre` 0.8.5 for the org canvas
-- `packages/shared`: zod schemas + inferred TS types — single source of truth
-  for DTOs
+**As of 2026-09-02, mid-conversion to a single Next.js app — see "Architecture
+conversion in progress" below before trusting anything in this section that
+mentions `apps/api`/`apps/web`/`packages/shared`.**
+
+- **New (target, landing phase-by-phase):** one Next.js 16.3.x app (App
+  Router, Turbopack), React 19, Route Handlers under `app/api/**` replacing
+  the NestJS controllers, `lib/server/**` (`import "server-only"`) replacing
+  the NestJS services with plain functions, `lib/shared/**` replacing
+  `packages/shared`, Vitest replacing Jest/ts-jest, Tailwind 3.4 unchanged.
+  Root `package.json`, `prisma/`, `.env` all now live at the repo root.
+- **Old (still on disk, frozen, not started since Phase 0, deleted in
+  Phase 9):** `apps/api` — NestJS 10.4.x; `apps/web` — React 18.3/Vite
+  5.4/react-router-dom 6.26; `packages/shared` — the old contracts package.
+  `@xyflow/react`/`dagre` for the org canvas carry over unchanged either way.
+
+## Architecture conversion in progress
+
+The npm-workspace split (separate NestJS API + Vite frontend + a compiled
+shared-contracts package, glued by same-machine CORS) was never the intended
+architecture — the target has always been **one unified Next.js app**. A full
+replan + phased execution is underway; the plan (current state, target
+decisions, directory mapping, construct-translation rules, the phased
+conversion, and — preserved as an appendix — the pre-existing resource
+register/scheduling domain design) lives at
+`~/.claude/plans/act-as-the-principal-hazy-thompson.md`.
+
+**Phases 0–6 are done** (git history now exists at the repo root, one commit
+per phase): checkpoint + a recorded runtime API reference; scaffold; shared
+Zod contracts moved; every server-side domain module ported to
+`lib/server/**`; all 24 Route Handlers; core UI primitives/contexts; and the
+frontend shell/routing/auth pages (`app/layout.tsx`, the four `(auth)/`
+pages, `app/(workspace)/layout.tsx`, `app/page.tsx`, `proxy.ts`) — verified
+live in-browser, including a byte-for-byte diff of login/logout cookie
+headers against the Phase 0 reference. **Remaining: Phase 7** (the
+data-table engine + its `useSearchParams` rework, Org Studio, Personnel,
+Admin Dashboard, Profile, and the resource register pages — none of which
+exist under `app/(workspace)/` yet, so e.g. `/admin/dashboard` currently
+404s), **Phase 8** (cutover acceptance pass), **Phase 9** (delete
+`apps/api`/`apps/web`/`packages/shared`), **Phase 10** (docs + extracting the
+resource-register/scheduling appendix into its own plan file).
+
+Everything below this point in the file (Stack's old-architecture note aside)
+was written before the conversion was decided on and describes the *domain*
+work (org hierarchy, resource register Phase 1, etc.), which the conversion
+carries forward unchanged — only its file layout is moving.
 
 ## Key architectural decisions
 
@@ -326,6 +364,42 @@ sandbox actually did:
   a custodian — confirmed at the raw `GET /resources/search` response body,
   not just the rendered table, that a department head's payload never
   contains the other department's data.
+
+- **2026-09-02 (later)** — Architecture replan and conversion begun. User
+  determined the NestJS API + Vite frontend + shared-package npm-workspace
+  split was a deviation from the original intent (one unified Next.js app)
+  and asked for a full replan, not a patch. Two rounds of plan-mode rejection
+  and revision (first for being an append-only Part-A/Part-B hybrid that left
+  the old NestJS plan in place; then for 8 specific execution-blocking issues
+  — phase-ordering, a missing ReactFlow Client Component boundary, a
+  matcher-less `proxy.ts`, a `server-only` Vitest shim, and the
+  resource-register/scheduling design being deleted instead of preserved)
+  produced an approved plan at
+  `~/.claude/plans/act-as-the-principal-hazy-thompson.md`: one coherent
+  Next.js 16 conversion plan (verified against Next's own shipped docs, not
+  assumed) with the domain design kept as a clearly separated appendix
+  pending Phase 10 extraction.
+
+  Executed Phases 0–6, one git commit each, git initialized fresh at the repo
+  root (this project had none before): Phase 0 recorded an actual runtime
+  reference snapshot (`docs/pre-conversion-api-reference.md` — exact
+  Set-Cookie headers, 400/401/403/404 bodies) from the live NestJS server
+  before stopping it for good — the old servers have not run since. Phases
+  1–4 scaffolded the app and ported every server module (auth/org/people/
+  resources/mail) to `lib/server/**` and all 24 routes to `app/api/**`,
+  diffing every response against the Phase 0 reference. Phase 5 ported the
+  core UI primitives/contexts. Phase 6 ported the shell/routing/auth pages
+  and surfaced a real hydration bug in `theme-context.tsx`: its SSR guard
+  (`typeof window === "undefined"`) only prevented a server crash, not a
+  client/server mismatch, since `window` already exists during the browser's
+  own hydration render — it was reading the real stored/system theme
+  immediately instead of the server's hardcoded `"light"` default, crashing
+  hydration and (visibly) wiping the login form on reload. Fixed by making
+  the initial state always match the server default and applying the real
+  value only in a mount-only effect. Verified live: full login→logout cycle,
+  cookie attributes matching the Phase 0 reference byte-for-byte (including
+  logout's exact clearing header), `proxy.ts` gating protected pages but
+  never `/api/**`, and correct role-based landing routing.
 
 ## Working agreements for this project
 
