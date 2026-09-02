@@ -571,6 +571,53 @@ its model that make porting it as-is the wrong move.
   and a custodian (`custodian.se@astu.edu.et`, same) — no console or
   server errors, no stray requests to the deleted routes.
 
+- **2026-09-02 (replatforming Phase 2)** — Landed the full temp_works-derived
+  resource data model and its Zod contracts, in three parts.
+
+  Part 1: RoleKind grew from 7 to 9 values (STORE_KEEPER, EXTERNAL),
+  applied as an additive Postgres enum migration with no destructive-
+  change prompt needed. Rippled into ScopeService.canSeeCost (a store
+  keeper reads the cost a purchase order was raised for), auth.ts's
+  workspacesFor (STORE_KEEPER grouped with PROPERTY_ADMIN/PROCUREMENT
+  — university-wide reach by role), and PersonnelPage.tsx's local
+  role list.
+
+  Part 2: the full Prisma schema for categories (ResourceCategory,
+  CategoryField, CategoryTemplateChild — the default-subtree
+  instantiation the old Phase 1 module never had), items (Item
+  unchanged from the deleted Phase 1 shape, ItemImage, ItemChange as
+  an append-only audit log with no FK to Item), access views
+  (AccessView + AccessViewAudience), approvals (ApprovalPolicy,
+  ChangeRequest with a payload Json column holding the exact
+  ItemChangeInput verbatim, ChainStep with a real StepSelectorType
+  enum column rather than a string), and procurement (NeedLine,
+  PurchaseRequest, PurchaseLine, PurchaseEvent). Three migrations: the
+  additive schema itself, a GIN (jsonb_path_ops) index on Item.props
+  (expressible directly in Prisma's DSL, stable since Prisma 5), and
+  the two CHECK constraints Prisma's DSL cannot express at all
+  (SERIALIZED => qty=1 / BULK => qty>=0, and no-self-parent) — applied
+  via `prisma db execute` against the live dev database and recorded
+  with `prisma migrate resolve --applied` rather than replayed. A
+  throwaway functional smoke test (deleted after) confirmed all of it
+  live: a valid insert succeeds, a bad SERIALIZED qty is rejected, a
+  negative BULK qty is rejected, a self-parent update is rejected, and
+  a GIN-indexed jsonb containment query finds a written prop.
+
+  Part 3: lib/shared/resources/** — Zod contracts mirroring the new
+  Prisma models. item.ts's ItemChangeInput is the one worth
+  remembering: a proper Zod discriminated union on `kind` (stronger
+  than temp_works' own loosely-typed shape), each of the 13
+  item-targeted variants carrying only the fields that kind actually
+  uses. A throwaway runtime smoke test (tsx, deleted after) parsed 37
+  representative payloads through every new schema to catch what
+  `tsc` alone can't — a mismatched `z.literal` string against the
+  actual enum values.
+
+  Verified throughout: `npx tsc --noEmit` clean, `npm test` (103
+  tests, unchanged — this phase is schema/contracts only), `npm run
+  build` (still 22 routes), `npx prisma migrate status` clean at each
+  step. This closes out replatforming Phase 2.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
