@@ -618,6 +618,80 @@ its model that make porting it as-is the wrong move.
   build` (still 22 routes), `npx prisma migrate status` clean at each
   step. This closes out replatforming Phase 2.
 
+- **2026-09-03 (replatforming Phase 3)** — Ported the pure domain logic from
+  `temp_works` into `lib/domain/**`, essentially verbatim, with its own internal
+  type vocabulary (`types.ts`) kept separate from both the Prisma schema and
+  `lib/shared`'s wire DTOs — the same pattern
+  `lib/server/org/closure-algorithm.ts` already uses for its own
+  ClosureEdge/ClosureRow pair.
+
+  Ported near-verbatim, each with its test file: `status.ts` (derived
+  impairment), `tree.ts` (the three row shapes and cluster aggregation),
+  `filters.ts` (the query engine — one adaptation: `buildFilterFields` now
+  requires `orgNodes`/`people` instead of defaulting to a seed module,
+  since production has no fixture to fall back to), `instantiate.ts`
+  (category-to-subtree instantiation — `temp_works` had no test for this;
+  wrote one fresh), `edit-impact.ts` (the blast-radius preview),
+  `approvals.ts` (policy resolution and chain building, including
+  `SEED_POLICIES`), `views.ts` (access-view resolution, including
+  `SEED_VIEWS`), `icons.ts` (the curated icon registry + fallback — its
+  React wrapper component is deferred to whichever UI phase first renders
+  one).
+
+  One new module, not a straight port: `org-chain.ts`. `temp_works`'
+  `approvals.ts` needs to walk an approval chain upward through
+  `org.ts`'s `indexOrg`/`ancestorsOf`/`OrgIndex` — but `org.ts` as a
+  whole is rejected (its `visibleNodeIds`/`ownNodeId` genuinely duplicate
+  ScopeService). Rather than re-deriving that BFS a second time,
+  `org-chain.ts` is a thin adapter over the already-shipped
+  `closure-algorithm.ts` (`computeClosureRows` — the identical
+  `{ancestorId, descendantId, depth}` row shape), giving `approvals.ts` the
+  same `OrgIndex`/`ancestorsOf` contract `temp_works` wrote against. That
+  is what let `approvals.ts` and its 45-test spec port with only an
+  import-source change.
+
+  Deliberately narrower than a full module port, per the plan's own
+  scoping: `purchasing.ts` brought over only its pure functions
+  (`canRaiseNeed`, `lineTotal`, `nextStage`, ...) — its own test file
+  exercises the Zustand store's stateful actions end to end, none of which
+  calls these functions directly, and that write path becomes a server
+  module in a later phase; wrote a fresh, focused spec for the pure
+  functions instead. `item-scope.ts` brought over only `unitsOf`/
+  `withAncestors` — `scope.ts`'s `scopedItemIds`/`defaultScopeFor`
+  operate over an already-loaded item array, which production must NOT do
+  (`ItemScopeService` becomes a Prisma `where`-builder applying scope in
+  SQL before pagination in Phase 4, not this shape); same treatment, a
+  fresh focused spec.
+
+  Explicitly not ported: `org.ts`'s `visibleNodeIds`/`ownNodeId`/
+  `validateOrg` (ScopeService's job), `personnel.ts` (PeopleModule's
+  job), `store.ts`'s Zustand write path (becomes
+  `lib/server/resources/mutate.ts` later), `booking.ts` (the deferred
+  track).
+
+  Test fixture (`lib/domain/__fixtures__/seed.ts`, test-only, never
+  imported from `lib/server/**` or `components/**`): `temp_works`'
+  ORG_NODES/PEOPLE/SEED_CATEGORIES ported verbatim minus the
+  `...REAL_PEOPLE`/`...REAL_CATEGORIES` spreads (real ASTU import data,
+  landing with the Phase 15 importer instead).
+
+  Also added `lucide-react` 1.34.0 (exact pin, matching `temp_works`'
+  resolved version) and `vitest.config.ts`'s `@/*` alias (mirroring
+  `tsconfig.json`'s own path mapping — the first specs needing
+  cross-directory absolute imports).
+
+  One correctness addition beyond a straight port: `status.spec.ts` adds
+  the "NEVER ignores a critical child" case `temp_works`' own suite never
+  exercised (its fixture built a NEVER category differently from the
+  seed's actual configuration) — see this file's earlier note on why the
+  seed's behaviour is authoritative, not the sandbox README's
+  now-superseded sentence.
+
+  Verified: `npx tsc --noEmit` clean, `npm test` — 222 tests across 14
+  files (109 new domain tests, the 113 pre-existing ones unmodified and
+  still passing), `npm run build` clean (still 22 routes — this phase
+  adds no new API/UI wiring, only the logic layer beneath one).
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
