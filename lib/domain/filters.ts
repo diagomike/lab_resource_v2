@@ -5,10 +5,13 @@
  * removed in the advanced builder. Ported from temp_works/src/lib/filters.ts,
  * verbatim except one signature change (see `buildFilterFields`'s note below).
  *
- * The operator names are deliberately lib_resource_v2's existing table engine's
- * (components/data-table/types.ts) rather than shorter ones invented here — see
- * lib/shared/resources/item-filter.ts's own note on why the two engines merge later
- * (~/.claude/plans/wait-i-want-gentle-haven.md Phase 6) instead of diverging now.
+ * The operator names were deliberately kept matching lib_resource_v2's now-deleted
+ * `components/data-table` engine's own (its `types.ts`) rather than shorter ones
+ * invented here — see lib/shared/resources/item-filter.ts's own note on the two
+ * engines' planned merge. Phase 6 of ~/.claude/plans/wait-i-want-gentle-haven.md
+ * wired the register's filter bar to this module directly (via items.ts's
+ * `ItemQuery`) using only the operators both vocabularies already share; the fuller
+ * merge (prop:/desc: synthetic fields, the wider operator set) is still open.
  *
  * Two things stay different from that engine, on purpose: a rule carries its own
  * `id` (several rules can target one field — storage ≥500 AND ≤1000 — and the facet

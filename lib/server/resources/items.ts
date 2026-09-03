@@ -192,9 +192,12 @@ export async function tree(userId: string, query: ItemQuery): Promise<{ items: I
 
 /** enum→multiSelect: every enum field here is queried with inArray/notInArray
  *  (lib/domain/filters.ts's `opsFor`), i.e. a checked set, not a single choice. Group
- *  and unit have no wire equivalent yet — dropped, not lost: item-filter.ts's own
- *  note is that the two filter engines (this one and components/data-table's) merge
- *  in Phase 6 of ~/.claude/plans/wait-i-want-gentle-haven.md, where that gap closes. */
+ *  and unit have no wire equivalent yet — dropped, not lost: Phase 6 of
+ *  ~/.claude/plans/wait-i-want-gentle-haven.md wired the register's filter bar to the
+ *  CORE fields only (status/category/owner/currentOrg/custodian — see items.ts's
+ *  `ItemQuery`); the full generalised rule list (prop:/desc: synthetic fields, the
+ *  wider operator set below) is still future work, now that the old
+ *  components/data-table engine this comment used to point at is gone. */
 function toWireFilterField(f: { id: string; label: string; kind: "enum" | "text" | "number"; options?: Array<{ value: string; label: string }> }): ItemFilterFieldDef {
   return {
     id: f.id,

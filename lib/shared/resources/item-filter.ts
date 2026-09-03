@@ -1,11 +1,14 @@
 /**
- * The register's filter shape — deliberately the SAME `{id, op, v}` triple
- * components/data-table/types.ts's `TableFilter` already uses, and the same operator
- * vocabulary (`inArray`, `notInArray`, `contains`, `gte`, `lte`, `isEmpty`,
+ * The register's filter shape — deliberately the SAME `{id, op, v}` triple the now-
+ * deleted `components/data-table/types.ts`'s `TableFilter` used, and the same
+ * operator vocabulary (`inArray`, `notInArray`, `contains`, `gte`, `lte`, `isEmpty`,
  * `isNotEmpty`, ...). temp_works' own filter engine was deliberately written against
- * this vocabulary for exactly this reason: the two engines merge later (Phase 6 of
- * ~/.claude/plans/wait-i-want-gentle-haven.md) instead of one being rewritten to match
- * the other.
+ * this vocabulary for exactly this reason. Phase 6 of
+ * ~/.claude/plans/wait-i-want-gentle-haven.md wired the register's own filter bar
+ * straight to lib/domain/filters.ts using the operators both vocabularies already
+ * share (items.ts's `ItemQuery`, a handful of core fields) rather than through this
+ * schema — this contract still exists for the fuller merge (this shape, prop:/desc:
+ * fields and all, actually carried over the wire) that is still open.
  *
  * Nested property values need no new operator — a synthetic column whose `id` is a
  * namespaced field id (`prop:computer:brand`, `desc:storage:sizeGB`) reads a property

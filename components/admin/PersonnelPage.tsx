@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { SortingState } from "@tanstack/react-table";
 import type { OrgNodeDto, PersonDto, RoleKind } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PeopleTable } from "@/components/people/PeopleTable";
 import { Panel, Screen, Tag, Button, ErrorNote, Modal } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { EntityPicker } from "@/components/EntityPicker";
@@ -35,12 +37,40 @@ const MANAGER_INVITABLE: RoleKind[] = ["CUSTODIAN", "STAFF"];
 export default function PersonnelPage() {
   const { user } = useAuth();
   const isAdmin = (user?.roles ?? []).includes("SYS_ADMIN");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [people, setPeople] = useState<PersonDto[] | null>(null);
   const [nodes, setNodes] = useState<OrgNodeDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [manageId, setManageId] = useState<string | null>(null);
+  const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sorting, setSorting] = useState<SortingState>([]);
+
+  // URL-persisted so a reload (or a shared link) reproduces the same search — the one
+  // piece of filter state worth surviving a reload here; role/status stay local, this
+  // register is small enough that losing them on reload costs nothing.
+  const search = searchParams.get("people_q") ?? "";
+  const setSearch = (q: string) => {
+    const qp = new URLSearchParams(searchParams);
+    if (q) qp.set("people_q", q);
+    else qp.delete("people_q");
+    router.replace(`${pathname}?${qp.toString()}`);
+  };
+
+  const filteredPeople = useMemo(() => {
+    if (!people) return null;
+    const q = search.trim().toLowerCase();
+    return people.filter((p) => {
+      if (q && !p.name.toLowerCase().includes(q) && !p.email.toLowerCase().includes(q)) return false;
+      if (roleFilter && !p.roles.includes(roleFilter as RoleKind)) return false;
+      if (statusFilter && p.status !== statusFilter) return false;
+      return true;
+    });
+  }, [people, search, roleFilter, statusFilter]);
 
   function reload() {
     setError(null);
@@ -101,83 +131,6 @@ export default function PersonnelPage() {
     }
   }
 
-  const columns: DataTableColumn<PersonDto>[] = [
-    { id: "name", header: "Name", value: (p) => p.name, cell: (p) => <span className="font-medium">{p.name}</span>, sortable: true, variant: "text" },
-    { id: "email", header: "Email", value: (p) => p.email, cell: (p) => <span className="font-mono text-10.5">{p.email}</span>, sortable: true, variant: "text" },
-    {
-      id: "roles",
-      header: "Roles",
-      // A person holds several roles at once, so the raw value is the whole set — the
-      // faceted filter matches a row holding ANY of the checked ones.
-      value: (p) => p.roles,
-      cell: (p) => (
-        <div className="flex flex-wrap gap-3 justify-end">
-          {p.roles.map((r) => (
-            <Tag key={r}>{r.toLowerCase()}</Tag>
-          ))}
-        </div>
-      ),
-      variant: "multiSelect",
-      options: ALL_ROLE_KINDS.map((r) => ({ value: r, label: r.toLowerCase().replace("_", " ") })),
-    },
-    {
-      id: "status",
-      header: "Status",
-      value: (p) => p.status,
-      cell: (p) => <Tag tone={p.status === "ACTIVE" ? "good" : p.status === "INVITED" ? "warn" : "bad"}>{p.status.toLowerCase()}</Tag>,
-      variant: "multiSelect",
-      options: [
-        { value: "ACTIVE", label: "active" },
-        { value: "INVITED", label: "invited" },
-        { value: "DISABLED", label: "disabled" },
-      ],
-    },
-    {
-      id: "unit",
-      header: "Department / occupies",
-      value: (p) => p.occupiesNodeName ?? p.homeNodeName ?? "",
-      cell: (p) => (
-        <div className="text-10.5">
-          {p.occupiesNodeName ? <span className="text-text">Heads {p.occupiesNodeName}</span> : p.homeNodeName ?? <span className="text-faint">—</span>}
-        </div>
-      ),
-      variant: "multiSelect",
-      sortable: true,
-    },
-    {
-      id: "invitedBy",
-      header: "Invited by",
-      value: (p) => p.invitedByName ?? "",
-      cell: (p) => p.invitedByName ?? <span className="text-faint">—</span>,
-      variant: "multiSelect",
-    },
-    {
-      id: "joined",
-      header: "Added",
-      value: (p) => p.createdAt,
-      cell: (p) => <span className="text-10">{new Date(p.createdAt).toLocaleDateString("en-GB")}</span>,
-      variant: "date",
-      sortable: true,
-      mono: true,
-      width: "110px",
-    },
-    {
-      id: "actions",
-      header: "",
-      hideable: false,
-      cell: (p) => (
-        <div className="flex items-center gap-6 justify-end">
-          {p.status !== "DISABLED" && p.status === "INVITED" && <Button onClick={() => resendInvite(p)}>Resend invite</Button>}
-          {isAdmin && (
-            <Button variant="primary" onClick={() => setManageId(p.id)}>
-              Manage
-            </Button>
-          )}
-        </div>
-      ),
-    },
-  ];
-
   const managing = people?.find((p) => p.id === manageId) ?? null;
 
   return (
@@ -201,7 +154,58 @@ export default function PersonnelPage() {
         {people === null ? (
           <PanelLoading rows={5} />
         ) : (
-          <DataTable tableId="people" columns={columns} rows={people} rowKey={(p) => p.id} />
+          <>
+            <div className="flex flex-wrap items-center gap-8 px-14 py-9 border-b border-border bg-panel2">
+              <input
+                placeholder="Search name or email…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent w-[220px]"
+              />
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+              >
+                <option value="">Role: any</option>
+                {ALL_ROLE_KINDS.map((r) => (
+                  <option key={r} value={r}>
+                    {r.toLowerCase().replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+              >
+                <option value="">Status: any</option>
+                <option value="ACTIVE">active</option>
+                <option value="INVITED">invited</option>
+                <option value="DISABLED">disabled</option>
+              </select>
+              {(search || roleFilter || statusFilter) && (
+                <button
+                  onClick={() => {
+                    setSearch("");
+                    setRoleFilter("");
+                    setStatusFilter("");
+                  }}
+                  className="text-10.5 text-accent ml-auto"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+            <PeopleTable
+              rows={filteredPeople ?? []}
+              sorting={sorting}
+              onSortingChange={setSorting}
+              isAdmin={isAdmin}
+              onManage={(p) => setManageId(p.id)}
+              onResendInvite={resendInvite}
+            />
+          </>
         )}
       </Panel>
 

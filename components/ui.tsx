@@ -256,24 +256,3 @@ export function ConfirmDialog({
     </Modal>
   );
 }
-
-/**
- * An honest placeholder for a screen a later phase will build. It names the phase rather
- * than showing a blank panel, so a reviewer walking the app can tell "not built yet"
- * apart from "built and broken".
- */
-export function NotBuiltYet({ what, phase }: { what: string; phase: string }) {
-  return (
-    <Screen>
-      <Panel title={what}>
-        <div className="px-14 py-20 text-11.5 text-faint leading-normal">
-          Not built yet — scheduled for <span className="font-mono text-dim">{phase}</span>.
-          <div className="mt-6 text-10.5">
-            The route, navigation entry and role gating are already live, so this screen is
-            reachable by exactly the people who will use it.
-          </div>
-        </div>
-      </Panel>
-    </Screen>
-  );
-}
