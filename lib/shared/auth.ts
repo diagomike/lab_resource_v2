@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { RoleKindSchema, UserStatusSchema, WorkspaceKindSchema } from "./enums";
+import { RoleKindSchema, UserStatusSchema } from "./enums";
 import { ScopeDto } from "./scope";
+import { AccessViewSummaryDto } from "./resources/access-view";
+import { ScopeModeSchema } from "./resources/enums";
 
 export const LoginInput = z.object({
   email: z.string().email(),
@@ -55,11 +57,16 @@ export const MeContextDto = z.object({
   user: SessionUserDto,
   scope: ScopeDto.nullable(),
   canSeeCost: z.boolean(),
-  /** The workspace this session opens into. */
-  workspace: WorkspaceKindSchema,
-  /** Every workspace this user's role set qualifies for — powers the workspace switcher
-   *  for someone who, say, holds both CUSTODIAN and a MANAGER occupancy. Always includes
-   *  `workspace`. */
-  availableWorkspaces: z.array(WorkspaceKindSchema),
+  /** ItemScopeService's default resolution for this person — global role →
+   *  MY_CUSTODY (a custodian without MANAGER) → ORG_SUBTREE. What the sidebar's scope
+   *  panel labels; narrower than `scope` above, which describes org-hierarchy reach,
+   *  not resource reach specifically (they usually agree, but MY_CUSTODY has no org
+   *  node of its own). */
+  scopeMode: ScopeModeSchema,
+  /** Access views this person may choose between (lib/domain/views.ts's
+   *  `viewsForPerson`), most specific first. Empty until Phase 11 of
+   *  ~/.claude/plans/wait-i-want-gentle-haven.md seeds real AccessView rows — the
+   *  sidebar's view picker degrades to just the scope label when this is empty. */
+  views: z.array(AccessViewSummaryDto),
 });
 export type MeContextDto = z.infer<typeof MeContextDto>;

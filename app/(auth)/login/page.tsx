@@ -21,9 +21,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const ctx = await login(email, password);
-      // Land people where their workspace actually starts rather than on a generic home:
-      // an admin opens on personnel, a department head on their labs (once that exists).
-      router.replace(landingPathFor(ctx.workspace, ctx.user.roles));
+      router.replace(landingPathFor(ctx.user.roles));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in");
     } finally {

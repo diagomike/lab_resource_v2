@@ -37,17 +37,6 @@ export const roleKinds = [
 export const RoleKindSchema = z.enum(roleKinds);
 export type RoleKind = (typeof roleKinds)[number];
 
-/**
- * Which of the four purpose-built navigation shells a signed-in user lands in. Computed
- * SERVER-SIDE in auth.controller.ts's me() from role + org-node kind — the client never
- * re-derives it. A person holding several roles (e.g. CUSTODIAN + STAFF) still gets exactly
- * one primary workspace; nav.ts's workspace switcher is what lets them reach a second one
- * they also qualify for.
- */
-export const workspaceKinds = ["admin", "department", "approver", "custodian"] as const;
-export const WorkspaceKindSchema = z.enum(workspaceKinds);
-export type WorkspaceKind = (typeof workspaceKinds)[number];
-
 // ── Org hierarchy ────────────────────────────────────────────────────────
 export const orgNodeKinds = ["UNIVERSITY", "COLLEGE", "DEPARTMENT", "OFFICE"] as const;
 export const OrgNodeKindSchema = z.enum(orgNodeKinds);

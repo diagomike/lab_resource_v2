@@ -195,25 +195,27 @@ user's own dev machine, not a shared secret; `.gitignore` excludes `.env`.
 
 ### Not yet done
 
-Phases 0–4 of the resource-management replatforming plan
+Phases 0–5 of the resource-management replatforming plan
 (`~/.claude/plans/wait-i-want-gentle-haven.md`) are complete: demolition of
 the Phase-1 resource register; the full `temp_works`-derived Prisma data
-model; the pure domain logic (`lib/domain/**`); and the server-side scope,
+model; the pure domain logic (`lib/domain/**`); the server-side scope,
 write path, and full read/write API surface (`lib/server/resources/**`,
-`app/api/resources/**`) — see this file's Phase 4 timeline entry above for
-what that covers. **None of it has a UI yet** — every resource endpoint is
-exercised only by `curl` and Vitest so far, and the app still shows the
-transitional 4-workspace sidebar with no Register entry.
+`app/api/resources/**`); and the single-sidebar shell/navigation with
+`WorkspaceKind` removed end-to-end — see this file's Phase 4 and Phase 5
+timeline entries above for what each covers. The register itself (the
+actual hierarchy/rollup/search table) is still `ComingSoon` — Dashboard
+and Categories are the only two nav destinations with real data behind
+them so far.
 
-Remaining, in phase order: the single-sidebar shell and navigation
-(Phase 5); the register's three views (hierarchy/rollup/search) on
-`@tanstack/react-table`, the filter bar, and the inspector, with Personnel
-migrated onto the same table engine so `components/data-table/**` can
-finally be deleted (Phase 6); the editing surface — inline commit, bulk
-edit, confirmation rules (Phase 7); category administration's three-tab
-editor (Phase 8); images — object storage, upload, thumbnails (Phase 9);
-the change log view (Phase 10); access views (Phase 11); approvals
-(Phase 12); transfers (Phase 13); procurement (Phase 14); the real ASTU
+Remaining, in phase order: the register's three views (hierarchy/rollup/
+search) on `@tanstack/react-table`, the filter bar, and the inspector,
+with Personnel migrated onto the same table engine so `components/
+data-table/**` can finally be deleted (Phase 6); the editing surface —
+inline commit, bulk edit, confirmation rules (Phase 7); category
+administration's three-tab editor (Phase 8); images — object storage,
+upload, thumbnails (Phase 9); the change log view (Phase 10); access
+views (Phase 11); approvals (Phase 12); transfers (Phase 13); procurement
+(Phase 14); the real ASTU
 data import and demo seed (Phase 15); a final documentation pass
 (Phase 16). **Bookings are explicitly deferred** to a later track — see
 that plan's §2 for the specific defects in `temp_works`' booking model
@@ -840,6 +842,82 @@ its model that make porting it as-is the wrong move.
   bulk cleanup this session's own safety classifier declined to run
   unsupervised; left in place as harmless test noise rather than retried
   around.
+
+- **2026-09-03 (replatforming Phase 5)** — The single sidebar replaces the
+  four-workspace shell. `WorkspaceKind` removed end-to-end: `lib/shared/
+  enums.ts` (the enum itself), `lib/shared/auth.ts` (`MeContextDto` lost
+  `workspace`/`availableWorkspaces`, gained `scopeMode` — resolved via
+  `lib/server/resources/scope.ts`'s `defaultModeFor`, reusing Phase 4's
+  scope service rather than re-deriving it — and `views`, an
+  `AccessViewSummaryDto[]` that stays empty until Phase 11 seeds real
+  `AccessView` rows), `lib/server/auth/auth.ts` (`workspacesFor()` deleted
+  outright), `lib/nav.ts` (collapsed from a
+  `Record<WorkspaceKind, NavGroup[]>` to one flat `NavGroup[]`, `navFor`/
+  `canAccessPath`/`screenKeyForPath`/`landingPathFor` all lost their
+  workspace parameter), `components/RequireRole.tsx`, `components/shell/
+  Sidebar.tsx` (workspace switcher removed; scope panel gained the
+  resolved `scopeMode` label via `lib/domain/views.ts`'s `SCOPE_LABEL` —
+  imported straight into a client component, proving out that module's
+  own "runs in the browser too" design — and an access-view `<select>`
+  that degrades to nothing while `views` is empty), `components/shell/
+  TopBar.tsx` (workspace-switcher pills deleted; `pendingCount` prop
+  dropped with them — nothing read it once the pills that displayed the
+  approvals badge were gone), `app/(workspace)/layout.tsx`, `app/page.tsx`,
+  `app/(auth)/login/page.tsx`.
+
+  Six new top-level routes under `app/(workspace)/**`, matching the plan's
+  decision #2 nav list exactly: `/dashboard`, `/register`, `/approvals`,
+  `/purchasing`, `/change-log`, `/categories`, visible to every signed-in
+  role (no `roles` gate) — "what differs per person is their access view
+  and server-enforced scope, not their menu." Administration (Personnel +
+  Org Studio, plus the pre-existing org/people admin Overview) keeps its
+  real role gates (`SYS_ADMIN` for Overview/Org structure, `SYS_ADMIN`/
+  `MANAGER` for People & roles) as `roles` on the nav items themselves,
+  since nothing above them enforces that any more once workspaces are
+  gone.
+
+  Two of the six get real content now rather than a placeholder, because
+  Phase 4's API already supports them and the alternative was leaving
+  working, tested endpoints completely unused by any UI:
+  - **Dashboard** (`components/resources/DashboardPage.tsx`) — stat tiles
+    over `GET /api/resources/items/summary`: total in scope, needs
+    attention, a by-effective-status grid. Promoted `SummaryDto` from a
+    private `items.ts` interface into a proper Zod contract
+    (`ItemSummaryDto` in `lib/shared/resources/item.ts`) so a client
+    component could import its type at all — `lib/server/resources/
+    items.ts` carries `import "server-only"` and cannot be imported from
+    client code the way a plain TS interface tempted.
+  - **Categories** (`components/resources/CategoriesPage.tsx`) — a
+    read-only list over `GET /api/resources/categories`: name, key, group,
+    counting mode, field count, active flag. The three-tab admin editor
+    (create/edit/impact preview) is still Phase 8; this only proves the
+    read path and gives everyone the shared vocabulary view categories are
+    meant to be.
+
+  Register/Approvals/Purchasing/Change log share one `ComingSoon`
+  component, named honestly rather than hidden — each names what already
+  exists underneath it (the read API, the domain policy/chain logic,
+  per-item change history) and which later phase builds the screen.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` 253/253 (unchanged — this
+  phase is shell/nav/UI, no new pure logic); `npm run build` clean (36
+  routes, +6). Live in-browser across three seeded accounts (SYS_ADMIN,
+  the SE department head, the SE custodian): each lands on Dashboard with
+  correct real data; the scope panel shows the right `scopeMode` label per
+  account ("University-wide" / "My unit and below" / "In my custody");
+  Administration correctly shows all three items for SYS_ADMIN, only
+  "People & roles" for the MANAGER, and is absent entirely for the
+  CUSTODIAN (empty groups drop, per `navFor`'s own rule); a CUSTODIAN
+  typing `/admin/people` directly gets `RequireRole`'s real refusal
+  screen, not the page. Also caught and fixed, mid-verification, a
+  Windows dev-workflow issue distinct from any app bug: running `npm run
+  build` while `next dev` was still serving the same `.next/` directory
+  left the dev server's route manifest in a state where every navigation
+  silently stuck on `/login` (`GET`s all returned 200, but nothing ever
+  redirected) — a clean `preview_stop`/`preview_start` cycle resolved it
+  outright; noted here since it will recur if a build is run alongside a
+  live dev server again. `npm run build` itself is now run only after
+  stopping the dev server, not alongside it.
 
 ## Working agreements for this project
 

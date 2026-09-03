@@ -1,9 +1,10 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { navFor, WORKSPACES, workspaceForPath, screenKeyForPath } from "../../lib/nav";
+import { navFor, screenKeyForPath } from "../../lib/nav";
 import { useAuth } from "../../lib/auth-context";
-import type { ScopeDto, RoleKind } from "@/lib/shared";
+import { SCOPE_LABEL } from "@/lib/domain/views";
+import type { ScopeDto } from "@/lib/shared";
 
 /** "L2 · leaf · 1 unit" or, for the university offices, "university-wide · 14 units" */
 function scopeMeta(scope: ScopeDto): string {
@@ -26,12 +27,10 @@ export default function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const { me, logout } = useAuth();
-  const roles = (me?.user.roles ?? []) as RoleKind[];
-  const available = me?.availableWorkspaces ?? [];
-  const workspace = workspaceForPath(pathname, available, me?.workspace ?? "custodian");
-  const activeKey = screenKeyForPath(workspace, pathname);
+  const roles = me?.user.roles ?? [];
   const isAdmin = roles.includes("SYS_ADMIN");
-  const workspaces = WORKSPACES.filter((w) => available.includes(w.key));
+  const activeKey = screenKeyForPath(pathname);
+  const views = me?.views ?? [];
 
   const go = (path: string) => {
     router.push(path);
@@ -40,29 +39,6 @@ export default function Sidebar({
 
   return (
     <div className="bg-panel2 md:border-r border-border flex flex-col min-h-0 h-full overflow-hidden">
-      {/* On mobile the workspace switcher has nowhere else to live, so it heads the drawer. */}
-      {workspaces.length > 1 && (
-        <div className="md:hidden border-b border-border p-8 flex gap-4 flex-none">
-          {workspaces.map((w) => {
-            const on = workspace === w.key;
-            return (
-              <button
-                key={w.key}
-                onClick={() => go(navFor(w.key, roles)[0].items[0].path)}
-                style={{
-                  background: on ? "var(--accent)" : "var(--panel)",
-                  color: on ? "#fff" : "var(--dim)",
-                  borderColor: on ? "var(--accent)" : "var(--border2)",
-                }}
-                className="flex-1 border h-30 rounded-3 text-11.5 font-medium"
-              >
-                {w.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       <div className="px-12 pt-9 pb-8 border-b border-border flex-none">
         <div className="text-9.5 uppercase tracking-label text-faint font-semibold">Your scope</div>
         {scope ? (
@@ -91,10 +67,36 @@ export default function Sidebar({
             No unit scope — you work with the individual resources assigned to you.
           </div>
         )}
+
+        {/* How the resource register resolves for this person specifically — distinct
+            from the org-hierarchy scope above (a MY_CUSTODY custodian has no node of
+            their own, but still has a resource scope). */}
+        {me && (
+          <div className="text-10.5 text-dim mt-6 flex items-center gap-5">
+            <span className="opacity-60">◎</span>
+            {SCOPE_LABEL[me.scopeMode]}
+          </div>
+        )}
+
+        {/* Degrades to nothing until Phase 11 seeds real AccessView rows — see
+            MeContextDto's own note. */}
+        {views.length > 0 && (
+          <label className="block mt-8">
+            <span className="text-9.5 uppercase tracking-label text-faint font-semibold">Access view</span>
+            <select className="w-full mt-3 h-24 border border-border2 bg-panel rounded-3 text-11 px-6 outline-none focus:border-accent">
+              {views.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                  {v.canEdit ? "" : " · read only"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-10">
-        {navFor(workspace, roles).map((group) => (
+        {navFor(roles).map((group) => (
           <div key={group.label} className="mb-9">
             <div className="text-9.5 uppercase tracking-label text-faint font-semibold px-12 pt-4 pb-3">
               {group.label}

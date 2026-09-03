@@ -19,9 +19,8 @@ export default function RequireRole({ children }: { children: ReactNode }) {
   const { me } = useAuth();
   const pathname = usePathname();
   const roles = (me?.user.roles ?? []) as RoleKind[];
-  const availableWorkspaces = me?.availableWorkspaces ?? [];
 
-  if (!canAccessPath(pathname, roles, availableWorkspaces)) {
+  if (!canAccessPath(pathname, roles)) {
     return <PermissionDenied attempted={pathname} roles={roles} />;
   }
   return <>{children}</>;

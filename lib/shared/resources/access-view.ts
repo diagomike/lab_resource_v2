@@ -16,6 +16,17 @@ export const ViewAudienceDto = z.discriminatedUnion("type", [
 ]);
 export type ViewAudienceDto = z.infer<typeof ViewAudienceDto>;
 
+/** The sidebar's access-view picker only ever needs enough to label an option and
+ *  show its "read only" badge — not the full authored shape. Part of MeContextDto,
+ *  which is on the hot path of every page load. */
+export const AccessViewSummaryDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  scope: ScopeModeSchema,
+  canEdit: z.boolean(),
+});
+export type AccessViewSummaryDto = z.infer<typeof AccessViewSummaryDto>;
+
 export const AccessViewDto = z.object({
   id: z.string(),
   name: z.string(),

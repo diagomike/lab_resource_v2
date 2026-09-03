@@ -1,10 +1,7 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
-import { navFor, WORKSPACES, workspaceForPath } from "../../lib/nav";
 import { useTheme } from "../../lib/theme-context";
 import { useAuth } from "../../lib/auth-context";
-import type { RoleKind } from "@/lib/shared";
 
 function initials(name: string): string {
   const words = name
@@ -15,21 +12,10 @@ function initials(name: string): string {
   return words.slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
 }
 
-export default function TopBar({
-  pendingCount,
-  onOpenMenu,
-}: {
-  pendingCount?: number;
-  onOpenMenu: () => void;
-}) {
-  const pathname = usePathname();
-  const router = useRouter();
+export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { theme, toggle } = useTheme();
-  const { user, me } = useAuth();
-  const roles = (user?.roles ?? []) as RoleKind[];
-  const available = me?.availableWorkspaces ?? [];
-  const active = workspaceForPath(pathname, available, me?.workspace ?? "custodian");
-  const workspaces = WORKSPACES.filter((w) => available.includes(w.key));
+  const { user } = useAuth();
+  const roles = user?.roles ?? [];
 
   return (
     <div className="bg-top text-topfg flex items-center gap-8 md:gap-12 px-8 md:px-10 flex-none min-w-0 overflow-hidden">
@@ -51,30 +37,6 @@ export default function TopBar({
           ASTU <span className="opacity-60 font-normal hidden sm:inline">Lab Resources</span>
         </div>
       </div>
-
-      {/* Workspace switcher lives in the drawer on mobile — four pills plus a search field
-          will not fit beside a logo at 375px. Only rendered at all for someone who
-          qualifies for more than one workspace (e.g. a custodian who also heads a
-          department) — most people have exactly one and never see this. */}
-      {workspaces.length > 1 && (
-        <div className="hidden md:flex items-stretch gap-px bg-topline p-2 rounded-3 flex-none">
-          {workspaces.map((w) => {
-            const on = active === w.key;
-            const badge = w.key === "approver" && pendingCount ? String(pendingCount) : "";
-            return (
-              <button
-                key={w.key}
-                onClick={() => router.push(navFor(w.key, roles)[0].items[0].path)}
-                style={{ background: on ? "var(--topsel)" : "transparent", color: on ? "var(--top)" : "var(--topdim)" }}
-                className="border-0 text-11.5 font-medium px-11 py-3 rounded-2 tracking-wide whitespace-nowrap"
-              >
-                {w.label}
-                {badge && <span className="opacity-55 ml-6 text-10">{badge}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       <div className="flex-1 min-w-0 hidden md:flex justify-center px-8">
         <div className="w-full min-w-0 max-w-[380px] relative flex items-center bg-topfill border border-topline rounded-3 h-24 px-8 gap-6">

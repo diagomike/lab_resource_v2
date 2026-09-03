@@ -6,14 +6,14 @@ import { api, ApiError } from "./api";
 
 interface AuthState {
   user: SessionUserDto | null;
-  /** The full /auth/me payload — scope, workspace, availableWorkspaces, canSeeCost. Kept
-   *  here rather than re-fetched by AppShell separately: the shell used to run its own
-   *  independent /auth/me call for exactly this, which meant every page load hit the same
-   *  endpoint twice for no reason. AppShell's useMeContext() now just reads this. */
+  /** The full /auth/me payload — scope, scopeMode, views, canSeeCost. Kept here rather
+   *  than re-fetched by AppShell separately: the shell used to run its own independent
+   *  /auth/me call for exactly this, which meant every page load hit the same endpoint
+   *  twice for no reason. AppShell's useMeContext() now just reads this. */
   me: MeContextDto | null;
   loading: boolean;
-  /** Resolves with the full context so the caller can route by workspace without waiting
-   *  for the context state to settle — see landingPathFor(workspace, roles). */
+  /** Resolves with the full context so the caller can route without waiting for the
+   *  context state to settle — see landingPathFor(roles). */
   login: (email: string, password: string) => Promise<MeContextDto>;
   logout: () => Promise<void>;
 }
@@ -37,8 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function login(email: string, password: string): Promise<MeContextDto> {
     // /auth/login itself only returns the session user (see auth.controller.ts) — scope
-    // and workspace need the org lookups /auth/me already does, so this makes that one
-    // extra call rather than duplicating that logic client-side.
+    // and scopeMode need the org/scope lookups /auth/me already does, so this makes
+    // that one extra call rather than duplicating that logic client-side.
     await api.post<SessionUserDto>("/auth/login", { email, password });
     const ctx = await api.get<MeContextDto>("/auth/me");
     setMe(ctx);

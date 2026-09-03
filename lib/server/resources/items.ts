@@ -1,5 +1,13 @@
 import "server-only";
-import { effectiveStatuses as EFFECTIVE_STATUSES, type EffectiveStatus, type ItemDetailDto, type ItemFacetCounts, type ItemFilterFieldDef, type ItemRowDto } from "@/lib/shared";
+import {
+  effectiveStatuses as EFFECTIVE_STATUSES,
+  type EffectiveStatus,
+  type ItemDetailDto,
+  type ItemFacetCounts,
+  type ItemFilterFieldDef,
+  type ItemRowDto,
+  type ItemSummaryDto,
+} from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { computeStatuses, statusOf } from "@/lib/domain/status";
@@ -239,15 +247,9 @@ export async function facets(userId: string, query: ItemQuery): Promise<ItemFace
   return out;
 }
 
-export interface SummaryDto {
-  total: number;
-  byEffectiveStatus: Record<EffectiveStatus, number>;
-  needsAttention: number;
-}
-
 const NEEDS_ATTENTION: EffectiveStatus[] = ["BROKEN", "IMPAIRED", "UNDER_MAINTENANCE", "LOST"];
 
-export async function summary(userId: string): Promise<SummaryDto> {
+export async function summary(userId: string): Promise<ItemSummaryDto> {
   const forest = await loadForest();
   const { closed } = await computeScopedIds(userId, forest);
   const byEffectiveStatus: Record<string, number> = {};

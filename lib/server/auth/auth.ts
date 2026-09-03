@@ -8,12 +8,12 @@ import type {
   ResetPasswordInput,
   SessionUserDto,
   RoleKind,
-  WorkspaceKind,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as mail from "../mail/mail";
 import * as scope from "../org/scope";
+import * as itemScope from "../resources/scope";
 import { generateToken, hashIp, hashToken } from "./token";
 
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7);
@@ -154,8 +154,8 @@ export async function changePassword(userId: string, currentPassword: string, ne
 }
 
 /**
- * Everything the shell needs on first paint: who you are, which unit you are acting for,
- * and which of the four workspace shells you open into. Was embedded directly in
+ * Everything the shell needs on first paint: who you are, which unit you are acting
+ * for, and how the resource register resolves for you. Was embedded directly in
  * auth.controller.ts's `me()` handler (not a service method) in the NestJS app; moved
  * here so the route handler stays a thin wrapper like every other endpoint.
  */
@@ -216,49 +216,10 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
           }
         : null,
     canSeeCost: await scope.canSeeCost(user.id),
-    ...workspacesFor(user.roles, node?.kind ?? null),
+    scopeMode: await itemScope.defaultModeFor(user.id),
+    // Empty until Phase 11 seeds real AccessView rows — see MeContextDto's own note.
+    views: [],
   };
-}
-
-/**
- * Which of the four purpose-built shells this role set opens into — computed here, once,
- * server-side, rather than re-derived in the client (the same discipline canSeeCost
- * already follows). A department head occupies a DEPARTMENT node; a dean or the AVP
- * occupies a COLLEGE/UNIVERSITY node; PROPERTY_ADMIN and PROCUREMENT are approvers by role
- * regardless of node, per scope.ts's own global-reach list.
- *
- * STORE_KEEPER is grouped with PROPERTY_ADMIN/PROCUREMENT — university-wide reach by role,
- * same as those two offices — even though its actual resource-register reach will come
- * through the access-view system (Phase 11 of the replatforming plan), not org edges.
- *
- * Anyone who doesn't match admin/department/approver — a plain CUSTODIAN, STAFF or
- * STUDENT — falls back to the "custodian" shell. For an actual custodian that's their
- * real workspace; for STAFF/STUDENT it's the closest fit (their own resources: bookings,
- * loans, requests) rather than a fifth shell this phase does not build. EXTERNAL falls
- * back the same way for now — nothing in this phase creates an EXTERNAL session, and this
- * whole 4-workspace model is itself scheduled for removal (replatforming Phase 5) in
- * favour of one sidebar with server-enforced scope.
- */
-function workspacesFor(
-  roles: string[],
-  occupiedNodeKind: string | null,
-): { workspace: WorkspaceKind; availableWorkspaces: WorkspaceKind[] } {
-  const set = new Set<WorkspaceKind>();
-  if (roles.includes("SYS_ADMIN")) set.add("admin");
-  if (roles.includes("MANAGER") && occupiedNodeKind === "DEPARTMENT") set.add("department");
-  if (
-    roles.includes("PROPERTY_ADMIN") ||
-    roles.includes("PROCUREMENT") ||
-    roles.includes("STORE_KEEPER") ||
-    (roles.includes("MANAGER") && occupiedNodeKind !== null && occupiedNodeKind !== "DEPARTMENT")
-  ) {
-    set.add("approver");
-  }
-  if (set.size === 0 || roles.includes("CUSTODIAN")) set.add("custodian");
-
-  const precedence: WorkspaceKind[] = ["admin", "department", "approver", "custodian"];
-  const availableWorkspaces = precedence.filter((w) => set.has(w));
-  return { workspace: availableWorkspaces[0], availableWorkspaces };
 }
 
 function toDto(

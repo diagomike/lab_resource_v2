@@ -19,7 +19,7 @@
  * (ItemChangeDto) tags a category-edit entry with it.
  */
 import { z } from "zod";
-import { CountingModeSchema, EffectiveStatusSchema, ItemChangeKindSchema, ItemChangeTargetSchema, ItemStatusSchema } from "./enums";
+import { CountingModeSchema, EffectiveStatusSchema, effectiveStatuses, ItemChangeKindSchema, ItemChangeTargetSchema, ItemStatusSchema } from "./enums";
 
 export const ItemPropValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export type ItemPropValue = z.infer<typeof ItemPropValue>;
@@ -236,3 +236,16 @@ export const ItemChangeDto = z.object({
   note: z.string().nullable(),
 });
 export type ItemChangeDto = z.infer<typeof ItemChangeDto>;
+
+// ── Dashboard-shaped read (items.ts's summary()) ────────────────────────
+
+export const ItemSummaryDto = z.object({
+  total: z.number().int(),
+  byEffectiveStatus: z.record(EffectiveStatusSchema, z.number().int()),
+  needsAttention: z.number().int(),
+});
+export type ItemSummaryDto = z.infer<typeof ItemSummaryDto>;
+
+// z.record's keys are never required to be present — this named list is what a
+// caller iterates when it wants a zero-filled row for a status nothing currently has.
+export const EFFECTIVE_STATUS_LIST = effectiveStatuses;

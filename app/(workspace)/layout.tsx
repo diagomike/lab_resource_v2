@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { workspaceForPath, screenKeyForPath, META } from "@/lib/nav";
+import { screenKeyForPath, META } from "@/lib/nav";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import TopBar from "@/components/shell/TopBar";
 import Sidebar from "@/components/shell/Sidebar";
@@ -54,8 +54,7 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
 
-  const workspace = workspaceForPath(pathname, me?.availableWorkspaces ?? [], me?.workspace ?? "custodian");
-  const key = screenKeyForPath(workspace, pathname);
+  const key = screenKeyForPath(pathname);
   const meta = META[key] ?? ["", "", ""];
 
   const counts: Record<string, string> = {};
@@ -64,7 +63,7 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
   return (
     <HeaderContext.Provider value={setOverride}>
       <div className="h-screen w-full grid grid-rows-[38px_1fr_24px] bg-bg overflow-hidden">
-        <TopBar pendingCount={undefined} onOpenMenu={() => setDrawerOpen(true)} />
+        <TopBar onOpenMenu={() => setDrawerOpen(true)} />
 
         {/* Single column below md — the sidebar is lifted out of flow into a drawer. */}
         <div className="grid grid-cols-1 md:grid-cols-[236px_1fr] min-h-0 overflow-hidden relative">
@@ -92,7 +91,7 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
               title={override.title ?? meta[1]}
               subtitle={override.subtitle ?? meta[2]}
             />
-            <div className="flex-1 overflow-auto min-h-0" key={workspace}>
+            <div className="flex-1 overflow-auto min-h-0">
               {children}
             </div>
           </div>
