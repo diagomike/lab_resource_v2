@@ -7,17 +7,13 @@
  *
  * The operator names were deliberately kept matching lib_resource_v2's now-deleted
  * `components/data-table` engine's own (its `types.ts`) rather than shorter ones
- * invented here — see lib/shared/resources/item-filter.ts's own note on the two
- * engines' planned merge. Phase 6 of ~/.claude/plans/wait-i-want-gentle-haven.md
- * wired the register's filter bar to this module directly (via items.ts's
- * `ItemQuery`) using only the operators both vocabularies already share; the fuller
- * merge (prop:/desc: synthetic fields, the wider operator set) is still open.
- *
- * Two things stay different from that engine, on purpose: a rule carries its own
- * `id` (several rules can target one field — storage ≥500 AND ≤1000 — and the facet
- * counter needs to relax exactly one), and a rule holds `values: string[]` rather
- * than a URL-shaped `string | string[]`, since nothing here is serialised into a
- * query string.
+ * invented here. `lib/shared/resources/item-filter.ts`'s wire `ItemFilterState` is now
+ * structurally identical to this module's `FilterState` (same `search`/`join`/
+ * `rules[].{id,field,op,values}`), so a rule built here, sent over the wire via
+ * `items.ts`'s `ItemQuery.rules`, or stored in `AccessView.extraFilters` is the same
+ * shape throughout — no adapter step. `items.ts`'s core fields (status/category/
+ * owner/currentOrg/custodian) stay their own readable query params for a bookmarkable
+ * URL, but resolve to ordinary rules here (`newRule`) before `matchItems` ever runs.
  */
 import { newId } from "./instantiate";
 import { statusOf, type StatusInfo } from "./status";

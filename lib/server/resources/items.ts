@@ -1,6 +1,7 @@
 import "server-only";
 import {
   effectiveStatuses as EFFECTIVE_STATUSES,
+  ItemFilterRule as ItemFilterRuleSchema,
   type EffectiveStatus,
   type ItemDetailDto,
   type ItemFacetCounts,
@@ -12,13 +13,21 @@ import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { computeStatuses, statusOf } from "@/lib/domain/status";
 import { descendantCategories, indexItems, pathOf, type TreeIndex } from "@/lib/domain/tree";
-import { buildFilterFields, facetCounts as domainFacetCounts, matchItems, type FilterCtx, type FilterState } from "@/lib/domain/filters";
+import {
+  buildFilterFields,
+  facetCounts as domainFacetCounts,
+  matchItems,
+  newRule,
+  type FilterCtx,
+  type FilterRule,
+  type FilterState,
+} from "@/lib/domain/filters";
 import { expandMatches } from "@/lib/domain/tree";
 import { unitsOf, withAncestors } from "@/lib/domain/item-scope";
-import { newRule } from "@/lib/domain/filters";
 import type { Category, Item as DomainItem, OrgNode as DomainOrgNode } from "@/lib/domain/types";
 import * as scope from "./scope";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
+import { z } from "zod";
 
 /**
  * Resource READS. Every query goes through a scoped "forest" — the whole
@@ -115,13 +124,36 @@ export interface ItemQuery {
   ownerOrgNodeId?: string;
   currentOrgNodeId?: string;
   custodianId?: string;
+  /** The full generalised filter engine — prop:/desc: synthetic fields and any
+   *  operator `lib/domain/filters.ts` implements — additional to the core fields
+   *  above, which stay their own params for a readable, bookmarkable URL. Combined
+   *  with the core-field rules under one `join`. */
+  rules?: FilterRule[];
+  join?: "and" | "or";
 }
 
-/** Shared by every Route Handler that takes the core filter set as query params
- *  (search/tree/facets) — the full generalised filter-rule wire format
- *  (ItemFilterState) is Phase 6's job, once the filter bar UI actually produces one. */
+const RulesParam = z.array(ItemFilterRuleSchema);
+
+/** Shared by every Route Handler that takes filters as query params (search/tree/
+ *  facets). Core fields (`categoryId`/`status`/`owner...`/`custodianId`) stay plain,
+ *  readable params; `rules` carries the rest of the generalised engine — prop:/desc:
+ *  synthetic fields, any implemented operator, several rules per field — as one
+ *  JSON-encoded array, since there is no flat query-string shape for an open-ended
+ *  rule set. An unparseable `rules` param is treated as absent rather than a 400 —
+ *  a malformed filter should show "no filter", not break the whole register. */
 export function parseItemQuery(sp: URLSearchParams): ItemQuery {
   const statusParam = sp.get("status");
+  const joinParam = sp.get("join");
+  const rawRules = sp.get("rules");
+  let rules: FilterRule[] | undefined;
+  if (rawRules) {
+    try {
+      const parsed = RulesParam.safeParse(JSON.parse(rawRules));
+      if (parsed.success) rules = parsed.data;
+    } catch {
+      // malformed JSON — treated as no advanced rules, not a 400 (see header comment)
+    }
+  }
   return {
     q: sp.get("q") ?? undefined,
     categoryId: sp.get("categoryId") ?? undefined,
@@ -129,17 +161,19 @@ export function parseItemQuery(sp: URLSearchParams): ItemQuery {
     ownerOrgNodeId: sp.get("ownerOrgNodeId") ?? undefined,
     currentOrgNodeId: sp.get("currentOrgNodeId") ?? undefined,
     custodianId: sp.get("custodianId") ?? undefined,
+    rules,
+    join: joinParam === "or" ? "or" : "and",
   };
 }
 
 function buildFilterState(query: ItemQuery): FilterState {
-  const rules = [];
+  const rules = [...(query.rules ?? [])];
   if (query.categoryId) rules.push(newRule("category", [query.categoryId]));
   if (query.status) rules.push(newRule("status", [query.status]));
   if (query.ownerOrgNodeId) rules.push(newRule("owner", [query.ownerOrgNodeId]));
   if (query.currentOrgNodeId) rules.push(newRule("currentOrg", [query.currentOrgNodeId]));
   if (query.custodianId) rules.push(newRule("custodian", [query.custodianId]));
-  return { search: query.q ?? "", join: "and", rules };
+  return { search: query.q ?? "", join: query.join ?? "and", rules };
 }
 
 function ctxOf(forest: Forest): FilterCtx {
@@ -156,10 +190,10 @@ export interface SearchResult {
  *  sliced, never after. */
 export async function search(userId: string, query: ItemQuery, page = 1, pageSize = 50): Promise<SearchResult> {
   const forest = await loadForest();
-  const { base, closed } = await computeScopedIds(userId, forest);
+  const { base } = await computeScopedIds(userId, forest);
   const matched = matchItems(forest.items, buildFilterState(query), ctxOf(forest));
 
-  const rows = [...closed]
+  const rows = [...base]
     .filter((id) => matched.has(id))
     .map((id) => forest.index.byId.get(id)!)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -170,7 +204,9 @@ export async function search(userId: string, query: ItemQuery, page = 1, pageSiz
   const pageRows = rows.slice((safePage - 1) * safeSize, safePage * safeSize);
 
   const lookups = await nameLookups();
-  return { items: pageRows.map((item) => toRowDto(item, forest, lookups, !base.has(item.id))), total };
+  // Every row here is a base match, never ancestor-only context — readOnlyContext is
+  // tree()'s distinction, not search()'s (see this function's own header comment).
+  return { items: pageRows.map((item) => toRowDto(item, forest, lookups, false)), total };
 }
 
 /** The whole scoped+matched set, ancestor AND descendant closed, unpaginated — the
@@ -192,18 +228,24 @@ export async function tree(userId: string, query: ItemQuery): Promise<{ items: I
 
 /** enum→multiSelect: every enum field here is queried with inArray/notInArray
  *  (lib/domain/filters.ts's `opsFor`), i.e. a checked set, not a single choice. Group
- *  and unit have no wire equivalent yet — dropped, not lost: Phase 6 of
- *  ~/.claude/plans/wait-i-want-gentle-haven.md wired the register's filter bar to the
- *  CORE fields only (status/category/owner/currentOrg/custodian — see items.ts's
- *  `ItemQuery`); the full generalised rule list (prop:/desc: synthetic fields, the
- *  wider operator set below) is still future work, now that the old
- *  components/data-table engine this comment used to point at is gone. */
-function toWireFilterField(f: { id: string; label: string; kind: "enum" | "text" | "number"; options?: Array<{ value: string; label: string }> }): ItemFilterFieldDef {
+ *  has no wire equivalent — dropped, not lost, since nothing renders it (the filter
+ *  builder groups by category name client-side instead). This list includes the
+ *  synthetic prop:/desc: fields for whichever categories the caller names as active
+ *  (`filterFields`'s `activeCategoryIds`) — those, plus the core fields, are exactly
+ *  what `ItemQuery.rules`/`parseItemQuery` accept back. */
+function toWireFilterField(f: {
+  id: string;
+  label: string;
+  kind: "enum" | "text" | "number";
+  options?: Array<{ value: string; label: string }>;
+  unit?: string;
+}): ItemFilterFieldDef {
   return {
     id: f.id,
     label: f.label,
     variant: f.kind === "enum" ? "multiSelect" : f.kind,
     options: f.options,
+    unit: f.unit,
   };
 }
 

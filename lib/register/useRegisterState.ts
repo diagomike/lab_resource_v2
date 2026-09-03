@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ExpandedState, RowSelectionState } from "@tanstack/react-table";
 import { buildRollup, buildSearchList, buildTree, indexItems, type RowNode } from "@/lib/domain/tree";
+import type { FilterRule } from "@/lib/domain/filters";
 import { api, ApiError } from "@/lib/api";
-import type { ItemRowDto } from "@/lib/shared";
+import { filterOperators, type ItemRowDto } from "@/lib/shared";
 import { toDomainItem } from "./adapt";
 
 export type RegisterMode = "tree" | "rollup" | "flat";
@@ -25,11 +26,12 @@ export const MODE_HELP: Record<RegisterMode, string> = {
 const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
 
 /**
- * Core fields only, not the full generalised `ItemFilterState` (rules, prop:/desc:
- * synthetic fields, the wider operator set) — that merge of the two filter engines
- * (see lib/shared/resources/item-filter.ts's own note) is future work. These six
- * cover what items.ts's `parseItemQuery` already accepts, which is what makes this
- * simple: no server-side change was needed to wire this filter bar up.
+ * Core fields (status/category/owner/currentOrg/custodian) stay their own readable
+ * URL params — a shareable link like `?categoryId=x&status=WORKING` reads better than
+ * JSON. `rules`/`join` carry the rest of the generalised engine (prop:/desc: synthetic
+ * fields, any operator `lib/domain/filters.ts` implements, several rules per field) as
+ * one JSON-encoded array, since there is no flat query-string shape for an open-ended
+ * rule set — the same split `lib/server/resources/items.ts`'s `ItemQuery` makes.
  */
 export interface RegisterFilters {
   q: string;
@@ -38,7 +40,11 @@ export interface RegisterFilters {
   ownerOrgNodeId: string;
   currentOrgNodeId: string;
   custodianId: string;
+  rules: FilterRule[];
+  join: "and" | "or";
 }
+
+const CORE_KEYS = ["q", "categoryId", "status", "ownerOrgNodeId", "currentOrgNodeId", "custodianId"] as const satisfies readonly (keyof RegisterFilters)[];
 
 export const EMPTY_FILTERS: RegisterFilters = {
   q: "",
@@ -47,25 +53,63 @@ export const EMPTY_FILTERS: RegisterFilters = {
   ownerOrgNodeId: "",
   currentOrgNodeId: "",
   custodianId: "",
+  rules: [],
+  join: "and",
 };
-
-const FILTER_KEYS = Object.keys(EMPTY_FILTERS) as (keyof RegisterFilters)[];
 
 function readMode(sp: URLSearchParams): RegisterMode {
   const raw = sp.get("mode");
   return (MODES as string[]).includes(raw ?? "") ? (raw as RegisterMode) : "tree";
 }
 
+/** A hand-edited URL can carry anything under `?rules=`; the server re-validates it
+ *  with the same Zod schema this mirrors, but the client renders these rules directly
+ *  (chip labels, describeRule's `.join` calls) before that round-trip, so a malformed
+ *  entry needs to be dropped here too rather than crashing the register. */
+function isFilterRule(v: unknown): v is FilterRule {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.id === "string" &&
+    typeof r.field === "string" &&
+    typeof r.op === "string" &&
+    (filterOperators as readonly string[]).includes(r.op) &&
+    Array.isArray(r.values) &&
+    r.values.every((x) => typeof x === "string")
+  );
+}
+
+function readRules(sp: URLSearchParams): FilterRule[] {
+  const raw = sp.get("rules");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isFilterRule) : [];
+  } catch {
+    return [];
+  }
+}
+
 function readFilters(sp: URLSearchParams): RegisterFilters {
   const out = { ...EMPTY_FILTERS };
-  for (const key of FILTER_KEYS) out[key] = sp.get(key) ?? "";
+  for (const key of CORE_KEYS) out[key] = sp.get(key) ?? "";
+  out.rules = readRules(sp);
+  out.join = sp.get("join") === "or" ? "or" : "and";
   return out;
+}
+
+function appendFilterParams(qp: URLSearchParams, filters: RegisterFilters): void {
+  for (const key of CORE_KEYS) if (filters[key]) qp.set(key, filters[key]);
+  if (filters.rules.length) {
+    qp.set("rules", JSON.stringify(filters.rules));
+    if (filters.join === "or") qp.set("join", "or");
+  }
 }
 
 function toQueryString(mode: RegisterMode, filters: RegisterFilters, extra?: Record<string, string>): string {
   const qp = new URLSearchParams();
   if (mode !== "tree") qp.set("mode", mode);
-  for (const key of FILTER_KEYS) if (filters[key]) qp.set(key, filters[key]);
+  appendFilterParams(qp, filters);
   if (extra) for (const [k, v] of Object.entries(extra)) if (v) qp.set(k, v);
   const s = qp.toString();
   return s ? `?${s}` : "";
@@ -73,7 +117,7 @@ function toQueryString(mode: RegisterMode, filters: RegisterFilters, extra?: Rec
 
 function toApiParams(filters: RegisterFilters): string {
   const qp = new URLSearchParams();
-  for (const key of FILTER_KEYS) if (filters[key]) qp.set(key, filters[key]);
+  appendFilterParams(qp, filters);
   const s = qp.toString();
   return s ? `?${s}` : "";
 }
@@ -104,6 +148,12 @@ export function useRegisterState() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const [selection, setSelection] = useState<RowSelectionState>({});
+  /** Bumped by `refetch()` to re-run the fetch effect below with the exact same
+   *  mode/filters/page — what an edit surface calls after a write applies, so the
+   *  table reflects it without a full page reload or router navigation (neither mode
+   *  nor filters actually changed, so nothing else would re-trigger the effect). */
+  const [reloadToken, setReloadToken] = useState(0);
+  const refetch = useCallback(() => setReloadToken((t) => t + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +183,7 @@ export function useRegisterState() {
     return () => {
       cancelled = true;
     };
-  }, [mode, filters, page]);
+  }, [mode, filters, page, reloadToken]);
 
   const setFilters = useCallback(
     (patch: Partial<RegisterFilters>) => {
@@ -180,6 +230,26 @@ export function useRegisterState() {
     return mode === "rollup" ? buildRollup(index, null) : buildTree(index, null);
   }, [mode, rows, domainItems, index]);
 
+  /** Real item ids the current TanStack row selection speaks for — a cluster row's
+   *  `memberIds` are every item behind it, so selecting one selected row can resolve
+   *  to many ids. Editing a cluster row is a bulk edit of its members for exactly
+   *  this reason (lib/domain/tree.ts's own header). Walks the whole nested tree, not
+   *  just the roots `rowNodes` holds directly, since TanStack tracks selection by row
+   *  id at any depth via `getSubRows`. */
+  const selectedItemIds = useMemo(() => {
+    const selectedRowIds = new Set(Object.keys(selection).filter((k) => selection[k]));
+    if (!selectedRowIds.size) return [];
+    const out = new Set<string>();
+    const walk = (nodes: RowNode[]) => {
+      for (const n of nodes) {
+        if (selectedRowIds.has(n.id)) for (const id of n.memberIds) out.add(id);
+        if (n.children.length) walk(n.children);
+      }
+    };
+    walk(rowNodes);
+    return [...out];
+  }, [selection, rowNodes]);
+
   return {
     mode,
     setMode,
@@ -202,6 +272,8 @@ export function useRegisterState() {
     selection,
     setSelection,
     selectedIds: Object.keys(selection).filter((k) => selection[k]),
+    selectedItemIds,
+    refetch,
   };
 }
 

@@ -1,18 +1,102 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import type { CategoryFieldDto, ResourceCategoryDto } from "@/lib/shared";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
-import { Panel, Screen, ErrorNote, Button } from "@/components/ui";
+import { usePendingChange } from "@/lib/register/usePendingChange";
+import { useEditOptions } from "@/lib/register/useEditOptions";
+import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
+import { Panel, Screen, ErrorNote, Button, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { ResourceTable } from "./ResourceTable";
 import { FilterBar } from "./FilterBar";
 import { Inspector } from "./Inspector";
+import { AddModal } from "./AddModal";
+import { BulkPropModal } from "./BulkPropModal";
 
 const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
 
 function RegisterPageInner() {
   const state = useRegisterState();
+  const { user } = useAuth();
   const [inspectId, setInspectId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [propField, setPropField] = useState<CategoryFieldDto | null>(null);
+  const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
+  const allExpanded = state.expanded === true;
+  const options = useEditOptions();
+
+  useEffect(() => {
+    api
+      .get<ResourceCategoryDto[]>("/resources/categories")
+      .then(setCategories)
+      .catch(() => setCategories([]));
+  }, []);
+
+  const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange(() => {
+    state.setSelection({});
+    state.refetch();
+  });
+
+  const selectedIds = state.selectedItemIds;
+  const selectedRows = useMemo(() => selectedIds.map((id) => state.byId.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r)), [selectedIds, state.byId]);
+
+  /** Property fields every selected item's own category defines in common — offering
+   *  anything narrower would let the bulk write reach a category that cannot hold it,
+   *  which the server refuses outright (see BulkPropModal's own note). */
+  const commonPropFields = useMemo(() => {
+    if (!selectedRows.length) return [];
+    const categoryIds = new Set(selectedRows.map((r) => r.categoryId));
+    const fieldSets = [...categoryIds].map((id) => categories.find((c) => c.id === id)?.fields ?? []);
+    if (fieldSets.some((f) => f.length === 0)) return [];
+    const [first, ...rest] = fieldSets;
+    return first.filter((f) => rest.every((fs) => fs.some((x) => x.key === f.key)));
+  }, [selectedRows, categories]);
+
+  function bulkRequestSelect(kind: "setStatus" | "setCustodian" | "setOwnerOrg" | "setCurrentOrg", value: string, label: string) {
+    if (!value) return;
+    request({
+      input: { kind, itemIds: selectedIds, value } as never,
+      title: label,
+      message: `Apply "${label}" to ${selectedIds.length} selected resources?`,
+      tone: "warn",
+    });
+  }
+
+  const MOVE_TOP_LEVEL = "__top_level__";
+  function bulkMove(rawValue: string) {
+    if (!rawValue) return; // the picker's own placeholder, not a real choice
+    const value = rawValue === MOVE_TOP_LEVEL ? null : rawValue;
+    request({
+      input: { kind: "moveInTree", itemIds: selectedIds, value },
+      title: "Relocation",
+      message: `Move ${selectedIds.length} selected resources to ${value ? "the chosen destination" : "the top level"}?`,
+      tone: "warn",
+    });
+  }
+
+  function bulkRename(value: string) {
+    if (!value.trim()) return;
+    request({
+      input: { kind: "setName", itemIds: selectedIds, value: value.trim() },
+      title: "Rename",
+      message: `Rename ${selectedIds.length} selected resources to "${value.trim()}"?`,
+      tone: "warn",
+    });
+  }
+
+  function bulkDelete() {
+    request({
+      input: { kind: "deleteItem", itemIds: selectedIds },
+      title: "Delete resources",
+      message: `Delete ${selectedIds.length} selected resources and everything physically nested inside them? This cannot be undone.`,
+      tone: "danger",
+      confirmLabel: "Delete",
+    });
+  }
+
+  const canCreateRoot = user?.roles.includes("SYS_ADMIN") ?? false;
 
   return (
     <Screen>
@@ -20,25 +104,153 @@ function RegisterPageInner() {
       <Panel
         title="Register"
         actions={
-          <div className="flex items-center gap-4">
-            {MODES.map((m) => (
+          <div className="flex items-center gap-10">
+            <Button variant="primary" onClick={() => setAddOpen(true)}>
+              + Add resources
+            </Button>
+            {state.mode !== "flat" && (
               <button
-                key={m}
-                onClick={() => state.setMode(m)}
-                title={MODE_HELP[m]}
-                style={{
-                  background: state.mode === m ? "var(--accent)" : "var(--panel2)",
-                  color: state.mode === m ? "#fff" : "var(--dim)",
-                }}
-                className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
+                onClick={() => state.setExpanded(allExpanded ? {} : true)}
+                title={allExpanded ? "Collapse all" : "Expand all"}
+                className="border border-border2 bg-panel2 text-dim h-24 px-9 rounded-2 text-10.5 flex items-center gap-5 flex-none"
               >
-                {MODE_LABEL[m]}
+                <span>{allExpanded ? "▾" : "▸"}</span>
+                <span>{allExpanded ? "Collapse all" : "Expand all"}</span>
               </button>
-            ))}
+            )}
+            <div className="flex items-center gap-4">
+              {MODES.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => state.setMode(m)}
+                  title={MODE_HELP[m]}
+                  style={{
+                    background: state.mode === m ? "var(--accent)" : "var(--panel2)",
+                    color: state.mode === m ? "#fff" : "var(--dim)",
+                  }}
+                  className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
+                >
+                  {MODE_LABEL[m]}
+                </button>
+              ))}
+            </div>
           </div>
         }
       >
         <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} />
+
+        {selectedIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-8 px-14 py-9 border-b border-border bg-soft">
+            <span className="text-10.5 text-accent font-medium">{selectedIds.length} selected</span>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                bulkRequestSelect("setStatus", e.target.value, "Status change");
+                e.target.value = "";
+              }}
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+            >
+              <option value="">Set status…</option>
+              {["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                bulkRequestSelect("setCustodian", e.target.value, "Custody transfer");
+                e.target.value = "";
+              }}
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+            >
+              <option value="">Set custodian…</option>
+              {options.custodian.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                bulkRequestSelect("setOwnerOrg", e.target.value, "Ownership transfer");
+                e.target.value = "";
+              }}
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+            >
+              <option value="">Set owning unit…</option>
+              {options.owner.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                bulkRequestSelect("setCurrentOrg", e.target.value, "Current unit change");
+                e.target.value = "";
+              }}
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+            >
+              <option value="">Set current unit…</option>
+              {options.currentOrg.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                bulkMove(e.target.value);
+                e.target.value = "";
+              }}
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+            >
+              <option value="">Move to…</option>
+              <option value={MOVE_TOP_LEVEL}>Top level</option>
+              {(state.rows ?? [])
+                .filter((r) => !selectedIds.includes(r.id))
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+            </select>
+            <input
+              placeholder="Rename to…"
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                bulkRename((e.target as HTMLInputElement).value);
+                (e.target as HTMLInputElement).value = "";
+              }}
+              className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent w-[140px]"
+            />
+            {commonPropFields.length > 0 && (
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  setPropField(commonPropFields.find((f) => f.key === e.target.value) ?? null);
+                  e.target.value = "";
+                }}
+                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+              >
+                <option value="">Set property…</option>
+                {commonPropFields.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button onClick={bulkDelete} className="text-10.5 text-bad ml-auto">
+              Delete selected
+            </button>
+          </div>
+        )}
 
         {state.loading ? (
           <PanelLoading rows={6} />
@@ -74,7 +286,46 @@ function RegisterPageInner() {
         )}
       </Panel>
 
-      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} />
+      <Inspector
+        itemId={inspectId}
+        onClose={() => setInspectId(null)}
+        onChanged={state.refetch}
+        containers={(state.rows ?? []).filter((r) => r.id !== inspectId)}
+      />
+
+      <AddModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onCreated={state.refetch}
+        containers={state.rows ?? []}
+        canCreateRoot={canCreateRoot}
+      />
+
+      {propField && (
+        <BulkPropModal
+          itemIds={selectedIds}
+          field={propField}
+          onClose={() => setPropField(null)}
+          onApplied={() => {
+            setPropField(null);
+            state.setSelection({});
+            state.refetch();
+          }}
+        />
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title={pending.title}
+          message={pending.message}
+          tone={pending.tone}
+          confirmLabel={pending.confirmLabel}
+          busy={busy}
+          error={pendingError}
+          onConfirm={confirm}
+          onCancel={cancel}
+        />
+      )}
     </Screen>
   );
 }

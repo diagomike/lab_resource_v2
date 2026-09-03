@@ -43,6 +43,9 @@ export async function applyChange(actorId: string, input: ItemChangeInput, opts?
   let captured: ItemChangeResultDto | undefined;
   try {
     await prisma.$transaction(async (tx) => {
+      // Version check and write must be atomic — see assertVersionsMatch's own header
+      // on why this runs INSIDE the transaction, not before it opens.
+      await assertVersionsMatch(tx, input);
       captured = await performChange(tx, actorId, input);
       if (opts?.dryRun) throw DRY_RUN_ABORT;
     });
@@ -58,43 +61,95 @@ export function previewChange(actorId: string, input: ItemChangeInput): Promise<
   return applyChange(actorId, input, { dryRun: true });
 }
 
-// ── Authorization — WHO may do this. Scope is never re-derived at a call site; see
-//    scope.ts's own header. Runs before the transaction opens, against committed
-//    state, so a request that fails authorization never pays for one. ──────────────
+// ── Authorization — WHO may do this. Never re-derived at a call site; see
+//    scope.ts's own header on `assertCanMutate`. Runs before the transaction opens,
+//    against committed state, so a request that fails authorization never pays for
+//    one. This project's explicit write-role policy (PROGRESS.md, Phase 7): SYS_ADMIN
+//    may act on anything; every other role, however broad its READ reach, may act
+//    only on an item it directly custodies or that sits beneath something it
+//    custodies — deliberately narrower than the scope reads use, and independent of
+//    which roles a caller holds (custody is the `Item.custodianId` column, a data
+//    fact, not a role label). ──────────────────────────────────────────────────────
 
 async function assertAuthorized(actorId: string, input: ItemChangeInput): Promise<void> {
+  if (await scope.isSysAdmin(actorId)) return;
+
   if (input.kind === "createItem") {
     if (input.parentId) {
-      // Direct scope only, not read-only context — seeing a lab because it holds a
-      // borrowed item of yours is not permission to file new equipment into it.
-      await scope.assertCanWriteItem(actorId, input.parentId);
+      // The existing "special handling for a custodian adding beneath an in-custody
+      // parent" the plan calls out — generalised to every write kind below, not just
+      // this one.
+      await scope.assertCanMutate(actorId, [input.parentId]);
       return;
     }
-    // A root has no existing item to scope-check against — check the chosen owning
-    // unit directly against the caller's resolved reach instead. MY_CUSTODY has no
-    // node-level reach to check against, so it cannot place a new root at all —
-    // adding to an existing lab (parentId given) is the path open to a custodian.
-    if (!input.ownerOrgNodeId) throw new HttpError(400, "An owning unit is required for a root resource.");
-    const resolved = await scope.resolveScope(actorId);
-    const inScope = resolved.mode === "UNIVERSITY" || (resolved.mode === "ORG_SUBTREE" && resolved.visibleNodeIds.includes(input.ownerOrgNodeId));
-    if (!inScope) throw new HttpError(404, "Resource not found");
-    return;
+    // A root has no existing item to check custody against, and custody grants no
+    // root-level reach by definition (you cannot already be the custodian of
+    // something that does not yet exist) — so only SYS_ADMIN, already returned above,
+    // may place a new university-level root lab or store. Do not silently grant that
+    // power just because child creation is allowed.
+    throw new HttpError(404, "Resource not found");
   }
 
-  const outOfScope = await scope.outOfScopeCount(actorId, input.itemIds);
-  // Out-of-scope, not merely unauthorized, gets the same 404 a direct read would —
-  // a 403 here would confirm the row exists to someone who cannot otherwise see it.
-  if (outOfScope > 0) throw new HttpError(404, "Resource not found");
+  await scope.assertCanMutate(actorId, input.itemIds);
 
   // The destination of a move/transfer is a write target too, checked the same
   // direct way as itemIds above — moving your own item somewhere does not require
-  // seeing what else is in that container, but it does require more than merely
-  // being able to see the container as someone else's read-only context.
+  // custody of what else is in that container, but it does require custody of the
+  // container itself, not merely being able to see it. A transfer into a genuinely
+  // foreign, non-custodied container is therefore SYS_ADMIN-only for now, by design —
+  // exactly the "cross-unit movement... follows the approval policies defined by
+  // their later phase" the plan already calls for; Phase 12 is what gives an ordinary
+  // custodian a legitimate path to request one.
   if (input.kind === "moveInTree" && input.value !== null) {
-    await scope.assertCanWriteItem(actorId, input.value);
+    await scope.assertCanMutate(actorId, [input.value]);
   }
   if (input.kind === "transferItem") {
-    await scope.assertCanWriteItem(actorId, input.transfer.targetParentId);
+    await scope.assertCanMutate(actorId, [input.transfer.targetParentId]);
+  }
+}
+
+/**
+ * Optimistic concurrency for items — categories.ts's own `expectedVersion` check,
+ * extended to bulk edits via a map (`input.expectedVersions`) rather than one number.
+ * `createItem` has no existing rows to compare against, so it is exempt outright; any
+ * other kind's caller MAY supply the map (an editor that never re-reads before
+ * writing can still opt out entirely by omitting it) but a mismatch on any id refuses
+ * the WHOLE change — never a partial write — with the shape `VersionConflictDto`
+ * already reserves for this.
+ *
+ * Runs INSIDE the caller's transaction (`tx`, not the bare `prisma` client) and reads
+ * with `FOR UPDATE`, not a plain `findMany`. A version check made before the
+ * transaction opens (the original shape of this function) can be invalidated by a
+ * second writer between the check and the write it's supposedly guarding — the exact
+ * TOCTOU race optimistic concurrency exists to prevent. `SELECT ... FOR UPDATE` locks
+ * every checked row for the rest of this transaction, so any concurrent transaction
+ * touching the same rows blocks until this one commits or rolls back; the version read
+ * here is therefore still current at the moment `performChange` writes it, and a
+ * losing concurrent writer sees ITS OWN version check fail against the version this
+ * transaction just committed, rather than both succeeding.
+ */
+async function assertVersionsMatch(tx: Tx, input: ItemChangeInput): Promise<void> {
+  if (input.kind === "createItem") return;
+  const expected = input.expectedVersions;
+  if (!expected || !Object.keys(expected).length) return;
+
+  const checkedIds = input.itemIds.filter((id) => id in expected);
+  if (!checkedIds.length) return;
+
+  const rows = await tx.$queryRaw<{ id: string; version: number }[]>`
+    SELECT id, version FROM "Item" WHERE id = ANY(${checkedIds}) FOR UPDATE
+  `;
+  const actualById = new Map(rows.map((r) => [r.id, r.version]));
+  const conflicts = checkedIds
+    .map((id) => ({ itemId: id, expectedVersion: expected[id], actualVersion: actualById.get(id) ?? -1 }))
+    .filter((c) => c.expectedVersion !== c.actualVersion);
+
+  if (conflicts.length) {
+    throw new HttpError(409, "Version conflict", {
+      message: "One or more of these resources changed since you loaded them.",
+      code: "VERSION_CONFLICT",
+      conflicts,
+    });
   }
 }
 
@@ -240,19 +295,19 @@ async function isWithinSubtree(tx: Tx, ancestorId: string, candidateId: string):
 }
 
 /**
- * A subtree can contain a descendant outside the actor's own scope — nothing stops
+ * A subtree can contain a descendant outside the actor's own custody — nothing stops
  * one department's item from ending up physically nested inside another's container
  * through ordinary loan/transfer activity (moveInTree only re-points the root being
  * moved; a foreign item already inside it comes along structurally, not by a write
  * to its own row). `deleteItem` and `transferItem` both act on a whole subtree at
  * once, so both must refuse rather than silently sweep up something the actor could
  * never have touched directly. Whole-refusal, not partial — same as a stale category
- * version.
+ * version. Custody-based like every other write check here (`assertCanMutate` itself
+ * short-circuits for SYS_ADMIN), not the broader read scope — a descendant merely
+ * inside the actor's visible org subtree is still not theirs to delete or transfer.
  */
 async function assertSubtreeInScope(actorId: string, subtree: PrismaItem[]): Promise<void> {
-  if (await scope.outOfScopeCount(actorId, subtree.map((i) => i.id))) {
-    throw new HttpError(404, "Resource not found");
-  }
+  await scope.assertCanMutate(actorId, subtree.map((i) => i.id));
 }
 
 async function applyDeleteItem(tx: Tx, actorId: string, at: Date, input: Extract<ItemChangeInput, { kind: "deleteItem" }>): Promise<ItemChangeResultDto> {

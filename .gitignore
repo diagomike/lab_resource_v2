@@ -10,3 +10,4 @@ apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
 .vite/
 *.tsbuildinfo
+.scratch/

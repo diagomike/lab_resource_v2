@@ -12,7 +12,8 @@
     "mail": "maildev",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "seed:resources": "tsx prisma/resource-seed.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

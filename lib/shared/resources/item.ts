@@ -80,7 +80,18 @@ export type ItemDetailDto = z.infer<typeof ItemDetailDto>;
 
 // ── The one write door ──────────────────────────────────────────────────
 
-const Base = z.object({ note: z.string().optional() });
+const Base = z.object({
+  note: z.string().optional(),
+  /** Item id → the version the caller last saw it at (typically captured when an
+   *  editor opened, or when a row was last read). Checked against the live row
+   *  before anything commits; any mismatch refuses the WHOLE change with 409
+   *  VERSION_CONFLICT rather than applying part of it — the same whole-refusal
+   *  discipline categories.ts's own `expectedVersion` check already uses, extended
+   *  to bulk edits via a map rather than a single number. Omitted entirely (or an id
+   *  left out of the map) means "don't check this one" — a fresh createItem has
+   *  nothing to compare against, and not every caller needs the guard. */
+  expectedVersions: z.record(z.string(), z.number().int()).optional(),
+});
 
 export const CreateItemChange = Base.extend({
   kind: z.literal("createItem"),
