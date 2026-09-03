@@ -195,33 +195,38 @@ user's own dev machine, not a shared secret; `.gitignore` excludes `.env`.
 
 ### Not yet done
 
-Phases 0–6 of the resource-management replatforming plan
+Phases 0–7 of the resource-management replatforming plan
 (`~/.claude/plans/wait-i-want-gentle-haven.md`) are complete: demolition of
 the Phase-1 resource register; the full `temp_works`-derived Prisma data
 model; the pure domain logic (`lib/domain/**`); the server-side scope,
 write path, and full read/write API surface (`lib/server/resources/**`,
 `app/api/resources/**`); the single-sidebar shell/navigation with
-`WorkspaceKind` removed end-to-end; and the table engine — the register's
-three views (hierarchy/rollup/search), the filter bar and the read-only
+`WorkspaceKind` removed end-to-end; the table engine — the register's
+three views (hierarchy/rollup/search), the *full* filter bar (prop:/desc:
+synthetic fields, the whole operator set, AND/OR composition — not core
+fields only, see the Phase 6-filtering-gap entry) and the editable
 inspector on `@tanstack/react-table` 9.2.3, with Personnel re-tabled onto
-the same engine and `components/data-table/**` deleted — see this file's
-Phase 4–6 timeline entries above for what each covers. The register's
-filter bar is core-fields-only for now (status/category/owner/current/
-custodian), not the full generalised prop:/desc: rule engine the plan's
-"two engines merge" language originally described — a disclosed, narrower
-scope, recorded in full in the Phase 6 entry above. Approvals/Purchasing/
-Change log are still `ComingSoon`; the register has no EDITING yet (browse/
-filter/inspect only) — that is Phase 7.
+the same engine and `components/data-table/**` deleted; and the editing
+surface itself — inline commit for corrections, a shared confirmation step
+for consequential single- and bulk-edits, adding resources, bulk property
+editing, and item-level optimistic version-conflict handling, plus an
+audited and now-explicit write-role policy (only SYS_ADMIN or an item's own
+custodian may write; every other role reads and, once Phase 12 exists,
+approves) — see this file's Phase 4–7 timeline entries above for what each
+covers. Approvals/Purchasing/Change log are still `ComingSoon`. A handful
+of Phase 7 UI affordances are deliberately deferred, not missing
+capability — see that entry's own "disclosed scope trims" note (no literal
+per-table-cell inline editing, no dedicated bulk-quantity control, the
+Move/Position picker only offers currently-loaded rows as destinations).
 
-Remaining, in phase order: the editing surface — inline commit, bulk
-edit, confirmation rules (Phase 7); category administration's three-tab
-editor (Phase 8); images — object storage, upload, thumbnails (Phase 9);
-the change log view (Phase 10); access views (Phase 11); approvals
-(Phase 12); transfers (Phase 13); procurement (Phase 14); the real ASTU
-data import and demo seed (Phase 15); a final documentation pass
-(Phase 16). **Bookings are explicitly deferred** to a later track — see
-that plan's §2 for the specific defects in `temp_works`' booking model
-that must be fixed, not ported, when that track starts.
+Remaining, in phase order: category administration's three-tab editor
+(Phase 8); images — object storage, upload, thumbnails (Phase 9); the
+change log view (Phase 10); access views (Phase 11); approvals (Phase 12);
+transfers (Phase 13); procurement (Phase 14); the real ASTU data import and
+demo seed (Phase 15); a final documentation pass (Phase 16). **Bookings
+are explicitly deferred** to a later track — see that plan's §2 for the
+specific defects in `temp_works`' booking model that must be fixed, not
+ported, when that track starts.
 
 ### The resource module: superseded — replatforming onto `temp_works` in full
 
@@ -1009,6 +1014,440 @@ its model that make porting it as-is the wrong move.
   `?people_q=Girma` in the URL, reloaded cold, got the same one-row result
   back. All test fixtures (2 categories, 6 items, 1 category group)
   deleted afterward through the real API/a throwaway script.
+
+- **2026-09-03 (Phase 6 seed-and-verification checkpoint)** — Landed the
+  uncommitted Phase 6 checkpoint that had accumulated on top of the Phase 6
+  commit: `prisma/resource-seed.ts` (a `seed:resources` package script), a
+  flat-Search correction, filter-bar search debouncing, and an Expand/Collapse
+  All control.
+
+  **The flat-Search correction** (`lib/server/resources/items.ts`'s
+  `search()`): was returning the ancestor-closed set (`closed`, from
+  `computeScopedIds`) filtered by the match predicate, so Search — meant to be
+  the intentionally flat view, direct matches only — was silently including
+  read-only ancestor context rows that only matched because a descendant of
+  theirs matched. Now filters `base` (direct scope, unclosed) instead, and
+  every returned row is hardcoded `readOnlyContext: false` since that
+  distinction belongs to `tree()` (Hierarchy/Rollup), not `search()`.
+
+  **The representative development seed** (`prisma/resource-seed.ts`) is the
+  first real data this replatforming has loaded past the department-head/
+  custodian scoping fixture: 5 category groups, 21 categories (with 14
+  `CategoryTemplateChild` default-subtree edges — Setup→Computer→Motherboard→
+  RAM/Storage/GPU, Switch Rack→Network Switch/Outlet), 134 items across 4
+  physical roots (SE Lab with 7 workstation setups + a switch rack, ASTU Main
+  Store, a Chemical Engineering lab, a Chemical Engineering store with bulk
+  chemicals and glassware), and 14 "on loan" rows (`ownerOrgNodeId <>
+  currentOrgNodeId`) — SE's 7th workstation subtree physically relocated into
+  Chemical Engineering's lab while SE retains ownership and custody. Seeded
+  status stories exercise derived impairment at one, two and three levels of
+  nesting, `ANY_CRITICAL`'s discrimination (a broken non-critical mouse
+  changes nothing), and `NEVER` truly ignoring a critical child (a chemical
+  marked `critical: true` AND fully consumed — Store stays healthy). Built via
+  `lib/domain/instantiate.ts`'s `buildSubtree`/`instantiateMany` — the exact
+  functions the live "Add N × category" write path calls — so seeded items
+  have the identical shape one created through the app would have; the
+  Prisma-row mapping `lib/server/resources/mutate.ts` normally does after
+  instantiation is duplicated locally in the seed script since that module's
+  `import "server-only"` guard throws outside a bundler.
+
+  **Hardened before finalizing, per this session's own audit**: the script
+  already refused to run under `NODE_ENV=production`; added a second guard
+  (`assertSafeToReset()`) that refuses to wipe-and-rebuild categories if
+  `AccessView`, `ApprovalPolicy`, `ChangeRequest` or `NeedLine` hold any rows
+  — those either embed a `categoryId` in a plain Json field with no FK behind
+  it (`AccessView.extraFilters`, `ApprovalPolicy.appliesTo`,
+  `ChangeRequest.payload`) or otherwise depend on category ids surviving a
+  reset, and a rebuild mints fresh cuids every run. Verified live: created a
+  throwaway `AccessView` row, confirmed the script refuses with a clear
+  message and exit code 1, deleted the row, confirmed the script runs clean
+  again. None of Phase 11/12/14 (access views/approvals/procurement) has
+  landed yet, so all four tables are genuinely empty in dev today — this
+  guard exists so a future phase can't silently corrupt those tables by
+  forgetting this constraint, not because it fired on real data. The real
+  ASTU importer (Phase 15) remains keyed by `(sourceSystem, sourceKey)` and
+  non-destructive, unaffected by any of this.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` 159/159 (unchanged — no
+  logic touched, only the seed script and two small UI/read-path fixes);
+  `npx prisma migrate status` clean, still 7 migrations. Ran the seed script
+  twice consecutively — identical counts both times (21 categories, 134
+  items, 14 loaned rows, confirmed against the live database directly, not
+  just the script's own console output), confirming wipe-and-rebuild
+  idempotency with no duplicates. `.scratch/` (API captures and session-
+  cookie jars from the live verification that produced this checkpoint,
+  pre-existing when this session started) is now covered by `.gitignore`
+  rather than removed outright, since nothing in the working tree referenced
+  it and its cookie contents were never read or exposed by this session.
+
+  **The seed's place in the plan moved up**: it originally belonged with
+  Phase 15 ("real-data import + seeds"). It now lands here, at the Phase 6
+  checkpoint, as representative development/demo data — closer to what
+  `temp_works`' own seed was for. Phase 15 is unchanged in scope: it still
+  means the real ASTU import (idempotent, keyed by stable source
+  identifiers, non-destructive) and whatever final production-oriented seed
+  work that phase needs; it does not need to reintroduce this dev fixture.
+
+  **The disclosed Phase 6 filtering gap remains open as of this entry** — see
+  the next timeline entry for its resolution, tracked separately since it is
+  substantial enough to warrant its own verification pass.
+
+- **2026-09-03 (Phase 6 filtering gap closed)** — Closed the disclosed gap from the
+  Phase 6 commit's own entry above: the register's filter bar had wired only the core
+  fields (status/category/owner/currentOrg/custodian) into `items.ts`'s `ItemQuery`,
+  not the full `lib/domain/filters.ts` engine those core fields sit on top of —
+  prop:/desc: synthetic fields, its whole operator set, several rules per field,
+  AND/OR composition.
+
+  **The wire and domain filter shapes are now one shape, not two.**
+  `lib/shared/resources/item-filter.ts`'s `ItemFilterState`/`ItemFilterRule` used to be
+  a separate `{id, op, v}` triple inherited from the deleted `components/data-table`
+  engine, with a 14-operator vocabulary `lib/domain/filters.ts`'s `matchRule` never
+  actually implemented (only 7 of them — `matchRule` exhaustively switches over
+  exactly those 7, no `default` branch, so the other 7 —
+  `notContains`/`eq`/`ne`/`lt`/`gt`/`isBetween`/`isRelativeToToday` — were dead
+  vocabulary carried forward from a deleted engine, not a gap to fill). Restructured
+  `ItemFilterRule` to `{id, field, op, values}` — structurally identical to the domain
+  `FilterRule` — and trimmed `filterOperators` to the 7 real ones, so a rule built by
+  the toolbar, the advanced builder, or a future stored `AccessView.extraFilters` row
+  (Phase 11) all speak one shape with no adapter step. Added `join: "and"|"or"` to
+  `ItemFilterState` (default `"and"`) since AND/OR composition was named in the gap
+  explicitly.
+
+  **Server side** (`lib/server/resources/items.ts`): `ItemQuery` gained
+  `rules?: FilterRule[]` and `join?: "and"|"or"`, additive to the five existing core
+  fields (which stay their own readable query params rather than folding into `rules`
+  — a shareable `?categoryId=x&status=WORKING` URL reads better than JSON for the
+  common case). `parseItemQuery` parses a `rules` query param as JSON, Zod-validates it
+  against `ItemFilterRule`, and treats anything unparseable or schema-invalid as
+  absent rather than a 400 — a malformed filter degrades to "no filter," not a broken
+  register. `buildFilterState` concatenates the parsed rules with the core-field rules
+  it already built, under one `join`. No changes were needed to `matchItems` or any
+  other domain function — the engine already fully implemented prop:/desc: fields and
+  the whole operator set; only the wire boundary was incomplete. `toWireFilterField`
+  also started passing through `unit` (e.g. "GB", "ml"), previously dropped at the wire
+  boundary though the domain side always computed it. New coverage:
+  `lib/server/resources/items.spec.ts` (7 cases) — the parsing function is DB-free and
+  testable in isolation despite `items.ts` starting `import "server-only"`, since
+  `vitest.config.ts` already shims that import for exactly this reason.
+
+  **Client side**: `RegisterFilters` (`lib/register/useRegisterState.ts`) gained
+  `rules`/`join`, serialised to/from the URL as a `rules` JSON param (+ `join`) so a
+  reload reproduces an advanced filter exactly like the core ones already did; a
+  `readRules` type guard drops any rule failing basic shape validation before it's
+  ever rendered, since a hand-edited URL reaches the client's `describeRule` (which
+  calls `.join` on `values`) before the server gets a chance to reject it.
+  `FilterBar.tsx` gained an "Add filter" builder (`AddRuleForm`): a field picker (the
+  filter-fields endpoint's response minus the five core ids, grouped by category/part
+  name), an operator picker populated from `lib/domain/filters.ts`'s own `opsFor`
+  (reused directly, not reimplemented), a value editor that switches between a
+  multi-value control and a plain input by field kind, and rule chips with a remove
+  button; an AND/OR toggle chip appears once 2+ rules exist. The `+ Add filter…`
+  field list re-fetches from `/api/resources/items/filter-fields?categoryId=...`
+  whenever the core Category dropdown changes, so prop:/desc: options appear only once
+  a category is actually in play, matching `buildFilterFields`'s own documented
+  behaviour.
+
+  **Three real UI bugs found live, fixed in the same pass** (verified together with
+  the user driving the browser directly — the first time in this project the user did
+  the live-testing rather than reading a report of it):
+  1. **Cropped multi-select.** The first pass rendered an enum field's value picker as
+     a native `<select multiple>` sized by a fixed `h-24` (24px) class — far too short
+     to show any option inside its own scrollable box, so it looked broken/empty.
+  2. **A native multi-select that DID show all rows (via a `size` attribute) fixed #1
+     but traded it for a worse problem the user caught immediately**: it rendered
+     inline and grew the whole toolbar taller every time an enum field was picked,
+     reflowing the page instead of floating over it.
+  3. **Stale field selection after Clear filters.** `AddRuleForm`'s local `fieldId`
+     state isn't reset by anything external; once "Clear filters" drops `categoryId`
+     (and with it every prop:/desc: field), a `fieldId` left pointing at a
+     now-nonexistent option resolves `field` to `undefined` — which silently hides the
+     operator/value/Add controls (all gated on `field` being truthy) instead of the
+     builder visibly resetting to its own empty "+ Add filter…" state.
+
+  Fixed #1/#2 together by replacing the native multi-select with a small
+  `MultiSelectPopover` — a button showing a summary ("2 selected" / one label /
+  "Select…") that opens an absolutely-positioned floating checkbox panel on click,
+  closing on an outside click or Escape. No shadow utility exists in this app's
+  Tailwind scale (`tailwind.config.js`'s own comment: "there are no floating cards, so
+  the shadow scale is deliberately empty apart from `none`") — matched the existing
+  `Modal` component's pattern instead (`bg-panel border border-border2`, no shadow) so
+  this is the first genuinely floating, non-modal element in the app and it still
+  reads as consistent with the rest of the design system. Fixed #3 with a `useEffect`
+  that resets `AddRuleForm`'s local state whenever `fields` no longer contains the
+  currently-selected `fieldId`.
+
+  **Verified live** against the representative Phase 6 seed data, mostly by the user
+  driving the browser directly with this session narrating what to check: selecting
+  Computer as the active category correctly surfaced Computer's own fields plus its
+  parts' descendant fields (Motherboard/RAM/Storage/GPU/Monitor/Cable — reaching down
+  through `CategoryTemplateChild` edges); a `RAM · Size ≥ 16` rule correctly narrowed
+  to exactly the 3 seeded computers whose RAM is ≥16GB (indices 2/3/4 of the seed's
+  `[8,8,16,16,32][idx%5]` pattern — confirmed by expanding the cluster row and counting
+  "3 units"); a second `Storage · Kind is SSD` rule combined under the AND/OR toggle;
+  the popover opened as a floating panel without resizing the toolbar and closed
+  correctly on an outside click; "Clear filters" now correctly returns the builder to
+  its own empty state instead of hiding its controls; the `rules`/`join` URL params
+  round-tripped through a reload.
+
+  **One known, disclosed limitation surfaced during this same live pass, left
+  unaddressed on the user's explicit call** ("let it be — continue with the next
+  step"): free-text search (`matchSearch` in `lib/domain/filters.ts`, unchanged by
+  this entry) matches an item's own name, its own category's name, and its own props
+  — never a descendant's. Searching "SSD" finds a Storage item whose own `kind` prop is
+  "SSD", but not the Computer that contains one three levels down. This is
+  `matchSearch`'s pre-existing, narrower-than-`matchRule` scope (rules do reach
+  descendants via `desc:` fields; free-text search never has) and was not part of what
+  the Phase 6 entry disclosed as missing — recorded here as an open item for whenever
+  search depth is revisited, not a regression from this entry's work.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 166 tests (7 new, all others
+  unchanged); `npm run build` clean after stopping the dev server first (36 routes,
+  same as Phase 6 — no new pages, only existing ones gaining capability) per this
+  project's own standing note about `.next` manifest corruption from a concurrent
+  dev+build. This closes the Phase 6 entry's own disclosed gap in full — the reduced
+  core filter bar is no longer the final implementation.
+
+- **2026-09-04 (replatforming Phase 7 — the editing surface)** — Inline commit, a
+  confirmation step for consequential edits, bulk property editing, adding resources,
+  and optimistic version-conflict handling, all through the existing single mutation
+  endpoint (`lib/server/resources/mutate.ts`'s `applyChange` — no parallel write path
+  added). Two real, pre-existing gaps were closed as part of this phase, both
+  explicitly called for by the plan: the write door's role authorization, and item-level
+  version conflicts (categories already had `expectedVersion`; items never did).
+
+  **Write-role authorization — a genuine gap, closed by explicit user decision.**
+  Before this phase, `mutate.ts`'s `assertAuthorized` checked only SCOPE
+  (`scope.assertCanWriteItem`/`outOfScopeCount`, both now deleted as dead code) — any
+  signed-in user with *any* reach over an item, including a department head's ordinary
+  ORG_SUBTREE read scope, could write to it. The write endpoint's own comment said as
+  much: "a signed-in user is enough to reach this handler; whether they may act on the
+  named items is the write path's own job" — and that job was never actually role-aware.
+  Asked directly (this session, via AskUserQuestion — a security-relevant policy
+  decision, not something to guess), the user's answer was categorical: **"Only direct
+  Lab or Store owners can Create, Edit, Delete — others approve — and of course
+  sys_admin can do anything."** Implemented as a new pair of functions in
+  `lib/server/resources/scope.ts`, deliberately separate from the read-scope machinery
+  above them:
+  - `isSysAdmin(userId)` — the one universal override.
+  - `assertCanMutate(userId, itemIds)` — SYS_ADMIN bypasses; everyone else must have
+    every named id inside `custodyItemIdsOf(userId)` (now exported — `custodianId =
+    userId` plus every transitive descendant), or the whole call 404s. This is
+    deliberately narrower than any READ scope: PROPERTY_ADMIN and STORE_KEEPER see the
+    whole university, MANAGER sees its whole subtree, but none of them may write
+    without also being the custodian — their part in a mutation, until Phase 12's
+    approval chain exists, is nothing at all.
+
+  `mutate.ts`'s `assertAuthorized` and `assertSubtreeInScope` (the descendant-sweep
+  guard on delete/transfer) were rewritten against this pair rather than patched — the
+  plan's own text had assumed the existing scope-based check was already the intended
+  policy and only needed verifying, but the user's direct answer defined a materially
+  narrower one, which supersedes that assumption. `createItem` with no `parentId` (a
+  new university-level root) is now refused for everyone but SYS_ADMIN outright — a
+  root has no existing custodian to check against, and custody grants no root-level
+  reach by construction, so nothing else could ever satisfy it; the plan's own warning
+  ("do not silently grant the ability to create university-level root labs or stores
+  merely because child creation is allowed") is enforced structurally, not by a special
+  case. `transferItem`'s destination check follows the same rule, which makes a
+  genuinely cross-custody transfer SYS_ADMIN-only for now — intentional, matching the
+  plan's own framing of transfers as consequential and later gated by Phase 12's
+  approval policies, not this phase's job to loosen.
+
+  Verified live (curl against the running dev server, mirroring Phase 4's own
+  methodology): a custodian editing their own lab succeeds; the same custodian editing
+  another department's lab 404s; **the SE department head — a MANAGER with ordinary
+  read scope over the exact same lab, not its custodian — is now refused (404) editing
+  it**, the regression test that proves the gap is actually closed, not just
+  re-described; a custodian creating a root 404s; the same custodian creating a child
+  beneath their own custodied lab succeeds (the plan's "special handling" case,
+  preserved not replaced); SYS_ADMIN succeeds on both an edit outside their own org and
+  a root create; an unauthenticated request 401s. All fixture writes reverted
+  afterward, confirmed via a direct DB re-count.
+
+  **Item-level optimistic version-conflict handling — did not exist, now does.**
+  `lib/shared/resources/item.ts`'s `VersionConflictDto` wire shape existed since Phase
+  2 but nothing produced it for items (only `categories.ts`'s own separate
+  `expectedVersion` field did, for category edits). Added `expectedVersions?:
+  Record<itemId, number>` to every `ItemChangeInput`'s shared `Base` schema — a map
+  rather than categories.ts's single number, since a bulk edit touches several items
+  at once — and `mutate.ts`'s new `assertVersionsMatch(input)`, called right after
+  authorization and before the transaction opens: any named id whose live version
+  doesn't match what the caller expected refuses the WHOLE change with 409
+  `VERSION_CONFLICT` (the same whole-refusal discipline every other guard in this file
+  already uses), naming every mismatched id, expected and actual version. Omitting the
+  field (or leaving an id out of it) opts that id out of the check entirely — nothing
+  is forced to adopt it. Verified live: a write with the item's true current version
+  applies; the identical write with a deliberately wrong version 409s with the correct
+  `conflicts` array; a write with no `expectedVersions` at all still applies (the
+  opt-out path).
+
+  **The editing surface itself**, built around one shared state machine
+  (`lib/register/usePendingChange.ts`) rather than a bespoke dialog per screen — it
+  mirrors `OrgStudioPage.tsx`'s existing `PendingAction`/`ConfirmDialog` pattern
+  exactly (pick a value → `request()` → either applies on the spot or opens the same
+  `ConfirmDialog` component already used there), per the plan's explicit instruction
+  not to invent a second one. `request()` defers to `lib/domain/types.ts`'s
+  already-ported `needsConfirm`/`CONFIRMED_CHANGES` (present since Phase 3, unused
+  until now) rather than a new copy — a duplicate was written first and deleted once
+  the original was found by name in `Inspector.tsx`'s existing import.
+  - **Inspector.tsx**, rewritten from read-only to the single-item edit surface: name,
+    quantity (BULK counting mode only) and every category-defined property commit
+    inline on blur — no dialog, matching `needsConfirm`'s "a correction is typing, not
+    a decision" rule for a lone item — reverting the field and showing an inline error
+    if the write is refused. Status, custodian, owning unit, current unit and position
+    (`moveInTree`) are pickers that call `request()`, all consequential kinds per
+    `CONFIRMED_CHANGES`, so all open the shared `ConfirmDialog`. Delete opens it too,
+    danger-toned. Property inputs render by the category field's real type (enum →
+    select, boolean → Yes/No, number/text → typed input), fetched once from
+    `GET /resources/categories` — not a plain text box guessing at the type. Every
+    write carries `expectedVersions` keyed off the version the Inspector loaded the
+    item at. `useEditOptions.ts` (owning/current unit, custodian option lists) fetches
+    `/resources/items/filter-fields` a second time rather than threading FilterBar's
+    own copy through several prop layers — matches this app's existing per-component
+    fetch style.
+  - **The register's bulk-selection toolbar** (`RegisterPage.tsx`), appearing once
+    `useRegisterState`'s new `selectedItemIds` (resolving TanStack's row-keyed
+    `RowSelectionState` down to real item ids — a cluster row's `memberIds` can be
+    many, exactly `lib/domain/tree.ts`'s own "a cluster-cell edit is a bulk edit of
+    its members" header) is non-empty: the same status/custodian/owner/current-
+    unit/position pickers as the Inspector, a rename input, a property picker (only
+    fields every selected item's own category defines in common — offering a narrower
+    field would let the write reach a category that cannot hold it, which the server
+    refuses outright rather than silently skipping), and delete. Every one of these
+    confirms unconditionally once the selection is genuinely bulk, per
+    `needsConfirm`'s second rule, independent of which field.
+  - **AddModal.tsx** and **BulkPropModal.tsx** — the two components the plan names
+    that don't fit the single-value-pick-then-confirm shape (creating needs
+    parent+category+count; a bulk property write needs key+value), ported from
+    `temp_works`' same-named components with the same "the form itself is the
+    confirmation step" design (no second `ConfirmDialog` stacked on top — a multi-field
+    form the user reviews before submitting already serves that purpose, matching
+    temp_works' own originals, neither of which had one either). AddModal hides the
+    "Top level" (root) option entirely unless the signed-in user holds SYS_ADMIN
+    (`user.roles.includes("SYS_ADMIN")`) — offered-then-refused would just be
+    confusing given the authorization change above.
+
+  **Three real UI bugs found live, fixed in the same pass** (this session drove the
+  browser directly rather than narrating steps back to the user):
+  1. Deleting an item from inside its own Inspector called the same `load()` every
+     other successful edit does, which re-fetched the now-deleted item's own detail
+     and 404'd — showing "Resource not found" in a modal that had, correctly, just
+     finished doing exactly what was asked. Fixed by having `usePendingChange`'s
+     `onApplied` callback also hand back which `ItemChangeInput` was actually applied
+     (not just the result), so `Inspector.tsx` can tell a delete apart from every other
+     kind and close instead of reloading.
+  2. The "Move to…" bulk-toolbar picker used an empty string for both its own
+     unselected placeholder AND its "Top level" option — selecting the placeholder
+     itself (i.e., touching nothing) would have silently fired a move-to-root request.
+     Caught in code review before it ever reached the browser; fixed with a distinct
+     sentinel value for "Top level" so the placeholder stays inert.
+  3. (Carried over from the Phase 6 checkpoint work earlier this session, not new
+     here, but worth noting it held up under real use throughout this phase's testing
+     too: the floating `MultiSelectPopover` and the field-reset-on-stale-selection fix
+     both continued to behave correctly through every bulk-picker interaction in this
+     pass.)
+
+  **Disclosed scope trims, not gaps in the underlying capability** — the write door
+  and its authorization/version-conflict handling support all of these already; only
+  UI affordances are deferred:
+  - No literal per-cell inline editing directly in `ResourceTable.tsx`'s grid — the
+    Inspector (single item) and the bulk toolbar (selection) are the two edit
+    surfaces this phase built, both reaching the identical `usePendingChange`/
+    `submitChange` path a future table-cell editor would too, so nothing about this
+    trim constrains how that would be added later.
+  - No dedicated bulk-quantity UI control (single-item quantity is inline in the
+    Inspector; a bulk quantity write is fully supported server-side via `setQuantity`
+    + multiple `itemIds`, just not wired to a toolbar button yet).
+  - The "Move to…"/Position picker's destination list is whatever rows are currently
+    loaded in the register's active view (the whole scoped set for Hierarchy/Rollup,
+    only the current page for Search) rather than a dedicated container search —
+    adequate at this seed's scale, worth revisiting if the register grows much larger.
+
+  Verified live throughout, signed in as the SE custodian (`custodian.se@astu.edu.et`)
+  against the representative seed, reverting every fixture change afterward and
+  confirming via direct DB re-count (134 items, 4 `ItemChange` rows — the exact Phase 6
+  checkpoint baseline, unchanged): an inline property correction (Seats 7→8) committed
+  with no dialog and one correctly-attributed change-log line; a status change
+  (Working→Broken→Working) opened the ConfirmDialog both times, including a Cancel
+  that left the record untouched; the SE department head (MANAGER, not custodian)
+  attempting the identical edit got a clean "Resource not found" error with the
+  optimistic input reverted, not a crash; the bulk toolbar's rename correctly
+  bulk-applied to a single-item selection with no dialog (matching `needsConfirm`'s
+  selection-size rule); AddModal created a Speaker under SE Lab X with the correct
+  inherited custodian/owner/current-unit and no "Top level" option shown (non-
+  SYS_ADMIN); Delete removed it cleanly and the Inspector closed instead of erroring.
+  `npx tsc --noEmit` clean; `npm test` — 169 tests (3 new: `lib/domain/types.spec.ts`
+  covering the previously-untested `needsConfirm`); `npm run build` clean after
+  stopping the dev server first (still 36 routes — this phase adds no new pages, only
+  capability on the existing Register).
+
+- **2026-09-04 (Phase 7 checkpoint audit — atomic version-conflict handling)** — Before
+  treating the accumulated Phase 6/7 working tree as a clean checkpoint, audited it end
+  to end against the replatforming plan and closed the one real correctness gap found:
+  `lib/server/resources/mutate.ts`'s `assertVersionsMatch` ran BEFORE
+  `prisma.$transaction` opened, reading each item's version with a plain `findMany`
+  against the committed-but-not-yet-locked row. A second writer could change the same
+  item after that read and before the transaction's own update — the exact TOCTOU race
+  optimistic concurrency exists to close, on the one write door every mutation in the
+  app funnels through.
+
+  Fixed by moving the check inside the transaction and reading with `SELECT ... FOR
+  UPDATE` rather than a plain read: `assertVersionsMatch(tx, input)` now runs as the
+  transaction's first statement, locking every id named in `expectedVersions` for the
+  rest of that transaction. Any concurrent transaction touching the same rows blocks
+  until this one commits or rolls back, so the version compared here is guaranteed
+  still current at the moment `performChange`'s own update runs a few statements
+  later — a losing concurrent writer's OWN check then fails against the version this
+  transaction just committed, rather than both succeeding. Whole-refusal is
+  unchanged: any one mismatch throws before `performChange` is ever called, so nothing
+  in a bulk edit partially applies, including the ids whose version DID match.
+
+  Added `lib/server/resources/mutate.spec.ts` — the one DB-backed spec in the suite
+  (every other `*.spec.ts` tests pure logic only, per vitest.config.ts's own header;
+  this bug is not pure logic, it is a real transaction race that only a live Postgres
+  can prove closed). `.env` is not loaded by Vitest the way `next dev` loads it —
+  confirmed directly (`process.env.DATABASE_URL` is `undefined` under a bare `vitest
+  run`) — so the spec reads `.env` by hand in its own top-level code before dynamically
+  `import()`-ing `mutate.ts`/`../prisma` inside `beforeAll`, after which their
+  module-level `new PrismaClient()` sees the env var already set. Three cases against
+  real fixture items (cleaned up in `afterAll`, verified via a direct count afterward —
+  134 items/21 categories/5 groups unchanged): a bulk edit with one stale id among
+  several refuses the whole batch AND leaves the non-stale id's row untouched, not just
+  the stale one; a fully-matching bulk edit applies normally; and the load-bearing
+  case — two real concurrent `applyChange` calls racing the SAME expected version
+  against the SAME item (`Promise.allSettled`) — asserts exactly one fulfills and one
+  rejects with 409 `VERSION_CONFLICT`, and that the item's final version reflects
+  exactly one increment, not zero (both refused) and not two (both silently applied,
+  what the pre-fix code would have allowed). All three passed against the fix and
+  would not have passed against the pre-fix code.
+
+  Also audited the rest of the Phase 6/7 working tree file by file against
+  PROGRESS.md's own account of it (scope.ts's write-eligibility split, the
+  item-filter/filters wire-shape unification, items.ts's flat-Search and rules/join
+  wiring, Inspector.tsx, RegisterPage.tsx's bulk toolbar and its `MOVE_TOP_LEVEL`
+  sentinel fix, FilterBar.tsx's popover and stale-selection-reset fix, AddModal.tsx,
+  BulkPropModal.tsx, the three new `lib/register/**` hooks) — found nothing else
+  incorrect; every file matches its own documented behavior above. One deliberate,
+  pre-existing design choice re-confirmed rather than changed: the register's bulk
+  toolbar (unlike the Inspector) does not send `expectedVersions` on its writes — the
+  field is opt-in by the wire contract's own design ("omitted entirely... means don't
+  check this one"), not a gap parallel to the one just fixed.
+
+  Explicitly NOT fixed here, on purpose: `lib/server/resources/categories.ts`'s
+  `update()` has the identical shape of bug — `loadOne(id)` checks `expectedVersion`
+  before its own `prisma.$transaction` opens. This is Phase 8's job, not this
+  checkpoint's — categories.ts is the module Phase 8 rewrites into the full Category
+  Studio, and giving it the same atomic treatment happens there, against the same
+  `SELECT ... FOR UPDATE` pattern established here, rather than as a drive-by change to
+  a module about to be substantially rewritten anyway.
+
+  Verified: `npm test` — 172 tests (3 new, all others unchanged); `npx tsc --noEmit`
+  clean; `npx prisma validate` clean; `npx prisma migrate status` clean (still 7
+  migrations); `git diff --check` clean (no whitespace/conflict-marker issues); `npm
+  run build` clean (36 routes, unchanged) after stopping the dev server first. This
+  closes out the audit — the accumulated Phase 6 dev-seed/filtering-completion/Phase 7
+  editing-surface working tree, now including this fix, is the clean checkpoint Phase 8
+  builds on.
 
 ## Working agreements for this project
 
