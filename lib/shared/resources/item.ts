@@ -19,7 +19,7 @@
  * (ItemChangeDto) tags a category-edit entry with it.
  */
 import { z } from "zod";
-import { CountingModeSchema, ItemChangeKindSchema, ItemChangeTargetSchema, ItemStatusSchema } from "./enums";
+import { CountingModeSchema, EffectiveStatusSchema, ItemChangeKindSchema, ItemChangeTargetSchema, ItemStatusSchema } from "./enums";
 
 export const ItemPropValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export type ItemPropValue = z.infer<typeof ItemPropValue>;
@@ -46,7 +46,11 @@ export const ItemRowDto = z.object({
   name: z.string(),
   countingMode: CountingModeSchema,
   qty: z.number(),
+  /** The stored status only — never IMPAIRED. Editing writes this one. */
   status: ItemStatusSchema,
+  /** Derived, bottom-up (lib/domain/status.ts), computed over the whole containment
+   *  forest server-side and never itself writable — what a status chip renders. */
+  effectiveStatus: EffectiveStatusSchema,
   critical: z.boolean(),
   props: ItemProps,
   ownerOrgNodeId: z.string(),
@@ -60,6 +64,10 @@ export const ItemRowDto = z.object({
    *  the search list's location column. */
   path: z.array(z.string()),
   thumbnailUrl: z.string().nullable(),
+  /** true when this row is present only because ItemScopeService closed the scoped
+   *  set over its ancestors — the caller does not own/hold/custody it directly, only
+   *  sees it as the container of something they do. Read-only: never a write target. */
+  readOnlyContext: z.boolean(),
 });
 export type ItemRowDto = z.infer<typeof ItemRowDto>;
 

@@ -153,6 +153,14 @@ export async function deleteNode(id: string): Promise<void> {
   const residents = await prisma.user.count({ where: { homeNodeId: id } });
   if (residents > 0) blockers.push(`is the home department of ${residents} person(s)`);
 
+  // Item.ownerOrgNodeId/currentOrgNodeId are onDelete: Restrict — without these two
+  // checks the delete below would still be refused, just as a raw, uncaught Prisma
+  // foreign-key error instead of a named blocker like every other one here.
+  const owned = await prisma.item.count({ where: { ownerOrgNodeId: id } });
+  if (owned > 0) blockers.push(`owns ${owned} resource(s)`);
+  const held = await prisma.item.count({ where: { currentOrgNodeId: id, ownerOrgNodeId: { not: id } } });
+  if (held > 0) blockers.push(`is currently holding ${held} resource(s) on loan`);
+
   if (blockers.length > 0) {
     throw new HttpError(400, `Cannot delete "${node.name}" — it ${blockers.join("; ")}`);
   }

@@ -190,6 +190,16 @@ export async function deactivate(id: string): Promise<DeactivateResultDto> {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw new HttpError(404, "Person not found");
 
+  // Item.custodianId is onDelete: Restrict and NEVER null — custody hands off, it
+  // never lapses. A disabled custodian could never again sign in to act on what they
+  // hold, the same reasoning an occupied node's deactivation already follows, so this
+  // blocks rather than silently strands accountability. Reassign custody first
+  // (setCustodian, singly or in bulk) then deactivate.
+  const custodyCount = await prisma.item.count({ where: { custodianId: id } });
+  if (custodyCount > 0) {
+    throw new HttpError(400, `Cannot deactivate "${user.name}" — they are custodian of ${custodyCount} resource(s); reassign custody first`);
+  }
+
   return prisma.$transaction(async (tx) => {
     const occupied = await tx.orgNode.findUnique({ where: { userId: id } });
     if (occupied) {

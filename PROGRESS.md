@@ -195,20 +195,29 @@ user's own dev machine, not a shared secret; `.gitignore` excludes `.env`.
 
 ### Not yet done
 
-Everything the resource-management replatforming plan
-(`~/.claude/plans/wait-i-want-gentle-haven.md`) has not yet executed —
-currently all of it; this doc update is that plan's Phase 0. In order:
-demolition of the Phase-1 resource register and `DataTable` engine; the
-full `temp_works`-derived Prisma data model (categories, items, images,
-change log, access views, approval policies/requests, procurement); pure
-domain logic (`lib/domain/**`) with its ported tests; the scope/write-path/
-read-API server layer; the single-sidebar shell and navigation; the
-register's three views (hierarchy/rollup/search) on `@tanstack/react-table`;
-inline and bulk editing; category administration; images; the change log
-view; access views; approvals; transfers; procurement; the real ASTU data
-import. **Bookings are explicitly deferred** to a later track — see that
-plan's §2 for the specific defects in `temp_works`' booking model that must
-be fixed, not ported, when that track starts.
+Phases 0–4 of the resource-management replatforming plan
+(`~/.claude/plans/wait-i-want-gentle-haven.md`) are complete: demolition of
+the Phase-1 resource register; the full `temp_works`-derived Prisma data
+model; the pure domain logic (`lib/domain/**`); and the server-side scope,
+write path, and full read/write API surface (`lib/server/resources/**`,
+`app/api/resources/**`) — see this file's Phase 4 timeline entry above for
+what that covers. **None of it has a UI yet** — every resource endpoint is
+exercised only by `curl` and Vitest so far, and the app still shows the
+transitional 4-workspace sidebar with no Register entry.
+
+Remaining, in phase order: the single-sidebar shell and navigation
+(Phase 5); the register's three views (hierarchy/rollup/search) on
+`@tanstack/react-table`, the filter bar, and the inspector, with Personnel
+migrated onto the same table engine so `components/data-table/**` can
+finally be deleted (Phase 6); the editing surface — inline commit, bulk
+edit, confirmation rules (Phase 7); category administration's three-tab
+editor (Phase 8); images — object storage, upload, thumbnails (Phase 9);
+the change log view (Phase 10); access views (Phase 11); approvals
+(Phase 12); transfers (Phase 13); procurement (Phase 14); the real ASTU
+data import and demo seed (Phase 15); a final documentation pass
+(Phase 16). **Bookings are explicitly deferred** to a later track — see
+that plan's §2 for the specific defects in `temp_works`' booking model
+that must be fixed, not ported, when that track starts.
 
 ### The resource module: superseded — replatforming onto `temp_works` in full
 
@@ -691,6 +700,146 @@ its model that make porting it as-is the wrong move.
   files (109 new domain tests, the 113 pre-existing ones unmodified and
   still passing), `npm run build` clean (still 22 routes — this phase
   adds no new API/UI wiring, only the logic layer beneath one).
+
+- **2026-09-03 (replatforming Phase 4)** — Server-side resource scope, the
+  single mutation path, category/property validation, change logging, and
+  every resource read/write Route Handler. No UI wiring — that starts at
+  Phase 5 (shell/navigation) and Phase 6 (the register views that actually
+  render this data); this phase proves the API layer is correct and secure
+  on its own.
+
+  `lib/server/resources/**`, each following the same pure-logic/Prisma-glue
+  split `lib/server/org/closure-algorithm.ts` and the (now-superseded)
+  Phase-1 `item-scope.ts` already established:
+  - `item-scope.logic.ts` (+ 13-case spec) — the pure `Prisma.ItemWhereInput`
+    builder over four `ScopeMode`s (UNIVERSITY/ORG_SUBTREE/MY_CUSTODY/
+    EXPLICIT_NODES), extended past the deleted Phase-1 version with the
+    `explicitNodeIds`/`extraGrantedIds` seams AccessView (Phase 11) and
+    approval grants (Phase 12) will plug into later, without another
+    rewrite.
+  - `scope.ts` — `ItemScopeService`: `visibleItemWhere` (the SQL predicate,
+    with a recursive-CTE custody resolver ported from the deleted Phase-1
+    module), `resolveScope`, and two DELIBERATELY different point-checks
+    found necessary during live testing (see below) — `canSeeItem`
+    (ancestor-inclusive, for reads) and `assertCanWriteItem` (direct scope
+    only, for anything used as a write target).
+  - `template-cycle.ts` (+7-case spec) — cycle detection over the category
+    default-subtree graph, the same shape as `closure-algorithm.ts`'s
+    `wouldCreateCycle` but for `CategoryTemplateChild` edges.
+  - `category-props.ts` (+11-case spec) — compiles `CategoryField` rows into
+    a Zod schema per write, so `Item.props` is never written unvalidated;
+    kept pure (no `server-only`) since it operates on already-loaded rows.
+  - `adapt.ts` — the one Prisma-row ↔ `lib/domain` translation point, used
+    by every other module here rather than each hand-rolling it.
+  - `categories.ts` — full CRUD, `expectedVersion` optimistic concurrency
+    (409 `VERSION_CONFLICT`), `purgeKeys` (raw-SQL JSONB key removal, opt-in
+    and audited), counting-mode rewrite (denormalised `Item.countingMode`
+    kept in sync, `qty` forced back to 1 on BULK→SERIALIZED), one
+    `ItemChange` line per genuine alteration (`describeCategoryEdit`, ported
+    verbatim), and the impact-preview endpoint over `lib/domain/edit-impact`.
+  - `changes.ts` — deliberately narrow: change history for ONE item only
+    (`GET /items/:id/changes`), scope inherited from the item-level check
+    already run. A global, filterable change-log browse view is Phase 10,
+    not this one — an entry for a since-deleted item has no live row left
+    to scope-check against.
+  - `mutate.ts` — `applyChange`/`previewChange`, the one write door for all
+    13 `ItemChangeInput` kinds (`editCategory` excluded — that is
+    categories.ts's own endpoint). Ported from `store.ts`'s
+    `validate`→`apply`→log→bump-version, inside one Prisma transaction;
+    `previewChange` runs the identical path and throws a sentinel to roll
+    back instead of committing. Authorization runs before the transaction
+    opens, against committed state.
+  - `items.ts` — the read model. Loads the WHOLE undeleted item forest per
+    request and runs `computeStatuses`/`indexItems` over ALL of it, per
+    `lib/domain/status.ts`'s own contract ("must never be called against a
+    caller's scoped item set... scope the RESULT, not the input") — then
+    `ItemScopeService` decides which of those globally-computed rows a
+    given response may include. `search()` returns direct matches only,
+    paginated; `tree()` returns the same rows ancestor-AND-descendant
+    closed (`expandMatches`), unpaginated, meant for
+    `buildTree`/`buildRollup` to run over CLIENT-side (`lib/domain/tree.ts`
+    is explicitly written to run in the browser too) — one endpoint serves
+    both the Hierarchy and Rollup view modes, since the underlying data is
+    identical and only the client-side grouping differs. `facets()`/
+    `filterFields()`/`summary()` round out the read surface.
+
+  Two wire-contract gaps closed, both additive to the Zod schemas Phase 2
+  had already landed (`lib/shared/resources/item.ts`'s `ItemRowDto`):
+  `effectiveStatus` (the schema only carried the STORED status, but the
+  entire point of the domain status engine is the DERIVED one) and
+  `readOnlyContext` (the plan's own scope.ts design note — "ancestor
+  closure is added back by the tree query and marked `readOnlyContext` in
+  the DTO" — had no field to carry it).
+
+  One pre-existing bug surfaced and fixed while wiring the first schema
+  with `.default(...)` fields (`CreateCategoryInput`/`UpdateCategoryInput`):
+  `lib/server/validate.ts`'s `parseBody<T>(schema: ZodSchema<T>, ...)`
+  inferred `T` against Zod's Input type parameter, not Output — invisible
+  until a schema's input and output diverged, since every prior schema in
+  the app happened not to. Fixed by binding the generic to the schema
+  itself and returning `z.output<T>`; every existing call site was
+  unaffected since Input=Output for all of them.
+
+  Deletion semantics extended into two modules Phase 4 doesn't own, both
+  named explicitly in the original plan (§5): `lib/server/org/org.ts`'s
+  `deleteNode` gained two blockers (owns/holds resources) it needed the
+  moment `Item.ownerOrgNodeId`/`currentOrgNodeId` existed as `onDelete:
+  Restrict` foreign keys, or a delete would have surfaced as a raw
+  uncaught Prisma error instead of a named one; `lib/server/people/
+  people.ts`'s `deactivate` gained a custody blocker (`Item.custodianId`
+  is NEVER null — custody hands off, it never lapses) so disabling a
+  custodian can no longer silently strand accountability for what they
+  hold.
+
+  **Two real authorization bugs found and fixed during live verification**
+  (not by inspection — both were caught testing the actual write paths):
+  1. `moveInTree`/`transferItem` validated that the ITEM being moved was in
+     scope, but never checked the DESTINATION — a ChemE department head
+     was able to move their own item to become a physical child of SE's
+     lab with no visibility into SE's lab at all. Fixed by adding
+     `scope.assertCanWriteItem` on the target parent/`targetParentId` for
+     both kinds, using a NEW direct-only (non-ancestor-inclusive) point
+     check — reusing the read-oriented `canSeeItem` here would have let
+     "read-only context" visibility (seeing a container only because it
+     holds something of yours) double as permission to write into it.
+  2. Once that nesting existed (created before the fix above), deleting or
+     transferring the OUTER item's subtree swept up the foreign nested
+     item too — `deleteItem`/`transferItem` walk the whole physical
+     subtree by `parentId`, which does not stop at scope boundaries. SE's
+     department head deleting their own lab silently deleted ChemE's item
+     nested inside it. Fixed with `assertSubtreeInScope`, a whole-subtree
+     scope check (refusing the entire operation, not silently skipping the
+     foreign row) run before either function starts mutating.
+
+  A third, non-security bug: `setQuantity`'s no-op skip (`if (before ===
+  value) continue`) compared a Prisma `Decimal` against the wire input's
+  plain `number` — never equal by reference, so re-applying the same
+  quantity always bumped `version` and wrote a redundant change-log line
+  instead of being recognised as a no-op. Fixed by normalising both sides
+  to a number before comparing.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 253 tests (31 new: 13
+  item-scope.logic, 7 template-cycle, 11 category-props); `npm run build`
+  clean (15 new resource routes, 37 total). Live, via `curl` against a
+  running dev server signed in as SYS_ADMIN, both department heads and the
+  SE custodian (mirroring Phase 1's own verification approach): created a
+  category and items through the real write door; confirmed the raw
+  response bodies of `GET /api/resources/items` (search) for both
+  department heads never mention the other's node id or item id; confirmed
+  `GET /api/resources/items/:id` 404s (not 403) on an out-of-scope id and
+  the write door 404s the same way on a cross-department edit attempt;
+  confirmed a non-admin session hitting `POST /api/resources/categories`
+  gets a real 403; confirmed `MY_CUSTODY` scope, `tree`, `summary`,
+  `filter-fields`, `facets`, category `expectedVersion` conflict (409) and
+  the impact-preview endpoint all behave correctly; found and fixed the
+  two authorization bugs and the `setQuantity` bug above through this same
+  pass. All test fixtures (category, group, items) were deleted afterward
+  through the real API/a throwaway script, confirmed empty via a final DB
+  count — except 15 `ItemChange` rows, which the schema deliberately keeps
+  even after their item is gone (no FK to `Item`, by design) and whose
+  bulk cleanup this session's own safety classifier declined to run
+  unsupervised; left in place as harmless test noise rather than retried
+  around.
 
 ## Working agreements for this project
 
