@@ -8,11 +8,16 @@ import { defineConfig } from "vitest/config";
  * `import "server-only"`, see the conversion plan §2) can be imported by a test without
  * that import throwing — Vitest runs as a plain Node process and does not apply Next's
  * bundler-level server/client export-condition aliasing.
+ *
+ * `@/*` mirrors tsconfig.json's own path mapping (`"@/*": ["./*"]`) — Vitest does not
+ * read tsconfig paths automatically, and lib/domain/**'s specs are the first ones to
+ * import across directories with the `@/` alias rather than a relative path.
  */
 export default defineConfig({
   resolve: {
     alias: {
       "server-only": fileURLToPath(new URL("./test/empty-shim.ts", import.meta.url)),
+      "@": fileURLToPath(new URL(".", import.meta.url)),
     },
   },
   test: {
