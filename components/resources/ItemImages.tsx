@@ -12,9 +12,9 @@ import { Button } from "@/components/ui";
  * against this app's real two-step upload (lib/server/resources/images.ts) instead of
  * that sandbox's IndexedDB. An item shows its own photographs; one with none falls
  * back to its category's representative picture if it has one, which is what keeps
- * twenty-five identical workstation setups from each needing their own upload — and a
- * missing or unset fallback shows the category's icon instead of a broken image, never
- * a blank box.
+ * twenty-five identical workstation setups from each needing their own upload. Table
+ * thumbnails still fall back to the category icon; the Inspector deliberately renders
+ * no large media block at all when neither an item nor its category has a picture.
  */
 
 const MAX_EDGE = 1280;
@@ -128,7 +128,6 @@ export function ItemImageGallery({
   const image = item.images[shown];
   const fallback = item.images.length === 0 ? fallbackUrl(category) : null;
   const url = image?.url ?? fallback;
-  const Icon = categoryIconFor(category?.iconKey);
 
   async function onPick(files: FileList | null) {
     const file = files?.[0];
@@ -151,47 +150,44 @@ export function ItemImageGallery({
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="relative aspect-[16/10] w-full grid place-items-center overflow-hidden rounded-2 border border-border2 bg-panel2">
-        {url ? (
-          // eslint-disable-next-line @next/next/no-img-element -- served from our own API route.
+      {url && (
+        <div className="relative aspect-[16/10] w-full grid place-items-center overflow-hidden rounded-2 border border-border2 bg-panel2">
+          {/* eslint-disable-next-line @next/next/no-img-element -- served from our own API route. */}
           <img src={url} alt={image?.caption ?? item.name} className="absolute inset-0 size-full object-contain" />
-        ) : (
-          <div className="flex flex-col items-center gap-4 text-faint">
-            <Icon className="size-24" />
-            <span className="text-10.5">No photograph</span>
-          </div>
-        )}
-        {fallback && (
-          <span className="absolute bottom-6 left-6 rounded-2 bg-panel/85 px-6 py-3 text-9.5 text-dim">Category picture</span>
-        )}
-      </div>
+          {fallback && (
+            <span className="absolute bottom-6 left-6 rounded-2 bg-panel/85 px-6 py-3 text-9.5 text-dim">Category picture</span>
+          )}
+        </div>
+      )}
 
-      <div className="flex flex-wrap items-center gap-6">
-        {item.images.map((img, i) => (
-          <button
-            key={img.id}
-            type="button"
-            onClick={() => setActive(i)}
-            className={`size-32 flex-none overflow-hidden rounded-2 border bg-panel2 ${i === shown ? "border-accent" : "border-border2 hover:border-dim"}`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- served from our own API route. */}
-            <img src={img.url} alt="" className="size-full object-cover" loading="lazy" />
-          </button>
-        ))}
-        {!readOnly && (
-          <>
-            <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => void onPick(e.target.files)} />
-            <Button onClick={() => fileInput.current?.click()} disabled={busy}>
-              {busy ? "Saving…" : "+ Add photo"}
-            </Button>
-            {image && (
-              <Button variant="danger" onClick={() => onRemove(image.id)} disabled={busy}>
-                Remove
+      {(item.images.length > 0 || !readOnly) && (
+        <div className="flex flex-wrap items-center gap-6">
+          {item.images.map((img, i) => (
+            <button
+              key={img.id}
+              type="button"
+              onClick={() => setActive(i)}
+              className={`size-32 flex-none overflow-hidden rounded-2 border bg-panel2 ${i === shown ? "border-accent" : "border-border2 hover:border-dim"}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- served from our own API route. */}
+              <img src={img.url} alt="" className="size-full object-cover" loading="lazy" />
+            </button>
+          ))}
+          {!readOnly && (
+            <>
+              <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => void onPick(e.target.files)} />
+              <Button onClick={() => fileInput.current?.click()} disabled={busy}>
+                {busy ? "Saving…" : "+ Add photo"}
               </Button>
-            )}
-          </>
-        )}
-      </div>
+              {image && (
+                <Button variant="danger" onClick={() => onRemove(image.id)} disabled={busy}>
+                  Remove
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {image?.caption && <p className="text-10.5 text-dim">{image.caption}</p>}
       {error && <p className="text-10.5 text-bad">{error}</p>}

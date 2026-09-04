@@ -115,7 +115,7 @@ function toQueryString(mode: RegisterMode, filters: RegisterFilters, extra?: Rec
   return s ? `?${s}` : "";
 }
 
-function toApiParams(filters: RegisterFilters, scope?: "UNIVERSITY"): string {
+export function toApiParams(filters: RegisterFilters, scope?: "UNIVERSITY"): string {
   const qp = new URLSearchParams();
   appendFilterParams(qp, filters);
   if (scope) qp.set("scope", scope);
@@ -142,13 +142,13 @@ const PAGE_SIZE = 50;
  * this hook sends. `/register` itself never passes this option; only `/university`
  * does — the same hook, parameterized, per that page's own "reuse, don't fork" note.
  */
-export function useRegisterState(opts?: { scope?: "UNIVERSITY" }) {
+export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: RegisterMode }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const scope = opts?.scope;
 
-  const mode = readMode(searchParams);
+  const mode = opts?.fixedMode ?? readMode(searchParams);
   const filters = useMemo(() => readFilters(searchParams), [searchParams]);
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
 

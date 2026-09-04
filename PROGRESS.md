@@ -2364,6 +2364,50 @@ its model that make porting it as-is the wrong move.
   original + 13 real), 36 `ItemImage` rows, 238 items, all unchanged across a
   second run of the script (idempotency).
 
+- **2026-09-04** — Small resource-modal usability pass: the Item Details gallery no
+  longer renders a large icon/"No photograph" placeholder when neither the item nor
+  its category has an image (editable details retain the compact Add photo action;
+  read-only details render no empty media section). Replaced Add resources' native
+  category select with a searchable, keyboard-accessible combobox styled in the
+  project's existing design tokens. It filters by both category and group, retains
+  the selected value, and shows an Add category action that closes the modal and
+  routes to Category Studio whenever the search has no matches.
+
+- **2026-09-04** — Extended Add resources with item-specific optional properties at
+  creation time. A creator can add any number of key/type/value rows (text, number,
+  or yes/no); for a multi-create batch the same bag is applied to every requested
+  root, while template-generated children remain unchanged. `CreateItemChange` now
+  carries the existing typed `CustomProps` wire shape, and the write path reuses the
+  Inspector's server rules for key safety, category-field/duplicate collisions, and
+  value types. Added DB-backed coverage for batch persistence and refusal cases.
+
+- **2026-09-04** — Restored the source dashboard's shared-filter behavior: Dashboard
+  now hosts the full register filter bar and the same expandable containment/category-
+  cluster hierarchy used by Register beneath its status statistics. Both surfaces
+  share URL-backed filter state,
+  and `/items/summary` now parses the same core and advanced filter query as
+  `/items`, counting only genuine direct-scope matches rather than tree-only context
+  ancestors. Opening a dashboard row uses the normal editable Inspector. Added a
+  DB-backed assertion that filtered summary totals equal filtered search totals.
+  Verified: `npx tsc --noEmit`, all 292 tests, and `npm run build` clean.
+
+- **2026-09-04** — Follow-up UI correction: Add resources' searchable category list
+  now renders through a body portal and positions itself against the input, matching
+  shadcn Popover behavior, so the modal's independent scrolling can no longer crop
+  the list. It flips above the input when there is insufficient room below and
+  tracks modal/page scrolling and window resizing.
+
+- **2026-09-04** — Restored temp_works' live dashboard charts above the Register
+  hierarchy: a condition donut, a switchable owner/current-unit/location/custodian/
+  category condition breakdown, category rankings, and problem-location rankings.
+  Chart marks, legends, rows, status tiles, and ranked bars all drill into (or toggle
+  out of) the same URL-backed filter state used by the filter bar, stat totals, and
+  hierarchy. The summary response now computes every aggregate from direct-scope,
+  genuine matches and resolves display labels server-side; navigation-only tree
+  context never inflates a chart. The Needs attention tile applies all four attention
+  statuses together. Verified after the modal and hierarchy corrections: TypeScript,
+  all 292 tests, production build, and diff whitespace checks are clean.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

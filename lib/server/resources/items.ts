@@ -20,6 +20,7 @@ import {
   buildFilterFields,
   customPropFilterFields,
   facetCounts as domainFacetCounts,
+  fieldValues,
   matchItems,
   newRule,
   type FilterCtx,
@@ -311,17 +312,68 @@ export async function facets(userId: string, query: ItemQuery, modeOverride?: Sc
 
 const NEEDS_ATTENTION: EffectiveStatus[] = ["BROKEN", "IMPAIRED", "UNDER_MAINTENANCE", "LOST"];
 
-export async function summary(userId: string, modeOverride?: ScopeMode): Promise<ItemSummaryDto> {
+/** Dashboard totals over the exact same direct-scope, genuine-match set returned by
+ * `search()`. Context-only ancestors are a tree navigation aid, not resources that
+ * should inflate the dashboard, and every filter is applied before counting so the
+ * cards, charts, and matching hierarchy always answer the same question. */
+export async function summary(userId: string, modeOverride?: ScopeMode, query: ItemQuery = {}): Promise<ItemSummaryDto> {
   const forest = await loadForest();
-  const { closed } = await computeScopedIds(userId, forest, modeOverride);
+  const { base } = await computeScopedIds(userId, forest, modeOverride);
+  const matched = matchItems(forest.items, buildFilterState(query), ctxOf(forest));
+  const ids = [...base].filter((id) => matched.has(id));
+  const selected = ids.map((id) => forest.index.byId.get(id)!).filter(Boolean);
   const byEffectiveStatus: Record<string, number> = {};
   let needsAttention = 0;
-  for (const id of closed) {
-    const s = statusOf(forest.statuses, id);
+  for (const item of selected) {
+    const s = statusOf(forest.statuses, item.id);
     byEffectiveStatus[s] = (byEffectiveStatus[s] ?? 0) + 1;
     if (NEEDS_ATTENTION.includes(s)) needsAttention += 1;
   }
-  return { total: closed.size, byEffectiveStatus: byEffectiveStatus as Record<EffectiveStatus, number>, needsAttention };
+
+  const lookups = await nameLookups();
+  const ctx = ctxOf(forest);
+  const labelFor: Record<"owner" | "currentOrg" | "location" | "custodian" | "category", (key: string) => string> = {
+    owner: (key) => lookups.nodeName.get(key) ?? "Unassigned",
+    currentOrg: (key) => lookups.nodeName.get(key) ?? "Unassigned",
+    location: (key) => forest.index.byId.get(key)?.name ?? "Unassigned",
+    custodian: (key) => lookups.userName.get(key) ?? "Unassigned",
+    category: (key) => forest.categories[key]?.name ?? key,
+  };
+
+  function aggregate(field: keyof typeof labelFor) {
+    const rows = new Map<string, { total: number; byEffectiveStatus: Record<string, number> }>();
+    for (const item of selected) {
+      const status = statusOf(forest.statuses, item.id);
+      const values = fieldValues(item, field, ctx);
+      for (const key of values.length ? values : [""]) {
+        const row = rows.get(key) ?? { total: 0, byEffectiveStatus: {} };
+        row.total += 1;
+        row.byEffectiveStatus[status] = (row.byEffectiveStatus[status] ?? 0) + 1;
+        rows.set(key, row);
+      }
+    }
+    return [...rows.entries()]
+      .map(([key, row]) => ({
+        key,
+        label: labelFor[field](key),
+        total: row.total,
+        byEffectiveStatus: row.byEffectiveStatus as Record<EffectiveStatus, number>,
+      }))
+      .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  }
+
+  return {
+    total: selected.length,
+    byEffectiveStatus: byEffectiveStatus as Record<EffectiveStatus, number>,
+    needsAttention,
+    breakdowns: {
+      owner: aggregate("owner"),
+      currentOrg: aggregate("currentOrg"),
+      location: aggregate("location"),
+      custodian: aggregate("custodian"),
+      category: aggregate("category"),
+    },
+  };
 }
 
 /**

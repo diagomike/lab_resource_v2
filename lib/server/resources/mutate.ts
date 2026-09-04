@@ -274,6 +274,19 @@ async function applyCreateItem(
     }
   }
 
+  // Item-specific properties supplied by Add resources use exactly the same rules as
+  // adding one later in Inspector. Build a fresh bag rather than trusting the record
+  // keys verbatim: keys are trimmed, checked against category fields, checked against
+  // one another using punctuation-insensitive comparison, and values remain typed.
+  const initialCustomProps: CustomPropsBag = {};
+  if (input.customProps) {
+    for (const [rawKey, entry] of Object.entries(input.customProps)) {
+      const key = assertValidCustomKey(rawKey);
+      assertNoCollision(key, category.fields.map((field) => field.key), Object.keys(initialCustomProps));
+      initialCustomProps[key] = { type: entry.type, value: validateCustomPropValue(entry.type, entry.value) };
+    }
+  }
+
   const parent = input.parentId ? await tx.item.findUnique({ where: { id: input.parentId } }) : null;
   if (input.parentId && (!parent || parent.deletedAt)) throw new HttpError(400, "The selected parent no longer exists.");
 
@@ -307,10 +320,18 @@ async function applyCreateItem(
   );
   if (!created.length) throw new HttpError(400, "Nothing to create.");
 
-  await tx.item.createMany({ data: created.map((i) => itemCreateData(i, categories)) });
+  const roots = created.filter((i) => i.parentId === input.parentId);
+  const rootIds = new Set(roots.map((item) => item.id));
+  await tx.item.createMany({
+    data: created.map((item) => ({
+      ...itemCreateData(item, categories),
+      ...(rootIds.has(item.id) && Object.keys(initialCustomProps).length
+        ? { customProps: initialCustomProps as Prisma.InputJsonValue }
+        : {}),
+    })),
+  });
 
   const batchId = newId("b");
-  const roots = created.filter((i) => i.parentId === input.parentId);
   await tx.itemChange.createMany({
     data: roots.map((item) => ({
       at,

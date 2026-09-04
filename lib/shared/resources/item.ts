@@ -156,6 +156,12 @@ export const CreateItemChange = Base.extend({
    *  to the root item(s) being created, never to a template's auto-generated
    *  children (those keep their normal blank start, same as before this existed). */
   props: ItemProps.optional(),
+  /** Item-specific fields supplied while creating the resource. They are validated
+   *  by the same custom-property rules used by `addCustomProperty` (safe keys,
+   *  typed values, and no collisions with category fields or one another) and are
+   *  copied to every root item in a multi-create batch. Template children keep their
+   *  own empty custom-property bag. */
+  customProps: CustomProps.optional(),
 });
 
 export const DeleteItemChange = Base.extend({
@@ -362,10 +368,28 @@ export type ChangeLogPageDto = z.infer<typeof ChangeLogPageDto>;
 
 // ── Dashboard-shaped read (items.ts's summary()) ────────────────────────
 
+export const ItemSummaryBreakdownDto = z.object({
+  key: z.string(),
+  label: z.string(),
+  total: z.number().int(),
+  byEffectiveStatus: z.record(EffectiveStatusSchema, z.number().int()),
+});
+export type ItemSummaryBreakdownDto = z.infer<typeof ItemSummaryBreakdownDto>;
+
 export const ItemSummaryDto = z.object({
   total: z.number().int(),
   byEffectiveStatus: z.record(EffectiveStatusSchema, z.number().int()),
   needsAttention: z.number().int(),
+  /** The same genuine-match set as `total`, sliced by the dimensions used by the
+   *  live dashboard charts. Labels are resolved server-side so charts never need a
+   *  second unscoped name lookup. */
+  breakdowns: z.object({
+    owner: z.array(ItemSummaryBreakdownDto),
+    currentOrg: z.array(ItemSummaryBreakdownDto),
+    location: z.array(ItemSummaryBreakdownDto),
+    custodian: z.array(ItemSummaryBreakdownDto),
+    category: z.array(ItemSummaryBreakdownDto),
+  }),
 });
 export type ItemSummaryDto = z.infer<typeof ItemSummaryDto>;
 

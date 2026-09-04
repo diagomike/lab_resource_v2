@@ -4,9 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
  * DB-backed for the same reason placement.mutate.spec.ts is (its own header, and
- * mutate.spec.ts's before it) — proving `createItem`'s `name`/`props` fields (2026-
- * 09-04: "when he creates labs he should name the lab and be able to fill properties
- * in the creation modal") are actually applied and validated on the live write path,
+ * mutate.spec.ts's before it) — proving `createItem`'s `name`/`props`/`customProps`
+ * fields are actually applied and validated on the live write path,
  * and proving the same-day MANAGER write-policy widening (`scope.assertCanMutate`)
  * is wired into `createItem`-beneath-a-parent, not just edits to an existing item.
  */
@@ -155,6 +154,76 @@ describe("applyCreateItem — name and props at creation", () => {
     expect(props.room).toBe("C-105");
     expect(props.seats).toBe(20);
     expect(props.level).toBe("Advanced");
+  });
+
+  it("applies typed custom properties to every root in a multi-create batch", async () => {
+    const result = await applyChange(sysAdminId, {
+      kind: "createItem",
+      parentId: null,
+      categoryId: labLikeCategoryId,
+      count: 2,
+      name: "Custom Batch",
+      customProps: {
+        "Local code": { type: "TEXT", value: "SE-42" },
+        Calibrated: { type: "BOOLEAN", value: true },
+        "Warranty months": { type: "NUMBER", value: 18 },
+      },
+      ownerOrgNodeId: seNodeId,
+      custodianId: seCustodianId,
+    });
+    createdItemIds.push(...result.itemIds);
+    const items = await prisma.item.findMany({ where: { id: { in: result.itemIds } } });
+    expect(items).toHaveLength(2);
+    for (const item of items) {
+      expect(item.customProps).toEqual({
+        "Local code": { type: "TEXT", value: "SE-42" },
+        Calibrated: { type: "BOOLEAN", value: true },
+        "Warranty months": { type: "NUMBER", value: 18 },
+      });
+    }
+  });
+
+  it("rejects custom keys that collide with category fields or one another", async () => {
+    await expect(
+      applyChange(sysAdminId, {
+        kind: "createItem",
+        parentId: null,
+        categoryId: labLikeCategoryId,
+        count: 1,
+        customProps: { Room: { type: "TEXT", value: "duplicate" } },
+        ownerOrgNodeId: seNodeId,
+        custodianId: seCustodianId,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    await expect(
+      applyChange(sysAdminId, {
+        kind: "createItem",
+        parentId: null,
+        categoryId: labLikeCategoryId,
+        count: 1,
+        customProps: {
+          "Local code": { type: "TEXT", value: "one" },
+          local_code: { type: "TEXT", value: "two" },
+        },
+        ownerOrgNodeId: seNodeId,
+        custodianId: seCustodianId,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("rejects a custom property whose stored value does not match its declared type", async () => {
+    await expect(
+      applyChange(sysAdminId, {
+        kind: "createItem",
+        parentId: null,
+        categoryId: labLikeCategoryId,
+        count: 1,
+        customProps: { Voltage: { type: "NUMBER", value: "220" } },
+        ownerOrgNodeId: seNodeId,
+        custodianId: seCustodianId,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it("rejects a NUMBER field given a raw string — the server validates the type, it does not coerce it", async () => {

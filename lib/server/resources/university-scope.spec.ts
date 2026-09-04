@@ -168,6 +168,20 @@ describe("university scope override — raw response body, cross-department", ()
     expect(university.total).toBeGreaterThanOrEqual(ordinary.total + 1); // at least ChemE's own item joins the count
   });
 
+  it("summary applies the same filters as the matching-items search", async () => {
+    const filtered = await items.summary(seHeadId, undefined, { q: "SE University-Scope Item" });
+    const search = await items.search(seHeadId, { q: "SE University-Scope Item" });
+    expect(filtered.total).toBe(search.total);
+    expect(filtered.total).toBe(1);
+    expect(Object.values(filtered.byEffectiveStatus).reduce((sum, count) => sum + count, 0)).toBe(filtered.total);
+    expect(filtered.breakdowns.category).toContainEqual(
+      expect.objectContaining({ key: categoryId, label: "University Scope Test Category", total: 1 }),
+    );
+    for (const rows of Object.values(filtered.breakdowns)) {
+      expect(rows.reduce((sum, row) => sum + row.total, 0)).toBe(filtered.total);
+    }
+  });
+
   it("seeing further grants nothing: the write door stays custody-based even under the UNIVERSITY override", async () => {
     // assertCanMutate takes no mode override at all — it is a fixed, narrower policy
     // (see scope.ts's own header on why read scope and write eligibility are separate

@@ -811,7 +811,7 @@ export function PropInput({
 
 /** Same shape as PropInput, parameterized by a bare CustomPropType rather than a full
  *  CategoryFieldDto — a custom property has no options/unit/required, only a type. */
-function CustomPropInput({
+export function CustomPropInput({
   type,
   value,
   onChange,
