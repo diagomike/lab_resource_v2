@@ -31,13 +31,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 }
 
-/** Blocked while any item is still filed under it — see categories.ts's remove(). */
+/** Blocked while any item is still filed under it, or (unless explicitly confirmed via
+ *  ?confirmTemplateRemoval=true) while another category still lists this one as a
+ *  default part — see categories.ts's remove(). */
 export async function DELETE(request: NextRequest, { params }: Params) {
   try {
     const user = await requireSession(request);
     requireRole(user, ["SYS_ADMIN", "PROPERTY_ADMIN"]);
     const { id } = await params;
-    await remove(id);
+    const confirmTemplateRemoval = new URL(request.url).searchParams.get("confirmTemplateRemoval") === "true";
+    await remove(user.id, id, { confirmTemplateRemoval });
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
     return errorResponse(err);

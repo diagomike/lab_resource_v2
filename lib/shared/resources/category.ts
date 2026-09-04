@@ -14,6 +14,17 @@ export const CategoryGroupDto = z.object({
 });
 export type CategoryGroupDto = z.infer<typeof CategoryGroupDto>;
 
+/** Group names are a managed vocabulary, not free text — normalized (trimmed) and
+ *  checked case-insensitively unique server-side so "IT"/"I.T."/"it" cannot become
+ *  three shelves for the same thing. */
+export const CreateCategoryGroupInput = z.object({ name: z.string().min(1) });
+export type CreateCategoryGroupInput = z.infer<typeof CreateCategoryGroupInput>;
+
+/** Renaming preserves the group's id, so every category filed under it stays filed
+ *  under it — this is a name change only, never a re-key. */
+export const RenameCategoryGroupInput = z.object({ name: z.string().min(1) });
+export type RenameCategoryGroupInput = z.infer<typeof RenameCategoryGroupInput>;
+
 /** One "defined metric" on a category: Computer has model, serial, brand, type. */
 export const CategoryFieldDto = z.object({
   id: z.string(),
@@ -100,6 +111,10 @@ export type CreateCategoryInput = z.infer<typeof CreateCategoryInput>;
  */
 export const UpdateCategoryInput = z.object({
   expectedVersion: z.number().int(),
+  /** The stable key seeds/imports target — editable (categories.ts checks it stays
+   *  unique), but changing it does not touch any Item row: Item.categoryId is a cuid
+   *  FK, never the key. */
+  key: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   iconKey: z.string().min(1).optional(),
   groupId: z.string().optional(),
@@ -115,10 +130,18 @@ export const UpdateCategoryInput = z.object({
 export type UpdateCategoryInput = z.infer<typeof UpdateCategoryInput>;
 
 /** What a pending category edit would actually do, computed server-side before the
- *  edit is committed — the blast-radius preview (lib/domain/edit-impact.ts). */
+ *  edit is committed — the blast-radius preview (lib/domain/edit-impact.ts). `title`
+ *  and `detail` stay separate (not flattened into one `message`) so the Category
+ *  Studio can render them the way lib/domain/edit-impact.ts's own header describes:
+ *  a bold claim plus a counted, actionable detail. `orphanKeys` names which stored
+ *  property keys this specific note would strand — the union of every note's
+ *  `orphanKeys` is what the purge checkbox offers to erase, explicit and opt-in. */
 export const CategoryImpactNote = z.object({
+  id: z.string(),
   severity: z.enum(["info", "warning", "destructive"]),
-  message: z.string(),
+  title: z.string(),
+  detail: z.string(),
+  orphanKeys: z.array(z.string()).default([]),
 });
 export type CategoryImpactNote = z.infer<typeof CategoryImpactNote>;
 

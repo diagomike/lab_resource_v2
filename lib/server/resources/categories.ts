@@ -1,5 +1,5 @@
 import "server-only";
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { CategoryFieldType, CategoryImpactDto, CreateCategoryInput, ResourceCategoryDto, UpdateCategoryInput } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
@@ -7,6 +7,8 @@ import { categoryImpact } from "@/lib/domain/edit-impact";
 import type { Category } from "@/lib/domain/types";
 import { toDomainCategory, toDomainItem } from "./adapt";
 import { wouldCreateTemplateCycle } from "./template-cycle";
+
+type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
 const CATEGORY_INCLUDE = {
   group: { select: { name: true } },
@@ -70,6 +72,33 @@ export async function getOne(id: string): Promise<ResourceCategoryDto> {
   return toDto(row);
 }
 
+/** How many items are currently filed under this category — the Category Studio's
+ *  usage count, and what blocks a delete. Exposed separately from the DTO (rather than
+ *  denormalised onto it) since it changes on every item write, not every category
+ *  write. */
+export async function usageCounts(): Promise<Record<string, number>> {
+  const rows = await prisma.item.groupBy({ by: ["categoryId"], _count: { _all: true } });
+  return Object.fromEntries(rows.map((r) => [r.categoryId, r._count._all]));
+}
+
+/** How many items already hold a non-empty value under each of this category's field
+ *  keys — what locks a field's key input in the Studio editor (renaming a key in use
+ *  would silently strand its values) and what the impact preview's own field-removed
+ *  note counts. Scoped to ONE category at a time — an editor only ever needs this for
+ *  the category currently open, not every row in a list. */
+export async function fieldUsageCounts(categoryId: string): Promise<Record<string, number>> {
+  const items = await prisma.item.findMany({ where: { categoryId, deletedAt: null }, select: { props: true } });
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    const props = item.props as Record<string, unknown>;
+    for (const [key, value] of Object.entries(props)) {
+      if (value === null || value === undefined || value === "") continue;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
 function assertEnumFieldsHaveOptions(fields: { type: CategoryFieldType; options: string[]; label: string }[]): void {
   for (const f of fields) {
     if (f.type === "ENUM" && f.options.length === 0) {
@@ -78,14 +107,42 @@ function assertEnumFieldsHaveOptions(fields: { type: CategoryFieldType; options:
   }
 }
 
-async function assertTemplateChildrenValid(parentId: string | null, childCategoryIds: string[]): Promise<void> {
+/** Two categories filed under the same storage key would silently overwrite each
+ *  other's stored values — caught here as a clean 400 rather than left to become a
+ *  Zod-schema-compile surprise the first time category-props.ts builds a shape from
+ *  these rows. */
+function assertNoDuplicateFieldKeys(fields: { key: string }[]): void {
+  const seen = new Set<string>();
+  for (const f of fields) {
+    if (seen.has(f.key)) throw new HttpError(400, `The field key "${f.key}" is used more than once`);
+    seen.add(f.key);
+  }
+}
+
+/** A category cannot be listed as its own default part twice — the schema's own
+ *  `@@unique([parentCategoryId, childCategoryId])` would catch this as a raw
+ *  constraint error; catching it here keeps that a named 400 instead. */
+function assertNoDuplicateTemplateChildren(children: { childCategoryId: string }[]): void {
+  const seen = new Set<string>();
+  for (const c of children) {
+    if (seen.has(c.childCategoryId)) throw new HttpError(400, "A category cannot be listed as a default part more than once");
+    seen.add(c.childCategoryId);
+  }
+}
+
+/** Every default-child id must exist, and adding this set must not create a direct or
+ *  indirect cycle in the template graph (`wouldCreateTemplateCycle` covers direct
+ *  self-reference too — a category cannot be built from itself). Takes a `client`
+ *  parameter (plain `prisma` from `create`, the transaction's `tx` from `update`) so
+ *  the same validation runs whether or not it is already inside a transaction. */
+async function assertTemplateChildrenValid(client: Tx, parentId: string | null, childCategoryIds: string[]): Promise<void> {
   if (!childCategoryIds.length) return;
-  const found = await prisma.resourceCategory.findMany({ where: { id: { in: childCategoryIds } }, select: { id: true } });
+  const found = await client.resourceCategory.findMany({ where: { id: { in: childCategoryIds } }, select: { id: true } });
   if (found.length !== new Set(childCategoryIds).size) {
     throw new HttpError(400, "One or more default-child categories do not exist");
   }
   if (parentId) {
-    const edges = await prisma.categoryTemplateChild.findMany({ select: { parentCategoryId: true, childCategoryId: true } });
+    const edges = await client.categoryTemplateChild.findMany({ select: { parentCategoryId: true, childCategoryId: true } });
     if (wouldCreateTemplateCycle(edges, parentId, childCategoryIds)) {
       throw new HttpError(400, "That default subtree would contain itself — choose parts that do not lead back to this category");
     }
@@ -94,63 +151,73 @@ async function assertTemplateChildrenValid(parentId: string | null, childCategor
 
 export async function create(actorId: string, input: CreateCategoryInput): Promise<ResourceCategoryDto> {
   assertEnumFieldsHaveOptions(input.fields);
+  assertNoDuplicateFieldKeys(input.fields);
+  assertNoDuplicateTemplateChildren(input.templateChildren);
   const group = await prisma.categoryGroup.findUnique({ where: { id: input.groupId } });
   if (!group) throw new HttpError(400, "Choose an existing group");
   const existingKey = await prisma.resourceCategory.findUnique({ where: { key: input.key } });
   if (existingKey) throw new HttpError(400, `A category with key "${input.key}" already exists`);
-  await assertTemplateChildrenValid(null, input.templateChildren.map((c) => c.childCategoryId));
+  await assertTemplateChildrenValid(prisma, null, input.templateChildren.map((c) => c.childCategoryId));
 
-  const created = await prisma.$transaction(async (tx) => {
-    const row = await tx.resourceCategory.create({
-      data: {
-        key: input.key,
-        name: input.name,
-        iconKey: input.iconKey,
-        groupId: input.groupId,
-        countingMode: input.countingMode,
-        unit: input.unit ?? null,
-        impairRule: input.impairRule,
-      },
-    });
-    if (input.fields.length) {
-      await tx.categoryField.createMany({
-        data: input.fields.map((f) => ({
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const row = await tx.resourceCategory.create({
+        data: {
+          key: input.key,
+          name: input.name,
+          iconKey: input.iconKey,
+          groupId: input.groupId,
+          countingMode: input.countingMode,
+          unit: input.unit ?? null,
+          impairRule: input.impairRule,
+        },
+      });
+      if (input.fields.length) {
+        await tx.categoryField.createMany({
+          data: input.fields.map((f) => ({
+            categoryId: row.id,
+            key: f.key,
+            label: f.label,
+            type: f.type,
+            options: f.options,
+            unit: f.unit ?? null,
+            summary: f.summary,
+            longText: f.longText,
+            required: f.required,
+            sortOrder: f.sortOrder,
+          })),
+        });
+      }
+      if (input.templateChildren.length) {
+        await tx.categoryTemplateChild.createMany({
+          data: input.templateChildren.map((c) => ({
+            parentCategoryId: row.id,
+            childCategoryId: c.childCategoryId,
+            qty: c.qty,
+            critical: c.critical,
+          })),
+        });
+      }
+      await tx.itemChange.create({
+        data: {
+          actorId,
+          kind: "editCategory",
+          targetKind: "CATEGORY",
+          itemName: row.name,
           categoryId: row.id,
-          key: f.key,
-          label: f.label,
-          type: f.type,
-          options: f.options,
-          unit: f.unit ?? null,
-          summary: f.summary,
-          longText: f.longText,
-          required: f.required,
-          sortOrder: f.sortOrder,
-        })),
+          field: "created",
+          after: row.name,
+        },
       });
-    }
-    if (input.templateChildren.length) {
-      await tx.categoryTemplateChild.createMany({
-        data: input.templateChildren.map((c) => ({
-          parentCategoryId: row.id,
-          childCategoryId: c.childCategoryId,
-          qty: c.qty,
-          critical: c.critical,
-        })),
-      });
-    }
-    await tx.itemChange.create({
-      data: {
-        actorId,
-        kind: "editCategory",
-        targetKind: "CATEGORY",
-        itemName: row.name,
-        categoryId: row.id,
-        field: "created",
-        after: row.name,
-      },
+      return row;
     });
-    return row;
-  });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new HttpError(400, `A category with key "${input.key}" already exists`);
+    }
+    throw err;
+  }
 
   return getOne(created.id);
 }
@@ -161,6 +228,13 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
  * Warranty" rather than one opaque "edited" — mirroring
  * temp_works/src/lib/store.ts's `describeCategoryEdit`.
  *
+ * The version check and every read the diff/impact computation depends on now run
+ * INSIDE the same transaction as the write, against a `SELECT ... FOR UPDATE` lock —
+ * see lib/server/resources/mutate.ts's own note (the item-level twin of this bug,
+ * fixed first) on why a check made before the transaction opens can be invalidated by
+ * a second writer in between. `getOne(id)` re-reads after the transaction commits,
+ * outside the lock, since nothing about rendering the final DTO needs it held.
+ *
  * Two side effects a category edit can trigger on every item already filed under it:
  * a counting-mode change rewrites the denormalised `Item.countingMode` (and forces
  * `qty` back to 1 for BULK → SERIALIZED, the direction that actually invalidates a
@@ -169,62 +243,82 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
  * values (dormant, not deleted) by default.
  */
 export async function update(actorId: string, id: string, input: UpdateCategoryInput): Promise<ResourceCategoryDto> {
-  const before = await loadOne(id);
-  if (!before) throw new HttpError(404, "Category not found");
-  if (before.version !== input.expectedVersion) {
-    throw new HttpError(409, "Version conflict", {
-      message: "This category has changed since you loaded it.",
-      code: "VERSION_CONFLICT",
-      expectedVersion: input.expectedVersion,
-      actualVersion: before.version,
-    });
-  }
-
-  const nextFields = input.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
-  assertEnumFieldsHaveOptions(nextFields);
-
-  if (input.groupId && input.groupId !== before.groupId) {
-    const group = await prisma.categoryGroup.findUnique({ where: { id: input.groupId } });
-    if (!group) throw new HttpError(400, "Choose an existing group");
-  }
-
-  const nextTemplateChildren = input.templateChildren ?? before.templateAsParent.map((c) => ({ childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical }));
-  if (input.templateChildren) {
-    await assertTemplateChildrenValid(id, nextTemplateChildren.map((c) => c.childCategoryId));
-  }
-
-  const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent);
-  const afterDomain: Category = {
-    ...beforeDomain,
-    name: input.name ?? beforeDomain.name,
-    iconKey: input.iconKey ?? beforeDomain.iconKey,
-    countingMode: input.countingMode ?? beforeDomain.countingMode,
-    unit: input.unit === undefined ? beforeDomain.unit : (input.unit ?? undefined),
-    impairRule: input.impairRule ?? beforeDomain.impairRule,
-    fields: nextFields.map((f) => ({
-      key: f.key,
-      label: f.label,
-      type: f.type === "TEXT" ? "text" : f.type === "NUMBER" ? "number" : f.type === "ENUM" ? "enum" : "boolean",
-      options: f.options?.length ? f.options : undefined,
-      unit: f.unit ?? undefined,
-      summary: f.summary,
-      long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
-    })),
-    defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
-  };
-
-  const items = await prisma.item.findMany({ where: { categoryId: id, deletedAt: null } });
-  const domainItems = items.map((i) => toDomainItem(i));
-  const diff = describeCategoryEdit(beforeDomain, afterDomain);
-
-  const countingModeChanged = input.countingMode !== undefined && input.countingMode !== before.countingMode;
-  const purgeKeys = input.purgeKeys ?? [];
-
   await prisma.$transaction(async (tx) => {
+    const lock = await tx.$queryRaw<{ id: string; version: number }[]>`
+      SELECT id, version FROM "ResourceCategory" WHERE id = ${id} FOR UPDATE
+    `;
+    if (!lock.length) throw new HttpError(404, "Category not found");
+    if (lock[0].version !== input.expectedVersion) {
+      throw new HttpError(409, "Version conflict", {
+        message: "This category has changed since you loaded it.",
+        code: "VERSION_CONFLICT",
+        expectedVersion: input.expectedVersion,
+        actualVersion: lock[0].version,
+      });
+    }
+
+    const before = await tx.resourceCategory.findUnique({ where: { id }, include: CATEGORY_INCLUDE });
+    if (!before) throw new HttpError(404, "Category not found");
+
+    const nextFields = input.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
+    assertEnumFieldsHaveOptions(nextFields);
+    if (input.fields) assertNoDuplicateFieldKeys(input.fields);
+
+    if (input.groupId && input.groupId !== before.groupId) {
+      const group = await tx.categoryGroup.findUnique({ where: { id: input.groupId } });
+      if (!group) throw new HttpError(400, "Choose an existing group");
+    }
+
+    // The stable key seeds/imports target — editable, but Item.categoryId is a cuid
+    // FK that never references it, so renaming it moves nothing else.
+    if (input.key !== undefined && input.key !== before.key) {
+      const clash = await tx.resourceCategory.findUnique({ where: { key: input.key } });
+      if (clash) throw new HttpError(400, `A category with key "${input.key}" already exists`);
+    }
+
+    const nextTemplateChildren = input.templateChildren ?? before.templateAsParent.map((c) => ({ childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical }));
+    if (input.templateChildren) {
+      assertNoDuplicateTemplateChildren(input.templateChildren);
+      await assertTemplateChildrenValid(tx, id, nextTemplateChildren.map((c) => c.childCategoryId));
+    }
+
+    const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent);
+    const afterDomain: Category = {
+      ...beforeDomain,
+      name: input.name ?? beforeDomain.name,
+      iconKey: input.iconKey ?? beforeDomain.iconKey,
+      countingMode: input.countingMode ?? beforeDomain.countingMode,
+      unit: input.unit === undefined ? beforeDomain.unit : (input.unit ?? undefined),
+      impairRule: input.impairRule ?? beforeDomain.impairRule,
+      fields: nextFields.map((f) => ({
+        key: f.key,
+        label: f.label,
+        type: f.type === "TEXT" ? "text" : f.type === "NUMBER" ? "number" : f.type === "ENUM" ? "enum" : "boolean",
+        options: f.options?.length ? f.options : undefined,
+        unit: f.unit ?? undefined,
+        summary: f.summary,
+        long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
+      })),
+      defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
+    };
+
+    const items = await tx.item.findMany({ where: { categoryId: id, deletedAt: null } });
+    const domainItems = items.map((i) => toDomainItem(i));
+    const diff = describeCategoryEdit(beforeDomain, afterDomain);
+    // "key" lives on the Prisma row, not the domain Category shape describeCategoryEdit
+    // diffs against, so it gets its own scalar line here rather than joining that list.
+    if (input.key !== undefined && input.key !== before.key) {
+      diff.push({ field: "key", before: before.key, after: input.key });
+    }
+
+    const countingModeChanged = input.countingMode !== undefined && input.countingMode !== before.countingMode;
+    const purgeKeys = input.purgeKeys ?? [];
+
     await tx.resourceCategory.update({
       where: { id },
       data: {
         version: { increment: 1 },
+        ...(input.key !== undefined ? { key: input.key } : {}),
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
         ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
@@ -310,7 +404,14 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
   return getOne(id);
 }
 
-export async function remove(id: string): Promise<void> {
+/** Deleting a category that ANOTHER category still lists as a default part would
+ *  silently cascade-delete that `CategoryTemplateChild` row (the schema's own
+ *  `onDelete: Cascade` on `childCategory`) — quietly rewriting a different category's
+ *  default subtree with no one having agreed to that. Blocked by default; the caller
+ *  explicitly confirms the collateral removal (`opts.confirmTemplateRemoval`) rather
+ *  than being blocked outright, matching this project's "present and confirm, don't
+ *  silently cascade" rule for consequential writes. */
+export async function remove(actorId: string, id: string, opts?: { confirmTemplateRemoval?: boolean }): Promise<void> {
   const row = await loadOne(id);
   if (!row) throw new HttpError(404, "Category not found");
   const itemCount = await prisma.item.count({ where: { categoryId: id } });
@@ -321,7 +422,40 @@ export async function remove(id: string): Promise<void> {
       itemCount,
     });
   }
-  await prisma.resourceCategory.delete({ where: { id } });
+
+  const usedAsChild = await prisma.categoryTemplateChild.findMany({
+    where: { childCategoryId: id },
+    include: { parentCategory: { select: { id: true, name: true } } },
+  });
+  const parents = [...new Map(usedAsChild.map((c) => [c.parentCategory.id, c.parentCategory.name])).entries()];
+
+  if (parents.length && !opts?.confirmTemplateRemoval) {
+    const names = parents.map(([, name]) => name);
+    throw new HttpError(409, "Cannot delete category", {
+      message: `"${row.name}" is a default part of ${names.join(", ")}. Deleting it would silently drop it from ${names.length === 1 ? "that category's" : "those categories'"} default subtree unless you confirm that collateral change.`,
+      code: "TEMPLATE_CHILD_IN_USE",
+      parentCategoryNames: names,
+    });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const [parentId, parentName] of parents) {
+      await tx.itemChange.create({
+        data: {
+          actorId,
+          kind: "editCategory",
+          targetKind: "CATEGORY",
+          itemName: parentName,
+          categoryId: parentId,
+          field: `part ${id}`,
+          before: `${row.name} (deleted)`,
+          after: Prisma.DbNull,
+          note: `"${row.name}" was deleted, removing it from this category's default subtree`,
+        },
+      });
+    }
+    await tx.resourceCategory.delete({ where: { id } });
+  });
 }
 
 /** The blast-radius preview for a pending category edit — computed, never persisted.
@@ -359,7 +493,7 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
 
   return {
     affectedItemCount: domainItems.length,
-    notes: notes.map((n) => ({ severity: n.severity, message: n.detail ? `${n.title} — ${n.detail}` : n.title })),
+    notes: notes.map((n) => ({ id: n.id, severity: n.severity, title: n.title, detail: n.detail, orphanKeys: n.orphanKeys ?? [] })),
   };
 }
 
