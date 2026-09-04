@@ -1559,6 +1559,131 @@ its model that make porting it as-is the wrong move.
   entry) for item-specific custom properties, which also touches Inspector.tsx; the
   children/category-link reconciliation remains open.
 
+- **2026-09-04 (item-specific custom properties)** — Mid-Phase-8, the user asked for a
+  feature not in the original replatforming plan: an authorized user editing ONE item
+  can add a property their category does not define — a one-off fact about that
+  resource alone — without an admin first changing the category schema for everyone.
+  Explicit, repeated constraint throughout the request: this must SUPPLEMENT category
+  fields, never weaken their validation, and the two concepts must stay explicitly,
+  visibly distinct.
+
+  **The storage design decision, made deliberately against the obvious shortcut.** The
+  tempting shape was a reserved key inside the existing `Item.props` JSON blob (no
+  migration needed). Rejected in favor of a genuinely separate column, `Item.customProps
+  Json @default("{}")` (its own additive migration), each entry `{ type, value }`, for
+  one concrete reason that isn't cosmetic: `categories.ts`'s `purgeKeys` runs a raw
+  `UPDATE "Item" SET props = props - $1` — a reserved key sharing that same JSON object
+  would be one dormant-field purge away from silently erasing an unrelated custom
+  value, exactly the failure mode the user explicitly warned against. A separate column
+  makes that structurally impossible rather than relying on a runtime guard someone
+  could forget to keep in sync. The domain `Item` type gained an OPTIONAL `customProps`
+  field (not `{}`-defaulted) rather than required, so every existing fixture across
+  ~15 spec files and the client-side `ItemRowDto`→`Item` adapter (whose row DTO
+  deliberately does not carry this — the register table's own Specs cell stays category
+  fields only, custom properties are Inspector-only) kept compiling with zero touch-up.
+
+  **Validation lives in its own module** (`lib/server/resources/custom-props.ts`, pure,
+  mirroring `category-props.ts`'s own split), explicitly NOT a relaxation of
+  `validatePropWrite` — that function is untouched and still refuses any key a category
+  doesn't define, exactly as before. A custom key is pattern-checked (letters, digits,
+  spaces, `-`/`_`, starting with a letter, capped length — no `:`, which the new
+  `custom:<key>` synthetic filter-field id uses as a namespace separator) and collision
+  checked, normalized (case/punctuation-insensitive — "Serial Number" and
+  "serial_number" read as one collision, not two properties), against BOTH the item's
+  own category fields and its own other custom properties. A value is validated against
+  the TEXT/NUMBER/BOOLEAN type it was declared with — chosen once at creation, stored
+  explicitly, never re-guessed from form text on reload (the user's own stated
+  requirement). Editing a custom property's value cannot change its type; changing type
+  means remove-then-re-add, the same "removing strands the old value until re-added"
+  discipline a category field already follows.
+
+  **Three new `ItemChangeInput` kinds** (`addCustomProperty`, `setCustomProperty`,
+  `removeCustomProperty`, all single-item-only — a custom property is a fact about ONE
+  resource by construction, never a bulk write), handled in `mutate.ts` alongside every
+  other kind — the SAME one write door, the SAME `assertVersionsMatch`/`assertAuthorized`
+  gates already in place, no parallel mutation path. This means the item-level
+  atomicity fix from the prior checkpoint (`SELECT ... FOR UPDATE` inside the
+  transaction) already covers these three for free. `CONFIRMED_CHANGES`:
+  add/edit are corrections (no dialog, matching `setProperty`'s own treatment — "A
+  custodian must be able to add and edit... without an approval chain" is satisfied by
+  the SAME custody-only write policy Phase 7 already established, not a new one);
+  remove is a deletion (confirms, matching `removeImage`).
+
+  **Search and the advanced filter builder**, both extended rather than duplicated:
+  `lib/domain/filters.ts`'s `matchSearch` now folds custom-property values into its
+  haystack, and `valuesFor`/`matchRule` gained a `custom:<key>` field branch alongside
+  the existing `prop:`/`desc:` ones. Unlike those two, a custom property is not
+  organized by category — it is discovered from the items actually in play, via a new
+  `customPropFilterFields(scopedItems)` that has NO scope logic of its own (a
+  deliberate design choice, tested explicitly) — `items.ts`'s `domainFilterFields` is
+  the one caller, and it already had a `closed`-scoped item set on hand for the
+  "Lab / location" option list; the same set now feeds custom-property key discovery
+  too, which is what keeps an out-of-scope item's custom key from ever reaching a
+  filter-fields response — collecting keys AFTER scoping, never before, per the user's
+  explicit requirement.
+
+  **The Category Studio's impact preview learned one new note.** When a category admin
+  adds a field whose key normalizes to match an existing custom property somewhere
+  among that category's own items, `categoryImpact` now emits a `warning`-severity note
+  naming how many items are affected — surfaced, never blocked (the two live in
+  different storage, so nothing is actually overwritten; the risk is purely that the
+  same name now means two different things on the same item, worth a human's attention,
+  not a refusal).
+
+  **Inspector.tsx** — a "Custom properties (this item only)" section, visually and
+  structurally separate from the category's own "Properties" block: each existing
+  custom property renders as a typed input (text/number/select for boolean) with an
+  inline commit-on-blur, matching category fields' own editing feel, plus a small ×
+  remove button that opens the existing `ConfirmDialog` via the same `usePendingChange`
+  machinery every other Inspector edit already uses — no second mutation system, per
+  the user's own explicit instruction. "+ Add optional property" opens a small inline
+  form (name / type / value) that submits through the identical `request()` call.
+
+  **One real bug found live, fixed in the same pass**: a collision error from a failed
+  "Add" attempt (`inlineError`, a separate state from `usePendingChange`'s own
+  `pendingError`) was never cleared by anything except the specific `commit*` functions
+  — cancelling the add form, opening it again, or completing an unrelated remove all
+  left a stale "This item already has a property named…" banner sitting above fields
+  that had nothing wrong with them. Fixed by clearing `inlineError` in `load()`'s own
+  reset block (so every successful reload starts clean) and at the three points that
+  open/close the add-form or a remove confirmation.
+
+  New tests, matching every case the user asked for by name: `custom-props.spec.ts`
+  (pure — key validation, normalized-collision detection, per-type value validation);
+  extended `filters.spec.ts` (custom-property search and `custom:` rule matching,
+  `customPropFilterFields`'s own no-scope-of-its-own contract) and `edit-impact.spec.ts`
+  (the category-field/custom-property collision note, and its negative case); a new
+  DB-backed `custom-props.mutate.spec.ts` (real Postgres, same fixture/`.env` pattern as
+  `mutate.spec.ts`/`categories.spec.ts`) covering creation, exact persistence and typing
+  across a reload, editing, removal, a duplicate-key collision, a category-field
+  collision, an unsafe key and a wrong-typed value, a stale-version write applying
+  nothing, a custodian succeeding with no approval chain, a non-custodian MANAGER
+  refused the same 404 an out-of-scope write already uses, SYS_ADMIN succeeding across
+  departments, and — the scope-leakage case named explicitly — an SE custodian's
+  filter-fields response never naming a ChemE item's custom key and vice versa.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 209 tests (31 new); `npx prisma
+  validate`/`migrate status` clean (9 migrations); `npm run build` clean (41 routes, +5:
+  the two group Route Handlers and the two usage/field-usage endpoints — no dev server
+  was running this pass, so the build ran without the prior entry's deferral). Live
+  in-browser, signed in as the SE custodian, on the real "Whiteboard" item in the dev
+  seed: added a TEXT custom property ("Warranty Vendor" → "Steelcase") with an
+  immediately-correct History line; edited its value inline with no dialog; attempting
+  a second property named "warranty vendor" (different casing) was refused with the
+  exact normalized-collision message, live proof the same check the DB test exercises
+  also fires through the real endpoint; added a NUMBER property ("Weight Limit" → 250,
+  confirmed the value input switches to `type="number"` for the chosen type); removed
+  "Weight Limit" via the confirm dialog. Confirmed the new field appears in the
+  register's "+ Add filter…" list after a reload (the filter-fields list is fetched
+  once per FilterBar mount, a pre-existing characteristic shared by every advanced
+  field, not something new here) and that a `Weight Limit ≥ 100` rule correctly
+  narrowed Hierarchy mode to just the item's own lab. All fixture state reverted
+  afterward and confirmed via direct DB query: baseline counts unchanged (134 items/21
+  categories/5 groups), the Whiteboard item's `customProps` back to `{}` — its `version`
+  column is higher than before (8, from the live edits), left as-is per this project's
+  own established precedent for harmless test-history noise on real seed rows rather
+  than being reset artificially.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
