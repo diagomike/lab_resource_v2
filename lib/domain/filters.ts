@@ -174,6 +174,35 @@ export function buildFilterFields(
   return fields;
 }
 
+/**
+ * Custom-property filter fields — unlike prop:/desc:, these are not organised by
+ * category (a custom property is per-ITEM, not part of any schema), so they are
+ * discovered from the items actually in play rather than from `categories`. The
+ * caller MUST pass an already scope-filtered item list — this function has no way to
+ * enforce that itself, which is exactly why it is a separate, obviously-named entry
+ * point rather than folded into `buildFilterFields` (see items.ts's own
+ * `domainFilterFields`, which passes the same `closed`-scoped set `places` already
+ * uses). Offering a key that exists ONLY on an out-of-scope item would leak that the
+ * item exists, so scoping this input is load-bearing, not cosmetic.
+ */
+export function customPropFilterFields(scopedItems: Item[]): FilterFieldDef[] {
+  const byKey = new Map<string, "TEXT" | "NUMBER" | "BOOLEAN">();
+  for (const it of scopedItems) {
+    for (const [key, entry] of Object.entries(it.customProps ?? {})) {
+      if (!byKey.has(key)) byKey.set(key, entry.type);
+    }
+  }
+  return [...byKey.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, type]) => ({
+      id: `custom:${key}`,
+      label: key,
+      kind: type === "NUMBER" ? "number" : type === "BOOLEAN" ? "enum" : "text",
+      group: "Custom properties",
+      options: type === "BOOLEAN" ? [{ value: "true", label: "Yes" }, { value: "false", label: "No" }] : undefined,
+    }));
+}
+
 /** The place an item sits in — its outermost ancestor. */
 export function placeOf(index: TreeIndex, item: Item): Item {
   let cur = item;
@@ -230,6 +259,11 @@ function valuesFor(item: Item, fieldId: string, ctx: FilterCtx): string[] {
   if (fieldId.startsWith("desc:")) {
     const [, catId, key] = fieldId.split(":");
     return descendantPropValues(ctx.index, item.id, catId, key);
+  }
+  if (fieldId.startsWith("custom:")) {
+    const key = fieldId.slice("custom:".length);
+    const v = item.customProps?.[key]?.value;
+    return v === null || v === undefined || v === "" ? [] : [String(v)];
   }
   return [];
 }
@@ -291,7 +325,8 @@ function matchRule(item: Item, rule: FilterRule, ctx: FilterCtx): boolean {
 function matchSearch(item: Item, search: string, ctx: FilterCtx): boolean {
   const text = search.trim().toLowerCase();
   if (!text) return true;
-  const hay = [item.name, ctx.categories[item.categoryId]?.name ?? "", ...Object.values(item.props).map((v) => (v == null ? "" : String(v)))]
+  const customValues = Object.values(item.customProps ?? {}).map((c) => (c.value == null ? "" : String(c.value)));
+  const hay = [item.name, ctx.categories[item.categoryId]?.name ?? "", ...Object.values(item.props).map((v) => (v == null ? "" : String(v))), ...customValues]
     .join(" ")
     .toLowerCase();
   return hay.includes(text);

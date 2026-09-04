@@ -164,6 +164,23 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
       title: `Adding the "${f.label || f.key}" field`,
       detail: count ? `It starts empty on all ${plural(count, "existing item")}.` : "No existing items to fill in.",
     });
+
+    // A NEW category field can collide with an existing item-specific custom property
+    // of the same name (lib/server/resources/custom-props.ts's own concept) — they are
+    // stored in different places, so this add does not overwrite anything, but the
+    // same key now means two different things on the item and that is worth surfacing
+    // rather than leaving silent. Compared normalized (case/punctuation-insensitive),
+    // same rule custom-props.ts's own collision check uses at creation time.
+    const norm = normalizeForCollision(f.key);
+    const colliding = mine.filter((i) => Object.keys(i.customProps ?? {}).some((k) => normalizeForCollision(k) === norm));
+    if (colliding.length) {
+      notes.push({
+        id: `cat-field-custom-collision-${f.key}`,
+        severity: "warning",
+        title: `"${f.label || f.key}" already exists as a custom property on ${plural(colliding.length, "item")}`,
+        detail: `Those items keep their own custom value under that name, separate from this new field — the two will show side by side, not merged, which may read as duplicated or confusing.`,
+      });
+    }
   }
 
   // ── Type / option changes on kept fields ───────────────────────────────
@@ -262,6 +279,14 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
   }
 
   return notes;
+}
+
+/** Mirrors lib/server/resources/custom-props.ts's own `normalizeKey` — duplicated
+ *  rather than imported so this stays pure domain code with no dependency on
+ *  lib/server/**, exactly the same tradeoff made everywhere else a small pure helper
+ *  would otherwise cross that boundary. */
+function normalizeForCollision(key: string): string {
+  return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function nameOf(catId: string, ...sources: Category[]): string {

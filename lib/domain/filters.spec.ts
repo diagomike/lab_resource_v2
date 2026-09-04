@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_FILTERS, matchItems, type FilterCtx, type FilterState } from "./filters";
+import { customPropFilterFields, EMPTY_FILTERS, matchItems, type FilterCtx, type FilterState } from "./filters";
 import { computeStatuses } from "./status";
 import { descendantCategories, indexItems } from "./tree";
 import type { Category, Item } from "./types";
@@ -103,5 +103,42 @@ describe("matchItems", () => {
       { id: "s", field: "desc:storage:sizeGB", op: "isNotEmpty", values: [] },
     ]);
     expect(matchItems(items, computersWithADisk, ctx)).toEqual(new Set(["pc-1", "pc-2"]));
+  });
+
+  it("matches a custom (item-specific) property not defined by its category", () => {
+    const tagged = item("special", "computer", null, { customProps: { assetTag: { type: "TEXT", value: "AX-42" } } });
+    const untagged = item("plain", "computer", null);
+    const ctx2 = contextFor([tagged, untagged], categories);
+    const rule = query([{ id: "c", field: "custom:assetTag", op: "contains", values: ["ax-42"] }]);
+    expect(matchItems([tagged, untagged], rule, ctx2)).toEqual(new Set(["special"]));
+  });
+
+  it("includes a custom property's value in free-text search", () => {
+    const tagged = item("special", "computer", null, { customProps: { assetTag: { type: "TEXT", value: "AX-42-unique" } } });
+    const ctx2 = contextFor([tagged], categories);
+    expect(matchItems([tagged], { ...EMPTY_FILTERS, search: "ax-42-unique" }, ctx2)).toEqual(new Set(["special"]));
+  });
+});
+
+describe("customPropFilterFields", () => {
+  it("discovers distinct custom-property keys from the given (already scoped) items only", () => {
+    const withCustom = item("special", "computer", null, { customProps: { assetTag: { type: "TEXT", value: "AX-42" } } });
+    const withoutCustom = item("plain", "computer", null);
+    expect(customPropFilterFields([withCustom, withoutCustom])).toEqual([
+      { id: "custom:assetTag", label: "assetTag", kind: "text", group: "Custom properties", options: undefined },
+    ]);
+  });
+
+  it("offers a Yes/No option set for a BOOLEAN custom property", () => {
+    const withBool = item("special", "computer", null, { customProps: { verified: { type: "BOOLEAN", value: true } } });
+    const [field] = customPropFilterFields([withBool]);
+    expect(field.kind).toBe("enum");
+    expect(field.options).toEqual([{ value: "true", label: "Yes" }, { value: "false", label: "No" }]);
+  });
+
+  it("has no scope logic of its own — it discovers keys ONLY from what it is given, which is exactly why the caller (items.ts's domainFilterFields) must pass an already scope-filtered item list, never the whole table", () => {
+    const anItem = item("x", "computer", null, { customProps: { secret: { type: "TEXT", value: "x" } } });
+    expect(customPropFilterFields([])).toEqual([]);
+    expect(customPropFilterFields([anItem]).map((f) => f.id)).toEqual(["custom:secret"]);
   });
 });

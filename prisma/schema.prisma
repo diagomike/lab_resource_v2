@@ -402,6 +402,19 @@ model Item {
   /// Values are stored TYPED — a NUMBER field holds a JSON number, never a string.
   props Json @default("{}")
 
+  /// Item-specific properties this ONE item carries that its category does NOT define
+  /// — a supplement to `props`, never a substitute: the category's own fields stay the
+  /// typed standard every item of that category shares, this is the escape hatch for
+  /// the one-off fact a single resource needs recorded. Deliberately a SEPARATE column,
+  /// not a reserved key inside `props` — every existing reader of `props` (search,
+  /// prop:/desc: filters, the impact-preview diff) stays scalar-keyed and unaware of
+  /// this column unless explicitly taught to look, and a category's `purgeKeys` (which
+  /// only ever touches `props`) can never reach in here by construction. Keyed by the
+  /// custom property's own key; each entry is `{ type, value }` — `type` is stored
+  /// explicitly (TEXT/NUMBER/BOOLEAN) so a value's meaning survives a reload without
+  /// being re-guessed from form text.
+  customProps Json @default("{}")
+
   /// Accountability, which deliberately does NOT move when the item moves.
   ownerOrgNodeId   String
   /// The unit physically holding it right now. NOT NULL, defaulted to the owner at
@@ -485,6 +498,9 @@ enum ItemChangeKind {
   addImage
   removeImage
   editCategory
+  addCustomProperty
+  setCustomProperty
+  removeCustomProperty
 }
 
 enum ItemChangeTarget {

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { CategoryFieldDto, ItemChangeDto, ItemDetailDto, ItemPropValue, ItemRowDto, ResourceCategoryDto } from "@/lib/shared";
-import { itemStatuses } from "@/lib/shared";
+import type { CategoryFieldDto, CustomPropType, ItemChangeDto, ItemDetailDto, ItemPropValue, ItemRowDto, ResourceCategoryDto } from "@/lib/shared";
+import { CUSTOM_PROP_KEY_PATTERN, customPropTypes, itemStatuses } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
@@ -43,6 +43,11 @@ export function Inspector({
   const [nameDraft, setNameDraft] = useState("");
   const [qtyDraft, setQtyDraft] = useState("");
   const [propDrafts, setPropDrafts] = useState<Record<string, string>>({});
+  const [customPropDrafts, setCustomPropDrafts] = useState<Record<string, string>>({});
+  const [addingCustom, setAddingCustom] = useState(false);
+  const [newCustomName, setNewCustomName] = useState("");
+  const [newCustomType, setNewCustomType] = useState<CustomPropType>("TEXT");
+  const [newCustomValue, setNewCustomValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const options = useEditOptions();
 
@@ -59,6 +64,12 @@ export function Inspector({
         setNameDraft(i.name);
         setQtyDraft(String(i.qty));
         setPropDrafts(Object.fromEntries(Object.entries(i.props).map(([k, v]) => [k, v === null ? "" : String(v)])));
+        setCustomPropDrafts(Object.fromEntries(Object.entries(i.customProps).map(([k, c]) => [k, c.value === null ? "" : String(c.value)])));
+        setAddingCustom(false);
+        setNewCustomName("");
+        setNewCustomType("TEXT");
+        setNewCustomValue("");
+        setInlineError(null);
         api
           .get<ResourceCategoryDto[]>("/resources/categories")
           .then((cats) => setCategory(cats.find((c) => c.id === i.categoryId) ?? null))
@@ -138,6 +149,75 @@ export function Inspector({
     });
     if (!r.ok) {
       setPropDrafts((d) => ({ ...d, [field.key]: before === null ? "" : String(before) }));
+      setInlineError(r.message);
+    }
+  }
+
+  function coerceCustomValue(type: CustomPropType, raw: string): ItemPropValue {
+    if (raw === "") return null;
+    if (type === "NUMBER") return Number(raw);
+    if (type === "BOOLEAN") return raw === "true";
+    return raw;
+  }
+
+  async function commitCustomProp(key: string, type: CustomPropType) {
+    if (!item) return;
+    const raw = customPropDrafts[key] ?? "";
+    const before = item.customProps[key]?.value ?? null;
+    const value = coerceCustomValue(type, raw);
+    if (value === before) return;
+    setInlineError(null);
+    const r = await request({
+      input: { kind: "setCustomProperty", itemIds: [item.id], key, value, expectedVersions },
+      title: "Optional property correction",
+      message: `Set ${key} to ${raw || "blank"}?`,
+    });
+    if (!r.ok) {
+      setCustomPropDrafts((d) => ({ ...d, [key]: before === null ? "" : String(before) }));
+      setInlineError(r.message);
+    }
+  }
+
+  function requestRemoveCustomProp(key: string) {
+    if (!item) return;
+    setInlineError(null);
+    request({
+      input: { kind: "removeCustomProperty", itemIds: [item.id], key, expectedVersions },
+      title: "Remove optional property",
+      message: (
+        <>
+          Remove the optional property <b className="text-text">{key}</b> from <b className="text-text">{item.name}</b>? This cannot be
+          undone.
+        </>
+      ),
+      tone: "danger",
+      confirmLabel: "Remove",
+    });
+  }
+
+  async function submitAddCustomProp() {
+    if (!item) return;
+    const key = newCustomName.trim();
+    if (!key) {
+      setInlineError("Give this property a name.");
+      return;
+    }
+    if (!CUSTOM_PROP_KEY_PATTERN.test(key)) {
+      setInlineError("Use letters, numbers, spaces, - or _, starting with a letter.");
+      return;
+    }
+    setInlineError(null);
+    const r = await request({
+      input: { kind: "addCustomProperty", itemIds: [item.id], key, type: newCustomType, value: coerceCustomValue(newCustomType, newCustomValue), expectedVersions },
+      title: "Add optional property",
+      message: `Add "${key}" to ${item.name}?`,
+    });
+    if (r.ok) {
+      setAddingCustom(false);
+      setNewCustomName("");
+      setNewCustomType("TEXT");
+      setNewCustomValue("");
+    } else {
       setInlineError(r.message);
     }
   }
@@ -376,6 +456,89 @@ export function Inspector({
             )}
 
             <div>
+              <div className="flex items-center gap-8 mb-6">
+                <div className="text-9.5 uppercase tracking-label text-faint font-semibold">Custom properties</div>
+                <span className="text-9.5 text-faint" title="Item-specific facts this resource carries beyond its category's own fields — visible only here, not shared with other items of this category.">
+                  (this item only)
+                </span>
+              </div>
+              {Object.keys(item.customProps).length === 0 && !addingCustom && (
+                <div className="text-10.5 text-faint mb-6">No optional properties on this resource yet.</div>
+              )}
+              {Object.keys(item.customProps).length > 0 && (
+                <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11 mb-8">
+                  {Object.entries(item.customProps).map(([key, c]) => (
+                    <EditField key={key} label={key}>
+                      <div className="flex items-center gap-6">
+                        <CustomPropInput type={c.type} value={customPropDrafts[key] ?? ""} onChange={(v) => setCustomPropDrafts((d) => ({ ...d, [key]: v }))} onCommit={() => commitCustomProp(key, c.type)} />
+                        <button type="button" onClick={() => requestRemoveCustomProp(key)} className="text-10 text-bad flex-none" title="Remove this property">
+                          ×
+                        </button>
+                      </div>
+                    </EditField>
+                  ))}
+                </div>
+              )}
+              {addingCustom ? (
+                <div className="flex flex-wrap items-end gap-6 border border-border2 rounded-2 p-8">
+                  <label className="w-[160px]">
+                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
+                    <input
+                      autoFocus
+                      value={newCustomName}
+                      onChange={(e) => setNewCustomName(e.target.value)}
+                      placeholder="e.g. Serial (spare)"
+                      className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
+                    />
+                  </label>
+                  <label className="w-[100px]">
+                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Type</div>
+                    <select
+                      value={newCustomType}
+                      onChange={(e) => {
+                        setNewCustomType(e.target.value as CustomPropType);
+                        setNewCustomValue("");
+                      }}
+                      className="w-full h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
+                    >
+                      {customPropTypes.map((t) => (
+                        <option key={t} value={t}>
+                          {t === "TEXT" ? "Text" : t === "NUMBER" ? "Number" : "Yes/No"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="min-w-[120px] flex-1">
+                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Value</div>
+                    <CustomPropInput type={newCustomType} value={newCustomValue} onChange={setNewCustomValue} onCommit={() => {}} />
+                  </label>
+                  <Button variant="primary" onClick={submitAddCustomProp}>
+                    Add
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setAddingCustom(false);
+                      setInlineError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingCustom(true);
+                    setInlineError(null);
+                  }}
+                  className="text-10.5 text-accent"
+                >
+                  + Add optional property
+                </button>
+              )}
+            </div>
+
+            <div>
               <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
               {changes === null ? (
                 <PanelLoading rows={2} />
@@ -474,6 +637,43 @@ function PropInput({
   return (
     <input
       type={field.type === "NUMBER" ? "number" : "text"}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onCommit}
+      onKeyDown={onKeyDown}
+      className={cls}
+    />
+  );
+}
+
+/** Same shape as PropInput, parameterized by a bare CustomPropType rather than a full
+ *  CategoryFieldDto — a custom property has no options/unit/required, only a type. */
+function CustomPropInput({
+  type,
+  value,
+  onChange,
+  onCommit,
+}: {
+  type: CustomPropType;
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+}) {
+  const cls = "w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent";
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => e.key === "Enter" && (e.target as HTMLElement).blur();
+
+  if (type === "BOOLEAN") {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} className={cls}>
+        <option value="">—</option>
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>
+    );
+  }
+  return (
+    <input
+      type={type === "NUMBER" ? "number" : "text"}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onBlur={onCommit}

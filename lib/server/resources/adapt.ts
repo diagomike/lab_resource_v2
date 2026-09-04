@@ -6,7 +6,7 @@ import type {
   Prisma,
   ResourceCategory as PrismaResourceCategory,
 } from "@prisma/client";
-import type { Category, FieldDef, FieldType, Item, ItemImage, PropValue } from "@/lib/domain/types";
+import type { Category, CustomProp, FieldDef, FieldType, Item, ItemImage, PropValue } from "@/lib/domain/types";
 
 /**
  * Prisma row → lib/domain shape, both directions' single crossing point. No
@@ -53,6 +53,7 @@ export function toDomainItem(row: PrismaItem, images: PrismaItemImage[] = []): I
     status: row.status,
     critical: row.critical,
     props: (row.props as Record<string, PropValue>) ?? {},
+    customProps: (row.customProps as unknown as Record<string, CustomProp>) ?? {},
     images: images.map(toDomainItemImage),
     ownerOrgNodeId: row.ownerOrgNodeId,
     currentOrgNodeId: row.currentOrgNodeId,

@@ -157,7 +157,7 @@ function AddRuleForm({ fields, onAdd }: { fields: ItemFilterFieldDef[]; onAdd: (
         <option value="">+ Add filter…</option>
         {Object.entries(
           fields.reduce<Record<string, ItemFilterFieldDef[]>>((groups, f) => {
-            const group = f.id.startsWith("prop:") || f.id.startsWith("desc:") ? f.label.split(" · ")[0] : "Core";
+            const group = f.id.startsWith("prop:") || f.id.startsWith("desc:") ? f.label.split(" · ")[0] : f.id.startsWith("custom:") ? "Custom properties" : "Core";
             (groups[group] ??= []).push(f);
             return groups;
           }, {}),

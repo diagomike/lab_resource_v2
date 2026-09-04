@@ -81,6 +81,15 @@ export type EffectiveStatus = ItemStatus | "IMPAIRED";
 
 export type PropValue = string | number | boolean | null;
 
+export type CustomPropType = "TEXT" | "NUMBER" | "BOOLEAN";
+
+/** One item-specific property NOT defined by its category — see
+ *  lib/server/resources/custom-props.ts's own header. */
+export interface CustomProp {
+  type: CustomPropType;
+  value: PropValue;
+}
+
 /** A reference, never bytes — object storage owns the actual file. */
 export interface ItemImage {
   id: string;
@@ -101,6 +110,15 @@ export interface Item {
   /** Is this item critical to its parent? Seeded from the template, overridable. */
   critical: boolean;
   props: Record<string, PropValue>;
+  /** Item-specific properties this ONE item carries beyond what its category defines
+   *  — a supplement to `props`, stored separately (Item.customProps, its own Prisma
+   *  column) so nothing that reads `props` (search, prop:/desc: filters, a category's
+   *  own purgeKeys) needs to know this exists unless explicitly taught to look.
+   *  Optional (not `{}`-defaulted here) so every existing fixture/adapter that builds
+   *  an `Item` without this concept in mind — the register's client-side
+   *  ItemRowDto→Item adapter chief among them, since the row DTO deliberately does not
+   *  carry it — keeps compiling; every reader treats an absent value as `{}`. */
+  customProps?: Record<string, CustomProp>;
   images: ItemImage[];
   /** Accountability, which deliberately does NOT move when the item moves. */
   ownerOrgNodeId: string;
@@ -138,6 +156,9 @@ export const CHANGE_LABEL: Record<ChangeKind, string> = {
   addImage: "Add photo",
   removeImage: "Remove photo",
   editCategory: "Category definition",
+  addCustomProperty: "Add optional property",
+  setCustomProperty: "Optional property correction",
+  removeCustomProperty: "Remove optional property",
 };
 
 /**
@@ -161,6 +182,12 @@ export const CONFIRMED_CHANGES: Record<ChangeKind, boolean> = {
   addImage: false,
   removeImage: true,
   editCategory: true,
+  // Same treatment as setProperty: creating or correcting a one-off fact about a
+  // single item is a correction, not a decision. Removing one is a deletion, same
+  // treatment as removeImage.
+  addCustomProperty: false,
+  setCustomProperty: false,
+  removeCustomProperty: true,
 };
 
 /** Does this change stop and ask first? */

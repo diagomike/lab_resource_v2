@@ -21,6 +21,13 @@ export const categoryFieldTypes = ["TEXT", "NUMBER", "ENUM", "BOOLEAN"] as const
 export const CategoryFieldTypeSchema = z.enum(categoryFieldTypes);
 export type CategoryFieldType = (typeof categoryFieldTypes)[number];
 
+/** The scalar types an item-specific CUSTOM property may take — deliberately a subset
+ *  of CategoryFieldType (no ENUM: a custom property is a one-off fact, not a schema
+ *  with predefined options — see lib/server/resources/custom-props.ts). */
+export const customPropTypes = ["TEXT", "NUMBER", "BOOLEAN"] as const;
+export const CustomPropTypeSchema = z.enum(customPropTypes);
+export type CustomPropType = (typeof customPropTypes)[number];
+
 /**
  * How a parent reacts to broken critical children.
  *  · ANY_CRITICAL — one critical child down impairs the parent (a Computer's Monitor)
@@ -61,6 +68,11 @@ export const itemChangeKinds = [
   "addImage",
   "removeImage",
   "editCategory",
+  /** Item-specific properties NOT defined by the category — see
+   *  lib/server/resources/custom-props.ts and mutate.ts's own three handlers. */
+  "addCustomProperty",
+  "setCustomProperty",
+  "removeCustomProperty",
 ] as const;
 export const ItemChangeKindSchema = z.enum(itemChangeKinds);
 export type ItemChangeKind = (typeof itemChangeKinds)[number];

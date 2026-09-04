@@ -15,6 +15,7 @@ import { computeStatuses, statusOf } from "@/lib/domain/status";
 import { descendantCategories, indexItems, pathOf, type TreeIndex } from "@/lib/domain/tree";
 import {
   buildFilterFields,
+  customPropFilterFields,
   facetCounts as domainFacetCounts,
   matchItems,
   newRule,
@@ -252,6 +253,9 @@ function toWireFilterField(f: {
 async function domainFilterFields(userId: string, activeCategoryIds: string[], forest: Forest) {
   const { closed } = await computeScopedIds(userId, forest);
   const places = forest.index.roots.filter((r) => closed.has(r.id));
+  // Scoped BEFORE custom-property keys are collected — see customPropFilterFields's
+  // own note on why an out-of-scope item's custom key must never surface here.
+  const scopedItems = forest.items.filter((i) => closed.has(i.id));
 
   const [nodeRows, people] = await Promise.all([
     prisma.orgNode.findMany({ include: { incomingEdges: true } }),
@@ -267,7 +271,7 @@ async function domainFilterFields(userId: string, activeCategoryIds: string[], f
     active: n.active,
   }));
 
-  return buildFilterFields(forest.categories, activeCategoryIds, places, orgNodes, people);
+  return [...buildFilterFields(forest.categories, activeCategoryIds, places, orgNodes, people), ...customPropFilterFields(scopedItems)];
 }
 
 export async function filterFields(userId: string, activeCategoryIds: string[]): Promise<ItemFilterFieldDef[]> {
@@ -323,6 +327,7 @@ export async function getOne(userId: string, id: string): Promise<ItemDetailDto>
   return {
     ...row,
     images: images.map((img) => ({ id: img.id, url: `/api/resources/images/${img.storageKey}`, caption: img.caption, sortOrder: img.sortOrder })),
+    customProps: item.customProps ?? {},
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

@@ -118,4 +118,21 @@ describe("categoryImpact", () => {
     expect(note.severity).toBe("info");
     expect(notes.every((n) => n.severity !== "destructive")).toBe(true);
   });
+
+  it("surfaces (not blocks) a collision when a new field's key already exists as an item-specific custom property, normalized", () => {
+    const withCustom = item("d", { customProps: { "Serial Number": { type: "TEXT", value: "abc" } } });
+    const after = category({ fields: [...category().fields, { key: "serial_number", label: "Serial Number", type: "text" }] });
+    const notes = categoryImpact(category(), after, [...items, withCustom]);
+    const note = notes.find((n) => n.id === "cat-field-custom-collision-serial_number");
+    expect(note).toBeDefined();
+    expect(note!.severity).toBe("warning");
+    expect(note!.detail).toContain("side by side");
+  });
+
+  it("does not surface a collision note when no item's custom property normalizes to the new field's key", () => {
+    const withCustom = item("d", { customProps: { warranty: { type: "TEXT", value: "1yr" } } });
+    const after = category({ fields: [...category().fields, { key: "serial_number", label: "Serial Number", type: "text" }] });
+    const notes = categoryImpact(category(), after, [...items, withCustom]);
+    expect(notes.find((n) => n.id === "cat-field-custom-collision-serial_number")).toBeUndefined();
+  });
 });

@@ -1,12 +1,13 @@
 import "server-only";
 import { Prisma, type Item as PrismaItem, type PrismaClient } from "@prisma/client";
-import type { ItemChangeInput, ItemChangeResultDto } from "@/lib/shared";
+import type { CustomPropType, ItemChangeInput, ItemChangeResultDto } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { instantiateMany, newId } from "@/lib/domain/instantiate";
 import type { Category } from "@/lib/domain/types";
 import * as scope from "./scope";
 import { validatePropWrite } from "./category-props";
+import { assertNoCollision, assertValidCustomKey, validateCustomPropValue } from "./custom-props";
 import { toDomainCategoryMap } from "./adapt";
 
 type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
@@ -168,6 +169,12 @@ async function performChange(tx: Tx, actorId: string, input: ItemChangeInput): P
       return applyMoveInTree(tx, actorId, at, input);
     case "setProperty":
       return applySetProperty(tx, actorId, at, input);
+    case "addCustomProperty":
+      return applyAddCustomProperty(tx, actorId, at, input);
+    case "setCustomProperty":
+      return applySetCustomProperty(tx, actorId, at, input);
+    case "removeCustomProperty":
+      return applyRemoveCustomProperty(tx, actorId, at, input);
     case "addImage":
       return applyAddImage(tx, actorId, at, input);
     case "removeImage":
@@ -479,6 +486,125 @@ async function applySetProperty(tx: Tx, actorId: string, at: Date, input: Extrac
     applied.push(item.id);
   }
   return { applied: applied.length, itemIds: applied };
+}
+
+type CustomPropsBag = Record<string, { type: CustomPropType; value: Prisma.JsonValue }>;
+
+/**
+ * Creates a NEW item-specific property — the supplement to a category's own typed
+ * schema, never a substitute for it (custom-props.ts's own header). Collision-checked
+ * against both the item's category fields (the "brand" pretending to be THE brand
+ * case) and this item's own other custom properties (the actual duplicate case), both
+ * normalized so spacing/casing cannot hide a collision. Single item only — a custom
+ * property is a fact about ONE resource by definition, never a bulk write.
+ */
+async function applyAddCustomProperty(
+  tx: Tx,
+  actorId: string,
+  at: Date,
+  input: Extract<ItemChangeInput, { kind: "addCustomProperty" }>,
+): Promise<ItemChangeResultDto> {
+  const item = await tx.item.findUnique({ where: { id: input.itemIds[0] } });
+  if (!item || item.deletedAt) throw new HttpError(400, "That resource no longer exists.");
+
+  const key = assertValidCustomKey(input.key);
+  const category = await tx.resourceCategory.findUnique({ where: { id: item.categoryId }, include: { fields: { select: { key: true } } } });
+  const existing = (item.customProps as CustomPropsBag) ?? {};
+  assertNoCollision(key, category?.fields.map((f) => f.key) ?? [], Object.keys(existing));
+
+  const value = validateCustomPropValue(input.type, input.value);
+  const next: CustomPropsBag = { ...existing, [key]: { type: input.type, value } };
+
+  await tx.item.update({ where: { id: item.id }, data: { customProps: next as Prisma.InputJsonValue, version: { increment: 1 } } });
+  await tx.itemChange.create({
+    data: {
+      at,
+      actorId,
+      kind: "addCustomProperty",
+      targetKind: "ITEM",
+      itemId: item.id,
+      itemName: item.name,
+      categoryId: item.categoryId,
+      field: key,
+      before: Prisma.DbNull,
+      after: jsonOrNull(value),
+      note: input.note,
+    },
+  });
+  return { applied: 1, itemIds: [item.id] };
+}
+
+/** Edits the VALUE of an existing custom property — its type, chosen once at
+ *  creation, never changes here; removing and re-adding is how a type actually
+ *  changes, the same "remove strands the old value, re-adding restores it" discipline
+ *  a category field already follows. `value: null` clears without removing the key. */
+async function applySetCustomProperty(
+  tx: Tx,
+  actorId: string,
+  at: Date,
+  input: Extract<ItemChangeInput, { kind: "setCustomProperty" }>,
+): Promise<ItemChangeResultDto> {
+  const item = await tx.item.findUnique({ where: { id: input.itemIds[0] } });
+  if (!item || item.deletedAt) throw new HttpError(400, "That resource no longer exists.");
+
+  const existing = (item.customProps as CustomPropsBag) ?? {};
+  const entry = existing[input.key];
+  if (!entry) throw new HttpError(400, "That property does not exist on this item.");
+
+  const value = validateCustomPropValue(entry.type, input.value);
+  if (value === entry.value) return { applied: 0, itemIds: [] }; // no-op
+
+  const next: CustomPropsBag = { ...existing, [input.key]: { type: entry.type, value } };
+  await tx.item.update({ where: { id: item.id }, data: { customProps: next as Prisma.InputJsonValue, version: { increment: 1 } } });
+  await tx.itemChange.create({
+    data: {
+      at,
+      actorId,
+      kind: "setCustomProperty",
+      targetKind: "ITEM",
+      itemId: item.id,
+      itemName: item.name,
+      categoryId: item.categoryId,
+      field: input.key,
+      before: jsonOrNull(entry.value),
+      after: jsonOrNull(value),
+      note: input.note,
+    },
+  });
+  return { applied: 1, itemIds: [item.id] };
+}
+
+async function applyRemoveCustomProperty(
+  tx: Tx,
+  actorId: string,
+  at: Date,
+  input: Extract<ItemChangeInput, { kind: "removeCustomProperty" }>,
+): Promise<ItemChangeResultDto> {
+  const item = await tx.item.findUnique({ where: { id: input.itemIds[0] } });
+  if (!item || item.deletedAt) throw new HttpError(400, "That resource no longer exists.");
+
+  const existing = (item.customProps as CustomPropsBag) ?? {};
+  const entry = existing[input.key];
+  if (!entry) throw new HttpError(400, "That property does not exist on this item.");
+
+  const { [input.key]: _removed, ...rest } = existing;
+  await tx.item.update({ where: { id: item.id }, data: { customProps: rest as Prisma.InputJsonValue, version: { increment: 1 } } });
+  await tx.itemChange.create({
+    data: {
+      at,
+      actorId,
+      kind: "removeCustomProperty",
+      targetKind: "ITEM",
+      itemId: item.id,
+      itemName: item.name,
+      categoryId: item.categoryId,
+      field: input.key,
+      before: jsonOrNull(entry.value),
+      after: Prisma.DbNull,
+      note: input.note,
+    },
+  });
+  return { applied: 1, itemIds: [item.id] };
 }
 
 async function applyAddImage(tx: Tx, actorId: string, at: Date, input: Extract<ItemChangeInput, { kind: "addImage" }>): Promise<ItemChangeResultDto> {

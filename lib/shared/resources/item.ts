@@ -19,13 +19,34 @@
  * (ItemChangeDto) tags a category-edit entry with it.
  */
 import { z } from "zod";
-import { CountingModeSchema, EffectiveStatusSchema, effectiveStatuses, ItemChangeKindSchema, ItemChangeTargetSchema, ItemStatusSchema } from "./enums";
+import { CountingModeSchema, CustomPropTypeSchema, EffectiveStatusSchema, effectiveStatuses, ItemChangeKindSchema, ItemChangeTargetSchema, ItemStatusSchema } from "./enums";
 
 export const ItemPropValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export type ItemPropValue = z.infer<typeof ItemPropValue>;
 
 export const ItemProps = z.record(z.string(), ItemPropValue);
 export type ItemProps = z.infer<typeof ItemProps>;
+
+/** A key a person types for a custom property — letters/digits/spaces/-/_ only,
+ *  starting with a letter, capped at a sane length. No `:` (the advanced filter
+ *  builder's synthetic field ids use it as a namespace separator — `custom:<key>` must
+ *  split unambiguously) and nothing that reads as an attempt to name a JSON/SQL
+ *  special key. Shared between the client (inline validation feedback) and the server
+ *  (custom-props.ts — the actual boundary). */
+export const CUSTOM_PROP_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9 _-]{0,49}$/;
+
+/** One item-specific property NOT defined by its category — see
+ *  lib/server/resources/custom-props.ts's own header for why this is a separate
+ *  concept from CategoryFieldDto, not a weakened version of it. `type` is stored
+ *  explicitly, never re-guessed from the value at read time. */
+export const CustomPropDto = z.object({
+  type: CustomPropTypeSchema,
+  value: ItemPropValue,
+});
+export type CustomPropDto = z.infer<typeof CustomPropDto>;
+
+export const CustomProps = z.record(z.string(), CustomPropDto);
+export type CustomProps = z.infer<typeof CustomProps>;
 
 export const ItemImageDto = z.object({
   id: z.string(),
@@ -73,6 +94,10 @@ export type ItemRowDto = z.infer<typeof ItemRowDto>;
 
 export const ItemDetailDto = ItemRowDto.extend({
   images: z.array(ItemImageDto),
+  /** Item-specific properties this ONE item carries beyond its category's own
+   *  fields — Inspector-only (not on the row list; the table's Specs cell stays
+   *  category fields only), keyed the same way `props` is. */
+  customProps: CustomProps,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -173,6 +198,33 @@ export const TransferItemChange = Base.extend({
   }),
 });
 
+/** Creates a NEW custom property on one item — refused if the key is already in use,
+ *  either as another custom property on this item or as a field this item's category
+ *  already defines (lib/server/resources/custom-props.ts's own collision check). */
+export const AddCustomPropertyChange = Base.extend({
+  kind: z.literal("addCustomProperty"),
+  itemIds: z.array(z.string()).length(1),
+  key: z.string().regex(CUSTOM_PROP_KEY_PATTERN, "Use letters, numbers, spaces, - or _, starting with a letter."),
+  type: CustomPropTypeSchema,
+  value: ItemPropValue,
+});
+
+/** Edits the VALUE of an existing custom property — type stays whatever it was
+ *  created with; `value: null` is how a value is cleared without removing the key
+ *  (see removeCustomProperty for that). */
+export const SetCustomPropertyChange = Base.extend({
+  kind: z.literal("setCustomProperty"),
+  itemIds: z.array(z.string()).length(1),
+  key: z.string().min(1),
+  value: ItemPropValue,
+});
+
+export const RemoveCustomPropertyChange = Base.extend({
+  kind: z.literal("removeCustomProperty"),
+  itemIds: z.array(z.string()).length(1),
+  key: z.string().min(1),
+});
+
 export const AddImageChange = Base.extend({
   kind: z.literal("addImage"),
   itemIds: z.array(z.string()).length(1),
@@ -202,6 +254,9 @@ export const ItemChangeInput = z.discriminatedUnion("kind", [
   SetCurrentOrgChange,
   MoveInTreeChange,
   TransferItemChange,
+  AddCustomPropertyChange,
+  SetCustomPropertyChange,
+  RemoveCustomPropertyChange,
   AddImageChange,
   RemoveImageChange,
 ]);
