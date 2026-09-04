@@ -9,6 +9,7 @@ import * as scope from "./scope";
 import { validatePropWrite } from "./category-props";
 import { assertNoCollision, assertValidCustomKey, validateCustomPropValue } from "./custom-props";
 import { toDomainCategoryMap } from "./adapt";
+import { storage } from "./storage";
 
 type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
@@ -42,17 +43,29 @@ export async function applyChange(actorId: string, input: ItemChangeInput, opts?
   await assertAuthorized(actorId, input);
 
   let captured: ItemChangeResultDto | undefined;
+  // Storage keys a successful commit makes unreferenced (a removed photo, a deleted
+  // subtree's own photos and any of its still-pending uploads) — collected DURING the
+  // transaction but never acted on until AFTER it commits. Deleting the bytes first
+  // and having the transaction roll back would strand a referenced ItemImage row with
+  // no file behind it; deleting them before commit at all risks exactly that. A dry
+  // run always rolls back, so its own list is discarded rather than acted on.
+  const cleanupKeys: string[] = [];
   try {
     await prisma.$transaction(async (tx) => {
       // Version check and write must be atomic — see assertVersionsMatch's own header
       // on why this runs INSIDE the transaction, not before it opens.
       await assertVersionsMatch(tx, input);
-      captured = await performChange(tx, actorId, input);
+      captured = await performChange(tx, actorId, input, cleanupKeys);
       if (opts?.dryRun) throw DRY_RUN_ABORT;
     });
   } catch (err) {
     if (err !== DRY_RUN_ABORT) throw err;
+    return captured!;
   }
+  // Best-effort, after a committed transaction only. A failure here leaves a
+  // harmless orphaned file (cleaned up later by the same sweep expired uploads use),
+  // never a dangling reference — the DB row is already gone by this point either way.
+  for (const key of cleanupKeys) await storage.remove(key).catch(() => undefined);
   return captured!;
 }
 
@@ -156,13 +169,13 @@ async function assertVersionsMatch(tx: Tx, input: ItemChangeInput): Promise<void
 
 // ── The write itself — WHAT happens. ────────────────────────────────────────────────
 
-async function performChange(tx: Tx, actorId: string, input: ItemChangeInput): Promise<ItemChangeResultDto> {
+async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cleanupKeys: string[]): Promise<ItemChangeResultDto> {
   const at = new Date();
   switch (input.kind) {
     case "createItem":
       return applyCreateItem(tx, actorId, at, input);
     case "deleteItem":
-      return applyDeleteItem(tx, actorId, at, input);
+      return applyDeleteItem(tx, actorId, at, input, cleanupKeys);
     case "transferItem":
       return applyTransferItem(tx, actorId, at, input);
     case "moveInTree":
@@ -178,7 +191,7 @@ async function performChange(tx: Tx, actorId: string, input: ItemChangeInput): P
     case "addImage":
       return applyAddImage(tx, actorId, at, input);
     case "removeImage":
-      return applyRemoveImage(tx, actorId, at, input);
+      return applyRemoveImage(tx, actorId, at, input, cleanupKeys);
     default:
       return applyFieldChange(tx, actorId, at, input);
   }
@@ -317,12 +330,31 @@ async function assertSubtreeInScope(actorId: string, subtree: PrismaItem[]): Pro
   await scope.assertCanMutate(actorId, subtree.map((i) => i.id));
 }
 
-async function applyDeleteItem(tx: Tx, actorId: string, at: Date, input: Extract<ItemChangeInput, { kind: "deleteItem" }>): Promise<ItemChangeResultDto> {
+async function applyDeleteItem(
+  tx: Tx,
+  actorId: string,
+  at: Date,
+  input: Extract<ItemChangeInput, { kind: "deleteItem" }>,
+  cleanupKeys: string[],
+): Promise<ItemChangeResultDto> {
   const roots = await tx.item.findMany({ where: { id: { in: input.itemIds }, deletedAt: null } });
   if (!roots.length) return { applied: 0, itemIds: [] };
 
   const doomed = await subtreeDeepestFirst(tx, roots.map((r) => r.id));
   await assertSubtreeInScope(actorId, doomed);
+
+  // Every photo the doomed subtree owns — both finalized (ItemImage) and any upload
+  // that reached storage but was never finalized (ImageUpload, status UPLOADED) —
+  // must be read BEFORE the rows that name them are gone; Item→ItemImage/ImageUpload
+  // is onDelete: Cascade, so the DB rows vanish the instant the item does, but the
+  // files behind them do not go with them unless this collects the keys first.
+  const doomedIds = doomed.map((d) => d.id);
+  const [images, pendingUploads] = await Promise.all([
+    tx.itemImage.findMany({ where: { itemId: { in: doomedIds } }, select: { storageKey: true } }),
+    tx.imageUpload.findMany({ where: { itemId: { in: doomedIds }, status: "UPLOADED" }, select: { storageKey: true } }),
+  ]);
+  cleanupKeys.push(...images.map((i) => i.storageKey), ...pendingUploads.map((u) => u.storageKey));
+
   for (const row of doomed) await tx.item.delete({ where: { id: row.id } });
 
   const batchId = roots.length > 1 ? newId("b") : undefined;
@@ -607,22 +639,40 @@ async function applyRemoveCustomProperty(
   return { applied: 1, itemIds: [item.id] };
 }
 
+/**
+ * Finalizes a two-step upload. `input.uploadSessionId` is looked up against
+ * `ImageUpload`, never trusted as-is — this is the ONE place a session may turn into
+ * a real `ItemImage`, and every fact copied onto that row (`storageKey`/
+ * `contentType`/`byteSize`/`width`/`height`) comes from the session, which itself was
+ * only ever written by `images.ts`'s `receiveUpload` from bytes it sniffed itself.
+ * Marking the session FINALIZED inside the SAME transaction that creates the
+ * `ItemImage` row is what makes "finalize this session twice" and "finalize a session
+ * some other item already claimed" both impossible, not just unlikely.
+ */
 async function applyAddImage(tx: Tx, actorId: string, at: Date, input: Extract<ItemChangeInput, { kind: "addImage" }>): Promise<ItemChangeResultDto> {
   const item = await tx.item.findUnique({ where: { id: input.itemIds[0] } });
   if (!item || item.deletedAt) throw new HttpError(400, "That resource no longer exists.");
 
+  const upload = await tx.imageUpload.findUnique({ where: { id: input.uploadSessionId } });
+  if (!upload || upload.itemId !== item.id) throw new HttpError(400, "That upload session does not exist for this resource.");
+  if (upload.requestedById !== actorId) throw new HttpError(400, "That upload session belongs to someone else.");
+  if (upload.status === "FINALIZED") throw new HttpError(409, "That photo has already been added.", { message: "That photo has already been added.", code: "UPLOAD_ALREADY_FINALIZED" });
+  if (upload.status !== "UPLOADED") throw new HttpError(400, "Upload the photo before adding it.");
+  if (upload.expiresAt < at) throw new HttpError(409, "This upload session has expired — choose the file again.", { message: "This upload session has expired — choose the file again.", code: "UPLOAD_SESSION_EXPIRED" });
+
   const image = await tx.itemImage.create({
     data: {
       itemId: item.id,
-      storageKey: input.storageKey,
-      contentType: input.contentType,
-      byteSize: input.byteSize,
-      width: input.width,
-      height: input.height,
+      storageKey: upload.storageKey,
+      contentType: upload.contentType!,
+      byteSize: upload.byteSize!,
+      width: upload.width,
+      height: upload.height,
       caption: input.caption,
       uploadedById: actorId,
     },
   });
+  await tx.imageUpload.update({ where: { id: upload.id }, data: { status: "FINALIZED", finalizedAt: at } });
   await tx.item.update({ where: { id: item.id }, data: { version: { increment: 1 } } });
   await tx.itemChange.create({
     data: {
@@ -640,13 +690,20 @@ async function applyAddImage(tx: Tx, actorId: string, at: Date, input: Extract<I
   return { applied: 1, itemIds: [item.id] };
 }
 
-async function applyRemoveImage(tx: Tx, actorId: string, at: Date, input: Extract<ItemChangeInput, { kind: "removeImage" }>): Promise<ItemChangeResultDto> {
+async function applyRemoveImage(
+  tx: Tx,
+  actorId: string,
+  at: Date,
+  input: Extract<ItemChangeInput, { kind: "removeImage" }>,
+  cleanupKeys: string[],
+): Promise<ItemChangeResultDto> {
   const item = await tx.item.findUnique({ where: { id: input.itemIds[0] } });
   if (!item || item.deletedAt) throw new HttpError(400, "That resource no longer exists.");
   const image = await tx.itemImage.findUnique({ where: { id: input.imageId } });
   if (!image || image.itemId !== item.id) throw new HttpError(400, "That photo is not on this resource.");
 
   await tx.itemImage.delete({ where: { id: image.id } });
+  cleanupKeys.push(image.storageKey);
   await tx.item.update({ where: { id: item.id }, data: { version: { increment: 1 } } });
   await tx.itemChange.create({
     data: {

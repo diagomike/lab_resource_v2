@@ -11,6 +11,7 @@ import { PanelLoading } from "@/components/states";
 import { useEditOptions } from "@/lib/register/useEditOptions";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { StatusChip } from "./StatusChip";
+import { ItemImageGallery } from "./ItemImages";
 
 /**
  * The single-item edit surface — corrections (name, status-as-typed-fact... no,
@@ -315,6 +316,33 @@ export function Inspector({
     });
   }
 
+  async function onAddImage(uploadSessionId: string, caption: string) {
+    if (!item) return;
+    setInlineError(null);
+    const r = await request({
+      input: { kind: "addImage", itemIds: [item.id], uploadSessionId, caption, expectedVersions },
+      title: "Add photo",
+      message: `Add this photo to ${item.name}?`,
+    });
+    if (!r.ok) setInlineError(r.message);
+  }
+
+  function onRemoveImage(imageId: string) {
+    if (!item) return;
+    setInlineError(null);
+    request({
+      input: { kind: "removeImage", itemIds: [item.id], imageId, expectedVersions },
+      title: "Remove photo",
+      message: (
+        <>
+          Remove this photo from <b className="text-text">{item.name}</b>? This cannot be undone.
+        </>
+      ),
+      tone: "danger",
+      confirmLabel: "Remove",
+    });
+  }
+
   return (
     <>
       <Modal title={item?.name ?? "Resource"} onClose={onClose} width="600px">
@@ -323,6 +351,8 @@ export function Inspector({
           <PanelLoading rows={4} />
         ) : (
           <>
+            <ItemImageGallery item={item} category={category} expectedVersions={expectedVersions} onAdd={onAddImage} onRemove={onRemoveImage} />
+
             <div className="flex items-start justify-between gap-10">
               <div className="flex-1">
                 <input

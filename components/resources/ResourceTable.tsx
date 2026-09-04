@@ -16,6 +16,7 @@ import type { ItemRowDto } from "@/lib/shared";
 import { aggregate, describeAgg, type RowNode } from "@/lib/domain/tree";
 import { categoryIconFor } from "@/lib/domain/icons";
 import { StatusChip } from "./StatusChip";
+import { ItemThumb } from "./ItemImages";
 
 // v9 registers features explicitly — only what this read-only table actually uses.
 // Editing (Phase 7) will add columnSizingFeature etc. when inline commit lands.
@@ -68,6 +69,15 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
             onClick={(e) => e.stopPropagation()}
           />
         ),
+      }),
+
+      helper.display({
+        id: "photo",
+        header: "",
+        cell: ({ row }) => {
+          const first = rowOf(idsOf(row.original)[0]);
+          return first ? <ItemThumb row={first} /> : null;
+        },
       }),
 
       helper.display({
@@ -253,7 +263,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           ))}
           {modelRows.length === 0 && (
             <tr>
-              <td colSpan={9} className="text-center text-11.5 text-faint py-20">
+              <td colSpan={10} className="text-center text-11.5 text-faint py-20">
                 No resources match the current filters.
               </td>
             </tr>

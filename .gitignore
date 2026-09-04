@@ -11,3 +11,7 @@ apps/api/prisma/*.db-journal
 .vite/
 *.tsbuildinfo
 .scratch/
+# Local-filesystem image storage driver (lib/server/resources/storage/local-fs-driver.ts)
+# — uploaded item photos and their bytes, never committed. Location is IMAGE_STORAGE_DIR
+# if set, else this default.
+.local-storage/

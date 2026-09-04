@@ -225,14 +225,25 @@ export const RemoveCustomPropertyChange = Base.extend({
   key: z.string().min(1),
 });
 
+/** What creating an upload session hands back — the server-generated, opaque
+ *  reference the client uploads bytes to and later names in `addImage`. Never a
+ *  storage path or key the client could redirect elsewhere. */
+export const UploadSessionDto = z.object({
+  uploadSessionId: z.string(),
+  uploadUrl: z.string(),
+  expiresAt: z.string(),
+});
+export type UploadSessionDto = z.infer<typeof UploadSessionDto>;
+
+/** Finalizes a two-step upload — `uploadSessionId` references a server-verified
+ *  `ImageUpload` row (lib/server/resources/images.ts), never a client-chosen
+ *  `storageKey`/`contentType`/`byteSize`/`width`/`height` directly. mutate.ts's
+ *  `applyAddImage` is the only place those facts get copied into the real
+ *  `ItemImage` row, and it copies them from the session, never from this input. */
 export const AddImageChange = Base.extend({
   kind: z.literal("addImage"),
   itemIds: z.array(z.string()).length(1),
-  storageKey: z.string(),
-  contentType: z.string(),
-  byteSize: z.number().int().min(1),
-  width: z.number().int().optional(),
-  height: z.number().int().optional(),
+  uploadSessionId: z.string(),
   caption: z.string().optional(),
 });
 

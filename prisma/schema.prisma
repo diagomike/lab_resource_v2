@@ -83,6 +83,7 @@ model User {
   // ── Resource management back-relations (replatforming onto temp_works) ──────────
   custodyOf              Item[]               @relation("ItemCustodian")
   uploadedImages         ItemImage[]          @relation("ItemImageUploadedBy")
+  imageUploadsRequested  ImageUpload[]        @relation("ImageUploadRequestedBy")
   itemChangesActed       ItemChange[]         @relation("ItemChangeActor")
   accessViewAudienceOf   AccessViewAudience[] @relation("AccessViewAudiencePerson")
   changeRequestsRaised   ChangeRequest[]      @relation("ChangeRequestRequester")
@@ -435,13 +436,14 @@ model Item {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  parent     Item?            @relation("ItemContains", fields: [parentId], references: [id], onDelete: Restrict)
-  children   Item[]           @relation("ItemContains")
-  category   ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  ownerOrg   OrgNode          @relation("ItemOwner", fields: [ownerOrgNodeId], references: [id], onDelete: Restrict)
-  currentOrg OrgNode          @relation("ItemHolder", fields: [currentOrgNodeId], references: [id], onDelete: Restrict)
-  custodian  User             @relation("ItemCustodian", fields: [custodianId], references: [id], onDelete: Restrict)
-  images     ItemImage[]
+  parent       Item?            @relation("ItemContains", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Item[]           @relation("ItemContains")
+  category     ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  ownerOrg     OrgNode          @relation("ItemOwner", fields: [ownerOrgNodeId], references: [id], onDelete: Restrict)
+  currentOrg   OrgNode          @relation("ItemHolder", fields: [currentOrgNodeId], references: [id], onDelete: Restrict)
+  custodian    User             @relation("ItemCustodian", fields: [custodianId], references: [id], onDelete: Restrict)
+  images       ItemImage[]
+  imageUploads ImageUpload[]
 
   @@unique([sourceSystem, sourceKey])
   @@index([parentId])
@@ -481,6 +483,45 @@ model ItemImage {
 
   @@unique([sourceSystem, sourceKey])
   @@index([itemId, sortOrder])
+}
+
+/// The two-step upload's server-side session — the seam that keeps a client from ever
+/// choosing an authoritative storage path or finalizing an arbitrary existing key.
+/// PENDING (session issued, no bytes yet) → UPLOADED (bytes received, sniffed, and
+/// written to storage — contentType/byteSize/width/height are filled in only here,
+/// from the ACTUAL bytes, never trusted from the client) → FINALIZED (mutate.ts's
+/// applyAddImage turned it into a real ItemImage; a session finalizes at most once).
+/// EXPIRED rows are deleted outright once swept — see lib/server/resources/images.ts's
+/// own header for why this is a status value at all rather than just a TTL check.
+enum ImageUploadStatus {
+  PENDING
+  UPLOADED
+  FINALIZED
+  EXPIRED
+}
+
+model ImageUpload {
+  id            String            @id @default(cuid())
+  itemId        String
+  storageKey    String            @unique
+  status        ImageUploadStatus @default(PENDING)
+  requestedById String
+  /// Filled in only once real bytes are received and sniffed — never the client's
+  /// declared Content-Type.
+  contentType   String?
+  byteSize      Int?
+  width         Int?
+  height        Int?
+  expiresAt     DateTime
+  createdAt     DateTime          @default(now())
+  uploadedAt    DateTime?
+  finalizedAt   DateTime?
+
+  item        Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  requestedBy User @relation("ImageUploadRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@index([itemId, status])
+  @@index([status, expiresAt])
 }
 
 enum ItemChangeKind {

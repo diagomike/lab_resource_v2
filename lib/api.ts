@@ -78,6 +78,23 @@ export const api = {
     }
     return res.blob();
   },
+  /** The two-step image upload's step 2 — a raw PUT of file bytes (never JSON) to a
+   *  server-issued `uploadUrl`. The declared Content-Type travels along as a hint
+   *  only; the server never trusts it (lib/server/resources/image-sniff.ts sniffs the
+   *  real bytes) and this call's caller must not either. */
+  async putFile<T>(path: string, blob: Blob): Promise<T> {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": blob.type || "application/octet-stream" },
+      body: blob,
+    });
+    if (!res.ok) {
+      const parsed = await res.json().catch(() => ({ message: res.statusText }));
+      throw new ApiError(res.status, parsed.message ?? "Request failed", parsed.issues, parsed);
+    }
+    return res.json() as Promise<T>;
+  },
 };
 
 /** Triggers a browser save-as for a blob fetched via getBlob/postBlob — object URLs are
