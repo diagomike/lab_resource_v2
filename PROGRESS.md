@@ -1834,6 +1834,127 @@ its model that make porting it as-is the wrong move.
   adding a second server-generated artifact would be complexity with no behavior gap
   to justify it.
 
+- **2026-09-04 (Phase 10 — the global change log)** — Replaces the `/change-log`
+  placeholder with the real thing, behaviorally ported from
+  `temp_works/src/components/ChangeLogView.tsx`: search, filtering, ordering and
+  pagination all run server-side (`lib/server/resources/changes.ts`'s new `browse`),
+  never "load every row and filter in the browser" the way the sandbox's own
+  client-store version could get away with.
+
+  **The deleted-item scoping problem, solved with an explicit scope snapshot, not a
+  workaround.** The real gap: `ItemChange` already snapshotted `itemName` so a deleted
+  item's line still reads, but carried nothing that could authorize a GLOBAL log entry
+  once the item itself is gone — `assertCanSeeItem` (what the existing per-item
+  history already leans on) requires a live, non-deleted row, so a since-deleted
+  item's whole history was unreachable by anyone, including whoever legitimately owned
+  it. Fixed at the source: `ItemChange` gained three columns —
+  `ownerOrgNodeId`/`currentOrgNodeId`/`custodianId` — populated on EVERY ITEM-targeted
+  row at the moment `mutate.ts` writes it (a new `scopeSnapshot()` helper, threaded
+  into all nine `itemChange.create`/`createMany` call sites), reflecting the state
+  that change itself produces — a `setCustodian`/`setOwnerOrg`/`setCurrentOrg`/
+  `transferItem` row snapshots the NEW value, everything else snapshots the item's
+  unchanged current state. This is deliberately not just a deletion fix: it also
+  means a TRANSFERRED item's pre-transfer history stays visible only to whoever could
+  see it back then, never retroactively to whoever holds it now — a transfer of
+  custody is not a transfer of the right to read what happened before it, and that
+  reads as correct regardless of whether the item involved is ever deleted. A
+  CATEGORY-targeted row's three columns stay null by design (categories are shared
+  vocabulary, visible to everyone signed in, same rule the category endpoints already
+  enforce) — `changeLogScopeWhere`'s predicate always includes `targetKind:
+  "CATEGORY"` rows unconditionally, and only global roles ever see a null-snapshot
+  ITEM row (the deliberately conservative default for a row genuinely too old, or too
+  broken, to know the scope of — proven with a directly-inserted fixture row in
+  `changes.spec.ts`, not just asserted).
+
+  **The scope predicate itself re-derives nothing** — `changeLogScopeWhere` calls the
+  SAME `scope.defaultModeFor`/`orgScope.visibleNodeIds` every other item read already
+  resolves through, just applied against the snapshot columns instead of the live
+  `Item` table (which a deleted item no longer has a row in): `UNIVERSITY` mode sees
+  everything, `MY_CUSTODY` matches the snapshot's own `custodianId` directly (not
+  live-tree descendant expansion, which cannot be replayed against a subtree that may
+  itself be gone — a deliberate, disclosed narrowing: the log shows what a custodian
+  DIRECTLY custodied at the time, not what happened to sit inside something of theirs),
+  `ORG_SUBTREE` matches `ownerOrgNodeId`/`currentOrgNodeId` against `visibleNodeIds`.
+
+  **Existing rows backfilled, conservatively.** A one-off `$executeRaw` UPDATE (run
+  once against the dev database, not a replayable migration — this is data, not
+  schema) copied the CURRENT item's scope onto every pre-existing row whose item still
+  exists (11 rows); rows whose item was already deleted before this column existed
+  stay null — genuinely unknowable, correctly left admin-only rather than guessed.
+
+  **Every existing change kind renders sensibly, including the two newest.** Image
+  changes show their caption ("Front panel") or the literal word "photo" as the
+  before/after when no caption was given; custom-property changes show the property
+  key as `field` and its typed value as before/after, identical in shape to a category
+  field's own `setProperty` row; category edits already carried their own name
+  snapshot in `itemName` (a pre-Phase-10 design choice this phase leaned on rather
+  than duplicated — a CATEGORY row's `itemName` IS the category's name snapshot). A
+  category's own `defaultImageKey`/deleted-child-part notes ("'Blockable Part' was
+  deleted, removing it from this category's default subtree") read correctly as
+  ordinary rows, no special-casing needed.
+
+  **Deleted targets never render a broken link.** `browse` resolves, per page (not per
+  row — one batched query), which of the page's `itemId`s still name a live row and
+  which of the page's `categoryId`s still resolve to a name, returning `itemExists`
+  (bool) and `categoryName` (nullable, display-only — `itemName` stays the
+  authoritative snapshot) on every entry. The client (`ChangeLogPage.tsx`) renders a
+  live item's name as a real button that opens the Inspector; a deleted one renders as
+  plain, struck-through, unclickable text — confirmed live via `find` returning no
+  interactive match for a known-deleted item's name, only for a live one's.
+
+  **A bulk operation renders as one recognizable operation, not N rows that happen to
+  share a badge.** Every row one bulk call produces shares the exact same `at`
+  (`mutate.ts` stamps one `Date` per call, before its per-row loop) — `browse` orders
+  `at desc, id desc`, which keeps a batch's rows GUARANTEED contiguous within a page
+  without any extra grouping query. `ChangeLogPage.tsx`'s `groupEntries` does one
+  linear pass over an already-scoped, already-ordered page and collapses consecutive
+  same-`batchId` rows into one expandable summary card ("N resources · <kind label> ·
+  by <actor> · <time>"), each member row available on demand rather than always
+  spelled out — confirmed live and in `changes.spec.ts` (a real two-item bulk edit's
+  rows share one `batchId` and an identical database timestamp).
+
+  New route: `GET /api/resources/changes` (query params: `q`, `kind`, `targetKind`,
+  `actorId`, `categoryId`, `itemId`, `batchId`, `page`, `pageSize`) — the one door into
+  `browse`, mirroring the read-endpoint conventions `items.ts` already established.
+  New wire contracts: `ChangeLogEntryDto` (`ItemChangeDto` + `itemExists`/
+  `categoryName`), `ChangeLogPageDto`. `components/resources/ChangeLogPage.tsx`
+  replaces the `ComingSoon` placeholder at `/change-log`: URL-persisted filters
+  (search debounced, matching `FilterBar`'s own pattern), a Kind/Target/Category
+  picker row, the grouped table, and page-number pagination:
+
+  New tests: a DB-backed `changes.spec.ts` (9 cases) — SYS_ADMIN sees every
+  department plus category rows; a MANAGER (ORG_SUBTREE) sees their own department's
+  item rows and category rows, never the other department's; a custodian
+  (MY_CUSTODY) sees only rows for items they directly custody; a category-targeted
+  row is visible to every role tested, including a custodian with no category-admin
+  reach; a directly-inserted null-snapshot row is visible to SYS_ADMIN only, never a
+  MANAGER or custodian; a deleted item's earlier entries stay visible to whoever could
+  see it, the delete row itself carries `itemExists: false`, and the other
+  department never sees any of it; a real bulk edit's two rows share one `batchId`
+  and one exact timestamp; full-text search matches item name and actor name; and
+  pagination never returns more than `pageSize`, with `total` accurate and no overlap
+  between pages.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 245 tests (9 new); `npx prisma
+  validate`/`migrate status` clean (11 migrations); `npm run build` clean (45 routes,
+  +1) after stopping the dev server first. Live in-browser, signed in as the SE
+  custodian against the real, accumulated dev-database history (176 rows at the time
+  of this pass, most of it earlier phases' own live-verification traffic — left in
+  place per this project's established precedent for harmless test-history noise):
+  the log rendered every kind correctly (image adds/removes, category edits including
+  a collateral-template-removal note, custom-property changes) with working Kind/
+  Target/Category filters; searching "Mechanical" (part of a real ChemE-owned item's
+  name) returned zero rows signed in as the SE custodian — the exact cross-department
+  leakage check, via free-text search rather than a filter dropdown, proving the
+  scope predicate applies before search runs, not after; the identical search for a
+  real SE item's own name ("Whiteboard") correctly surfaced its whole photo/
+  custom-property history; clicking that item's name opened the real Inspector;
+  searching a since-deleted SE item's own name ("SE Images Item") showed its complete
+  history including the delete row itself, rendered as plain non-clickable text
+  (confirmed via `find` returning no interactive match for it, unlike the live
+  Whiteboard row). No live fixtures were created during this pass beyond the
+  already-existing dev history, so nothing needed cleaning up afterward.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
