@@ -21,10 +21,14 @@
  * data, not the real ASTU import (that importer is a later phase, keyed by
  * (sourceSystem, sourceKey) rather than wiped and rebuilt).
  */
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { buildSubtree, instantiateMany, newId, type InstantiateCtx } from "../lib/domain/instantiate";
 import type { Category, Item as DomainItem } from "../lib/domain/types";
 import { toDomainCategoryMap } from "../lib/server/resources/adapt";
+import { sniffImage } from "../lib/server/resources/image-sniff";
+import { REAL_CATEGORY_SPECS, REAL_GROUP_NAMES, loadOrCreateRealPeople, buildRealDataItems } from "./real-data-seed";
 
 const prisma = new PrismaClient();
 
@@ -73,7 +77,7 @@ async function assertSafeToReset(): Promise<void> {
 // copy, written directly against Prisma's uppercase enums, for the real database).
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface FieldSpec {
+export interface FieldSpec {
   key: string;
   label: string;
   type: "TEXT" | "NUMBER" | "ENUM" | "BOOLEAN";
@@ -88,11 +92,15 @@ interface ChildSpec {
   critical: boolean;
 }
 
-interface CategorySpec {
+/** `group` is deliberately not a closed union — `real-data-seed.ts` adds four more
+ *  (the Chemical Engineering department's own real category groupings) alongside the
+ *  five synthetic ones below; `GROUP_NAMES`/`ALL_GROUP_NAMES` is the actual source of
+ *  truth for what groups get created. */
+export interface CategorySpec {
   key: string;
   name: string;
   iconKey: string;
-  group: "Places" | "IT" | "Network" | "Furniture" | "Chemical";
+  group: string;
   countingMode: "SERIALIZED" | "BULK";
   unit?: string;
   impairRule: "ANY_CRITICAL" | "ALL_CRITICAL" | "NEVER";
@@ -230,6 +238,11 @@ const CATEGORY_SPECS: CategorySpec[] = [
 ];
 
 const GROUP_NAMES = ["Places", "IT", "Network", "Furniture", "Chemical"] as const;
+/** The synthetic fixture's own groups plus the Chemical Engineering department's
+ *  real category groupings (real-data-seed.ts) — one combined category vocabulary,
+ *  created together so both sit in the same category picker. */
+const ALL_GROUP_NAMES = [...GROUP_NAMES, ...REAL_GROUP_NAMES];
+const ALL_CATEGORY_SPECS = [...CATEGORY_SPECS, ...REAL_CATEGORY_SPECS];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wipe — leaves-first for Item (self-referential onDelete: Restrict means an
@@ -255,15 +268,15 @@ async function wipe(): Promise<void> {
 // loadAllCategoriesDomain() does for the live write path.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function createCategories(): Promise<Record<string, Category>> {
+async function createCategories(): Promise<{ categories: Record<string, Category>; idByKey: Map<string, string> }> {
   const groupId = new Map<string, string>();
-  for (let i = 0; i < GROUP_NAMES.length; i++) {
-    const row = await prisma.categoryGroup.create({ data: { name: GROUP_NAMES[i], sortOrder: i } });
-    groupId.set(GROUP_NAMES[i], row.id);
+  for (let i = 0; i < ALL_GROUP_NAMES.length; i++) {
+    const row = await prisma.categoryGroup.create({ data: { name: ALL_GROUP_NAMES[i], sortOrder: i } });
+    groupId.set(ALL_GROUP_NAMES[i], row.id);
   }
 
   const idByKey = new Map<string, string>();
-  for (const spec of CATEGORY_SPECS) {
+  for (const spec of ALL_CATEGORY_SPECS) {
     const row = await prisma.resourceCategory.create({
       data: {
         key: spec.key,
@@ -293,7 +306,7 @@ async function createCategories(): Promise<Record<string, Category>> {
     idByKey.set(spec.key, row.id);
   }
 
-  for (const spec of CATEGORY_SPECS) {
+  for (const spec of ALL_CATEGORY_SPECS) {
     if (!spec.defaultChildren?.length) continue;
     await prisma.categoryTemplateChild.createMany({
       data: spec.defaultChildren.map((c) => ({
@@ -308,7 +321,7 @@ async function createCategories(): Promise<Record<string, Category>> {
   const rows = await prisma.resourceCategory.findMany({
     include: { group: { select: { name: true } }, fields: true, templateAsParent: true },
   });
-  return toDomainCategoryMap(rows);
+  return { categories: toDomainCategoryMap(rows), idByKey };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -357,16 +370,11 @@ async function loadSeedIds(): Promise<SeedIds> {
   };
 }
 
-function buildItems(categories: Record<string, Category>, ids: SeedIds): DomainItem[] {
+function buildItems(categories: Record<string, Category>, ids: SeedIds, idByKey: Map<string, string>): DomainItem[] {
   const now = new Date("2026-09-03T09:00:00Z").toISOString();
   const items: DomainItem[] = [];
-  const keyToId = new Map<string, string>();
-  for (const spec of CATEGORY_SPECS) {
-    const found = Object.entries(categories).find(([, c]) => c.name === spec.name && c.group === spec.group);
-    if (found) keyToId.set(spec.key, found[0]);
-  }
   const catId = (key: string): string => {
-    const id = keyToId.get(key);
+    const id = idByKey.get(key);
     if (!id) throw new Error(`Unknown seeded category key "${key}"`);
     return id;
   };
@@ -588,6 +596,69 @@ function itemCreateData(item: DomainItem, categories: Record<string, Category>):
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Real equipment photographs — a minimal, local-fs-driver-compatible write, not an
+// import of lib/server/resources/storage/** (that module starts `import
+// "server-only"`, which throws outside a bundler's server condition — the same
+// reason mutate.ts/itemCreateData() above is duplicated rather than imported).
+// Mirrors local-fs-driver.ts's own IMAGE_STORAGE_DIR resolution exactly, so a
+// seeded photo is genuinely servable through the real `/api/resources/images/…`
+// route afterward, not just a row with no bytes behind it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ASSET_ROOT = path.resolve(process.cwd(), "prisma", "seed-assets", "equipment");
+const IMAGE_STORAGE_ROOT = process.env.IMAGE_STORAGE_DIR ? path.resolve(process.env.IMAGE_STORAGE_DIR) : path.resolve(process.cwd(), ".local-storage", "images");
+
+/** A stable, deterministic key derived from the source filename (its extension
+ *  stripped — local-fs-driver's own key charset rejects the dot) rather than a
+ *  fresh `crypto.randomUUID()` per run: re-running this script overwrites the same
+ *  on-disk file instead of piling up an orphaned one per re-seed. Prefixed so it
+ *  can never collide with a real upload's own randomUUID()-shaped key. */
+function storageKeyFor(srcFilename: string): string {
+  return `seed-chem-${path.basename(srcFilename, path.extname(srcFilename))}`;
+}
+
+/** Reads each equipment item's source photograph(s) (`item.images[].src`, a bare
+ *  filename — see real-data-seed.ts's own note on why), sniffs the real format/
+ *  dimensions from the bytes exactly as a genuine upload does
+ *  (`lib/server/resources/images.ts`'s `receiveUpload`), writes them to local
+ *  storage, and inserts the real `ItemImage` rows. Only runs against items that
+ *  actually persisted (called after `item.createMany`) since `ItemImage.itemId` is
+ *  a real FK. */
+async function persistRealImages(items: DomainItem[]): Promise<number> {
+  const withImages = items.filter((i) => i.images.length > 0);
+  if (!withImages.length) return 0;
+
+  await mkdir(IMAGE_STORAGE_ROOT, { recursive: true });
+  const rows: Prisma.ItemImageCreateManyInput[] = [];
+  for (const item of withImages) {
+    for (const [index, img] of item.images.entries()) {
+      const bytes = await readFile(path.join(ASSET_ROOT, img.src));
+      const sniffed = sniffImage(bytes);
+      if (!sniffed) {
+        console.warn(`  skipping ${img.src}: not a recognizable PNG/JPEG/WEBP`);
+        continue;
+      }
+      const key = storageKeyFor(img.src);
+      await writeFile(path.join(IMAGE_STORAGE_ROOT, key), bytes);
+      rows.push({
+        itemId: item.id,
+        storageKey: key,
+        caption: img.caption ?? null,
+        contentType: sniffed.mimeType,
+        byteSize: bytes.length,
+        width: sniffed.width,
+        height: sniffed.height,
+        sortOrder: index,
+        sourceSystem: "temp_works-chem-lab",
+        sourceKey: img.src,
+      });
+    }
+  }
+  if (rows.length) await prisma.itemImage.createMany({ data: rows });
+  return rows.length;
+}
+
 async function main(): Promise<void> {
   console.log("Seeding lab_resource_v2's resource module (dev fixture)…");
 
@@ -595,10 +666,15 @@ async function main(): Promise<void> {
   await assertSafeToReset();
   await wipe();
 
-  const categories = await createCategories();
-  const items = buildItems(categories, ids);
+  const { categories, idByKey } = await createCategories();
+  const items = buildItems(categories, ids, idByKey);
+
+  const peopleIdByEmail = await loadOrCreateRealPeople(prisma, { se: ids.se, chem: ids.chem });
+  const realItems = buildRealDataItems(categories, { se: ids.se, chem: ids.chem, peopleIdByEmail }, idByKey);
+  items.push(...realItems);
 
   await prisma.item.createMany({ data: items.map((i) => itemCreateData(i, categories)) });
+  const imageCount = await persistRealImages(items);
 
   const batchId = newId("b");
   await prisma.itemChange.createMany({
@@ -617,9 +693,11 @@ async function main(): Promise<void> {
   });
 
   const roots = items.filter((i) => i.parentId === null).length;
-  console.log(`  ${CATEGORY_SPECS.length} categories across ${GROUP_NAMES.length} groups`);
-  console.log(`  ${items.length} items (${roots} roots: SE Lab, ASTU Main Store, Chemistry lab, Chemistry store)`);
+  console.log(`  ${ALL_CATEGORY_SPECS.length} categories across ${ALL_GROUP_NAMES.length} groups`);
+  console.log(`  ${items.length} items (${roots} roots), ${imageCount} real equipment photographs`);
+  console.log(`  ${Object.keys(peopleIdByEmail).length} real named custodians (11 Software Engineering, 3 Chemical Engineering)`);
   console.log(`  1 loan: SE's 7th workstation sits in Chemistry Engineering's lab, owned/custodied by SE`);
+  console.log(`  Real data: 15 SE lab rooms (electricity/network survey), 4 named ChemE labs with real equipment (equipment list), 1 expired-chemical store (51 containers)`);
 }
 
 main()

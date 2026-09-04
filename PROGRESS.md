@@ -2274,6 +2274,96 @@ its model that make porting it as-is the wrong move.
   real, and the full live-URL verification pass this file's own plan lays
   out.
 
+- **2026-09-04** — Real demo data: the user needs to demo the full breadth of the
+  system, and the dev fixture (`prisma/resource-seed.ts`) only ever had one
+  representative lab per department. Ported `temp_works`' own real-data importer
+  (`src/lib/real-data-seed.ts`/`chem-lab-data.ts`) — three documents the
+  departments themselves produced (the SE electricity/network repair survey, the
+  ChemE equipment register, the ChemE expired-chemicals list) — onto this app's
+  real schema, real org nodes, and real login-capable accounts, **added alongside**
+  the existing synthetic fixture rather than replacing it (both now coexist: the
+  synthetic SE Lab/computer-hierarchy example for showing templates/criticality/
+  derived status, the real data for showing authenticity).
+
+  **New files**: `prisma/chem-lab-data.ts` (the department's own 33 equipment
+  records — name, description, experiment list, condition, photo filenames —
+  copied verbatim from `temp_works`, only the image paths adjusted from web paths
+  to bare filenames); `prisma/real-data-seed.ts` (the structuring logic: real
+  people, real category specs, real labs, the equipment→category judgement call,
+  the expired-chemicals list, `buildRealDataItems()`); 36 real equipment
+  photographs copied into `prisma/seed-assets/equipment/` (1.6 MB, committed —
+  small enough, and this is what makes the photos actually work for anyone who
+  clones the repo, not just on this machine next to `temp_works`).
+
+  **13 real named people** (11 Software Engineering ARA/SARA lab responsibles, 3
+  Chemical Engineering lab responsibles) — their own real names/emails/titles from
+  the source documents, seeded as genuine login-capable `CUSTODIAN`+`STAFF`
+  accounts (`astu1234`, matching every other seeded account), not funneled through
+  the existing two placeholder custodians. `loadOrCreateRealPeople` does its own
+  idempotent find-or-create by email — unlike categories/items, a `User` is not
+  wiped by `resource-seed.ts`'s own reset, so a second run must not try to insert
+  the same email again; verified live by running the script twice in a row (238
+  items, 36 photos, 13 people — identical both times, no unique-constraint crash).
+
+  **19 new categories across 4 new groups** (Mechanical Unit Operations, Reaction
+  & Biochemical Engineering, Process Control & Fluid Mechanics, Heat & Mass
+  Transfer — the department's own real classification, not invented) plus one
+  Chemical-group addition (`Chemical Container (Expired Inventory)`, distinct from
+  the existing `Chemical` category — different concern, active stock vs.
+  disposal-pending inventory). `resource-seed.ts`'s `CategorySpec.group` widened
+  from a closed 5-name union to `string`, `createCategories()` now builds from
+  `ALL_CATEGORY_SPECS`/`ALL_GROUP_NAMES` (synthetic + real merged), and now returns
+  its `idByKey` map directly rather than having `buildItems()` re-derive it by
+  name+group lookup — `buildRealDataItems()` needed that same map and re-deriving
+  it twice was pointless duplication.
+
+  **15 real Software Engineering lab rooms** (up from 1) — the survey was about
+  electrical/network repairs, not an equipment inventory, so these seed as real
+  rooms with real custodians and no equipment inside; still real, useful demo
+  content in its own right (every SE lab the survey named, each with its actual
+  responsible person). **4 named Chemical Engineering labs** (Mechanical Unit
+  Operation, Chemical Reaction and Biochemical Engineering, Process Control and
+  Fluid Mechanics, Heat and Mass Transfer), populated with **33 real machines** —
+  descriptions, full experiment/teaching-use lists, and the department's own
+  condition assessment (non-"Functional" machines seed as `UNDER_MAINTENANCE`,
+  matching the register's own "this is what needs attention" convention). **One
+  expired-chemical store**, 51 containers, all correctly showing as needing
+  attention.
+
+  **Real photographs, through the real pipeline, not a shortcut.** Images cannot go
+  through `lib/server/resources/storage/**` directly (that module's `import
+  "server-only"` throws outside a bundler, same reason `mutate.ts`'s
+  `itemCreateData` is duplicated rather than imported) — so
+  `persistRealImages()` mirrors `local-fs-driver.ts`'s own `IMAGE_STORAGE_DIR`
+  resolution and reuses `lib/server/resources/image-sniff.ts` (dependency-free, no
+  `server-only` guard) to sniff the REAL format/dimensions from the bytes, exactly
+  as a genuine upload's `receiveUpload()` does — never trusting the `.jpg`
+  extension as proof of anything. Storage keys are deterministic
+  (`seed-chem-<filename-without-extension>`, not a fresh `randomUUID()` per run) so
+  re-seeding overwrites the same file instead of accumulating orphans on disk.
+  `ItemImage.sourceSystem`/`sourceKey` (schema fields that had sat unused since
+  Phase 9, with a doc comment literally anticipating "the real ASTU equipment
+  photographs") record provenance: `"temp_works-chem-lab"` / the original filename.
+  Verified live: opened "Jaw Crusher" in the register — its real photograph
+  rendered through the actual `/api/resources/images/[storageKey]` route (not a
+  static asset reference), confirming the full chain — seed script → local
+  storage → the auth/scope-checked image route → the Inspector — is the same path
+  a genuine upload would take, not a seed-only bypass.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 272/272 (unchanged — this is
+  data, not new domain logic); `npm run build` clean. Live in-browser as
+  SYS_ADMIN: searched "Jaw Crusher" — found under Chemical Engineering, category
+  "Size Reduction Equipment", custodied by Addisu Amsalu, photo rendering
+  correctly; the Category and Custodian filter dropdowns list every new category
+  and every real named person; a direct API fetch of "Software Laboratory — B508-
+  R11" confirmed room `B508-R11`, custodian Shambel Lemma Gadisa, source
+  "Electricity and Network Repair Survey" — an exact match to the source document.
+  `/university`'s rollup-by-owning-unit×category card shows the full breadth
+  across both departments in one place, which is exactly the surface this data was
+  added to make worth demoing. DB counts confirmed directly: 18 users total (5
+  original + 13 real), 36 `ItemImage` rows, 238 items, all unchanged across a
+  second run of the script (idempotency).
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
