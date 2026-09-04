@@ -4,6 +4,7 @@ build/
 .next/
 .env
 .env.local
+
 *.log
 .DS_Store
 apps/api/prisma/*.db
@@ -15,3 +16,4 @@ apps/api/prisma/*.db-journal
 # — uploaded item photos and their bytes, never committed. Location is IMAGE_STORAGE_DIR
 # if set, else this default.
 .local-storage/
+neon.env
