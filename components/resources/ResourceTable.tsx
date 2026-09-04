@@ -47,29 +47,39 @@ export interface ResourceTableProps {
    *  column instead — the two are mutually exclusive by construction (RowNode has no
    *  parent chain when the server already returned a flat page). */
   showPath?: boolean;
+  /** The university-wide browse (10b of
+   *  ~/.claude/plans/three-product-changes-dynamic-thompson.md) has no bulk toolbar
+   *  to act on a selection, so the checkbox column itself is pointless there — not
+   *  just inert but actively misleading (it would suggest a selection does
+   *  something). Defaults to `true`, unchanged from before this prop existed. */
+  selectable?: boolean;
 }
 
-export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath }: ResourceTableProps) {
+export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true }: ResourceTableProps) {
   const columns = useMemo(() => {
     const rowOf = (id: string) => byId.get(id);
     const nameAgg = (values: (string | undefined)[]) => aggregate(values.map((v) => v ?? null));
 
     const cols = [
-      helper.display({
-        id: "select",
-        header: () => null,
-        cell: ({ row }) => (
-          <input
-            type="checkbox"
-            checked={row.getIsSelected()}
-            ref={(el) => {
-              if (el) el.indeterminate = row.getIsSomeSelected() && !row.getIsSelected();
-            }}
-            onChange={row.getToggleSelectedHandler()}
-            onClick={(e) => e.stopPropagation()}
-          />
-        ),
-      }),
+      ...(selectable
+        ? [
+            helper.display({
+              id: "select",
+              header: () => null,
+              cell: ({ row }) => (
+                <input
+                  type="checkbox"
+                  checked={row.getIsSelected()}
+                  ref={(el) => {
+                    if (el) el.indeterminate = row.getIsSomeSelected() && !row.getIsSelected();
+                  }}
+                  onChange={row.getToggleSelectedHandler()}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ),
+            }),
+          ]
+        : []),
 
       helper.display({
         id: "photo",
@@ -212,7 +222,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
     );
 
     return cols;
-  }, [byId, showPath, onInspect]);
+  }, [byId, showPath, onInspect, selectable]);
 
   const table = useTable({
     features,

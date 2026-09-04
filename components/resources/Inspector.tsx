@@ -27,10 +27,18 @@ export function Inspector({
   itemId,
   onClose,
   onChanged,
+  readOnly = false,
 }: {
   itemId: string | null;
   onClose: () => void;
   onChanged: () => void;
+  /** The university-wide browse's drill-through (10b of
+   *  ~/.claude/plans/three-product-changes-dynamic-thompson.md) — same data, same
+   *  fetch (with `?scope=UNIVERSITY` so an out-of-department item resolves instead of
+   *  404ing), but no editable field, no Position/custodian/owner transfer, no delete.
+   *  Seeing further grants nothing; the write door stays custody-based regardless of
+   *  what this prop does — this is a UI convenience, not the enforcement. */
+  readOnly?: boolean;
 }) {
   const [item, setItem] = useState<ItemDetailDto | null>(null);
   const [changes, setChanges] = useState<ItemChangeDto[] | null>(null);
@@ -54,7 +62,11 @@ export function Inspector({
     setChanges(null);
     setCategory(null);
     setError(null);
-    Promise.all([api.get<ItemDetailDto>(`/resources/items/${itemId}`), api.get<ItemChangeDto[]>(`/resources/items/${itemId}/changes`)])
+    const scopeParam = readOnly ? "?scope=UNIVERSITY" : "";
+    Promise.all([
+      api.get<ItemDetailDto>(`/resources/items/${itemId}${scopeParam}`),
+      api.get<ItemChangeDto[]>(`/resources/items/${itemId}/changes${scopeParam}`),
+    ])
       .then(([i, c]) => {
         setItem(i);
         setChanges(c);
@@ -83,7 +95,7 @@ export function Inspector({
   // mutate.ts's own isWithinSubtree check still enforces that regardless, this only
   // keeps it from appearing choosable.
   useEffect(() => {
-    if (!item) {
+    if (!item || readOnly) {
       setMoveTargets([]);
       return;
     }
@@ -365,6 +377,8 @@ export function Inspector({
         {error && <ErrorNote>{error}</ErrorNote>}
         {!item ? (
           <PanelLoading rows={4} />
+        ) : readOnly ? (
+          <ReadOnlyBody item={item} category={category} changes={changes} />
         ) : (
           <>
             <ItemImageGallery item={item} category={category} expectedVersions={expectedVersions} onAdd={onAddImage} onRemove={onRemoveImage} />
@@ -632,6 +646,109 @@ export function Inspector({
       )}
     </>
   );
+}
+
+/**
+ * The university-wide browse's drill-through (10b of
+ * ~/.claude/plans/three-product-changes-dynamic-thompson.md) — same fetched item,
+ * same category, same history, none of the editable body's inputs/selects/buttons.
+ * Deliberately a separate render tree rather than `readOnly &&`-gating individual
+ * fields throughout the editable body above: that body's fields are tightly coupled
+ * to draft state and commit handlers this view has no use for, and threading a
+ * read-only branch through each one would obscure more than it would share. Shows
+ * exactly what the plan asked an approver needs: location, owner, current holder,
+ * custodian, condition, specs and photo — including "on loan"
+ * (currentOrgNodeId ≠ ownerOrgNodeId), the owner/current split's whole point.
+ */
+function ReadOnlyBody({ item, category, changes }: { item: ItemDetailDto; category: ResourceCategoryDto | null; changes: ItemChangeDto[] | null }) {
+  const onLoan = item.currentOrgNodeId !== item.ownerOrgNodeId;
+  return (
+    <>
+      <ItemImageGallery item={item} category={category} expectedVersions={{}} onAdd={async () => {}} onRemove={() => {}} readOnly />
+
+      <div>
+        <div className="text-13 font-semibold">{item.name}</div>
+        <div className="text-10.5 text-dim mt-2">{item.categoryName}</div>
+        {item.path.length > 0 && <div className="text-10 text-faint mt-2">{item.path.join(" › ")}</div>}
+      </div>
+
+      <div className="flex items-center gap-8">
+        <StatusChip status={item.effectiveStatus} />
+        {item.effectiveStatus !== item.status && <span className="text-10.5 text-faint">Set directly: {STATUS_LABEL[item.status]}</span>}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
+        <EditField label="Quantity">
+          <span className="text-11">{item.countingMode === "BULK" ? item.qty : "1 unit"}</span>
+        </EditField>
+        <EditField label="Custodian">
+          <span className="text-11">{item.custodianName}</span>
+        </EditField>
+        <EditField label="Owning unit">
+          <span className="text-11">{item.ownerOrgNodeName}</span>
+        </EditField>
+        <EditField label="Current unit">
+          <span className="text-11">
+            {item.currentOrgNodeName}
+            {onLoan && <span className="text-warn"> (on loan)</span>}
+          </span>
+        </EditField>
+      </div>
+
+      {category && category.fields.length > 0 && (
+        <div>
+          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
+          <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
+            {category.fields.map((f) => (
+              <EditField key={f.key} label={f.unit ? `${f.label} (${f.unit})` : f.label}>
+                <span className="text-11 text-dim">{formatPropValue(item.props[f.key] ?? null)}</span>
+              </EditField>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Object.keys(item.customProps).length > 0 && (
+        <div>
+          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Custom properties</div>
+          <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
+            {Object.entries(item.customProps).map(([key, c]) => (
+              <EditField key={key} label={key}>
+                <span className="text-11 text-dim">{formatPropValue(c.value)}</span>
+              </EditField>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
+        {changes === null ? (
+          <PanelLoading rows={2} />
+        ) : changes.length === 0 ? (
+          <div className="text-10.5 text-faint">No changes recorded yet.</div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {changes.slice(0, 20).map((c) => (
+              <div key={c.id} className="text-10.5 border-b border-border pb-6">
+                <span className="text-dim">{CHANGE_LABEL[c.kind]}</span>
+                {c.field && <span className="text-faint"> · {c.field}</span>}
+                <div className="text-9.5 text-faint mt-1">
+                  {c.actorName} · {new Date(c.at).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function formatPropValue(v: ItemPropValue): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  return String(v);
 }
 
 function EditField({ label, children }: { label: string; children: ReactNode }) {

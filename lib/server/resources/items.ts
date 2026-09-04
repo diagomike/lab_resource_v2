@@ -9,6 +9,7 @@ import {
   type ItemFilterFieldDef,
   type ItemRowDto,
   type ItemSummaryDto,
+  type ScopeMode,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
@@ -70,8 +71,8 @@ async function loadForest(): Promise<Forest> {
  *  additionally pulls in every ancestor, so the hierarchy view never has to render a
  *  visible item inside an invisible container. The difference between the two is
  *  exactly `readOnlyContext`. */
-async function computeScopedIds(userId: string, forest: Forest): Promise<{ base: Set<string>; closed: Set<string> }> {
-  const resolved = await scope.resolveScope(userId);
+async function computeScopedIds(userId: string, forest: Forest, modeOverride?: ScopeMode): Promise<{ base: Set<string>; closed: Set<string> }> {
+  const resolved = await scope.resolveScope(userId, modeOverride);
   let base: Set<string>;
   if (resolved.mode === "UNIVERSITY") base = new Set(forest.items.map((i) => i.id));
   else if (resolved.mode === "MY_CUSTODY") base = new Set(resolved.custodyItemIds ?? []);
@@ -191,9 +192,9 @@ export interface SearchResult {
 /** The flat search list — genuine matches only, no ancestor padding (that is what
  *  distinguishes it from `tree()`). Scope is applied to the result before the page is
  *  sliced, never after. */
-export async function search(userId: string, query: ItemQuery, page = 1, pageSize = 50): Promise<SearchResult> {
+export async function search(userId: string, query: ItemQuery, page = 1, pageSize = 50, modeOverride?: ScopeMode): Promise<SearchResult> {
   const forest = await loadForest();
-  const { base } = await computeScopedIds(userId, forest);
+  const { base } = await computeScopedIds(userId, forest, modeOverride);
   const matched = matchItems(forest.items, buildFilterState(query), ctxOf(forest));
 
   const rows = [...base]
@@ -217,9 +218,9 @@ export async function search(userId: string, query: ItemQuery, page = 1, pageSiz
  *  module's own header — they are pure and meant to run in the browser too) group
  *  into Hierarchy or Rollup mode. Both view modes fetch from here; which one a person
  *  is looking at is a rendering choice, not a different query. */
-export async function tree(userId: string, query: ItemQuery): Promise<{ items: ItemRowDto[] }> {
+export async function tree(userId: string, query: ItemQuery, modeOverride?: ScopeMode): Promise<{ items: ItemRowDto[] }> {
   const forest = await loadForest();
-  const { base, closed } = await computeScopedIds(userId, forest);
+  const { base, closed } = await computeScopedIds(userId, forest, modeOverride);
   const matched = matchItems(forest.items, buildFilterState(query), ctxOf(forest));
   const expanded = expandMatches(forest.index, matched);
   const keep = [...closed].filter((id) => expanded.has(id));
@@ -252,16 +253,26 @@ function toWireFilterField(f: {
   };
 }
 
-async function domainFilterFields(userId: string, activeCategoryIds: string[], forest: Forest) {
-  const { closed } = await computeScopedIds(userId, forest);
+async function domainFilterFields(userId: string, activeCategoryIds: string[], forest: Forest, modeOverride?: ScopeMode) {
+  const { closed } = await computeScopedIds(userId, forest, modeOverride);
   const places = forest.index.roots.filter((r) => closed.has(r.id));
   // Scoped BEFORE custom-property keys are collected — see customPropFilterFields's
   // own note on why an out-of-scope item's custom key must never surface here.
   const scopedItems = forest.items.filter((i) => closed.has(i.id));
 
+  // The custodian filter option list is exactly the custodians who actually appear on
+  // items this caller can see — never the whole user table (that was a name leak on
+  // the ordinary register: every account's name, regardless of reach, handed to every
+  // caller). Deriving it from `scopedItems` needs no extra query and is, for a FILTER
+  // dropdown specifically, the semantically correct set: a value that could not match
+  // anything you can see has no reason to be offered. `orgNode` stays unscoped — the
+  // org chart is not confidential and the owner/current-unit filters are useless
+  // without every unit in them.
+  const custodianIds = new Set(scopedItems.map((i) => i.custodianId).filter((id): id is string => Boolean(id)));
+
   const [nodeRows, people] = await Promise.all([
     prisma.orgNode.findMany({ include: { incomingEdges: true } }),
-    prisma.user.findMany({ select: { id: true, name: true } }),
+    prisma.user.findMany({ where: { id: { in: [...custodianIds] } }, select: { id: true, name: true } }),
   ]);
   const orgNodes: DomainOrgNode[] = nodeRows.map((n) => ({
     id: n.id,
@@ -276,19 +287,19 @@ async function domainFilterFields(userId: string, activeCategoryIds: string[], f
   return [...buildFilterFields(forest.categories, activeCategoryIds, places, orgNodes, people), ...customPropFilterFields(scopedItems)];
 }
 
-export async function filterFields(userId: string, activeCategoryIds: string[]): Promise<ItemFilterFieldDef[]> {
+export async function filterFields(userId: string, activeCategoryIds: string[], modeOverride?: ScopeMode): Promise<ItemFilterFieldDef[]> {
   const forest = await loadForest();
-  const fields = await domainFilterFields(userId, activeCategoryIds, forest);
+  const fields = await domainFilterFields(userId, activeCategoryIds, forest, modeOverride);
   return fields.map(toWireFilterField);
 }
 
-export async function facets(userId: string, query: ItemQuery): Promise<ItemFacetCounts> {
+export async function facets(userId: string, query: ItemQuery, modeOverride?: ScopeMode): Promise<ItemFacetCounts> {
   const forest = await loadForest();
-  const { closed } = await computeScopedIds(userId, forest);
+  const { closed } = await computeScopedIds(userId, forest, modeOverride);
   const scopedItems = forest.items.filter((i) => closed.has(i.id));
   const state = buildFilterState(query);
   const ctx = ctxOf(forest);
-  const fields = await domainFilterFields(userId, [...new Set(scopedItems.map((i) => i.categoryId))], forest);
+  const fields = await domainFilterFields(userId, [...new Set(scopedItems.map((i) => i.categoryId))], forest, modeOverride);
 
   const out: Record<string, Record<string, number>> = {};
   for (const field of fields) {
@@ -300,9 +311,9 @@ export async function facets(userId: string, query: ItemQuery): Promise<ItemFace
 
 const NEEDS_ATTENTION: EffectiveStatus[] = ["BROKEN", "IMPAIRED", "UNDER_MAINTENANCE", "LOST"];
 
-export async function summary(userId: string): Promise<ItemSummaryDto> {
+export async function summary(userId: string, modeOverride?: ScopeMode): Promise<ItemSummaryDto> {
   const forest = await loadForest();
-  const { closed } = await computeScopedIds(userId, forest);
+  const { closed } = await computeScopedIds(userId, forest, modeOverride);
   const byEffectiveStatus: Record<string, number> = {};
   let needsAttention = 0;
   for (const id of closed) {
@@ -362,14 +373,14 @@ export async function containers(userId: string, categoryId: string, excludeSubt
 }
 
 /** Out-of-scope returns 404, not 403 — a 403 would confirm the row exists. */
-export async function getOne(userId: string, id: string): Promise<ItemDetailDto> {
-  await scope.assertCanSeeItem(userId, id);
+export async function getOne(userId: string, id: string, modeOverride?: ScopeMode): Promise<ItemDetailDto> {
+  await scope.assertCanSeeItem(userId, id, modeOverride);
   const forest = await loadForest();
   const item = forest.index.byId.get(id);
   if (!item) throw new HttpError(404, "Resource not found");
 
   const [{ base }, lookups, images] = await Promise.all([
-    computeScopedIds(userId, forest),
+    computeScopedIds(userId, forest, modeOverride),
     nameLookups(),
     prisma.itemImage.findMany({ where: { itemId: id }, orderBy: { sortOrder: "asc" } }),
   ]);

@@ -2071,6 +2071,109 @@ its model that make porting it as-is the wrong move.
   dev database returned to its prior state (5 org nodes, 5 users, 134
   items) before committing.
 
+- **2026-09-04** — Phase 10b: the university-wide, read-only browse — the
+  surface a purchase-approving office or department head uses to answer
+  "does any department already have one of these, and is it working?"
+  before approving a purchase. The seams were already there
+  (`ScopeMode.UNIVERSITY`, `buildItemScopeWhere`'s unrestricted branch,
+  `visibleItemWhere`'s `mode` override); this was a gate, a parameter
+  threaded through, and a page.
+
+  **The gate**: `assertCanBrowseUniversity` (`lib/server/resources/scope.ts`)
+  — SYS_ADMIN/PROPERTY_ADMIN/PROCUREMENT (already global via
+  `orgScope.hasGlobalReach`) plus **MANAGER and STORE_KEEPER**, the
+  deliberate widening. MANAGER because the org chart *is* the approval
+  route here — "approver" means a department head/dean. STORE_KEEPER
+  because that role's ordinary reach is already university-wide by design
+  (occupies no OrgNode). Refused with 403, matching `assertCanCreateRoot`'s
+  own precedent from 10a — a browse attempt has nothing for a 404 to hide.
+
+  **The parameter**: `?scope=UNIVERSITY` threaded through as a `modeOverride`
+  on `/items`, `/items/tree`, `/items/facets`, `/items/filter-fields`,
+  `/items/summary`, `/items/[id]`, and (not in the original list, but
+  required for the Inspector drill-through to actually work — its change
+  history is a separate fetch) `/items/[id]/changes`. `resolveScope` and
+  `canSeeItem`/`assertCanSeeItem` (`scope.ts`) both gained an optional
+  `modeOverride` parameter; `computeScopedIds` (`items.ts`) passes it
+  through. **`computeScopedIds` calls `scope.resolveScope` directly rather
+  than reading a stored default** — the override had to reach that call,
+  not be layered alongside it, exactly the trap the plan's own working
+  notes flagged in advance. Every route handler that honours the parameter
+  calls `assertCanBrowseUniversity` FIRST, unconditionally — the parameter
+  is never trusted on its own.
+
+  **The page**: `/university`, "University resources" in `lib/nav.ts` under
+  Resources, gated to the same role set `assertCanBrowseUniversity` checks
+  (one of the capability gates that file's own header explicitly permits —
+  scope-narrowed data stays ungated everywhere else). **Reused, not
+  forked**: `useRegisterState` gained an optional `{ scope: "UNIVERSITY" }`
+  option that rides along on every fetch; `FilterBar` gained an optional
+  `scope` prop for its own `/filter-fields` call; `ResourceTable` gained a
+  `selectable` prop (default `true`) that drops the checkbox column
+  entirely when `false` — a selection with no bulk toolbar to act on it
+  is not inert, it is misleading. `UniversityPage.tsx` composes all three
+  plus a `Panel`-per-`RegisterPage`'s own convention, with **no Add button
+  and no bulk toolbar** (never rendered, not hidden by CSS).
+
+  **`Inspector` gained a `readOnly` prop** — the drill-through. Deliberately
+  a SEPARATE render branch (`ReadOnlyBody`) rather than `readOnly &&`-gating
+  individual fields through the existing 700-line editable body: that body's
+  fields are tightly coupled to draft state and commit handlers a read-only
+  view has no use for, and threading a condition through each one would
+  obscure more than it would share. Shows exactly what an approver needs —
+  location, owner, current holder, custodian, condition, specs, photo, and
+  history — including **"on loan"** (`currentOrgNodeId ≠ ownerOrgNodeId`)
+  called out explicitly, the owner/current split's whole point.
+  `ItemImageGallery` gained its own `readOnly` prop (hides "+ Add
+  photo"/"Remove", keeps the display) rather than Inspector reimplementing
+  a second photo viewer.
+
+  **Fixed the `domainFilterFields` leak while in there** (flagged as an
+  aside worth a deliberate decision, not left as a TODO): the custodian
+  filter dropdown was built from `prisma.user.findMany({select:{id,name}})`
+  — literally every account in the system, regardless of the caller's
+  reach, on the ORDINARY register, not just the new university view. Fixed
+  by deriving the option list from `scopedItems.map(i => i.custodianId)`
+  instead — the custodians who actually appear on items this caller can
+  see, which for a FILTER dropdown specifically is also the semantically
+  *correct* set (a value that could not match anything you can see has no
+  reason to be offered), and needs no extra query since `scopedItems` was
+  already loaded. `orgNode` stays unscoped, as decided — the org chart
+  itself is not confidential and owner/current-unit filters are useless
+  without every unit in them. Confirmed live: an SE MANAGER's *ordinary*
+  `/register` custodian dropdown now shows the ChemE custodian ONLY when
+  she is legitimately visible ancestor context (SE's own loaned cable sits
+  inside her lab) — not as a blanket leak of every account.
+
+  New spec: `lib/server/resources/university-scope.spec.ts` (7 cases,
+  DB-backed) — the gate allows SYS_ADMIN/MANAGER/STORE_KEEPER and refuses a
+  plain STAFF account and a bare CUSTODIAN with 403; a MANAGER's ordinary
+  `search()` excludes another department's item while the same call with
+  the `UNIVERSITY` override includes it; `getOne` with the override
+  resolves an item that would otherwise 404; `summary()`'s total widens
+  under the override; and — the one that actually proves "seeing further
+  grants nothing" — `assertCanMutate` still refuses the same MANAGER's
+  write to the now-visible item, because that function takes no override
+  at all (a fixed, narrower policy independent of read scope by design).
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 272/272 (7 new); `npm
+  run build` clean (`/university` in the route list); `npx prisma
+  validate`/`migrate status` clean. Live in-browser, signed in as
+  `head.se@astu.edu.et` (MANAGER): the rollup card showed owning-unit ×
+  category counts across ALL THREE units (the university root, Chemical
+  Engineering, Software Engineering), not just SE's own; the register table
+  listed ChemE's own lab and store alongside SE's; opening ChemE's lab
+  through the Inspector rendered every field as static text — no input, no
+  select, no delete button, photo gallery present with no upload control;
+  a direct API write attempt against that same ChemE item, immediately
+  after seeing it, got back 404. Separately confirmed both refusal layers
+  signed in as `custodian.se@astu.edu.et` (CUSTODIAN + STAFF, no MANAGER):
+  no "University resources" nav item; a direct `GET
+  /api/resources/items?scope=UNIVERSITY` call got 403 server-side; and
+  navigating straight to `/university` by URL hit `RequireRole`'s
+  client-side gate ("That area isn't part of your role"). Cleaned up the
+  two sessions this pass created afterward.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

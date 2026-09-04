@@ -115,9 +115,10 @@ function toQueryString(mode: RegisterMode, filters: RegisterFilters, extra?: Rec
   return s ? `?${s}` : "";
 }
 
-function toApiParams(filters: RegisterFilters): string {
+function toApiParams(filters: RegisterFilters, scope?: "UNIVERSITY"): string {
   const qp = new URLSearchParams();
   appendFilterParams(qp, filters);
+  if (scope) qp.set("scope", scope);
   const s = qp.toString();
   return s ? `?${s}` : "";
 }
@@ -133,11 +134,19 @@ const PAGE_SIZE = 50;
  * same query), fetch the rows for the current mode, and shape them into RowNode[]
  * client-side via lib/domain/tree.ts, exactly as that module's own header says client
  * code should.
+ *
+ * `scope: "UNIVERSITY"` is the one addition for the university-wide browse (10b of
+ * ~/.claude/plans/three-product-changes-dynamic-thompson.md) — it rides along on
+ * every fetch this hook makes as `?scope=UNIVERSITY`, and every read endpoint that
+ * honours it re-checks `assertCanBrowseUniversity` server-side regardless of what
+ * this hook sends. `/register` itself never passes this option; only `/university`
+ * does — the same hook, parameterized, per that page's own "reuse, don't fork" note.
  */
-export function useRegisterState() {
+export function useRegisterState(opts?: { scope?: "UNIVERSITY" }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const scope = opts?.scope;
 
   const mode = readMode(searchParams);
   const filters = useMemo(() => readFilters(searchParams), [searchParams]);
@@ -159,7 +168,7 @@ export function useRegisterState() {
     let cancelled = false;
     setRows(null);
     setError(null);
-    const apiParams = toApiParams(filters);
+    const apiParams = toApiParams(filters, scope);
 
     const request =
       mode === "flat"
@@ -183,7 +192,7 @@ export function useRegisterState() {
     return () => {
       cancelled = true;
     };
-  }, [mode, filters, page, reloadToken]);
+  }, [mode, filters, page, reloadToken, scope]);
 
   const setFilters = useCallback(
     (patch: Partial<RegisterFilters>) => {

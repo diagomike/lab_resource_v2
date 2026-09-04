@@ -103,6 +103,7 @@ export function ItemImageGallery({
   expectedVersions,
   onAdd,
   onRemove,
+  readOnly = false,
 }: {
   item: ItemDetailDto;
   category: ResourceCategoryDto | null;
@@ -114,6 +115,9 @@ export function ItemImageGallery({
   /** Called with the image id to remove — the caller submits `removeImage` the same
    *  way. */
   onRemove: (imageId: string) => void;
+  /** The university browse's read-only drill-through — the main image and thumbnail
+   *  strip still render, "+ Add photo"/"Remove" don't. */
+  readOnly?: boolean;
 }) {
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -174,14 +178,18 @@ export function ItemImageGallery({
             <img src={img.url} alt="" className="size-full object-cover" loading="lazy" />
           </button>
         ))}
-        <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => void onPick(e.target.files)} />
-        <Button onClick={() => fileInput.current?.click()} disabled={busy}>
-          {busy ? "Saving…" : "+ Add photo"}
-        </Button>
-        {image && (
-          <Button variant="danger" onClick={() => onRemove(image.id)} disabled={busy}>
-            Remove
-          </Button>
+        {!readOnly && (
+          <>
+            <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => void onPick(e.target.files)} />
+            <Button onClick={() => fileInput.current?.click()} disabled={busy}>
+              {busy ? "Saving…" : "+ Add photo"}
+            </Button>
+            {image && (
+              <Button variant="danger" onClick={() => onRemove(image.id)} disabled={busy}>
+                Remove
+              </Button>
+            )}
+          </>
         )}
       </div>
 

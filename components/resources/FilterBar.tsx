@@ -210,20 +210,30 @@ export function FilterBar({
   filters,
   onChange,
   onClear,
+  scope,
 }: {
   filters: RegisterFilters;
   onChange: (patch: Partial<RegisterFilters>) => void;
   onClear: () => void;
+  /** The university-wide browse (10b of
+   *  ~/.claude/plans/three-product-changes-dynamic-thompson.md) — passed straight
+   *  through to `/filter-fields` so its owner/custodian option lists match the same
+   *  university-wide reach the register rows themselves are fetched under; omitted,
+   *  this is the caller's own default scope, unchanged from before this prop existed. */
+  scope?: "UNIVERSITY";
 }) {
   const [fields, setFields] = useState<ItemFilterFieldDef[]>([]);
 
   useEffect(() => {
-    const qs = filters.categoryId ? `?categoryId=${encodeURIComponent(filters.categoryId)}` : "";
+    const qp = new URLSearchParams();
+    if (filters.categoryId) qp.set("categoryId", filters.categoryId);
+    if (scope) qp.set("scope", scope);
+    const qs = qp.toString();
     api
-      .get<ItemFilterFieldDef[]>(`/resources/items/filter-fields${qs}`)
+      .get<ItemFilterFieldDef[]>(`/resources/items/filter-fields${qs ? `?${qs}` : ""}`)
       .then(setFields)
       .catch(() => setFields([]));
-  }, [filters.categoryId]);
+  }, [filters.categoryId, scope]);
 
   // A search keystroke updates the URL (via onChange), which re-fetches the register —
   // debounced so a fast typist doesn't fire one request per character. `draft` is the
