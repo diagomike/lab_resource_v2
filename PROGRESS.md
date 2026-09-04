@@ -1684,6 +1684,156 @@ its model that make porting it as-is the wrong move.
   own established precedent for harmless test-history noise on real seed rows rather
   than being reset artificially.
 
+- **2026-09-04 (Phase 9 — images)** — Object storage, the two-step upload, client-side
+  downscaling, item image galleries, inspector images, table thumbnails, captions, and
+  category-image fallback, ported behaviorally from `temp_works/src/lib/images.ts` and
+  `src/components/ItemImages.tsx` — none of that sandbox's IndexedDB/Zustand/blob-URL
+  machinery, since production has a real server and a real database to hold metadata
+  in instead.
+
+  **Storage is a clean, swappable driver — `lib/server/resources/storage/`**:
+  `StorageDriver` (`write`/`read`/`remove` on an opaque key) is the one interface
+  everything else in the app talks to; `local-fs-driver.ts` is the complete,
+  correct interim implementation (files under `IMAGE_STORAGE_DIR`, default
+  `.local-storage/images/`, gitignored), selected by `IMAGE_STORAGE_DRIVER` (default
+  `local`) in `index.ts`. No production object-store target has been chosen yet — that
+  was deliberately not treated as a blocker; adding one later means one new file next
+  to `local-fs-driver.ts` and one branch in the selector, nothing else in the codebase
+  changes. Image bytes and thumbnails never enter Postgres — `ItemImage` holds only
+  metadata and a `storageKey` reference, exactly as the schema already declared before
+  this phase existed to fill it in.
+
+  **The two-step upload — a new `ImageUpload` Prisma model** (`PENDING` → `UPLOADED` →
+  `FINALIZED`, `expiresAt`-bounded) is the seam that makes "the client can never choose
+  an authoritative storage path or finalize an arbitrary existing key" actually true,
+  not just documented:
+  1. `POST /api/resources/items/:id/images/upload-sessions` (`images.ts`'s
+     `createUploadSession`) — authorized by the SAME custody-based write gate every
+     other mutation uses (`scope.assertCanMutate`, not a parallel or weaker check),
+     mints a `crypto.randomUUID()` storage key the client never sees a way to pick, and
+     returns an opaque session id plus a 10-minute-bounded upload URL.
+  2. `PUT /api/resources/images/upload/:sessionId` (`receiveUpload`) — the only place
+     bytes are trusted. The client's declared `Content-Type` is read only as an early
+     size hint; every stored fact (`contentType`, `byteSize`, `width`, `height`) comes
+     from `lib/server/resources/image-sniff.ts` reading the ACTUAL bytes — a new,
+     dependency-free module that reads real PNG/JPEG/WebP container headers (magic
+     bytes plus the couple of fixed offsets each format keeps its dimensions at, no
+     native image library needed since nothing decodes pixels or resizes anything).
+     An SVG, or anything else, fails the very first signature check and is refused
+     before a single format-specific byte is interpreted — "do not accept SVG or trust
+     client-supplied metadata" is enforced structurally, not by a content-type
+     allowlist a client could still lie about. Also enforces `MAX_UPLOAD_BYTES` (15 MB)
+     and `MAX_DIMENSION` (8000px/side).
+  3. `addImage` (mutate.ts, through the SAME one write door every other change already
+     uses) — the only place a session may become a real `ItemImage`. Looks the session
+     up by id (never trusts a client-supplied `storageKey`/`contentType`/`byteSize`/
+     `width`/`height` — `AddImageChange`'s wire shape no longer HAS those fields, only
+     `uploadSessionId`), checks it belongs to this item and this actor, is `UPLOADED`
+     (not still `PENDING`, not already `FINALIZED`, not expired), then creates the
+     `ItemImage` and marks the session `FINALIZED` in the SAME transaction — which is
+     what makes "finalize this session twice" (409, `UPLOAD_ALREADY_FINALIZED`) and
+     "finalize a session some other item claimed" (400) both structurally impossible,
+     not just unlikely. Existing `expectedVersions`/`assertVersionsMatch` and
+     custody-based authorization apply exactly as they do to every other change kind —
+     no special-casing.
+
+  **File cleanup, threaded through `applyChange` without touching every handler's
+  return type.** `applyChange` now carries a `cleanupKeys: string[]` collected during
+  the transaction (by `applyRemoveImage` and `applyDeleteItem`) but never acted on
+  until AFTER the transaction commits — `storage.remove()` runs once, outside the
+  transaction, only on the success path, so a rolled-back removal or delete can never
+  strand a live `ItemImage` row with its file already gone, and a committed one can
+  never leave the bytes behind. `applyDeleteItem` collects storage keys for BOTH the
+  doomed subtree's finalized photos (`ItemImage`) and any upload that reached storage
+  but was never finalized (`ImageUpload` rows still `UPLOADED`) — `Item→ItemImage`/
+  `Item→ImageUpload` are both `onDelete: Cascade`, so the DB rows vanish the instant
+  the item does, but the files behind them do not go with them unless collected first,
+  before the delete runs. A bounded, opportunistic sweep
+  (`sweepExpiredForItem`, called on every new session request for that item) deletes
+  the storage bytes of any of THAT item's own abandoned sessions — `PENDING` that never
+  received bytes, or `UPLOADED` that never got finalized — past their `expiresAt`, so a
+  user who picks a file and then never applies the change does not leave a permanent
+  orphan; not a substitute for a real scheduled sweep at production scale, but exact
+  and directly testable at this one.
+
+  **Serving enforces scope through the image's own item — never the URL.**
+  `GET /api/resources/images/:storageKey` resolves the key back to its owning item
+  (`findImageForServing`) and runs the exact same `assertCanSeeItem` (ancestor-inclusive
+  read scope) a direct item read already uses, before a single byte is streamed —
+  possessing a URL (copied, guessed, or left over from a closed session in another
+  department) is not authorization, confirmed live: signed in as the SE custodian the
+  route served the correct bytes and content type; the SAME URL requested with no
+  session cookie 401'd; requested signed in as the ChemE custodian (no reach into SE's
+  item) 404'd, the identical refusal an out-of-scope item read already gives. A
+  category's own `defaultImageKey` (the read path only — no admin UI uploads one this
+  phase, see the trims below) is shared vocabulary and skips the item-scope check,
+  matching how the category itself is already readable by anyone signed in.
+
+  **Client** — `components/resources/ItemImages.tsx`: `downscale()` ported behaviorally
+  from temp_works' own (canvas-based, longest edge capped at 1280px, JPEG quality 0.82,
+  skips anything already small), `uploadImageBytes()` (steps 1+2, returning a session id
+  for the caller to finalize through the existing `request()`/`usePendingChange` path —
+  step 3 stays wherever every other change already lives, no second mutation system),
+  `ItemImageGallery` (Inspector: one large picture, a thumbnail strip, add/remove,
+  caption, category-icon/`defaultImageKey` fallback with a "Category picture" badge,
+  loading/error states) and `ItemThumb` (a read-only small square for the register
+  table's new leading "photo" column). `lib/api.ts` gained `putFile()` — a raw-body PUT,
+  the one place a Content-Type header is sent as a HINT, matching the server's own
+  distrust of it. Inspector.tsx wires the gallery's `onAdd`/`onRemove` into the same
+  `request()` every other field already uses — `addImage` stays non-consequential (no
+  dialog, matching temp_works' own design), `removeImage` confirms (this project's own
+  established policy, stricter than the sandbox's, unchanged by this phase).
+
+  New tests: `image-sniff.spec.ts` (pure — hand-built-but-real PNG/JPEG/WebP headers
+  decode correctly; an SVG, garbage bytes, an empty buffer, and a truncated PNG all
+  refuse); a DB- and filesystem-backed `images.spec.ts` (18 cases) covering
+  session-creation authorization (custodian succeeds, a non-custodian MANAGER and a
+  different department's custodian both 404, SYS_ADMIN succeeds anywhere), real
+  format/dimension sniffing on receipt (ignoring any declared type), SVG/oversized/
+  wrong-actor/already-uploaded/expired rejections, finalizing through `applyChange`
+  (server-verified metadata lands on the real row, version bumps, audit line logs,
+  double-finalization refused with nothing double-created, cross-item finalization
+  refused, a still-`PENDING` session refused, a stale-version write applies nothing and
+  leaves the session claimable), and — the load-bearing cleanup cases — a removed
+  photo's file is gone from storage only once the removal actually commits, a
+  version-conflicted removal leaves the file untouched, and deleting a subtree cleans
+  up every finalized photo AND every still-pending upload beneath it.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 236 tests (27 new); `npx prisma
+  validate`/`migrate status` clean (10 migrations); `npm run build` clean (44 routes,
+  +3: the two upload endpoints and the image-serving route) after stopping the dev
+  server first. Live in-browser, signed in as the SE custodian: the register's new
+  photo column and the Inspector's empty-gallery state both render correctly with the
+  category icon (no upload UI exists for a category's own default image yet, so this
+  path is exercised structurally by the DB test, not visually here). Native file-picker
+  automation is not available through this session's browser tooling, so the actual
+  upload round trip was verified via real HTTP calls against the SAME routes the
+  browser's own `fetch` calls would hit, using a genuinely valid hand-built PNG (real
+  IHDR/IDAT/IEND with a correct zlib stream, not just a header): created a session,
+  PUT the bytes (server correctly sniffed 4×4/73 bytes, ignoring the declared
+  Content-Type), finalized via `addImage`, confirmed the served bytes matched the
+  original file exactly byte-for-byte, confirmed the scope/auth matrix above (200 as
+  the custodian, 401 signed out, 404 as the ChemE custodian, 409 on a repeat
+  finalization) — then reloaded the actual page live and confirmed the uploaded photo
+  rendered correctly in both the table thumbnail and the Inspector gallery, clicked
+  "Remove" through the real `ConfirmDialog`, and confirmed live that the photo
+  disappeared from the UI, the `ItemImage` row was gone, and the URL that used to serve
+  it now 404s. All fixture state cleaned up afterward (`.local-storage/images/`
+  confirmed empty; item/category/group counts unchanged) — the Whiteboard item's
+  `version` is higher than before from this live pass, left as-is per this project's
+  own established precedent.
+
+  **Disclosed trims, not gaps in the underlying capability**: no admin UI uploads a
+  category's `defaultImageKey` this phase (the read/fallback/serving path is fully
+  wired and tested directly against the database; only the Category Studio control to
+  set one is deferred — a small, isolated addition whenever it's wanted, not a
+  structural gap); no server-side thumbnail generation — temp_works never had one
+  either (its own `ItemThumb` renders the same full (already client-downscaled) image
+  small via CSS `object-cover`), and the 1280px-longest-edge client downscale is
+  already small enough for both the inspector's larger view and a tiny table cell, so
+  adding a second server-generated artifact would be complexity with no behavior gap
+  to justify it.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
