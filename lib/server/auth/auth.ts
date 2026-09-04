@@ -1,5 +1,12 @@
 import "server-only";
-import * as argon2 from "argon2";
+// @node-rs/argon2, not the `argon2` package — that one's native addon ships
+// platform-specific .node binaries that Next's output tracing routinely misses on
+// Vercel (the failure mode: nobody can log in). @node-rs/argon2 is prebuilt NAPI with
+// per-platform packages instead of a build step, and is a drop-in replacement here:
+// identical hash(password)/verify(hash, password) signatures, and verification reads
+// its parameters from the PHC string itself, so every hash `argon2` already produced
+// keeps verifying correctly — no migration, no re-hash-on-next-login shim needed.
+import * as argon2 from "@node-rs/argon2";
 import type {
   ForgotPasswordInput,
   LoginInput,

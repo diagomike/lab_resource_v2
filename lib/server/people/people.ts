@@ -1,9 +1,11 @@
 import "server-only";
 import type {
   CreatePersonInput,
+  CreatePersonResultDto,
   DeactivateResultDto,
   PersonDto,
   PersonSummaryDto,
+  ResendInviteResultDto,
   RoleKind,
   UpdatePersonRolesInput,
 } from "@/lib/shared";
@@ -96,7 +98,7 @@ function toDto(
  * codebase called Invitation.create before this — every seeded account got a password
  * hash directly — so this is the one place that path now actually exists.
  */
-export async function create(actorUserId: string, actorRoles: RoleKind[], input: CreatePersonInput): Promise<PersonDto> {
+export async function create(actorUserId: string, actorRoles: RoleKind[], input: CreatePersonInput): Promise<CreatePersonResultDto> {
   const isAdmin = actorRoles.includes("SYS_ADMIN");
   const roles = input.roles;
   let homeNodeId = input.homeNodeId ?? null;
@@ -156,6 +158,8 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
     return user;
   });
 
+  const inviteUrl = `${APP_ORIGIN}/accept-invite?token=${raw}`;
+
   await mail.send({
     to: created.email,
     subject: "You're invited to ASTU Lab Resources",
@@ -163,10 +167,11 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
            <p>You have been added to the ASTU Laboratory Resource Management System${
              assignedNodeName ? ` as the occupant of <b>${escapeHtml(assignedNodeName)}</b>` : ""
            }. This link expires in ${INVITATION_TTL_DAYS} days.</p>
-           <p><a href="${APP_ORIGIN}/accept-invite?token=${raw}">Accept your invitation and set a password</a></p>`,
+           <p><a href="${inviteUrl}">Accept your invitation and set a password</a></p>`,
   });
 
-  return one(created.id);
+  const dto = await one(created.id);
+  return { ...dto, inviteUrl };
 }
 
 export async function updateRoles(id: string, input: UpdatePersonRolesInput): Promise<PersonDto> {
@@ -222,7 +227,7 @@ export async function reactivate(id: string): Promise<PersonDto> {
   return one(id);
 }
 
-export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], id: string): Promise<void> {
+export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], id: string): Promise<ResendInviteResultDto> {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw new HttpError(404, "Person not found");
   if (user.passwordHash) throw new HttpError(400, "This person has already registered");
@@ -245,13 +250,15 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
       expiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 86_400_000),
     },
   });
+  const inviteUrl = `${APP_ORIGIN}/accept-invite?token=${raw}`;
   await mail.send({
     to: user.email,
     subject: "Your ASTU Lab Resources invitation",
     html: `<p>Hello ${escapeHtml(user.name)},</p>
            <p>Here is a fresh invitation link — the previous one, if any, no longer works. This link expires in ${INVITATION_TTL_DAYS} days.</p>
-           <p><a href="${APP_ORIGIN}/accept-invite?token=${raw}">Accept your invitation and set a password</a></p>`,
+           <p><a href="${inviteUrl}">Accept your invitation and set a password</a></p>`,
   });
+  return { inviteUrl };
 }
 
 /**

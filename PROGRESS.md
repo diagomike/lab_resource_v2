@@ -2174,6 +2174,106 @@ its model that make porting it as-is the wrong move.
   client-side gate ("That area isn't part of your role"). Cleaned up the
   two sessions this pass created afterward.
 
+- **2026-09-04** — Production hardening: the four blockers to an actual
+  Vercel deployment, none of which the phase-by-phase replatforming plan
+  ever surfaced because none of them are visible in local dev.
+
+  **`argon2` → `@node-rs/argon2`** (`lib/server/auth/auth.ts`,
+  `prisma/seed.ts`, `prisma/bootstrap.ts`). The native `argon2` addon ships
+  per-platform `.node` binaries that Next's output tracing routinely misses
+  on Vercel — the failure mode is nobody can log in, discovered only after
+  deploying. `@node-rs/argon2` is prebuilt NAPI, no build step, and — read
+  from `node_modules/@node-rs/argon2/index.d.ts` directly rather than
+  assumed — has the EXACT SAME `hash(password): Promise<string>` /
+  `verify(hashed, password): Promise<boolean>` signatures. Confirmed live,
+  not just by reading the types: a hash the OLD `argon2` package produced
+  (`admin@astu.edu.et`'s own seeded hash) verifies correctly through the
+  NEW library (`argon2.verify(oldHash, 'astu1234')` → `true`), and a full
+  `/api/auth/login` round-trip against that pre-existing hash succeeded —
+  no migration, no re-hash-on-next-login shim needed, because PHC-format
+  hashes carry their own parameters.
+
+  **A Vercel Blob storage driver**
+  (`lib/server/resources/storage/vercel-blob-driver.ts`), selected by
+  `IMAGE_STORAGE_DRIVER=vercel-blob` alongside the existing `local` driver
+  — the seam (`StorageDriver`) was already exactly right, this is the one
+  new file the header promised. Uses `access: "private"` throughout — this
+  SDK version (`@vercel/blob@2.8.0`) supports it, so there is **no
+  residual "leaked-URL bypasses scope" risk** to carry forward, better than
+  the plan's own fallback anticipated. The existing image-serving route
+  (`app/api/resources/images/[storageKey]`) is unchanged and is still the
+  actual security boundary — it re-resolves the key to its item and runs
+  `assertCanSeeItem` before ever calling `storage.read`.
+
+  **`prisma/seed.ts` now refuses to run under `NODE_ENV=production`**
+  (matching `resource-seed.ts`'s existing guard) — it wipes every
+  `User`/`OrgNode`/`Session` on every run, which is correct for a dev
+  database and would delete every real custodian account on a production
+  one. **New `prisma/bootstrap.ts`**: idempotent upsert-only (never
+  delete), creates just a SYS_ADMIN and the UNIVERSITY root from env vars
+  (`BOOTSTRAP_ADMIN_EMAIL`/`_PASSWORD`/etc — never hardcoded), safe to
+  re-run. Verified live against the real dev database (safe precisely
+  because it never deletes): first run created a new admin and found the
+  existing "ASTU"-coded university node rather than duplicating it
+  (matched id before and after); a second run with a DIFFERENT password
+  changed nothing — same admin id, and the ORIGINAL password still
+  verified while the new one was correctly rejected, confirming `update:
+  {}` really does leave an existing admin's credentials alone on a re-run;
+  a third run with `BOOTSTRAP_ADMIN_RESET_PASSWORD=true` did reset it,
+  proving the explicit opt-in path also works. Test account removed after.
+
+  **Neon connection config**: `directUrl` added to `schema.prisma`'s
+  datasource block (`DIRECT_URL` env var, mirrors `DATABASE_URL` locally,
+  points at the unpooled endpoint on Neon) — migrations need the direct
+  connection, the app's own queries go through the pooled one, since
+  serverless functions opening/closing connections per invocation is
+  exactly what exhausts Postgres's connection limit without a pooler in
+  front. `npm run prisma:deploy` (`prisma migrate deploy`) added alongside
+  the existing `prisma:migrate` (`migrate dev`) — deploys must never use
+  `migrate dev`, which can prompt interactively.
+
+  **Copyable invite link** (`lib/server/people/people.ts`'s `create()`/
+  `resendInvite()`, new `CreatePersonResultDto`/`ResendInviteResultDto` in
+  `lib/shared/people.ts`, `InviteLinkModal` in
+  `components/admin/PersonnelPage.tsx`). `mail.send` already never throws
+  (logs and swallows), so a broken SMTP path was never actually blocking
+  invite CREATION — but the raw link was previously visible nowhere but
+  the email itself, so a failed send meant genuinely no way to onboard
+  that person. Both functions now also return the raw invite URL (the one
+  moment it can be — tokens are one-way hashed, `lib/server/auth/token.ts`'s
+  own documented discipline, so it cannot be recovered later), surfaced
+  once in a copy-to-clipboard modal after every invite/resend. Verified
+  live: invited a test SYS_ADMIN through the real UI, the modal showed a
+  real `http://localhost:3000/accept-invite?token=...` link, and the
+  person appeared in the register as INVITED with a working "Resend
+  Invite" action. Cleaned up afterward.
+
+  **Repo hygiene**: `.env.example` (every variable named, no real values)
+  and `README.md` (local setup, migrations, testing, the full Vercel/Neon/
+  Blob deploy procedure, project structure) added — this repo is about to
+  go public. Audited before this pass ends: `.env` confirmed gitignored
+  (`git check-ignore -v .env`), no credential-shaped tracked files
+  (`git ls-files | grep -iE "\.env$|credential|secret"` — empty), no
+  hardcoded secret patterns in tracked source (`SMTP_PASS=`,
+  `BLOB_READ_WRITE_TOKEN=vercel_blob...`, an inline `postgresql://user:pass@`
+  — all empty), `.local-storage/` confirmed untracked.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 272/272 (unchanged —
+  this phase touched auth/storage/ops surfaces the existing suite already
+  covers, not new domain logic needing new specs); `npm run build` clean;
+  `npx prisma validate`/`migrate status` clean (still 12 migrations —
+  `directUrl` is schema-file config, not a migration). Live in-browser as
+  SYS_ADMIN after every change in this phase: login, dashboard, and nav
+  all still correct, people count back to the pre-test baseline (5) after
+  cleanup.
+
+  **Explicitly not done in this pass, flagged for the actual deploy**: no
+  Neon/Vercel project has been created yet — this phase made the CODE
+  ready, Phase 3 (deploy) is the separate, one-time act of actually
+  standing up those services, running `bootstrap.ts` against them for
+  real, and the full live-URL verification pass this file's own plan lays
+  out.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

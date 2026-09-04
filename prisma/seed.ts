@@ -11,10 +11,22 @@
  * seed data when it lands.
  *
  * Idempotent by wipe-and-rebuild: every run clears the tables it owns and regenerates ids.
+ * That wipe (every User, UserRole, OrgNode, Session, ...) is exactly why this refuses to
+ * run against production below — run against a real database, it would delete every
+ * real custodian account. `prisma/bootstrap.ts` is the production-safe equivalent: an
+ * idempotent upsert that creates nothing but the first SYS_ADMIN and the UNIVERSITY
+ * root, never deletes anything, and is safe to re-run.
  */
 import { PrismaClient } from "@prisma/client";
-import * as argon2 from "argon2";
+// @node-rs/argon2 — see lib/server/auth/auth.ts's own note on why, not the `argon2`
+// package.
+import * as argon2 from "@node-rs/argon2";
 import { computeClosureRows } from "../lib/server/org/closure-algorithm";
+
+if (process.env.NODE_ENV === "production") {
+  console.error("prisma/seed.ts refuses to run with NODE_ENV=production — this wipes every User/OrgNode. Use prisma/bootstrap.ts instead.");
+  process.exit(1);
+}
 
 const prisma = new PrismaClient();
 

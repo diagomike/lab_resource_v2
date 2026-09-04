@@ -57,6 +57,23 @@ export const UpdatePersonRolesInput = z.object({
 });
 export type UpdatePersonRolesInput = z.infer<typeof UpdatePersonRolesInput>;
 
+/**
+ * `create`'s wire response — the person plus the one-time invite link. The raw token is
+ * returned exactly once (tokens are one-way hashed; see lib/server/auth/token.ts's own
+ * header on why that discipline exists and must not be "fixed") — this is that one
+ * moment. Deployment reason, not just convenience: Gmail SMTP failing from a serverless
+ * host must not be the only way to onboard someone, so the inviter can copy this link
+ * and send it over any channel instead of relying on the email actually landing.
+ */
+export const CreatePersonResultDto = PersonDto.extend({ inviteUrl: z.string() });
+export type CreatePersonResultDto = z.infer<typeof CreatePersonResultDto>;
+
+/** `resendInvite`'s wire response — same reasoning as `CreatePersonResultDto` above,
+ *  for the resend path specifically (a fresh token, since resending invalidates the
+ *  previous one). */
+export const ResendInviteResultDto = z.object({ inviteUrl: z.string() });
+export type ResendInviteResultDto = z.infer<typeof ResendInviteResultDto>;
+
 /** `nodeId: null` vacates whatever node this person currently occupies. Assigning a node
  *  that already has a different occupant is a TRANSITION — the previous occupant is
  *  vacated as part of the same call, and both moves are recorded in OrgNodeAssignment. */

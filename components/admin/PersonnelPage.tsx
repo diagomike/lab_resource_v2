@@ -49,6 +49,10 @@ export default function PersonnelPage() {
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
+  /** Surfaced once after an invite is sent or resent — see InviteLinkModal's own
+   *  header for why: SMTP failing from a serverless host must not be the only way to
+   *  onboard someone. */
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   // URL-persisted so a reload (or a shared link) reproduces the same search — the one
   // piece of filter state worth surviving a reload here; role/status stay local, this
@@ -106,8 +110,8 @@ export default function PersonnelPage() {
 
   async function resendInvite(p: PersonDto) {
     try {
-      await api.post(`/people/${p.id}/resend-invite`);
-      alert(`A fresh invitation link was sent to ${p.email}.`);
+      const result = await api.post<{ inviteUrl: string }>(`/people/${p.id}/resend-invite`);
+      setInviteLink(result.inviteUrl);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not resend the invitation");
     }
@@ -144,8 +148,9 @@ export default function PersonnelPage() {
           <PersonForm
             isAdmin={isAdmin}
             nodes={nodes}
-            onDone={() => {
+            onDone={(inviteUrl) => {
               setShowForm(false);
+              setInviteLink(inviteUrl);
               reload();
             }}
             onError={setError}
@@ -222,7 +227,50 @@ export default function PersonnelPage() {
           onError={setError}
         />
       )}
+
+      {inviteLink && <InviteLinkModal url={inviteLink} onClose={() => setInviteLink(null)} />}
     </Screen>
+  );
+}
+
+/**
+ * Shown once right after an invite is sent or resent. The email already went out (best
+ * effort — mail.send never throws, see lib/server/mail/mail.ts), but Gmail SMTP from a
+ * serverless host is not something to bet onboarding on, so the same link the email
+ * carries is put here to copy and send over any other channel. Nothing sensitive beyond
+ * the invitation itself: possessing this link only lets someone set a password for the
+ * exact account it was minted for, same as clicking it from the email would.
+ */
+function InviteLinkModal({ url, onClose }: { url: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      // Clipboard access can fail (permissions, insecure context) — the link is still
+      // selectable text in the input below, so this is a convenience, not the only path.
+    }
+  }
+
+  return (
+    <Modal title="Invitation link" onClose={onClose} width="480px">
+      <p className="text-11 text-dim">
+        The invitation email was sent. If it does not arrive, copy this link and send it to them directly — it works exactly the same way.
+      </p>
+      <div className="flex items-center gap-6">
+        <input
+          readOnly
+          value={url}
+          onFocus={(e) => e.target.select()}
+          className="flex-1 h-26 px-8 rounded-2 border border-border2 bg-panel text-10.5 font-mono outline-none"
+        />
+        <Button variant="primary" onClick={copy}>
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -383,7 +431,7 @@ function PersonForm({
 }: {
   isAdmin: boolean;
   nodes: OrgNodeDto[];
-  onDone: () => void;
+  onDone: (inviteUrl: string) => void;
   onError: (m: string) => void;
 }) {
   const [name, setName] = useState("");
@@ -406,14 +454,14 @@ function PersonForm({
     }
     setBusy(true);
     try {
-      await api.post("/people", {
+      const result = await api.post<{ inviteUrl: string }>("/people", {
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim() || undefined,
         roles,
         homeNodeId: isAdmin && homeNodeId ? homeNodeId : undefined,
       });
-      onDone();
+      onDone(result.inviteUrl);
     } catch (e) {
       onError(e instanceof ApiError ? e.message : "Could not add this person");
     } finally {

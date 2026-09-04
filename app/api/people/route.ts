@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { CreatePersonInput, type PersonDto } from "@/lib/shared";
+import { CreatePersonInput, type CreatePersonResultDto, type PersonDto } from "@/lib/shared";
 import { parseBody } from "@/lib/server/validate";
 import { errorResponse } from "@/lib/server/http-error";
 import { requireSession, requireRole } from "@/lib/server/auth/session";
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     requireRole(user, [...MANAGERIAL]);
     const body = await parseBody(CreatePersonInput, request);
     const person = await create(user.id, user.roles, body);
-    return NextResponse.json<PersonDto>(person, { status: 201 });
+    return NextResponse.json<CreatePersonResultDto>(person, { status: 201 });
   } catch (err) {
     return errorResponse(err);
   }
