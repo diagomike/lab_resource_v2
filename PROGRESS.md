@@ -1449,6 +1449,116 @@ its model that make porting it as-is the wrong move.
   editing-surface working tree, now including this fix, is the clean checkpoint Phase 8
   builds on.
 
+- **2026-09-04 (Phase 8, part 1 — Category Studio)** — Replaced `CategoriesPage.tsx`'s
+  read-only list with the database-backed Category Studio: group-sidebar navigation,
+  full create/edit/delete, the managed group vocabulary (new server module + Route
+  Handlers Phase 2 had only stubbed a DTO for), template-children editing with
+  cycle/duplicate/self-reference guards, and the impact-preview review step ported
+  behaviorally from `temp_works/src/app/categories/page.tsx` (the standalone editor
+  shell) and `ItemEditModal.tsx`'s "Category type" tab (the staged-draft/impact-preview/
+  purge-checkbox behavior) — not that modal's Details/Children tabs, which are an ITEM
+  editor's job (Inspector.tsx's own), not this category-scope editor's.
+
+  **The atomic version-conflict fix, extended to categories.** `categories.ts`'s
+  `update()` had the item-level bug's exact twin: `loadOne(id)` checked
+  `expectedVersion` before `prisma.$transaction` opened. Rewritten so the version check
+  (`SELECT ... FOR UPDATE`) is the transaction's first statement and every read the
+  diff/impact computation depends on (group existence, template validity, the affected
+  item list) now runs against `tx`, not the bare `prisma` client — the same fix as
+  `mutate.ts`'s, applied to the module the plan named as still owing it. `create()`
+  gained a `P2002` catch so a racing duplicate key is a clean 400, not a raw 500.
+
+  **New validation, closing three real gaps**: duplicate field keys within one write
+  (`assertNoDuplicateFieldKeys`), duplicate template-child entries within one write
+  (`assertNoDuplicateTemplateChildren` — the existing "missing category" check silently
+  passed a duplicate-id list, since it compared against a de-duplicated `Set` size),
+  and self-reference via `update()` (create-time self-reference is already impossible —
+  a new category has no id yet to reference; `wouldCreateTemplateCycle` already covered
+  the update-time case, this just proves it with a test). All three are checked before
+  any write, named 400s rather than raw Prisma constraint errors.
+
+  **The template-child deletion guard the plan specifically asked to audit.**
+  `CategoryTemplateChild.childCategory` is `onDelete: Cascade` — deleting a category
+  that another category still lists as a default part would silently rewrite that
+  OTHER category's subtree with no one having agreed to it. `remove()` now checks for
+  this (`categoryTemplateChild` rows where `childCategoryId = id`) and refuses with a
+  structured 409 (`TEMPLATE_CHILD_IN_USE`, naming the affected parent categories) unless
+  the caller explicitly passes `confirmTemplateRemoval` (a query param on the DELETE
+  route) — the same "present and confirm the collateral impact" rule `purgeKeys`
+  already uses. A confirmed removal logs an `ItemChange` line against each affected
+  parent category, naming what was removed and why.
+
+  **Editing a category's own stable key** — `UpdateCategoryInput` never had a `key`
+  field (only `CreateCategoryInput` did); added, with the same uniqueness check
+  `create()` already runs. Renaming it moves nothing else: `Item.categoryId` is a cuid
+  FK, never the key, so this is a pure display/import-target-string change.
+
+  **Per-field usage counts** — new (`fieldUsageCounts`, `GET .../[id]/field-usage`),
+  what the Studio's field editor uses to lock a field's storage-key input once any item
+  holds a value under it (ported behaviorally from `ItemEditModal.tsx`'s `CategoryTab`:
+  `disabled={used > 0}` on the key input) — "do not permit a quiet key rename that
+  strands values" enforced as a UI guard on top of the schema's own already-correct
+  dormant-by-default semantics (removing a field never deletes its stored values,
+  `purgeKeys` is the sole explicit, audited, opt-in path that does). Also new: a
+  category-level `usageCounts()` (`GET /resources/categories/usage`) for the sidebar's
+  per-category counts, and `CategoryImpactNote`'s wire shape gained `id`/`title`/
+  `detail`/`orphanKeys` (previously flattened into one `message` string with
+  `orphanKeys` dropped entirely — nothing had consumed this DTO yet, so widening it
+  cost nothing) so the Studio's review step can render a bold claim + counted detail
+  per note, exactly `edit-impact.ts`'s own header describes, and drive the purge
+  checkbox off real key names.
+
+  **Icon picker** — `components/resources/IconPicker.tsx`, a thin wrapper around
+  `lib/domain/icons.ts`'s `categoryIconFor`/`CATEGORY_ICON_OPTIONS` (a `<select>` over
+  the curated registry plus a live preview glyph) — no second icon vocabulary, no
+  free-text `iconKey`.
+
+  **Role gating** — `canManage` (SYS_ADMIN/PROPERTY_ADMIN) threaded down from
+  `useAuth()` hides every write control (New/Manage groups/field-and-part editors/
+  Delete) client-side; `CategoryEditor` renders `CategoryReadOnly` instead for everyone
+  else. The server's own `requireRole` on every mutating Route Handler remains the
+  actual boundary — verified live via `curl` as `custodian.se@astu.edu.et` (CUSTODIAN +
+  STAFF, no admin role): `POST /api/resources/category-groups` and
+  `DELETE /api/resources/categories/:id` both returned a clean 403 with nothing written.
+
+  New tests: `lib/server/resources/categories.spec.ts` — the category-level twin of
+  `mutate.spec.ts` (real Postgres, same `.env`-loading approach), covering duplicate
+  field keys, duplicate/self-referencing template children, the template-child-in-use
+  delete guard (blocked, then explicitly confirmed), a stale whole-object write leaving
+  the category completely untouched, and — the load-bearing case — two genuinely
+  concurrent `update()` calls racing the same `expectedVersion` against the same
+  category, proving exactly one succeeds and the version increments exactly once.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 178 tests (12 new); fixture-created
+  and fully cleaned-up round trips via `curl` against the live dev server as SYS_ADMIN
+  (group create/rename, category create with a template-child link, the duplicate-field
+  400, the template-child-in-use 409 then confirmed delete, final counts back to
+  baseline: 5 groups, 21 categories) and as the SE custodian (both mutations correctly
+  403, nothing written). Live in-browser, signed in as the SE custodian: the read-only
+  Category Studio renders every group/category/field/template-child correctly with no
+  write controls and the "Only SYS_ADMIN and PROPERTY_ADMIN may edit..." note. Signed in
+  as SYS_ADMIN: "+ New category"/"Manage groups" appear; opening Computer shows the full
+  editor (icon picker, fields with real "N in use" locks, the six-part default subtree,
+  the impair-rule picker); toggling the impair rule to NEVER and clicking "Review
+  changes" correctly rendered the impact preview ("Consequences (2)" — the reach note
+  and the failure-rule-change note) without writing anything (impact preview is a dry
+  run), and "Back to editing" returned to the draft unshown. **`npm run build` was
+  deliberately NOT run this pass** — another chat's `next dev` was serving the same
+  `.next/` directory throughout this session (confirmed via `netstat`, live `curl`, and
+  a live-browser pass against it on port 3000, since this session's own `preview_start`
+  could not bind a second server against the same project in this sandbox); running a
+  production build concurrently is the project's own standing corruption risk (see the
+  Phase 5 timeline entry). Run `npm run build` once no `next dev` is active against this
+  directory before treating Phase 8 as fully closed.
+
+  **Deliberately not done in this pass, carried forward**: the plan's own "reconcile
+  Phase 7's Inspector against `ItemEditModal`'s missing child-structure and
+  category-definition review capabilities" — Inspector.tsx still has no direct-children
+  list/add/remove section and no in-context link to a resource's own category
+  definition. Superseded in priority by an explicit user request (recorded in the next
+  entry) for item-specific custom properties, which also touches Inspector.tsx; the
+  children/category-link reconciliation remains open.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
