@@ -578,12 +578,34 @@ model ItemChange {
   batchId    String?
   note       String?
 
+  /// Scope snapshot — the item's ownerOrgNodeId/currentOrgNodeId/custodianId AT THE
+  /// MOMENT of this exact change (the POST-change value for whichever of the three a
+  /// change itself alters, e.g. setCustodian's own row snapshots the NEW custodian),
+  /// never re-derived from the item's live state afterward. This is what lets the
+  /// global change log (changes.ts, Phase 10 of
+  /// ~/.claude/plans/wait-i-want-gentle-haven.md) authorize a since-deleted item's
+  /// history with no live row left to check scope against, and — just as
+  /// deliberately — what keeps a transferred item's PRE-transfer entries visible only
+  /// to whoever could see it back then, not retroactively to whoever holds it now.
+  /// Deliberately NO FK, matching every other column on this row: an org node or a
+  /// custodian this snapshot names must never block on this audit trail. Null for a
+  /// CATEGORY-targeted entry (no owning org/custodian applies — categories are shared
+  /// vocabulary, read by everyone) and for the handful of rows written before this
+  /// column existed; the global log treats a null snapshot as visible to university-
+  /// wide roles only, never guessing a department for it.
+  ownerOrgNodeId   String?
+  currentOrgNodeId String?
+  custodianId      String?
+
   actor User @relation("ItemChangeActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([itemId])
   @@index([categoryId])
   @@index([batchId])
   @@index([at])
+  @@index([ownerOrgNodeId])
+  @@index([currentOrgNodeId])
+  @@index([custodianId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

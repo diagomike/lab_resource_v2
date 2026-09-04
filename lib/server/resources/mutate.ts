@@ -39,6 +39,15 @@ function jsonOrNull(v: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
   return v === null || v === undefined ? Prisma.DbNull : (v as Prisma.InputJsonValue);
 }
 
+/** Every ITEM-targeted ItemChange row's scope snapshot — see the Prisma model's own
+ *  comment for why this exists (the global change log's deleted-item/cross-department
+ *  authorization). Callers whose change alters ownership/custody pass the POST-change
+ *  values explicitly rather than reading them off `item`, so the row this call writes
+ *  reflects the state it actually produced. */
+function scopeSnapshot(item: { ownerOrgNodeId: string; currentOrgNodeId: string; custodianId: string }) {
+  return { ownerOrgNodeId: item.ownerOrgNodeId, currentOrgNodeId: item.currentOrgNodeId, custodianId: item.custodianId };
+}
+
 export async function applyChange(actorId: string, input: ItemChangeInput, opts?: { dryRun?: boolean }): Promise<ItemChangeResultDto> {
   await assertAuthorized(actorId, input);
 
@@ -276,6 +285,7 @@ async function applyCreateItem(
       categoryId: item.categoryId,
       batchId,
       note: input.note,
+      ...scopeSnapshot(item),
     })),
   });
 
@@ -369,6 +379,7 @@ async function applyDeleteItem(
       categoryId: r.categoryId,
       batchId,
       note: input.note,
+      ...scopeSnapshot(r),
     })),
   });
   return { applied: roots.length, itemIds: roots.map((r) => r.id) };
@@ -428,6 +439,9 @@ async function applyTransferItem(
         after: destination.name,
         batchId,
         note: input.note,
+        // The state this transfer RESULTS in, not root's pre-transfer snapshot — see
+        // scopeSnapshot's own header.
+        ...scopeSnapshot({ ownerOrgNodeId: root.ownerOrgNodeId, currentOrgNodeId: targetOrgNodeId, custodianId: targetCustodianId ?? root.custodianId }),
       },
     });
     applied.push(root.id);
@@ -468,6 +482,7 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
         after: jsonOrNull(target?.id ?? null),
         batchId,
         note: input.note,
+        ...scopeSnapshot(root),
       },
     });
     applied.push(root.id);
@@ -513,6 +528,7 @@ async function applySetProperty(tx: Tx, actorId: string, at: Date, input: Extrac
         after: jsonOrNull(validated),
         batchId,
         note: input.note,
+        ...scopeSnapshot(item),
       },
     });
     applied.push(item.id);
@@ -561,6 +577,7 @@ async function applyAddCustomProperty(
       before: Prisma.DbNull,
       after: jsonOrNull(value),
       note: input.note,
+      ...scopeSnapshot(item),
     },
   });
   return { applied: 1, itemIds: [item.id] };
@@ -601,6 +618,7 @@ async function applySetCustomProperty(
       before: jsonOrNull(entry.value),
       after: jsonOrNull(value),
       note: input.note,
+      ...scopeSnapshot(item),
     },
   });
   return { applied: 1, itemIds: [item.id] };
@@ -634,6 +652,7 @@ async function applyRemoveCustomProperty(
       before: jsonOrNull(entry.value),
       after: Prisma.DbNull,
       note: input.note,
+      ...scopeSnapshot(item),
     },
   });
   return { applied: 1, itemIds: [item.id] };
@@ -685,6 +704,7 @@ async function applyAddImage(tx: Tx, actorId: string, at: Date, input: Extract<I
       categoryId: item.categoryId,
       after: image.caption ?? "photo",
       note: input.note,
+      ...scopeSnapshot(item),
     },
   });
   return { applied: 1, itemIds: [item.id] };
@@ -716,6 +736,7 @@ async function applyRemoveImage(
       categoryId: item.categoryId,
       before: image.caption ?? "photo",
       note: input.note,
+      ...scopeSnapshot(item),
     },
   });
   return { applied: 1, itemIds: [item.id] };
@@ -770,6 +791,14 @@ async function applyFieldChange(
         after: jsonOrNull(input.value),
         batchId,
         note: input.note,
+        // The state THIS change results in — a setCustodian/setOwnerOrg/setCurrentOrg
+        // row snapshots the NEW value for the field it just changed, everything else
+        // unchanged; every other kind here leaves all three as they already were.
+        ...scopeSnapshot({
+          ownerOrgNodeId: input.kind === "setOwnerOrg" ? input.value : item.ownerOrgNodeId,
+          currentOrgNodeId: input.kind === "setCurrentOrg" ? input.value : item.currentOrgNodeId,
+          custodianId: input.kind === "setCustodian" ? input.value : item.custodianId,
+        }),
       },
     });
     applied.push(item.id);

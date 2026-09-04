@@ -314,6 +314,22 @@ export const ItemChangeDto = z.object({
 });
 export type ItemChangeDto = z.infer<typeof ItemChangeDto>;
 
+/** One row of the GLOBAL change log (changes.ts's `browse`) — `ItemChangeDto` plus
+ *  what the client needs to render a deleted target sensibly instead of a broken
+ *  link: whether `itemId` still names a live item, and the category's current name
+ *  (resolved live, for display — `itemName` stays the authoritative snapshot). */
+export const ChangeLogEntryDto = ItemChangeDto.extend({
+  itemExists: z.boolean(),
+  categoryName: z.string().nullable(),
+});
+export type ChangeLogEntryDto = z.infer<typeof ChangeLogEntryDto>;
+
+export const ChangeLogPageDto = z.object({
+  entries: z.array(ChangeLogEntryDto),
+  total: z.number().int(),
+});
+export type ChangeLogPageDto = z.infer<typeof ChangeLogPageDto>;
+
 // ── Dashboard-shaped read (items.ts's summary()) ────────────────────────
 
 export const ItemSummaryDto = z.object({
