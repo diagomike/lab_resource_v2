@@ -228,6 +228,18 @@ are explicitly deferred** to a later track — see that plan's §2 for the
 specific defects in `temp_works`' booking model that must be fixed, not
 ported, when that track starts.
 
+**This paragraph is now stale** — Phases 8 (Category Studio), 9 (images) and
+10 (change log) are all done (see the Timeline below for each). More
+significantly, **the phase-by-phase order above stopped being the active plan
+on 2026-09-04**: the user re-prioritized around three concrete deliverables
+needed to actually ship — creating a resource at all (which was completely
+broken), a university-wide read-only browse, and Vercel deployment — tracked
+as Phase 10a/10b/10c/hardening/deploy in
+`~/.claude/plans/three-product-changes-dynamic-thompson.md`. Phase 11
+(access views) and everything below it in the old list wait until after that
+ships. See that plan file and this Timeline's 2026-09-04 entries for what is
+actually happening now.
+
 ### The resource module: superseded — replatforming onto `temp_works` in full
 
 **This section describes a plan that is no longer being followed** — kept
@@ -1954,6 +1966,110 @@ its model that make porting it as-is the wrong move.
   (confirmed via `find` returning no interactive match for it, unlike the live
   Whiteboard row). No live fixtures were created during this pass beyond the
   already-existing dev history, so nothing needed cleaning up afterward.
+
+- **2026-09-04** — Re-prioritization: the user is about to push this repo to
+  GitHub and host it on Vercel for real lab assistants, department heads and
+  university offices to use. That reframes the goal from "work through the
+  phase list" to "ship something real custodians can use," and surfaces a
+  problem the phase list never caught — **creating a resource was completely
+  broken**, for every account including SYS_ADMIN. New plan:
+  `~/.claude/plans/three-product-changes-dynamic-thompson.md`, tracked as
+  Phase 10a (creation)/10b (university browse)/10c (deferred)/hardening/
+  deploy. See the "Not yet done" section above for how this supersedes the
+  old phase order.
+
+- **2026-09-04** — Phase 10a: finished and committed the in-flight
+  resource-creation work (found already ~90% built, uncommitted, by a prior
+  session working the same plan) — category placement rules, the
+  container-picker endpoint, and `AddModal`'s owner/current/custodian
+  pickers. Fixed three real defects found while finishing it, none of them
+  cosmetic:
+
+  **`containers()` was iterating the wrong scope set and could crash.**
+  `lib/server/resources/items.ts`'s `containers()` mapped over `closed` (the
+  *ancestor-closed* scope set used by list/summary views) instead of `base`
+  (the direct scope set) — a destination you can merely see because a
+  descendant is in scope is not a legitimate destination, and for SYS_ADMIN
+  (whose `writable` filter is `null`, so nothing masked the difference) this
+  meant offering containers that were never legal. The same line also did an
+  unsound `forest.index.byId.get(id)!` — `custodyItemIdsOf` and `loadForest`
+  can disagree about a soft-deleted row (the same class of bug commit
+  `bdb849d` fixed for the change log), and the `!` turned that disagreement
+  into a crash rather than a dropped id. Fixed both: switched to `base`,
+  and replaced the assertion with a type-guarded filter that drops
+  unresolvable ids. This is what `items.containers.spec.ts`'s "restricts an
+  ONLY_LISTED category" test was actually catching.
+
+  **Four TypeScript errors from a half-finished prop removal.** `Inspector`
+  had been changed to fetch its own `moveTargets` via the container-picker
+  endpoint instead of receiving a `containers` prop, but the prop wasn't
+  actually removed from its signature's call sites — `RegisterPage.tsx` and
+  `ChangeLogPage.tsx` still passed `containers=`, and `Inspector.tsx`'s own
+  "Position" picker still read the now-nonexistent `containers` variable.
+  Fixed all three call sites; `Inspector`'s Position picker now renders
+  `moveTargets` with full `path`-qualified names, matching how
+  `RegisterPage`'s own "Move to…" already disambiguates.
+
+  **A genuine bootstrap-blocking bug, found only by actually running the
+  flow live: `AddModal`'s "Into" picker could look selected while `parent`
+  state was still empty, permanently disabling "Confirm & create".** When a
+  category cannot be a root (`canOfferRoot` false) and has exactly one (or
+  more) legal container, the "Into" `<select>` rendered no `<option
+  value="">` at all — just the real container options. A controlled
+  `<select value={parent}>` with `parent === ""` and no matching `<option>`
+  falls back to the browser's native behavior of *visually* displaying the
+  first real option as selected, without ever calling `onChange` — so
+  `parent` stayed `""`, `canSubmit` stayed correctly false, and the button
+  stayed disabled with no visible reason why. This is not an edge case: it
+  is the ordinary path for every custodian adding a second item into their
+  one existing lab. Fixed by always rendering an explicit `<option
+  value="">Choose…</option>` placeholder whenever root isn't offered,
+  regardless of how many containers exist — forces an explicit selection
+  and keeps the DOM in sync with React state. Confirmed the same pattern
+  does *not* exist in `Inspector`'s Position picker or `RegisterPage`'s
+  "Move to…" — both already render an unconditional placeholder — so this
+  was localized to `AddModal`'s root/non-root conditional branching, not a
+  systemic issue.
+
+  **Root-create policy, as actually enforced by
+  `scope.assertCanCreateRoot`** (`lib/server/resources/scope.ts`): SYS_ADMIN
+  may create a root anywhere; MANAGER may create a root owned by any unit in
+  their own `visibleNodeIds`; CUSTODIAN/STORE_KEEPER may create a root owned
+  by their own home node, with themselves as custodian — never an arbitrary
+  unit, never naming someone else as custodian. A refused create returns
+  403 with a real message ("You are not allowed to create a top-level
+  resource here."), not 404 — a create has no existing row for a 404 to
+  protect.
+
+  **Also fixed: stale dev seed data.** `prisma/resource-seed.ts`'s
+  `CATEGORY_SPECS` already correctly sets `Lab`/`Store` to `canBeRoot: true,
+  placement: ONLY_LISTED` (the "a lab is a root and nothing else" rule), but
+  the dev database had been seeded before that code landed, so it still had
+  `canBeRoot: false, placement: ANYWHERE` in Postgres — the live bootstrap
+  test below would have failed on stale data, not a code defect. Re-ran
+  `npx tsx prisma/resource-seed.ts`, which only touches `ItemChange`/`Item`/
+  `ResourceCategory`/`CategoryGroup` (confirmed by reading the script before
+  running it) — org nodes and users, including test fixtures created
+  earlier in this same session, were untouched by the rebuild.
+
+  Verified: `npx tsc --noEmit` clean (was 4 errors); `npm test` — 265/265
+  (was 264/265); `npm run build` clean; `npx prisma validate` and `migrate
+  status` clean (12 migrations, `20260904030044_add_category_placement`
+  applied). Live in-browser, the actual acceptance test for this phase: created
+  a fresh department ("Bootstrap Test Department") and invited a brand-new
+  CUSTODIAN into it with zero resources in scope (invitation token
+  hash-swapped locally to bypass SMTP for this dev-only test — the account
+  itself and its role/home-node assignment went through the real invite
+  flow) — confirmed 0 resources in scope on first login, then created a Lab
+  at the top level (owner/current/custodian all correctly defaulted to the
+  custodian's own unit/themselves), then created a Table inside that Lab.
+  Separately confirmed the refusal path via a direct API call: the same
+  custodian attempting to create a root owned by a different department's
+  node got back `403 {"error":"Forbidden","message":"You are not allowed to
+  create a top-level resource here."}`, not 404. Cleaned up every fixture
+  created during this pass (the department, the user, the two items) —
+  dev database returned to its prior state (5 org nodes, 5 users, 134
+  items) before committing.
 
 ## Working agreements for this project
 

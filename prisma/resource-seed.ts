@@ -98,11 +98,18 @@ interface CategorySpec {
   impairRule: "ANY_CRITICAL" | "ALL_CRITICAL" | "NEVER";
   fields?: FieldSpec[];
   defaultChildren?: ChildSpec[];
+  /// Placement — see lib/domain/placement.ts. Every spec here defaults to the
+  /// schema's own default (canBeRoot: false, placement: ANYWHERE, must live inside
+  /// something, may live inside anything) unless named explicitly.
+  canBeRoot?: boolean;
+  placement?: "ANYWHERE" | "ONLY_LISTED";
 }
 
 const CATEGORY_SPECS: CategorySpec[] = [
   {
     key: "lab", name: "Lab", iconKey: "Building2", group: "Places", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    // A root and nothing else — no lab inside a lab, no lab inside anything.
+    canBeRoot: true, placement: "ONLY_LISTED",
     fields: [
       { key: "room", label: "Room", type: "TEXT", summary: true },
       { key: "seats", label: "Seats", type: "NUMBER", summary: true },
@@ -112,6 +119,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   },
   {
     key: "store", name: "Store", iconKey: "Warehouse", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
+    canBeRoot: true, placement: "ONLY_LISTED",
     fields: [
       { key: "room", label: "Room", type: "TEXT", summary: true },
       { key: "level", label: "Store level", type: "ENUM", options: ["Central", "College sub-store", "Departmental"], summary: true },
@@ -265,6 +273,8 @@ async function createCategories(): Promise<Record<string, Category>> {
         countingMode: spec.countingMode,
         unit: spec.unit ?? null,
         impairRule: spec.impairRule,
+        canBeRoot: spec.canBeRoot ?? false,
+        placement: spec.placement ?? "ANYWHERE",
         fields: spec.fields?.length
           ? {
               create: spec.fields.map((f, i) => ({

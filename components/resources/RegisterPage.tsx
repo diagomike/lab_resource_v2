@@ -1,11 +1,10 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import type { CategoryFieldDto, ResourceCategoryDto } from "@/lib/shared";
+import type { CategoryFieldDto, ContainerOptionDto, ResourceCategoryDto } from "@/lib/shared";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { useEditOptions } from "@/lib/register/useEditOptions";
-import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import { Panel, Screen, ErrorNote, Button, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
@@ -19,7 +18,6 @@ const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
 
 function RegisterPageInner() {
   const state = useRegisterState();
-  const { user } = useAuth();
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [propField, setPropField] = useState<CategoryFieldDto | null>(null);
@@ -41,6 +39,34 @@ function RegisterPageInner() {
 
   const selectedIds = state.selectedItemIds;
   const selectedRows = useMemo(() => selectedIds.map((id) => state.byId.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r)), [selectedIds, state.byId]);
+
+  /** "Move to…"'s own options — the same container-picker endpoint AddModal's "Into"
+   *  uses, so a bulk move never offers a destination the write path would then refuse.
+   *  A selection can span several categories at once; mutate.ts's own placement check
+   *  is whole-refusal (every selected root must satisfy it for the move to apply at
+   *  all), so a destination is only offered here when it is legal for EVERY selected
+   *  item's category — one fetch per distinct category, intersected. */
+  const [moveTargets, setMoveTargets] = useState<ContainerOptionDto[]>([]);
+  useEffect(() => {
+    const categoryIds = [...new Set(selectedRows.map((r) => r.categoryId))];
+    if (!categoryIds.length) {
+      setMoveTargets([]);
+      return;
+    }
+    let cancelled = false;
+    const exclude = selectedIds.join(",");
+    Promise.all(categoryIds.map((id) => api.get<ContainerOptionDto[]>(`/resources/items/containers?categoryId=${encodeURIComponent(id)}&exclude=${encodeURIComponent(exclude)}`)))
+      .then((sets) => {
+        if (cancelled) return;
+        const [first, ...rest] = sets;
+        const common = first.filter((o) => rest.every((set) => set.some((r) => r.id === o.id)));
+        setMoveTargets(common);
+      })
+      .catch(() => !cancelled && setMoveTargets([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRows, selectedIds]);
 
   /** Property fields every selected item's own category defines in common — offering
    *  anything narrower would let the bulk write reach a category that cannot hold it,
@@ -95,8 +121,6 @@ function RegisterPageInner() {
       confirmLabel: "Delete",
     });
   }
-
-  const canCreateRoot = user?.roles.includes("SYS_ADMIN") ?? false;
 
   return (
     <Screen>
@@ -211,14 +235,14 @@ function RegisterPageInner() {
               className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
             >
               <option value="">Move to…</option>
-              <option value={MOVE_TOP_LEVEL}>Top level</option>
-              {(state.rows ?? [])
-                .filter((r) => !selectedIds.includes(r.id))
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
+              {selectedRows.every((r) => categories.find((c) => c.id === r.categoryId)?.canBeRoot) && (
+                <option value={MOVE_TOP_LEVEL}>Top level</option>
+              )}
+              {moveTargets.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {[...c.path, c.name].join(" / ")}
+                </option>
+              ))}
             </select>
             <input
               placeholder="Rename to…"
@@ -286,20 +310,9 @@ function RegisterPageInner() {
         )}
       </Panel>
 
-      <Inspector
-        itemId={inspectId}
-        onClose={() => setInspectId(null)}
-        onChanged={state.refetch}
-        containers={(state.rows ?? []).filter((r) => r.id !== inspectId)}
-      />
+      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} />
 
-      <AddModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onCreated={state.refetch}
-        containers={state.rows ?? []}
-        canCreateRoot={canCreateRoot}
-      />
+      <AddModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={state.refetch} />
 
       {propField && (
         <BulkPropModal

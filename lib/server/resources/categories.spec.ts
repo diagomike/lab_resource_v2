@@ -63,6 +63,9 @@ describe("categories — validation", () => {
         groupId,
         countingMode: "SERIALIZED",
         impairRule: "ANY_CRITICAL",
+        canBeRoot: false,
+        placement: "ANYWHERE",
+        allowedParentCategoryIds: [],
         fields: [
           { key: "x", label: "X", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 },
           { key: "x", label: "X again", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 1 },
@@ -80,6 +83,9 @@ describe("categories — validation", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
+      canBeRoot: false,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
       fields: [],
       templateChildren: [],
     });
@@ -92,6 +98,9 @@ describe("categories — validation", () => {
         groupId,
         countingMode: "SERIALIZED",
         impairRule: "ANY_CRITICAL",
+        canBeRoot: false,
+        placement: "ANYWHERE",
+        allowedParentCategoryIds: [],
         fields: [],
         templateChildren: [
           { childCategoryId: part.id, qty: 1, critical: false },
@@ -109,6 +118,9 @@ describe("categories — validation", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
+      canBeRoot: false,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
       fields: [],
       templateChildren: [],
     });
@@ -132,6 +144,9 @@ describe("categories — deleting a category used as another's default part", ()
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
+      canBeRoot: false,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
       fields: [],
       templateChildren: [],
     });
@@ -142,6 +157,9 @@ describe("categories — deleting a category used as another's default part", ()
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
+      canBeRoot: false,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
       fields: [],
       templateChildren: [{ childCategoryId: part.id, qty: 1, critical: false }],
     });
@@ -170,6 +188,9 @@ describe("categories — atomic version-conflict handling", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
+      canBeRoot: false,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
       fields: [{ key: "note", label: "Note", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
       templateChildren: [],
     });
@@ -197,6 +218,9 @@ describe("categories — atomic version-conflict handling", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
+      canBeRoot: false,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
       fields: [],
       templateChildren: [],
     });

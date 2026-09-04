@@ -53,6 +53,9 @@ export interface TemplateChild {
  */
 export type ImpairRule = "ANY_CRITICAL" | "ALL_CRITICAL" | "NEVER";
 
+/** Placement — see lib/domain/placement.ts's own header for the full contract. */
+export type CategoryPlacementMode = "ANYWHERE" | "ONLY_LISTED";
+
 export interface Category {
   id: string;
   name: string;
@@ -69,6 +72,19 @@ export interface Category {
   defaultImage?: string;
   /** Bumped on every edit — the stale-write guard for a whole-object category write. */
   version: number;
+  /** May an item of this category be a top-level resource (a Lab, a Store)? Optional
+   *  (not defaulted here) for the same reason Item.customProps is: every existing
+   *  fixture/adapter that builds a Category without placement in mind keeps compiling.
+   *  `canPlace` treats an absent value as `false` — the permissive-except-rootedness
+   *  posture this module's own header describes. */
+  canBeRoot?: boolean;
+  /** ANYWHERE (default) or ONLY_LISTED — see lib/domain/placement.ts. Absent is treated
+   *  as ANYWHERE by `canPlace`, same rationale as canBeRoot above. */
+  placement?: CategoryPlacementMode;
+  /** This category's own allow-list — category ids it may be placed directly inside.
+   *  Only consulted when `placement` is ONLY_LISTED; dormant otherwise. Absent is
+   *  treated as `[]` by `canPlace`, same rationale as canBeRoot above. */
+  allowedParentCategoryIds?: string[];
 }
 
 // ── Items ────────────────────────────────────────────────────────────────

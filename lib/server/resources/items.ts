@@ -2,6 +2,7 @@ import "server-only";
 import {
   effectiveStatuses as EFFECTIVE_STATUSES,
   ItemFilterRule as ItemFilterRuleSchema,
+  type ContainerOptionDto,
   type EffectiveStatus,
   type ItemDetailDto,
   type ItemFacetCounts,
@@ -12,7 +13,8 @@ import {
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { computeStatuses, statusOf } from "@/lib/domain/status";
-import { descendantCategories, indexItems, pathOf, type TreeIndex } from "@/lib/domain/tree";
+import { canPlace } from "@/lib/domain/placement";
+import { descendantCategories, indexItems, pathOf, subtreeIds, type TreeIndex } from "@/lib/domain/tree";
 import {
   buildFilterFields,
   customPropFilterFields,
@@ -56,7 +58,7 @@ interface Forest {
 async function loadForest(): Promise<Forest> {
   const [itemRows, categoryRows] = await Promise.all([
     prisma.item.findMany({ where: { deletedAt: null }, include: { images: true } }),
-    prisma.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true } }),
+    prisma.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true } }),
   ]);
   const categories = toDomainCategoryMap(categoryRows);
   const items = itemRows.map((r) => toDomainItem(r, r.images));
@@ -309,6 +311,54 @@ export async function summary(userId: string): Promise<ItemSummaryDto> {
     if (NEEDS_ATTENTION.includes(s)) needsAttention += 1;
   }
   return { total: closed.size, byEffectiveStatus: byEffectiveStatus as Record<EffectiveStatus, number>, needsAttention };
+}
+
+/**
+ * Candidate destinations for placing an item of `categoryId` — the single picker
+ * behind AddModal's "Into", the register toolbar's "Move to…", and Inspector's
+ * parent picker (10a of ~/.claude/plans/wait-i-want-gentle-haven.md). Three
+ * independent filters, all required:
+ *  - in scope — the caller can at least SEE it (an invisible item is not a choosable
+ *    destination, regardless of custody);
+ *  - write-eligible — the caller could actually place something inside it, the exact
+ *    policy `scope.assertCanMutate` enforces at write time (SYS_ADMIN anywhere, every
+ *    other role only its own custody-or-beneath) — checked here so the list never
+ *    shows an option the write path would then 404;
+ *  - placement-legal — `canPlace` allows `categoryId` inside that destination's own
+ *    category (lib/domain/placement.ts).
+ * `excludeSubtreeIds`, if given, drops every destination inside (or equal to) one of
+ * those items — the "Move to…"/parent-picker case, where a selected item obviously
+ * cannot become its own descendant; mutate.ts's own `isWithinSubtree` still enforces
+ * this at write time regardless, this only keeps it from appearing choosable.
+ */
+export async function containers(userId: string, categoryId: string, excludeSubtreeIds: string[] = []): Promise<ContainerOptionDto[]> {
+  const forest = await loadForest();
+  if (!forest.categories[categoryId]) throw new HttpError(400, "Choose an existing category.");
+
+  const { base: visible } = await computeScopedIds(userId, forest);
+  const writable = (await scope.isSysAdmin(userId)) ? null : new Set(await scope.custodyItemIdsOf(userId));
+
+  const excluded = new Set(subtreeIds(forest.index, excludeSubtreeIds));
+
+  const options = [...visible]
+    .filter((id) => !excluded.has(id))
+    .filter((id) => writable === null || writable.has(id))
+    .map((id) => forest.index.byId.get(id))
+    .filter((item): item is NonNullable<typeof item> => item != null)
+    .filter((item) => canPlace(forest.categories, categoryId, item.categoryId))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return options.map((item) => {
+    const category = forest.categories[item.categoryId];
+    return {
+      id: item.id,
+      name: item.name,
+      categoryId: item.categoryId,
+      categoryName: category?.name ?? item.categoryId,
+      categoryIconKey: category?.iconKey ?? "Package",
+      path: pathOf(forest.index, item.id),
+    };
+  });
 }
 
 /** Out-of-scope returns 404, not 403 — a 403 would confirm the row exists. */

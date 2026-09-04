@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { CategoryFieldDto, CustomPropType, ItemChangeDto, ItemDetailDto, ItemPropValue, ItemRowDto, ResourceCategoryDto } from "@/lib/shared";
+import type { CategoryFieldDto, ContainerOptionDto, CustomPropType, ItemChangeDto, ItemDetailDto, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
 import { CUSTOM_PROP_KEY_PATTERN, customPropTypes, itemStatuses } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
@@ -25,21 +25,17 @@ import { ItemImageGallery } from "./ItemImages";
  */
 export function Inspector({
   itemId,
-  containers,
   onClose,
   onChanged,
 }: {
   itemId: string | null;
-  /** Candidate destinations for "Move" — every currently-loaded row except the item
-   *  itself and anything inside it (the server rejects a genuine cycle regardless;
-   *  this list just keeps the picker from offering an obviously invalid one). */
-  containers: ItemRowDto[];
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [item, setItem] = useState<ItemDetailDto | null>(null);
   const [changes, setChanges] = useState<ItemChangeDto[] | null>(null);
   const [category, setCategory] = useState<ResourceCategoryDto | null>(null);
+  const [moveTargets, setMoveTargets] = useState<ContainerOptionDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [qtyDraft, setQtyDraft] = useState("");
@@ -80,6 +76,26 @@ export function Inspector({
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [itemId]);
+
+  // "Position"'s own options — the same container-picker endpoint AddModal's "Into"
+  // and the register toolbar's "Move to…" use, so this picker never offers a
+  // destination the write path would then refuse. Excludes the item's own subtree —
+  // mutate.ts's own isWithinSubtree check still enforces that regardless, this only
+  // keeps it from appearing choosable.
+  useEffect(() => {
+    if (!item) {
+      setMoveTargets([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<ContainerOptionDto[]>(`/resources/items/containers?categoryId=${encodeURIComponent(item.categoryId)}&exclude=${encodeURIComponent(item.id)}`)
+      .then((rows) => !cancelled && setMoveTargets(rows))
+      .catch(() => !cancelled && setMoveTargets([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [item?.categoryId, item?.id]);
 
   const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange((_result, input) => {
     onChanged();
@@ -293,7 +309,7 @@ export function Inspector({
       message: (
         <>
           Move <b className="text-text">{item.name}</b> to{" "}
-          <b className="text-text">{target ? (containers.find((c) => c.id === target)?.name ?? target) : "the top level"}</b>? Owning
+          <b className="text-text">{target ? (moveTargets.find((c) => c.id === target)?.name ?? target) : "the top level"}</b>? Owning
           unit and custodian stay as they are.
         </>
       ),
@@ -458,13 +474,11 @@ export function Inspector({
                   className="w-full h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
                 >
                   <option value="">Top level</option>
-                  {containers
-                    .filter((c) => c.id !== item.id)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
+                  {moveTargets.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {[...c.path, c.name].join(" / ")}
+                    </option>
+                  ))}
                 </select>
               </EditField>
               <EditField label="Version">

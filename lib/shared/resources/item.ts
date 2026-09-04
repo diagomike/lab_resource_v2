@@ -92,6 +92,25 @@ export const ItemRowDto = z.object({
 });
 export type ItemRowDto = z.infer<typeof ItemRowDto>;
 
+/** One candidate destination from `GET /resources/items/containers` — the shape
+ *  AddModal's "Into", the register toolbar's "Move to…", and Inspector's parent
+ *  picker all render the SAME picker from. Deliberately not `ItemRowDto`: a picker
+ *  needs only enough to label and order an option, not a full scoped row (status,
+ *  custody, thumbnails, ...), and the set returned is already filtered server-side to
+ *  destinations that are simultaneously in scope, placement-legal for the category
+ *  being placed, and write-eligible — nothing about "why" needs to reach the client. */
+export const ContainerOptionDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  /** Slash-joined names from the containment root down to (not including) this row —
+   *  same shape as ItemRowDto.path, for the same "where is this, exactly" purpose. */
+  path: z.array(z.string()),
+});
+export type ContainerOptionDto = z.infer<typeof ContainerOptionDto>;
+
 export const ItemDetailDto = ItemRowDto.extend({
   images: z.array(ItemImageDto),
   /** Item-specific properties this ONE item carries beyond its category's own

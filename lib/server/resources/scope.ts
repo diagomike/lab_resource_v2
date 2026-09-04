@@ -121,7 +121,7 @@ async function descendantIdsIncludingSelf(itemId: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
-async function rolesOf(userId: string): Promise<RoleKind[]> {
+export async function rolesOf(userId: string): Promise<RoleKind[]> {
   const rows = await prisma.userRole.findMany({ where: { userId }, select: { kind: true } });
   return rows.map((r) => r.kind as RoleKind);
 }
@@ -177,4 +177,34 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
   if (await isSysAdmin(userId)) return;
   const custodyIds = new Set(await custodyItemIdsOf(userId));
   if (itemIds.some((id) => !custodyIds.has(id))) throw new HttpError(404, "Resource not found");
+}
+
+/**
+ * Who may place a NEW university-level root (a Lab, a Store — no existing item to
+ * check custody against, which is exactly why this is its own policy rather than a
+ * variant of `assertCanMutate`). Deliberately narrower than ordinary read scope, and
+ * different in shape from create-beneath-a-parent:
+ *  - SYS_ADMIN — anywhere.
+ *  - MANAGER — a root owned by any unit inside their OWN visible subtree (a
+ *    department head registering their department's first lab).
+ *  - CUSTODIAN / STORE_KEEPER — a root owned by their OWN home unit specifically,
+ *    with THEMSELVES as its custodian (a lab assistant registering their own lab) —
+ *    never an arbitrary unit, and never naming someone else as custodian on their
+ *    own say-so.
+ * Refused with 403, not 404: a create has no existing row whose presence a 404 would
+ * need to hide, and "Resource not found" on an Add button is just confusing.
+ */
+export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeId: string; custodianId: string }): Promise<void> {
+  if (await isSysAdmin(userId)) return;
+
+  const roles = await rolesOf(userId);
+  if (roles.includes("MANAGER")) {
+    const visible = await orgScope.visibleNodeIds(userId);
+    if (visible.includes(input.ownerOrgNodeId)) return;
+  }
+  if (roles.includes("CUSTODIAN") || roles.includes("STORE_KEEPER")) {
+    const own = await orgScope.ownNodeId(userId);
+    if (own && own === input.ownerOrgNodeId && input.custodianId === userId) return;
+  }
+  throw new HttpError(403, "You are not allowed to create a top-level resource here.");
 }

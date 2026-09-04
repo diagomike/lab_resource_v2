@@ -9,6 +9,7 @@ import * as scope from "./scope";
 import { validatePropWrite } from "./category-props";
 import { assertNoCollision, assertValidCustomKey, validateCustomPropValue } from "./custom-props";
 import { toDomainCategoryMap } from "./adapt";
+import { canPlace } from "@/lib/domain/placement";
 import { storage } from "./storage";
 
 type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
@@ -105,12 +106,16 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput): Promis
       await scope.assertCanMutate(actorId, [input.parentId]);
       return;
     }
-    // A root has no existing item to check custody against, and custody grants no
-    // root-level reach by definition (you cannot already be the custodian of
-    // something that does not yet exist) — so only SYS_ADMIN, already returned above,
-    // may place a new university-level root lab or store. Do not silently grant that
-    // power just because child creation is allowed.
-    throw new HttpError(404, "Resource not found");
+    // A root has no existing item to check custody against — assertCanCreateRoot is
+    // its own, deliberately narrower policy (scope.ts's own header), widened past
+    // SYS_ADMIN-only so a department can actually register its first resource. Both
+    // fields are required for a root by applyCreateItem anyway; validated here too so
+    // the authorization check has something real to test.
+    if (!input.ownerOrgNodeId || !input.custodianId) {
+      throw new HttpError(400, "A top-level resource must have an owning unit and a custodian.");
+    }
+    await scope.assertCanCreateRoot(actorId, { ownerOrgNodeId: input.ownerOrgNodeId, custodianId: input.custodianId });
+    return;
   }
 
   await scope.assertCanMutate(actorId, input.itemIds);
@@ -208,9 +213,24 @@ async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cl
 
 async function loadAllCategoriesDomain(tx: Tx): Promise<Record<string, Category>> {
   const rows = await tx.resourceCategory.findMany({
-    include: { group: { select: { name: true } }, fields: true, templateAsParent: true },
+    include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true },
   });
   return toDomainCategoryMap(rows);
+}
+
+/** The one enforcement point for lib/domain/placement.ts's `canPlace` — see that
+ *  module's own header. `parentCategoryId: null` means a top-level resource. Checked
+ *  only against the category actually being written (the new/moved/transferred root),
+ *  never against a template's own descendants — a template-vs-placement contradiction
+ *  is a warning surfaced by categories.ts's `previewImpact`, not an enforcement here. */
+function assertPlacementAllowed(categories: Record<string, Category>, childCategoryId: string, parentCategoryId: string | null): void {
+  if (canPlace(categories, childCategoryId, parentCategoryId)) return;
+  throw new HttpError(
+    400,
+    parentCategoryId === null
+      ? "This category may not be a top-level resource."
+      : "This category may not be placed inside the selected container.",
+  );
 }
 
 function itemCreateData(item: ReturnType<typeof instantiateMany>[number], categories: Record<string, Category>): Prisma.ItemCreateManyInput {
@@ -262,6 +282,7 @@ async function applyCreateItem(
   if (!custodian) throw new HttpError(400, "Choose an existing custodian.");
 
   const categories = await loadAllCategoriesDomain(tx);
+  assertPlacementAllowed(categories, input.categoryId, parent?.categoryId ?? null);
   const created = instantiateMany(categories, input.categoryId, input.parentId, input.count, {
     ownerOrgNodeId,
     currentOrgNodeId,
@@ -407,6 +428,12 @@ async function applyTransferItem(
   const applied: string[] = [];
   const batchId = roots.length > 1 ? newId("b") : undefined;
 
+  // Whole-refusal, not partial — same discipline assertSubtreeInScope's own header
+  // describes for a policy check, as opposed to the per-root "skip, don't abort" below
+  // which guards a structural impossibility (self-nesting), not a business rule.
+  const categories = await loadAllCategoriesDomain(tx);
+  for (const root of roots) assertPlacementAllowed(categories, root.categoryId, destination.categoryId);
+
   for (const root of roots) {
     if (root.id === targetParentId || (await isWithinSubtree(tx, root.id, targetParentId))) {
       continue; // a resource cannot be moved inside itself — skipped, not an abort
@@ -460,6 +487,9 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
   const roots = await tx.item.findMany({ where: { id: { in: input.itemIds }, deletedAt: null } });
   const applied: string[] = [];
   const batchId = roots.length > 1 ? newId("b") : undefined;
+
+  const categories = await loadAllCategoriesDomain(tx);
+  for (const root of roots) assertPlacementAllowed(categories, root.categoryId, target?.categoryId ?? null);
 
   for (const root of roots) {
     if (target) {

@@ -41,6 +41,14 @@ export const impairRules = ["ANY_CRITICAL", "ALL_CRITICAL", "NEVER"] as const;
 export const ImpairRuleSchema = z.enum(impairRules);
 export type ImpairRule = (typeof impairRules)[number];
 
+/** Placement — "not any resource anywhere". ANYWHERE (default): this category may be
+ *  placed inside anything. ONLY_LISTED: only inside a category on its own explicit
+ *  allow-list (lib/domain/placement.ts). About WHICH KIND of container, never how
+ *  many — containers stay unlimited in capacity. */
+export const categoryPlacements = ["ANYWHERE", "ONLY_LISTED"] as const;
+export const CategoryPlacementSchema = z.enum(categoryPlacements);
+export type CategoryPlacement = (typeof categoryPlacements)[number];
+
 // ── Items ────────────────────────────────────────────────────────────────
 /** STORED status only. IMPAIRED is DERIVED (lib/domain/status.ts) and never appears here. */
 export const itemStatuses = ["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const;

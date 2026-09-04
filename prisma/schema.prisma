@@ -327,6 +327,19 @@ model ResourceCategory {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
+  /// Placement — "not any resource anywhere". This is about which KIND of container
+  /// a resource of this category may sit inside, never how many it may hold;
+  /// containers stay unlimited in capacity by design (see lib/domain/placement.ts).
+  /// May an item of this category be a top-level resource (a Lab, a Store) at all?
+  /// Default false — a new category's items must live inside something.
+  canBeRoot Boolean           @default(false)
+  /// ANYWHERE (default): this category may be placed inside anything (or, combined
+  /// with canBeRoot, as a root too). ONLY_LISTED: only inside a category named in
+  /// `placementRulesAsChild` below — checked ONLY when this is ONLY_LISTED, so rows
+  /// left over from a prior ONLY_LISTED period are dormant, not contradictory, the
+  /// moment this flips back to ANYWHERE.
+  placement CategoryPlacement @default(ANYWHERE)
+
   group  CategoryGroup   @relation(fields: [groupId], references: [id], onDelete: Restrict)
   fields CategoryField[]
   items  Item[]
@@ -336,8 +349,36 @@ model ResourceCategory {
   needLines        NeedLine[]
   purchaseLines    PurchaseLine[]
 
+  /// This category's own allow-list when its OWN placement is ONLY_LISTED — the
+  /// categories it may be placed directly inside.
+  placementRulesAsChild  CategoryPlacementRule[] @relation("PlacementRuleChild")
+  /// Every OTHER category that currently lists this one as an allowed parent —
+  /// relevant when deciding what a deletion or a placement change would strand.
+  placementRulesAsParent CategoryPlacementRule[] @relation("PlacementRuleParent")
+
   @@index([groupId])
   @@index([active])
+}
+
+enum CategoryPlacement {
+  ANYWHERE
+  ONLY_LISTED
+}
+
+/// A category declares what it may be placed INTO — one direction only (a category
+/// never declares what may go inside IT; that would need conflict rules between two
+/// opposing whitelists nobody wants to reason about). Consulted only when
+/// `childCategory.placement` is ONLY_LISTED — see that field's own comment.
+model CategoryPlacementRule {
+  id               String @id @default(cuid())
+  childCategoryId  String
+  parentCategoryId String
+
+  childCategory  ResourceCategory @relation("PlacementRuleChild", fields: [childCategoryId], references: [id], onDelete: Cascade)
+  parentCategory ResourceCategory @relation("PlacementRuleParent", fields: [parentCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([childCategoryId, parentCategoryId])
+  @@index([parentCategoryId])
 }
 
 model CategoryField {

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ItemRowDto, ResourceCategoryDto } from "@/lib/shared";
+import type { ContainerOptionDto, ResourceCategoryDto } from "@/lib/shared";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { useEditOptions } from "@/lib/register/useEditOptions";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 import { submitChange } from "@/lib/register/useItemChange";
 
@@ -22,39 +24,65 @@ function templateSize(categories: ResourceCategoryDto[], id: string, depth = 0):
  * this form IS the confirmation step (matching that component's own design — no
  * second ConfirmDialog on top, since createItem is always consequential per
  * lib/domain/types.ts's CONFIRMED_CHANGES and a multi-field form already stops to ask
- * before anything commits). Only a SYS_ADMIN may leave "Into" at the top level — see
- * PROGRESS.md's Phase 7 write-role entry: custody grants no root-level reach, so a
- * root create is refused server-side (404) for anyone else regardless of what this
- * picker offers; hidden here rather than offered and then bounced.
+ * before anything commits).
+ *
+ * Category comes FIRST, ahead of "Into" — a category's own placement rules
+ * (lib/domain/placement.ts) decide which containers are even legal destinations, so
+ * "Into" cannot be populated until a category is chosen. Its options come from the
+ * one container-picker endpoint (`GET /resources/items/containers`), which already
+ * filters to destinations that are in scope, write-eligible, AND placement-legal — see
+ * items.ts's `containers()` for why that is three separate checks, not one.
+ *
+ * "Top level" is offered only when the chosen category's own `canBeRoot` allows it AND
+ * this person has some plausible path to `scope.ts`'s `assertCanCreateRoot` (widened
+ * past SYS_ADMIN-only in 10a of ~/.claude/plans/wait-i-want-gentle-haven.md): SYS_ADMIN
+ * anywhere, a MANAGER within their own visible subtree, a CUSTODIAN/STORE_KEEPER at
+ * their own home unit with themselves as custodian. The server re-checks all of this
+ * regardless — this is a UI hint to avoid offering a choice that would just 403, not
+ * the authority.
  */
 export function AddModal({
   open,
   onClose,
   onCreated,
-  containers,
-  canCreateRoot,
   defaultParentId,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
-  containers: ItemRowDto[];
-  canCreateRoot: boolean;
   defaultParentId?: string | null;
 }) {
+  const { user, me } = useAuth();
+  const editOptions = useEditOptions();
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
-  const [parent, setParent] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [parent, setParent] = useState("");
+  const [containers, setContainers] = useState<ContainerOptionDto[]>([]);
+  const [containersLoading, setContainersLoading] = useState(false);
   const [count, setCount] = useState(1);
+  const [ownerOrgNodeId, setOwnerOrgNodeId] = useState("");
+  const [currentOrgNodeId, setCurrentOrgNodeId] = useState("");
+  const [custodianId, setCustodianId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const roles = user?.roles ?? [];
+  const isSysAdmin = roles.includes("SYS_ADMIN");
+  const isManager = roles.includes("MANAGER");
+  const isCustodianLike = roles.includes("CUSTODIAN") || roles.includes("STORE_KEEPER");
+  const ownNodeId = me?.scope?.nodeId ?? null;
+  const canAttemptRoot = isSysAdmin || isManager || (isCustodianLike && Boolean(ownNodeId));
+
   useEffect(() => {
     if (!open) return;
-    setParent(defaultParentId ?? "");
     setCategoryId("");
+    setParent(defaultParentId ?? "");
+    setContainers([]);
     setCount(1);
     setError(null);
+    setOwnerOrgNodeId(ownNodeId ?? "");
+    setCurrentOrgNodeId(ownNodeId ?? "");
+    setCustodianId(user?.id ?? "");
     api
       .get<ResourceCategoryDto[]>("/resources/categories")
       .then((rows) => setCategories(rows.filter((c) => c.active)))
@@ -62,10 +90,36 @@ export function AddModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !categoryId) {
+      setContainers([]);
+      return;
+    }
+    setContainersLoading(true);
+    api
+      .get<ContainerOptionDto[]>(`/resources/items/containers?categoryId=${encodeURIComponent(categoryId)}`)
+      .then((rows) => {
+        setContainers(rows);
+        // A container that was valid for the previous category may not be for this
+        // one — never leave a stale, now-illegal selection sitting in the field.
+        setParent((p) => (p && !rows.some((r) => r.id === p) ? "" : p));
+      })
+      .catch(() => setContainers([]))
+      .finally(() => setContainersLoading(false));
+  }, [open, categoryId]);
+
+  const selectedCategory = categories.find((c) => c.id === categoryId) ?? null;
+  const canOfferRoot = Boolean(selectedCategory?.canBeRoot) && canAttemptRoot;
+  const isRootCreate = parent === "" && canOfferRoot;
+
   const preview = categoryId ? templateSize(categories, categoryId) : 0;
 
+  const canSubmit =
+    Boolean(categoryId) &&
+    (parent !== "" || (canOfferRoot && (isCustodianLike && !isManager && !isSysAdmin ? true : Boolean(ownerOrgNodeId) && Boolean(custodianId))));
+
   async function submit() {
-    if (!categoryId) return;
+    if (!categoryId || !canSubmit) return;
     setBusy(true);
     setError(null);
     const r = await submitChange({
@@ -73,6 +127,13 @@ export function AddModal({
       parentId: parent || null,
       categoryId,
       count,
+      ...(isRootCreate
+        ? {
+            ownerOrgNodeId,
+            currentOrgNodeId: currentOrgNodeId || ownerOrgNodeId,
+            custodianId,
+          }
+        : {}),
     });
     setBusy(false);
     if (!r.ok) {
@@ -85,27 +146,11 @@ export function AddModal({
 
   if (!open) return null;
 
+  const ownerNodeName = editOptions.owner.find((o) => o.value === ownNodeId)?.label ?? "your unit";
+
   return (
     <Modal title="Add resources" onClose={onClose} width="480px">
       {error && <ErrorNote>{error}</ErrorNote>}
-      <label className="block">
-        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Into</div>
-        <select
-          value={parent}
-          onChange={(e) => setParent(e.target.value)}
-          className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-        >
-          {canCreateRoot && <option value="">Top level (a new lab, store, building…)</option>}
-          {containers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        {!canCreateRoot && containers.length === 0 && (
-          <div className="text-10.5 text-warn mt-4">You have no container in your custody to add into yet.</div>
-        )}
-      </label>
       <label className="block">
         <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Category</div>
         <select
@@ -124,6 +169,77 @@ export function AddModal({
             ))}
         </select>
       </label>
+      {categoryId && (
+        <label className="block">
+          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Into</div>
+          <select
+            value={parent}
+            onChange={(e) => setParent(e.target.value)}
+            disabled={containersLoading}
+            className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
+          >
+            {canOfferRoot && <option value="">Top level (a new lab, store, building…)</option>}
+            {/* Always a placeholder when root isn't offered — a native <select> with a
+             *  controlled empty value and no matching <option> falls back to visually
+             *  showing the first real option as selected while React's `parent` state
+             *  stays "", leaving `canSubmit` false with no visible reason why. Keeping
+             *  this option present (even when containers.length === 1) forces an
+             *  explicit choice and keeps the DOM in sync with state. */}
+            {!canOfferRoot && <option value="">Choose…</option>}
+            {containers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {[...c.path, c.name].join(" / ")}
+              </option>
+            ))}
+          </select>
+          {!containersLoading && !canOfferRoot && containers.length === 0 && (
+            <div className="text-10.5 text-warn mt-4">You have no container in your custody that this category may be placed into.</div>
+          )}
+        </label>
+      )}
+      {isRootCreate && (
+        <div className="flex flex-col gap-8 rounded-2 border border-border2 p-10">
+          <div className="text-9.5 uppercase tracking-label text-faint font-semibold">A new top-level resource needs</div>
+          {isCustodianLike && !isManager && !isSysAdmin ? (
+            <p className="text-10.5 text-dim">
+              Owning unit: <strong className="text-text">{ownerNodeName}</strong> · Custodian: <strong className="text-text">you</strong>
+            </p>
+          ) : (
+            <>
+              <label className="block">
+                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Owning unit</div>
+                <select
+                  value={ownerOrgNodeId}
+                  onChange={(e) => setOwnerOrgNodeId(e.target.value)}
+                  className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
+                >
+                  <option value="">Choose…</option>
+                  {editOptions.owner.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Custodian</div>
+                <select
+                  value={custodianId}
+                  onChange={(e) => setCustodianId(e.target.value)}
+                  className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
+                >
+                  <option value="">Choose…</option>
+                  {editOptions.custodian.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+        </div>
+      )}
       <label className="block">
         <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">How many</div>
         <input
@@ -146,7 +262,7 @@ export function AddModal({
         </p>
       )}
       <div className="flex items-center gap-8">
-        <Button variant="primary" disabled={!categoryId || busy} onClick={submit}>
+        <Button variant="primary" disabled={!canSubmit || busy} onClick={submit}>
           {busy ? "Creating…" : "Confirm & create"}
         </Button>
         <Button onClick={onClose} disabled={busy}>
