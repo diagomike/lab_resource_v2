@@ -72,7 +72,13 @@ export function buildSubtree(
   return out;
 }
 
-/** `count` siblings of one category under one parent, numbered when there is more than one. */
+/** `count` siblings of one category under one parent, numbered when there is more than one.
+ *  `overrides.baseName`, if given, replaces the category's own name as the numbering
+ *  base (a Lab worth naming, not just "Lab 01") — trimmed and falling back to the
+ *  category name when blank. `overrides.props` is merged onto each ROOT item created
+ *  (never onto a template's own auto-generated children, which keep their normal
+ *  blank start) — the creation-modal case of filling a category's fields in at
+ *  creation time instead of via a follow-up edit. */
 export function instantiateMany(
   categories: Record<string, Category>,
   categoryId: string,
@@ -81,14 +87,18 @@ export function instantiateMany(
   ctx: InstantiateCtx,
   critical = false,
   startIndex = 1,
+  overrides?: { baseName?: string; props?: Record<string, PropValue> },
 ): Item[] {
   const cat = categories[categoryId];
   if (!cat) return [];
   const out: Item[] = [];
+  const baseName = overrides?.baseName?.trim() || cat.name;
   for (let i = 0; i < count; i++) {
     const n = startIndex + i;
-    const name = count > 1 || startIndex > 1 ? `${cat.name} ${String(n).padStart(2, "0")}` : cat.name;
+    const name = count > 1 || startIndex > 1 ? `${baseName} ${String(n).padStart(2, "0")}` : baseName;
+    const rootIndex = out.length;
     buildSubtree(categories, categoryId, parentId, name, critical, ctx, out);
+    if (overrides?.props) Object.assign(out[rootIndex].props, overrides.props);
   }
   return out;
 }

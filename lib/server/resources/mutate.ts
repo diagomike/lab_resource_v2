@@ -1,6 +1,6 @@
 import "server-only";
 import { Prisma, type Item as PrismaItem, type PrismaClient } from "@prisma/client";
-import type { CustomPropType, ItemChangeInput, ItemChangeResultDto } from "@/lib/shared";
+import type { CustomPropType, ItemChangeInput, ItemChangeResultDto, ItemPropValue } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { instantiateMany, newId } from "@/lib/domain/instantiate";
@@ -257,10 +257,22 @@ async function applyCreateItem(
   at: Date,
   input: Extract<ItemChangeInput, { kind: "createItem" }>,
 ): Promise<ItemChangeResultDto> {
-  const category = await tx.resourceCategory.findUnique({ where: { id: input.categoryId } });
+  const category = await tx.resourceCategory.findUnique({ where: { id: input.categoryId }, include: { fields: true } });
   if (!category) throw new HttpError(400, "Choose an existing category.");
   if (!category.active) throw new HttpError(400, "This category is disabled.");
   if (!Number.isInteger(input.count) || input.count < 1) throw new HttpError(400, "Item count must be a positive whole number.");
+
+  // Properties filled in at creation time — the same validation `setProperty` runs,
+  // just against every given key at once rather than one at a time. An unknown key
+  // fails closed (validatePropWrite's own `field: undefined` branch), never silently
+  // dropped, so a client can't smuggle an arbitrary key into `Item.props`.
+  const initialProps: Record<string, ItemPropValue> = {};
+  if (input.props) {
+    const fieldByKey = new Map(category.fields.map((f) => [f.key, f]));
+    for (const [key, value] of Object.entries(input.props)) {
+      initialProps[key] = validatePropWrite(fieldByKey.get(key), value);
+    }
+  }
 
   const parent = input.parentId ? await tx.item.findUnique({ where: { id: input.parentId } }) : null;
   if (input.parentId && (!parent || parent.deletedAt)) throw new HttpError(400, "The selected parent no longer exists.");
@@ -283,12 +295,16 @@ async function applyCreateItem(
 
   const categories = await loadAllCategoriesDomain(tx);
   assertPlacementAllowed(categories, input.categoryId, parent?.categoryId ?? null);
-  const created = instantiateMany(categories, input.categoryId, input.parentId, input.count, {
-    ownerOrgNodeId,
-    currentOrgNodeId,
-    custodianId,
-    now: at.toISOString(),
-  });
+  const created = instantiateMany(
+    categories,
+    input.categoryId,
+    input.parentId,
+    input.count,
+    { ownerOrgNodeId, currentOrgNodeId, custodianId, now: at.toISOString() },
+    false,
+    1,
+    { baseName: input.name, props: Object.keys(initialProps).length ? initialProps : undefined },
+  );
   if (!created.length) throw new HttpError(400, "Nothing to create.");
 
   await tx.item.createMany({ data: created.map((i) => itemCreateData(i, categories)) });

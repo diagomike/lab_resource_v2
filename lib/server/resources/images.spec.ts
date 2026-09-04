@@ -48,6 +48,7 @@ let prisma: PrismaModule["prisma"];
 let sysAdminId: string;
 let seCustodianId: string;
 let seHeadId: string;
+let chemHeadId: string;
 let chemCustodianId: string;
 
 let groupId: string;
@@ -62,10 +63,11 @@ beforeAll(async () => {
   ({ storage } = await import("./storage"));
   ({ prisma } = await import("../prisma"));
 
-  const [sysAdmin, seCustodian, seHead, chemCustodian, seNode, chemNode] = await Promise.all([
+  const [sysAdmin, seCustodian, seHead, chemHead, chemCustodian, seNode, chemNode] = await Promise.all([
     prisma.user.findFirstOrThrow({ where: { roles: { some: { kind: "SYS_ADMIN" } } } }),
     prisma.user.findFirstOrThrow({ where: { email: "custodian.se@astu.edu.et" } }),
     prisma.user.findFirstOrThrow({ where: { email: "head.se@astu.edu.et" } }),
+    prisma.user.findFirstOrThrow({ where: { email: "head.chem@astu.edu.et" } }),
     prisma.user.findFirstOrThrow({ where: { email: "custodian.chem@astu.edu.et" } }),
     prisma.orgNode.findFirstOrThrow({ where: { name: { contains: "Software Engineering" } } }),
     prisma.orgNode.findFirstOrThrow({ where: { name: { contains: "Chemical" } } }),
@@ -73,6 +75,7 @@ beforeAll(async () => {
   sysAdminId = sysAdmin.id;
   seCustodianId = seCustodian.id;
   seHeadId = seHead.id;
+  chemHeadId = chemHead.id;
   chemCustodianId = chemCustodian.id;
 
   const group = await prisma.categoryGroup.create({ data: { name: `__test-images-${Date.now()}`, sortOrder: 999 } });
@@ -118,8 +121,13 @@ describe("images — upload-session authorization", () => {
     expect(row.requestedById).toBe(seCustodianId);
   });
 
-  it("refuses a MANAGER who is not the item's custodian, the same 404 an out-of-scope write already uses", async () => {
-    await expect(images.createUploadSession(seHeadId, seItemId)).rejects.toMatchObject({ status: 404 });
+  it("lets a MANAGER create an upload session for an item in their own department, even without custody of it (2026-09-04 policy widening)", async () => {
+    const session = await images.createUploadSession(seHeadId, seItemId);
+    expect(session.uploadSessionId).toBeTruthy();
+  });
+
+  it("still refuses a MANAGER from a DIFFERENT department — the widening is subtree-scoped, not blanket", async () => {
+    await expect(images.createUploadSession(chemHeadId, seItemId)).rejects.toMatchObject({ status: 404 });
   });
 
   it("refuses a custodian from a different department", async () => {

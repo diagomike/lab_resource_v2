@@ -156,14 +156,22 @@ export async function custodyItemIdsOf(userId: string): Promise<string[]> {
 // Deliberately narrower than everything above, and a SEPARATE question from read
 // scope: `visibleItemWhere`/`canSeeItem` decide who may SEE an item (broad — org
 // reach, university-wide roles, ancestor closure); the functions below decide who may
-// WRITE one, which this project's explicit policy makes much narrower. Only SYS_ADMIN
-// may act on anything unconditionally. Every other role — PROPERTY_ADMIN and
-// STORE_KEEPER see the whole university, MANAGER sees its whole subtree — may act
-// only on an item it directly custodies or that sits beneath something it custodies.
-// Being able to see a lab, even university-wide, is not being its owner. Every other
-// role's part in a mutation, for now, is to approve one once Phase 12's chain exists —
-// not to make it directly. This is a deliberate policy decision (recorded in
-// PROGRESS.md's Phase 7 entry), not a rediscovery of the read-scope rules above.
+// WRITE one. Only SYS_ADMIN may act on anything unconditionally. PROPERTY_ADMIN and
+// STORE_KEEPER see the whole university but may still only act on an item they
+// directly custody or that sits beneath something they custody — being able to see a
+// lab, even university-wide, is not being its owner.
+//
+// **MANAGER is the one deliberate exception** (2026-09-04, by explicit product
+// direction — "let department heads edit"): a department head may act directly on
+// anything owned-or-currently-held within their own visible subtree, not just what
+// they personally custody. A head answers for their whole department, not only the
+// specific rows someone happened to assign them as custodian of — unlike custody,
+// which is a narrow, per-item fact, headship is a standing authority over the unit.
+// This mirrors `assertCanCreateRoot`'s own MANAGER branch below, which already
+// granted this same reach for root creation; ordinary mutation was the one write
+// path that hadn't caught up. Every OTHER role's part in a mutation is still to
+// approve one once Phase 12's chain exists, not to make it directly — this carve-out
+// is MANAGER-only, not a general widening.
 
 export async function isSysAdmin(userId: string): Promise<boolean> {
   const hit = await prisma.userRole.findFirst({ where: { userId, kind: "SYS_ADMIN" } });
@@ -179,7 +187,18 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
   if (!itemIds.length) return;
   if (await isSysAdmin(userId)) return;
   const custodyIds = new Set(await custodyItemIdsOf(userId));
-  if (itemIds.some((id) => !custodyIds.has(id))) throw new HttpError(404, "Resource not found");
+  const remaining = itemIds.filter((id) => !custodyIds.has(id));
+  if (!remaining.length) return;
+
+  const roles = await rolesOf(userId);
+  if (roles.includes("MANAGER")) {
+    const visible = await orgScope.visibleNodeIds(userId);
+    const rows = await prisma.item.findMany({ where: { id: { in: remaining } }, select: { id: true, ownerOrgNodeId: true, currentOrgNodeId: true } });
+    const stillOut = rows.length !== remaining.length || rows.some((r) => !visible.includes(r.ownerOrgNodeId) && !visible.includes(r.currentOrgNodeId));
+    if (!stillOut) return;
+  }
+
+  throw new HttpError(404, "Resource not found");
 }
 
 /**

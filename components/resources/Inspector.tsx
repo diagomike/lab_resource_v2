@@ -760,7 +760,9 @@ function EditField({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-function PropInput({
+/** Exported for AddModal's own use — same per-field-type input widget, filling a
+ *  category's fields in at creation time rather than only via a follow-up edit. */
+export function PropInput({
   field,
   value,
   onChange,

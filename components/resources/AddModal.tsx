@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ContainerOptionDto, ResourceCategoryDto } from "@/lib/shared";
+import type { ContainerOptionDto, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useEditOptions } from "@/lib/register/useEditOptions";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 import { submitChange } from "@/lib/register/useItemChange";
+import { PropInput } from "./Inspector";
 
 /** How many rows one instantiation of this category actually produces, parts
  *  included — the wire-DTO-shaped twin of lib/domain/edit-impact.ts's
@@ -63,6 +64,11 @@ export function AddModal({
   const [ownerOrgNodeId, setOwnerOrgNodeId] = useState("");
   const [currentOrgNodeId, setCurrentOrgNodeId] = useState("");
   const [custodianId, setCustodianId] = useState("");
+  /** Optional — blank keeps the server's own auto-numbered default ("Lab 01", …).
+   *  Reset whenever the category changes, same as `propDrafts` below: a name/value
+   *  typed for one category has no meaning once a different one is chosen. */
+  const [name, setName] = useState("");
+  const [propDrafts, setPropDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +85,8 @@ export function AddModal({
     setParent(defaultParentId ?? "");
     setContainers([]);
     setCount(1);
+    setName("");
+    setPropDrafts({});
     setError(null);
     setOwnerOrgNodeId(ownNodeId ?? "");
     setCurrentOrgNodeId(ownNodeId ?? "");
@@ -89,6 +97,14 @@ export function AddModal({
       .catch(() => setCategories([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // A property draft (and a typed name) only means something for the category it was
+  // filled in against — never leave one sitting stale once a different category is
+  // chosen, the same discipline the "Into" picker's own reset already follows.
+  useEffect(() => {
+    setName("");
+    setPropDrafts({});
+  }, [categoryId]);
 
   useEffect(() => {
     if (!open || !categoryId) {
@@ -118,15 +134,35 @@ export function AddModal({
     Boolean(categoryId) &&
     (parent !== "" || (canOfferRoot && (isCustodianLike && !isManager && !isSysAdmin ? true : Boolean(ownerOrgNodeId) && Boolean(custodianId))));
 
+  /** Same raw-string → typed-value coercion Inspector's own `commitProp` uses for a
+   *  follow-up edit — a blank draft means "leave it unset", never sent at all (an
+   *  empty-object `props` would validate fine but is just noise on the wire). */
+  function buildProps(): Record<string, ItemPropValue> | undefined {
+    if (!selectedCategory) return undefined;
+    const props: Record<string, ItemPropValue> = {};
+    for (const field of selectedCategory.fields) {
+      const raw = propDrafts[field.key];
+      if (raw === undefined || raw === "") continue;
+      let value: ItemPropValue = raw;
+      if (field.type === "NUMBER") value = Number(raw);
+      if (field.type === "BOOLEAN") value = raw === "true";
+      props[field.key] = value;
+    }
+    return Object.keys(props).length ? props : undefined;
+  }
+
   async function submit() {
     if (!categoryId || !canSubmit) return;
     setBusy(true);
     setError(null);
+    const props = buildProps();
     const r = await submitChange({
       kind: "createItem",
       parentId: parent || null,
       categoryId,
       count,
+      ...(name.trim() ? { name: name.trim() } : {}),
+      ...(props ? { props } : {}),
       ...(isRootCreate
         ? {
             ownerOrgNodeId,
@@ -238,6 +274,30 @@ export function AddModal({
               </label>
             </>
           )}
+        </div>
+      )}
+      {categoryId && (
+        <label className="block">
+          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={count > 1 ? `${selectedCategory?.name} 01, 02, …` : selectedCategory?.name}
+            className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
+          />
+        </label>
+      )}
+      {selectedCategory && selectedCategory.fields.length > 0 && (
+        <div>
+          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
+          <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
+            {selectedCategory.fields.map((f) => (
+              <label key={f.key} className="block">
+                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">{f.unit ? `${f.label} (${f.unit})` : f.label}</div>
+                <PropInput field={f} value={propDrafts[f.key] ?? ""} onChange={(v) => setPropDrafts((d) => ({ ...d, [f.key]: v }))} onCommit={() => {}} />
+              </label>
+            ))}
+          </div>
         </div>
       )}
       <label className="block">

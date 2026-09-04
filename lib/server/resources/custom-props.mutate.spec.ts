@@ -36,7 +36,8 @@ let prisma: PrismaModule["prisma"];
 
 let sysAdminId: string;
 let seCustodianId: string;
-let seHeadId: string; // MANAGER, NOT the custodian of the test item — the authorization negative case
+let seHeadId: string; // MANAGER of the SE item's OWN department — can now write it (2026-09-04 policy)
+let chemHeadId: string; // MANAGER of a DIFFERENT department — still the authorization negative case
 let chemCustodianId: string;
 
 let groupId: string;
@@ -49,10 +50,11 @@ beforeAll(async () => {
   ({ filterFields, getOne } = await import("./items"));
   ({ prisma } = await import("../prisma"));
 
-  const [sysAdmin, seCustodian, seHead, chemCustodian, seNode, chemNode] = await Promise.all([
+  const [sysAdmin, seCustodian, seHead, chemHead, chemCustodian, seNode, chemNode] = await Promise.all([
     prisma.user.findFirstOrThrow({ where: { roles: { some: { kind: "SYS_ADMIN" } } } }),
     prisma.user.findFirstOrThrow({ where: { email: "custodian.se@astu.edu.et" } }),
     prisma.user.findFirstOrThrow({ where: { email: "head.se@astu.edu.et" } }),
+    prisma.user.findFirstOrThrow({ where: { email: "head.chem@astu.edu.et" } }),
     prisma.user.findFirstOrThrow({ where: { email: "custodian.chem@astu.edu.et" } }),
     prisma.orgNode.findFirstOrThrow({ where: { name: { contains: "Software Engineering" } } }),
     prisma.orgNode.findFirstOrThrow({ where: { name: { contains: "Chemical" } } }),
@@ -60,6 +62,7 @@ beforeAll(async () => {
   sysAdminId = sysAdmin.id;
   seCustodianId = seCustodian.id;
   seHeadId = seHead.id;
+  chemHeadId = chemHead.id;
   chemCustodianId = chemCustodian.id;
 
   const group = await prisma.categoryGroup.create({ data: { name: `__test-custom-props-${Date.now()}`, sortOrder: 999 } });
@@ -219,10 +222,26 @@ describe("custom properties — version conflicts, authorization, and scope", ()
     expect(result.applied).toBe(1);
   });
 
-  it("refuses a MANAGER who is not the item's custodian, the same 404 an out-of-scope write already uses", async () => {
+  it("lets a MANAGER add a custom property on an item in their own department, even without custody of it (2026-09-04 policy widening)", async () => {
+    const before = await getOne(sysAdminId, seItemId);
+    const result = await applyChange(seHeadId, {
+      kind: "addCustomProperty",
+      itemIds: [seItemId],
+      key: "Head Write Test",
+      type: "TEXT",
+      value: "x",
+      expectedVersions: { [seItemId]: before.version },
+    });
+    expect(result.applied).toBe(1);
+
+    const after = await getOne(sysAdminId, seItemId);
+    expect(after.customProps["Head Write Test"]?.value).toBe("x");
+  });
+
+  it("still refuses a MANAGER from a DIFFERENT department — the widening is subtree-scoped, not blanket", async () => {
     const before = await getOne(sysAdminId, seItemId);
     await expect(
-      applyChange(seHeadId, {
+      applyChange(chemHeadId, {
         kind: "addCustomProperty",
         itemIds: [seItemId],
         key: "Should Not Apply",

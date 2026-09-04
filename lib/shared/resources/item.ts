@@ -145,6 +145,17 @@ export const CreateItemChange = Base.extend({
   ownerOrgNodeId: z.string().optional(),
   currentOrgNodeId: z.string().optional(),
   custodianId: z.string().optional(),
+  /** A custom name in place of the category's own auto-numbered default ("Lab 01",
+   *  "Lab 02", …) — most useful when `count` is 1 (a lab is worth naming), still
+   *  applied as the numbering base when `count` is more than 1. Blank/omitted keeps
+   *  the existing auto-naming unchanged. */
+  name: z.string().trim().min(1).optional(),
+  /** The category's own fields, filled in at creation time instead of via a
+   *  follow-up edit — the same `Item.props` shape `setProperty` writes, validated
+   *  the same way (`category-props.ts`'s `buildCategoryPropsSchema`). Applied only
+   *  to the root item(s) being created, never to a template's auto-generated
+   *  children (those keep their normal blank start, same as before this existed). */
+  props: ItemProps.optional(),
 });
 
 export const DeleteItemChange = Base.extend({

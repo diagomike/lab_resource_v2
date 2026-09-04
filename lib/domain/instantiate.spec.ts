@@ -103,4 +103,30 @@ describe("instantiateMany", () => {
     const rows = instantiateMany(categories, "monitor", null, 2, ctx, true);
     expect(rows.every((r) => r.critical)).toBe(true);
   });
+
+  it("uses overrides.baseName in place of the category's own name, still numbered when count > 1", () => {
+    const [single] = instantiateMany(categories, "monitor", null, 1, ctx, false, 1, { baseName: "Software Lab 3" });
+    expect(single.name).toBe("Software Lab 3");
+    const many = instantiateMany(categories, "monitor", null, 2, ctx, false, 1, { baseName: "Software Lab" });
+    expect(many.map((r) => r.name)).toEqual(["Software Lab 01", "Software Lab 02"]);
+  });
+
+  it("falls back to the category's own name when baseName is blank or whitespace-only", () => {
+    const [row] = instantiateMany(categories, "monitor", null, 1, ctx, false, 1, { baseName: "   " });
+    expect(row.name).toBe("Monitor");
+  });
+
+  it("merges overrides.props onto each ROOT item, never onto its auto-generated children", () => {
+    const rows = instantiateMany(categories, "computer", null, 1, ctx, false, 1, { props: { brand: "Dell" } });
+    const root = rows.find((r) => r.categoryId === "computer")!;
+    const monitor = rows.find((r) => r.categoryId === "monitor")!;
+    expect(root.props.brand).toBe("Dell");
+    expect(monitor.props).toEqual({}); // monitor's own fixture defines no fields, so this stays empty either way
+  });
+
+  it("applies overrides.props independently to every root when count > 1", () => {
+    const rows = instantiateMany(categories, "computer", null, 2, ctx, false, 1, { props: { brand: "HP" } });
+    const roots = rows.filter((r) => r.categoryId === "computer");
+    expect(roots.every((r) => r.props.brand === "HP")).toBe(true);
+  });
 });
