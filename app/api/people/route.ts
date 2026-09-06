@@ -7,10 +7,13 @@ import { list, create } from "@/lib/server/people/people";
 
 const MANAGERIAL = ["SYS_ADMIN", "MANAGER"] as const;
 
+/** GET's own, slightly wider gate than POST's: PROPERTY_ADMIN never invites people,
+ *  but does need the read-only directory to assign a PERSON-specific access view
+ *  (Track 1's AccessViewsPage) — a name/role list, not an invite capability. */
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession(request);
-    requireRole(user, [...MANAGERIAL]);
+    requireRole(user, ["SYS_ADMIN", "MANAGER", "PROPERTY_ADMIN"]);
     const rows = await list(user.id, user.roles);
     return NextResponse.json<PersonDto[]>(rows, { status: 200 });
   } catch (err) {

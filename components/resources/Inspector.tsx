@@ -10,6 +10,7 @@ import { Modal, ErrorNote, ConfirmDialog, Button } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { useEditOptions } from "@/lib/register/useEditOptions";
 import { usePendingChange } from "@/lib/register/usePendingChange";
+import { getActiveViewId } from "@/lib/register/active-view";
 import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
 
@@ -28,17 +29,27 @@ export function Inspector({
   onClose,
   onChanged,
   readOnly = false,
+  scope,
 }: {
   itemId: string | null;
   onClose: () => void;
   onChanged: () => void;
-  /** The university-wide browse's drill-through (10b of
-   *  ~/.claude/plans/three-product-changes-dynamic-thompson.md) — same data, same
-   *  fetch (with `?scope=UNIVERSITY` so an out-of-department item resolves instead of
-   *  404ing), but no editable field, no Position/custodian/owner transfer, no delete.
-   *  Seeing further grants nothing; the write door stays custody-based regardless of
-   *  what this prop does — this is a UI convenience, not the enforcement. */
+  /** No editable field, no Position/custodian/owner transfer, no delete — set either
+   *  for the university-wide browse's drill-through (10b) or for an access view with
+   *  `canEdit: false` (Track 1). Seeing further grants nothing; the write door stays
+   *  custody-based regardless of what this prop does — this is a UI convenience, not
+   *  the enforcement. */
   readOnly?: boolean;
+  /** Set to `"UNIVERSITY"` ONLY by the university browse's own drill-through — its
+   *  item may sit outside the caller's default scope entirely, same as `/items`'s own
+   *  `?scope=UNIVERSITY`. Omitted everywhere else (including a read-only access
+   *  view): those fetches carry the person's currently active view id instead (see
+   *  `load()` below), never a hardcoded scope override tied to `readOnly` — an
+   *  earlier version of this component conflated the two, which sent
+   *  `scope=UNIVERSITY` for an access-view-driven read-only Inspector and got refused
+   *  by `assertCanBrowseUniversity` for any account that isn't MANAGER/STORE_KEEPER/
+   *  a global role. */
+  scope?: "UNIVERSITY";
 }) {
   const [item, setItem] = useState<ItemDetailDto | null>(null);
   const [changes, setChanges] = useState<ItemChangeDto[] | null>(null);
@@ -62,7 +73,10 @@ export function Inspector({
     setChanges(null);
     setCategory(null);
     setError(null);
-    const scopeParam = readOnly ? "?scope=UNIVERSITY" : "";
+    const scopeParam = scope === "UNIVERSITY" ? "?scope=UNIVERSITY" : (() => {
+      const viewId = getActiveViewId();
+      return viewId ? `?view=${encodeURIComponent(viewId)}` : "";
+    })();
     Promise.all([
       api.get<ItemDetailDto>(`/resources/items/${itemId}${scopeParam}`),
       api.get<ItemChangeDto[]>(`/resources/items/${itemId}/changes${scopeParam}`),

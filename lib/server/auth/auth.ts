@@ -21,6 +21,7 @@ import { HttpError } from "../http-error";
 import * as mail from "../mail/mail";
 import * as scope from "../org/scope";
 import * as itemScope from "../resources/scope";
+import { listSummariesForPerson } from "../resources/views";
 import { generateToken, hashIp, hashToken } from "./token";
 
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7);
@@ -224,8 +225,9 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
         : null,
     canSeeCost: await scope.canSeeCost(user.id),
     scopeMode: await itemScope.defaultModeFor(user.id),
-    // Empty until Phase 11 seeds real AccessView rows — see MeContextDto's own note.
-    views: [],
+    // Real rows since Track 1 (~/.claude/plans/lets-merge-the-work-memoized-journal.md)
+    // — empty exactly as before until an administrator actually creates an AccessView.
+    views: await listSummariesForPerson(user.id),
   };
 }
 

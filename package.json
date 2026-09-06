@@ -15,7 +15,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "seed:resources": "tsx prisma/resource-seed.ts",
-    "bootstrap": "tsx prisma/bootstrap.ts"
+    "bootstrap": "tsx prisma/bootstrap.ts",
+    "seed:views": "tsx prisma/seed-views.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

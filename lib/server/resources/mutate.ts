@@ -6,6 +6,7 @@ import { HttpError } from "../http-error";
 import { instantiateMany, newId } from "@/lib/domain/instantiate";
 import type { Category } from "@/lib/domain/types";
 import * as scope from "./scope";
+import { resolveEffectiveView } from "./views";
 import { validatePropWrite } from "./category-props";
 import { assertNoCollision, assertValidCustomKey, validateCustomPropValue } from "./custom-props";
 import { toDomainCategoryMap } from "./adapt";
@@ -49,8 +50,12 @@ function scopeSnapshot(item: { ownerOrgNodeId: string; currentOrgNodeId: string;
   return { ownerOrgNodeId: item.ownerOrgNodeId, currentOrgNodeId: item.currentOrgNodeId, custodianId: item.custodianId };
 }
 
-export async function applyChange(actorId: string, input: ItemChangeInput, opts?: { dryRun?: boolean }): Promise<ItemChangeResultDto> {
-  await assertAuthorized(actorId, input);
+export async function applyChange(
+  actorId: string,
+  input: ItemChangeInput,
+  opts?: { dryRun?: boolean; viewId?: string | null },
+): Promise<ItemChangeResultDto> {
+  await assertAuthorized(actorId, input, opts?.viewId);
 
   let captured: ItemChangeResultDto | undefined;
   // Storage keys a successful commit makes unreferenced (a removed photo, a deleted
@@ -81,8 +86,8 @@ export async function applyChange(actorId: string, input: ItemChangeInput, opts?
 
 /** The preview variant — the same validate→apply path, nothing committed. What
  *  edit-impact previews and a pending request's "what would this do?" both use. */
-export function previewChange(actorId: string, input: ItemChangeInput): Promise<ItemChangeResultDto> {
-  return applyChange(actorId, input, { dryRun: true });
+export function previewChange(actorId: string, input: ItemChangeInput, viewId?: string | null): Promise<ItemChangeResultDto> {
+  return applyChange(actorId, input, { dryRun: true, viewId });
 }
 
 // ── Authorization — WHO may do this. Never re-derived at a call site; see
@@ -95,7 +100,9 @@ export function previewChange(actorId: string, input: ItemChangeInput): Promise<
 //    which roles a caller holds (custody is the `Item.custodianId` column, a data
 //    fact, not a role label). ──────────────────────────────────────────────────────
 
-async function assertAuthorized(actorId: string, input: ItemChangeInput): Promise<void> {
+async function assertAuthorized(actorId: string, input: ItemChangeInput, viewId?: string | null): Promise<void> {
+  await assertViewAllowsEdit(actorId, viewId);
+
   if (await scope.isSysAdmin(actorId)) return;
 
   if (input.kind === "createItem") {
@@ -133,6 +140,28 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput): Promis
   }
   if (input.kind === "transferItem") {
     await scope.assertCanMutate(actorId, [input.transfer.targetParentId]);
+  }
+}
+
+/**
+ * A view may WIDEN reads; it may never widen writes — see views.ts's own header for
+ * the full invariant. This is the write door's half of it: `canEdit: false` on the
+ * caller's EFFECTIVE view (their explicit choice if `viewId` names one they may
+ * actually pick, else their own default — `resolveEffectiveView`'s existing
+ * fallback) refuses every write while that view is active, for every role
+ * including SYS_ADMIN. That is deliberate, not an oversight of "SYS_ADMIN may act
+ * on anything unconditionally" above: choosing a read-only view (e.g. switching the
+ * sidebar to "Browse university-wide") is the person's own reversible UI choice —
+ * unlike custody/role scope, it grants nothing and blocks nothing that a switch of
+ * the same picker back to an editable view doesn't immediately undo. Runs BEFORE
+ * the SYS_ADMIN early-return above for exactly this reason. A person with no views
+ * assigned at all (today's production default) is unaffected —
+ * `resolveEffectiveView` returns `null` and this is a no-op, byte-identical to
+ * behaviour before Track 1 existed. */
+async function assertViewAllowsEdit(actorId: string, viewId: string | null | undefined): Promise<void> {
+  const effective = await resolveEffectiveView(actorId, viewId ?? null);
+  if (effective && !effective.canEdit) {
+    throw new HttpError(403, `"${effective.name}" is a read-only view — switch views to make changes.`);
   }
 }
 

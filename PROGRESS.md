@@ -2408,6 +2408,208 @@ its model that make porting it as-is the wrong move.
   statuses together. Verified after the modal and hierarchy corrections: TypeScript,
   all 292 tests, production build, and diff whitespace checks are clean.
 
+- **2026-09-06** — Milestone check-in: the app has been live on Vercel/Neon and
+  demonstrated to investors since the 2026-09-04 deploy. The user is now feeding it
+  real categories and registering the actual personnel who will use it day to day —
+  reframing the remaining work from "ship something working" back to "build out to a
+  verified MVP." Read through the full current-state and re-planned continuation at
+  `~/.claude/plans/lets-merge-the-work-memoized-journal.md`: `master` was 2 commits
+  behind the working branch (the dashboard-charts/AddModal-combobox/item-creation-
+  custom-props work) with nothing of its own — fast-forwarded and pushed
+  (`ccc8f23`), no merge conflicts. Confirmed the actual MVP gap against
+  `Direction.md`'s asks: access views, approval chains, transfers, purchasing, and
+  bookings all have complete Prisma models, Zod contracts, and (for views/approvals/
+  purchasing) ported pure domain logic with tests, but **zero server modules, zero
+  API routes, and zero UI** — confirmed by grep, no code outside `schema.prisma`
+  referenced `prisma.accessView`/`approvalPolicy`/`changeRequest`/`chainStep`/
+  `needLine`/`purchaseRequest`/`purchaseLine`/`purchaseEvent` before this round.
+  Agreed to build one track at a time, each planned to granular detail when reached;
+  access views first, since it's Direction.md's first ask and the seams
+  (`visibleItemWhere`'s mode/explicitNodeIds overrides, `MeContextDto.views`,
+  `computeScopedIds`'s override parameter) were already deliberately left open for
+  it.
+
+- **2026-09-06 (Track 1 — access views)** — Direction.md's first headline ask, done:
+  "admin can create views; and then he can give personnel types specific views" so a
+  custodian is filtered to their own custody, a department head to their subtree, an
+  office to everything or a deliberate slice of it — server module, API, admin UI,
+  and the sidebar picker that had sat inert since Phase 5.
+
+  **One invariant, stated in `views.ts`'s header and proven by test**: a view may
+  WIDEN reads; it may never widen writes. `scope.assertCanMutate`/
+  `assertCanCreateRoot` take no view input at all and stay the write floor
+  regardless of what a person can see — the only thing a view can do to a write is
+  narrow it further via `canEdit: false`.
+
+  **`lib/server/resources/views.ts`** (new, `import "server-only"`) —
+  `resolveEffectiveView(userId, chosenViewId)` is the one resolution point every
+  read and write threads through: loads `AccessView`+`AccessViewAudience` rows,
+  adapts them to `lib/domain/views.ts`'s shape, and runs that module's EXISTING
+  `resolveView`/`viewsForPerson` rather than re-implementing specificity ranking
+  (PERSON beats ROLE beats EVERYONE — load-bearing and already tested). Returns
+  `null` when the person has no matching views at all, which is what makes this
+  safe to ship onto a live system: with zero `AccessView` rows (today's production
+  state until an admin acts), every existing caller's default-scope resolution is
+  byte-identical to before this track existed. `resolveReadOverride(userId, sp)`
+  is the one place `?scope=UNIVERSITY` (10b, untouched, always gated first) and
+  `?view=<id>` (this track) both resolve into a single override — at most one is
+  ever honoured. Admin CRUD (`list`/`getOne`/`upsert`/`remove`) mirrors
+  `categories.ts`'s own pattern (audiences replaced wholesale on save, same as
+  `CategoryField` rows), gated `SYS_ADMIN`/`PROPERTY_ADMIN` — open item 4 of the
+  original replatforming plan, settled the same way as categories.
+
+  **Threading it through the read model** — `lib/server/resources/scope.ts`'s
+  `resolveScope`/`canSeeItem`/`assertCanSeeItem` gained an additive
+  `explicitNodeIds` parameter (existing 1-/2-arg call sites unaffected; the new
+  EXPLICIT_NODES branch only triggers when explicitly asked for, which nothing did
+  before). `items.ts`'s `computeScopedIds` — the one choke point — now takes a
+  `ScopeOverride` object (`{mode, explicitNodeIds}`) instead of a bare `ScopeMode`,
+  plus an `extraFilters` parameter applied as a mandatory server-side AND (an
+  `matchItems` pass over the view's saved `FilterState`, intersected into `base`
+  BEFORE `closed` is derived from it — never merged into the caller's own editable
+  filter state). `search`/`tree`/`facets`/`filterFields`/`summary`/`getOne` all
+  take the new shape; the 7 existing route handlers were mechanically updated from
+  `university ? "UNIVERSITY" : undefined` to `resolveReadOverride`'s result, with
+  `university-scope.spec.ts`'s own call sites updated to match (`"UNIVERSITY"` →
+  `{ mode: "UNIVERSITY" }`) — its 8 tests still pass, confirming zero behavior
+  change to the already-shipped 10b feature. `containers()` (the create/move
+  destination picker) deliberately does NOT take a view override — a write-adjacent
+  endpoint must never be widened by a view, matching the invariant.
+
+  **The write door** — `mutate.ts`'s `applyChange`/`previewChange` gained an
+  optional `viewId` and a new `assertViewAllowsEdit` check, run FIRST, before even
+  the SYS_ADMIN early-return. This is deliberate, not an oversight of "SYS_ADMIN
+  acts on anything unconditionally": choosing a read-only view (switching the
+  sidebar picker to "Browse university-wide") is the person's own reversible UI
+  choice, and it should mean "look but do not touch" regardless of role — switching
+  back immediately unblocks them. The write endpoint carries `?view=<id>` the same
+  way reads do.
+
+  **Wire/client** — `MeContextDto.views` returns real rows now (was hardcoded
+  `[]`). `lib/register/active-view.ts` (new) — a plain module-level store with
+  `useSyncExternalStore` (not a Context: the sidebar picker, `useRegisterState`,
+  and `useItemChange.ts`'s plain non-hook submit functions all need the same value
+  without a wrapper every one of them would sit under), localStorage-backed,
+  server snapshot always `null` — the same "match the server default first"
+  discipline `theme-context.tsx` established, avoiding that class of hydration
+  bug. `Sidebar.tsx`'s picker `<select>` (previously inert since Phase 5) is now
+  controlled and wired to it. `RegisterPage.tsx` derives `canEdit` from the
+  active view exactly the way the server resolves it, and hides "+ Add
+  resources"/the bulk toolbar (via `ResourceTable`'s existing `selectable` prop)
+  and passes `Inspector readOnly` when a canEdit:false view is active — the same
+  pattern 10b's `UniversityPage.tsx` already established, not a second one.
+
+  **A real bug found and fixed during live verification, not by inspection**:
+  `Inspector.tsx` computed its own fetch's scope param as `readOnly ? "?scope=
+  UNIVERSITY" : ""` — written back in 10b when `readOnly` and "viewing via the
+  university browse" were the same thing. Once `RegisterPage.tsx` ALSO sets
+  `readOnly` for a canEdit:false ACCESS VIEW (a different reason), opening any
+  item while "Browse university-wide" was active sent `scope=UNIVERSITY` and hit
+  `assertCanBrowseUniversity`'s real 403 for any account that isn't MANAGER/
+  STORE_KEEPER/a global role — a plain CUSTODIAN like the test account could not
+  drill into ANY item, including its own read-only-widened ones. Fixed by giving
+  `Inspector` an explicit `scope?: "UNIVERSITY"` prop (mirroring `FilterBar`'s own
+  established pattern) decoupled from `readOnly`; only `UniversityPage.tsx` sets
+  it. Everywhere else — including a read-only access view — Inspector now sends
+  the person's active view id instead, resolved through the exact same
+  `resolveReadOverride` path every other read uses.
+
+  **Rollout safety on a live system with real accounts already in it** —
+  `lib/domain/views.ts`'s `SEED_VIEWS` (one view per stakeholder level: custodian,
+  department head, the university offices, store keepers, read-only staff, plus
+  the university-wide browse everybody gets) is real production seed content but
+  is never auto-applied. New `lib/server/resources/views-rollout.ts` (deliberately
+  no `import "server-only"`, same reason `image-sniff.ts` carries none — it has to
+  run from a plain `tsx` script; the 3-line piece of `defaultModeFor` logic it
+  needs is duplicated rather than imported across that boundary, the same
+  trade-off `mutate.ts`'s own `itemCreateData` duplication already made) exports
+  `previewRollout`, and `prisma/seed-views.ts` (new, `npm run seed:views`) is
+  idempotent (upsert by the views' own stable ids, never deletes) and defaults to
+  a DRY RUN — always prints, per real account, which view they'd land on and
+  whether that NARROWS their current (zero-views) reach, and refuses to `--apply`
+  if anything narrows unless `--force` is also given. Run against the real dev
+  database (18 accounts): 0 would narrow — every role landed exactly on its
+  matching SEED_VIEWS entry.
+
+  New admin screen `components/admin/AccessViewsPage.tsx` at
+  `/admin/access-views` (`SYS_ADMIN`/`PROPERTY_ADMIN`, added to `lib/nav.ts`'s
+  Administration group): name/description, a `ScopeMode` picker with
+  `SCOPE_HELP` text, a unit checklist for EXPLICIT_NODES, an audience editor
+  (Everyone/Role/Person rows, add/remove), canEdit/active toggles, backed by new
+  `GET/POST /api/resources/access-views` and `GET/PATCH/DELETE .../[id]` routes.
+  **Disclosed scope trim, not a capability gap**: does not yet author a saved
+  `extraFilters` query through the register's own `FilterBar` — the four
+  `ScopeMode`s plus an explicit node list already cover every case Direction.md
+  actually asked for, and the server/wire layers already carry `extraFilters` in
+  full (proven by `views.spec.ts`'s own DB-backed test), so a saved-query
+  authoring UI is a self-contained follow-up whenever wanted, not missing
+  capability. `GET /api/people` widened from `SYS_ADMIN`/`MANAGER` to also allow
+  `PROPERTY_ADMIN` (POST/invite untouched) — needed for the PERSON-audience
+  picker, and PROPERTY_ADMIN already has university-wide reach via
+  `orgScope.hasGlobalReach`, so `people.list()`'s own scoping already returns
+  everyone for that role with no change to `people.ts` itself.
+
+  New tests: `lib/server/resources/views.spec.ts` (11 cases, DB-backed) — the
+  zero-views regression guard (a fresh account with no matching row resolves to
+  `null`, run FIRST in the file before any other test creates a view, since an
+  EVERYONE-audience fixture would otherwise contaminate it); PERSON beats ROLE
+  beats EVERYONE with no explicit choice; an explicit valid choice is honoured; an
+  invalid/foreign id falls back silently; `listSummariesForPerson`'s ordering;
+  EXPLICIT_NODES widening past a person's own MY_CUSTODY default; a saved
+  `extraFilters` query narrowing `search`/`summary` identically; a `canEdit:false`
+  view refusing a write the same account succeeds at without it — THE load-bearing
+  case; a UNIVERSITY canEdit:true view granting a non-custodian nothing on
+  someone else's item (`assertCanMutate` unaffected by read scope, by design).
+  One real test-isolation lesson worth keeping: this suite's spec files run
+  concurrently against the SAME shared dev database, so an EVERYONE-audience
+  fixture with `canEdit: false` — even created just to test specificity RANKING,
+  not canEdit — transiently refused every OTHER concurrently-running spec file's
+  SYS_ADMIN-driven writes, since EVERYONE literally matches the single shared
+  seeded admin account too. Fixed by keeping every SHARED-audience-type test
+  fixture (ROLE, EVERYONE) `canEdit: true`; only PERSON-scoped fixtures (which by
+  construction can never match an account outside the test's own cleanup list)
+  are ever `canEdit: false` in this file.
+
+  Verified: `npx tsc --noEmit` clean; `npm test` — 303/303 (11 new); `npm run
+  build` clean (`/admin/access-views` in the route list, `/api/resources/access-
+  views` × 2); `npx prisma validate`/`migrate status` clean (still 12 migrations —
+  the full `AccessView`/`AccessViewAudience` schema already existed from
+  replatforming Phase 2, so this track needed no new migration). Live in-browser,
+  the real acceptance test: applied `SEED_VIEWS` to the local dev database via
+  `seed-views.ts --apply`, signed in as the SE custodian (Girma Wolde, CUSTODIAN+
+  STAFF) — the picker offered exactly "My laboratories"/"My department"/"Browse
+  university-wide" in that order; switching to "Browse university-wide" widened
+  the dashboard from 186 to 740 resources (every department) and the register
+  correctly hid "+ Add resources" and every selection checkbox; opening a Chemical
+  Engineering item (this SE custodian's own department has no reach into it
+  otherwise) rendered fully read-only with complete history, no editable field, no
+  delete button (this is what caught the `Inspector` scope bug above); a direct
+  `fetch()` POST to `/api/resources/items/changes?view=view-browse` attempting to
+  rename that same item got back `403 {"message":"\"Browse university-wide\" is a
+  read-only view — switch views to make changes."}`, and the item's name/version
+  in the database were confirmed unchanged. Switching back to "My laboratories"
+  restored normal edit behavior — a real inline rename through the UI round-
+  tripped correctly (`POST .../changes?view=view-custodian` → 200), confirmed
+  applied via direct DB read, then reverted to its original value. Signed in
+  separately as `head.se@astu.edu.et` (MANAGER) and confirmed `/university`'s own
+  drill-through — untouched by this track except for the `Inspector` prop
+  rename — still worked correctly with `?scope=UNIVERSITY` (not `?view=`) after
+  the fix. Exercised the admin screen fully: created "Track1 Test View" (ORG_
+  SUBTREE, ROLE=SYS_ADMIN) through the real UI, confirmed it appeared correctly
+  in the list, deleted it through the real `ConfirmDialog`, confirmed it was gone.
+  **All fixtures created during this pass were cleaned up afterward**: the
+  applied `SEED_VIEWS` rows were removed from the local dev database (Track 1
+  ships disabled by default — an administrator applies them deliberately when
+  ready, not as a side effect of this session's own verification), restoring
+  `accessView` to 0 rows; a stray `__test-create-item-*` category/group pair
+  (2 rows, 0 items) left behind by an EARLIER, differently-interrupted test run
+  was also found and removed while checking dev-database state during this
+  pass — unrelated to this track's own tests, which clean up correctly on every
+  run, confirmed by 303/303 passing consistently across three consecutive full
+  suite runs afterward. Final counts: 18 users, 740 items (real data the user has
+  been adding since the 2026-09-04 baseline of 238 — not something this session
+  added), 0 access views, 5 org nodes.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

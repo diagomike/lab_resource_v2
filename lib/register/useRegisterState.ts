@@ -8,6 +8,7 @@ import type { FilterRule } from "@/lib/domain/filters";
 import { api, ApiError } from "@/lib/api";
 import { filterOperators, type ItemRowDto } from "@/lib/shared";
 import { toDomainItem } from "./adapt";
+import { useActiveViewId } from "./active-view";
 
 export type RegisterMode = "tree" | "rollup" | "flat";
 
@@ -115,10 +116,15 @@ function toQueryString(mode: RegisterMode, filters: RegisterFilters, extra?: Rec
   return s ? `?${s}` : "";
 }
 
-export function toApiParams(filters: RegisterFilters, scope?: "UNIVERSITY"): string {
+/** `viewId` (Track 1's access views) and `scope: "UNIVERSITY"` (10b) are mutually
+ *  exclusive on the wire — a page that sets `scope` never also has a view id to send
+ *  (see useRegisterState's own note), but if it somehow did, the server's
+ *  `resolveReadOverride` honours `scope` first regardless of what this sends. */
+export function toApiParams(filters: RegisterFilters, scope?: "UNIVERSITY", viewId?: string | null): string {
   const qp = new URLSearchParams();
   appendFilterParams(qp, filters);
   if (scope) qp.set("scope", scope);
+  else if (viewId) qp.set("view", viewId);
   const s = qp.toString();
   return s ? `?${s}` : "";
 }
@@ -141,12 +147,21 @@ const PAGE_SIZE = 50;
  * honours it re-checks `assertCanBrowseUniversity` server-side regardless of what
  * this hook sends. `/register` itself never passes this option; only `/university`
  * does — the same hook, parameterized, per that page's own "reuse, don't fork" note.
+ *
+ * The person's currently chosen access view (Track 1) rides along the same way, as
+ * `?view=<id>`, whenever `scope` is NOT set — `active-view.ts`'s `useActiveViewId()`,
+ * reactive so switching the sidebar's picker re-fetches without a navigation. Every
+ * endpoint that honours it re-resolves it server-side (`views.ts`'s
+ * `resolveEffectiveView`) exactly like `scope=UNIVERSITY` already does; this hook
+ * never decides what the view actually grants, only which id to ask for.
  */
 export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: RegisterMode }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const scope = opts?.scope;
+  const activeViewId = useActiveViewId();
+  const viewId = scope ? null : activeViewId;
 
   const mode = opts?.fixedMode ?? readMode(searchParams);
   const filters = useMemo(() => readFilters(searchParams), [searchParams]);
@@ -168,7 +183,7 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
     let cancelled = false;
     setRows(null);
     setError(null);
-    const apiParams = toApiParams(filters, scope);
+    const apiParams = toApiParams(filters, scope, viewId);
 
     const request =
       mode === "flat"
@@ -192,7 +207,7 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
     return () => {
       cancelled = true;
     };
-  }, [mode, filters, page, reloadToken, scope]);
+  }, [mode, filters, page, reloadToken, scope, viewId]);
 
   const setFilters = useCallback(
     (patch: Partial<RegisterFilters>) => {
@@ -265,6 +280,11 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
     filters,
     setFilters,
     clearFilters,
+    /** The view id actually in effect for this fetch (`null` under `scope:
+     *  "UNIVERSITY"`, or when no view is chosen) — for a caller that makes its OWN
+     *  separate request against the same scope (DashboardPage's `/summary` fetch) to
+     *  reuse via `toApiParams`, rather than re-deriving it. */
+    viewId,
     rows,
     rowNodes,
     /** Row-DTO lookup — the denormalised names (categoryName, ownerOrgNodeName, ...)

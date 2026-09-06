@@ -150,7 +150,7 @@ describe("university scope override — raw response body, cross-department", ()
   });
 
   it("the SAME MANAGER, with the UNIVERSITY override, sees the other department's item too", async () => {
-    const result = await items.search(seHeadId, { q: "University-Scope Item" }, 1, 50, "UNIVERSITY");
+    const result = await items.search(seHeadId, { q: "University-Scope Item" }, 1, 50, { mode: "UNIVERSITY" });
     const names = result.items.map((i) => i.name);
     expect(names).toContain("SE University-Scope Item");
     expect(names).toContain("ChemE University-Scope Item");
@@ -158,13 +158,13 @@ describe("university scope override — raw response body, cross-department", ()
 
   it("getOne with the UNIVERSITY override resolves an out-of-department item that would otherwise 404", async () => {
     await expect(scope.assertCanSeeItem(seHeadId, chemItemId)).rejects.toMatchObject({ status: 404 });
-    const detail = await items.getOne(seHeadId, chemItemId, "UNIVERSITY");
+    const detail = await items.getOne(seHeadId, chemItemId, { mode: "UNIVERSITY" });
     expect(detail.name).toBe("ChemE University-Scope Item");
   });
 
   it("summary's byEffectiveStatus/total widen under the UNIVERSITY override", async () => {
     const ordinary = await items.summary(seHeadId);
-    const university = await items.summary(seHeadId, "UNIVERSITY");
+    const university = await items.summary(seHeadId, { mode: "UNIVERSITY" });
     expect(university.total).toBeGreaterThanOrEqual(ordinary.total + 1); // at least ChemE's own item joins the count
   });
 

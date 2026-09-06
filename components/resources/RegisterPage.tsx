@@ -5,6 +5,8 @@ import type { CategoryFieldDto, ContainerOptionDto, ResourceCategoryDto } from "
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { useEditOptions } from "@/lib/register/useEditOptions";
+import { useActiveViewId } from "@/lib/register/active-view";
+import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import { Panel, Screen, ErrorNote, Button, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
@@ -24,6 +26,18 @@ function RegisterPageInner() {
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const allExpanded = state.expanded === true;
   const options = useEditOptions();
+
+  // "Look but do not touch" — the currently active access view's own canEdit flag
+  // (Track 1 of ~/.claude/plans/lets-merge-the-work-memoized-journal.md), mirrored
+  // client-side from the exact same fallback the server's `resolveEffectiveView`
+  // uses (chosen view if it's one of theirs, else their most specific default). The
+  // server enforces this independently in mutate.ts's `assertViewAllowsEdit` — this
+  // is only about not offering what a write would then refuse, same as everywhere
+  // else in this app.
+  const { me } = useAuth();
+  const activeViewId = useActiveViewId();
+  const views = me?.views ?? [];
+  const canEdit = views.length === 0 || (views.find((v) => v.id === activeViewId) ?? views[0])?.canEdit !== false;
 
   useEffect(() => {
     api
@@ -129,9 +143,11 @@ function RegisterPageInner() {
         title="Register"
         actions={
           <div className="flex items-center gap-10">
-            <Button variant="primary" onClick={() => setAddOpen(true)}>
-              + Add resources
-            </Button>
+            {canEdit && (
+              <Button variant="primary" onClick={() => setAddOpen(true)}>
+                + Add resources
+              </Button>
+            )}
             {state.mode !== "flat" && (
               <button
                 onClick={() => state.setExpanded(allExpanded ? {} : true)}
@@ -289,6 +305,7 @@ function RegisterPageInner() {
               onSelectionChange={state.setSelection}
               onInspect={setInspectId}
               showPath={state.mode === "flat"}
+              selectable={canEdit}
             />
 
             {state.mode === "flat" && state.total > state.pageSize && (
@@ -310,9 +327,9 @@ function RegisterPageInner() {
         )}
       </Panel>
 
-      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} />
+      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} readOnly={!canEdit} />
 
-      <AddModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={state.refetch} />
+      {canEdit && <AddModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={state.refetch} />}
 
       {propField && (
         <BulkPropModal

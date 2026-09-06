@@ -12,7 +12,8 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireSession(request);
     const body = await parseBody(PreviewItemChangeInput, request);
-    const result = await previewChange(user.id, body.change);
+    const viewId = request.nextUrl.searchParams.get("view");
+    const result = await previewChange(user.id, body.change, viewId);
     return NextResponse.json<ItemChangeResultDto>(result, { status: 200 });
   } catch (err) {
     return errorResponse(err);

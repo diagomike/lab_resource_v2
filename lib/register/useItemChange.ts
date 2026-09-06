@@ -2,6 +2,18 @@
 
 import type { ItemChangeInput, ItemChangeResultDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
+import { getActiveViewId } from "./active-view";
+
+/** `?view=<id>` — the person's currently active access view (Track 1), so the
+ *  server's write-side `canEdit: false` gate (mutate.ts's `assertViewAllowsEdit`)
+ *  checks the SAME view the sidebar picker and the read side are using, not
+ *  whatever their default happens to be. Omitted entirely when no view is chosen —
+ *  `resolveEffectiveView` then falls back to the person's own default exactly as it
+ *  always has. */
+function viewParam(): string {
+  const id = getActiveViewId();
+  return id ? `?view=${encodeURIComponent(id)}` : "";
+}
 
 export interface VersionConflict {
   itemId: string;
@@ -27,7 +39,7 @@ function toResult(e: unknown, fallback: string): SubmitResult {
  *  rather than reimplemented per component. */
 export async function submitChange(input: ItemChangeInput): Promise<SubmitResult> {
   try {
-    const result = await api.post<ItemChangeResultDto>("/resources/items/changes", input);
+    const result = await api.post<ItemChangeResultDto>(`/resources/items/changes${viewParam()}`, input);
     return { ok: true, result };
   } catch (e) {
     return toResult(e, "Could not save this change.");
@@ -40,7 +52,7 @@ export async function submitChange(input: ItemChangeInput): Promise<SubmitResult
  *  shows it, and to preview a bulk edit's blast radius. */
 export async function previewItemChange(input: ItemChangeInput): Promise<SubmitResult> {
   try {
-    const result = await api.post<ItemChangeResultDto>("/resources/items/changes/preview", { change: input });
+    const result = await api.post<ItemChangeResultDto>(`/resources/items/changes/preview${viewParam()}`, { change: input });
     return { ok: true, result };
   } catch (e) {
     return toResult(e, "Could not preview this change.");

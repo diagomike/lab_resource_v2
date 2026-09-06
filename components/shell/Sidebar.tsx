@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { navFor, screenKeyForPath } from "../../lib/nav";
 import { useAuth } from "../../lib/auth-context";
 import { SCOPE_LABEL } from "@/lib/domain/views";
+import { useActiveViewId, setActiveViewId } from "@/lib/register/active-view";
 import type { ScopeDto } from "@/lib/shared";
 
 /** "L2 · leaf · 1 unit" or, for the university offices, "university-wide · 14 units" */
@@ -31,6 +32,13 @@ export default function Sidebar({
   const isAdmin = roles.includes("SYS_ADMIN");
   const activeKey = screenKeyForPath(pathname);
   const views = me?.views ?? [];
+  const activeViewId = useActiveViewId();
+  /** The picker's own effective selection — the person's stored choice if it still
+   *  names one of THEIR available views, else their most specific default (index 0,
+   *  `viewsForPerson`'s own ordering). Mirrors `resolveEffectiveView`'s exact
+   *  fallback server-side, so what the dropdown shows selected is what the server
+   *  will actually apply. */
+  const selectedViewId = views.find((v) => v.id === activeViewId)?.id ?? views[0]?.id ?? "";
 
   const go = (path: string) => {
     router.push(path);
@@ -78,12 +86,18 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* Degrades to nothing until Phase 11 seeds real AccessView rows — see
-            MeContextDto's own note. */}
+        {/* Degrades to nothing until an administrator creates an AccessView (Track 1)
+            — see MeContextDto's own note. Picking one re-fetches every open read
+            (useRegisterState subscribes to the same store) and is re-validated
+            server-side on every request; it is never trusted on its own. */}
         {views.length > 0 && (
           <label className="block mt-8">
             <span className="text-9.5 uppercase tracking-label text-faint font-semibold">Access view</span>
-            <select className="w-full mt-3 h-24 border border-border2 bg-panel rounded-3 text-11 px-6 outline-none focus:border-accent">
+            <select
+              value={selectedViewId}
+              onChange={(e) => setActiveViewId(e.target.value || null)}
+              className="w-full mt-3 h-24 border border-border2 bg-panel rounded-3 text-11 px-6 outline-none focus:border-accent"
+            >
               {views.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}

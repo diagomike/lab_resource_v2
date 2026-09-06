@@ -138,7 +138,7 @@ function UniversityPageInner() {
         )}
       </Panel>
 
-      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={() => {}} readOnly />
+      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={() => {}} readOnly scope="UNIVERSITY" />
     </Screen>
   );
 }

@@ -27,6 +27,15 @@ export interface ResolvedScope {
   custodyItemIds: string[] | null;
 }
 
+/** A caller-supplied read scope, replacing the person's own default — either the
+ *  university-wide browse (`{ mode: "UNIVERSITY" }`, 10b) or an EXPLICIT_NODES access
+ *  view (Track 1 of ~/.claude/plans/lets-merge-the-work-memoized-journal.md), which is
+ *  the only mode that needs the second field. */
+export interface ScopeOverride {
+  mode?: ScopeMode;
+  explicitNodeIds?: string[];
+}
+
 /** What a person sees before an admin has said otherwise — lib/domain's
  *  defaultScopeFor, re-derived against the production role set. Custody is checked
  *  before management on purpose: someone who is both a custodian and a head answers
@@ -44,10 +53,11 @@ export async function defaultModeFor(userId: string): Promise<ScopeMode> {
  *  replaces the caller's own default (the university-wide browse, 10b of
  *  ~/.claude/plans/three-product-changes-dynamic-thompson.md — always gate the call
  *  site with `assertCanBrowseUniversity` first; this function trusts its caller). */
-export async function resolveScope(userId: string, modeOverride?: ScopeMode): Promise<ResolvedScope> {
+export async function resolveScope(userId: string, modeOverride?: ScopeMode, explicitNodeIds?: string[]): Promise<ResolvedScope> {
   const mode = modeOverride ?? (await defaultModeFor(userId));
   if (mode === "UNIVERSITY") return { mode, visibleNodeIds: [], custodyItemIds: null };
   if (mode === "MY_CUSTODY") return { mode, visibleNodeIds: [], custodyItemIds: await custodyItemIdsOf(userId) };
+  if (mode === "EXPLICIT_NODES") return { mode, visibleNodeIds: explicitNodeIds ?? [], custodyItemIds: null };
   return { mode, visibleNodeIds: await orgScope.visibleNodeIds(userId), custodyItemIds: null };
 }
 
@@ -98,8 +108,8 @@ export async function visibleItemWhere(
  * Write authorization (`assertCanMutate`, below) is a separate, narrower question —
  * custody-based, not scope-based; see its own header comment.
  */
-export async function canSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode): Promise<boolean> {
-  const where = await visibleItemWhere(userId, modeOverride ? { mode: modeOverride } : undefined);
+export async function canSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode, explicitNodeIds?: string[]): Promise<boolean> {
+  const where = await visibleItemWhere(userId, modeOverride ? { mode: modeOverride, explicitNodeIds } : undefined);
   const descendantIds = await descendantIdsIncludingSelf(itemId);
   if (!descendantIds.length) return false;
   const hit = await prisma.item.count({ where: { AND: [where, { id: { in: descendantIds }, deletedAt: null }] } });
@@ -108,8 +118,8 @@ export async function canSeeItem(userId: string, itemId: string, modeOverride?: 
 
 /** Throws 404 (not 403) for an out-of-scope item — a 403 would confirm the row
  *  exists. */
-export async function assertCanSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode): Promise<void> {
-  if (!(await canSeeItem(userId, itemId, modeOverride))) throw new HttpError(404, "Resource not found");
+export async function assertCanSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode, explicitNodeIds?: string[]): Promise<void> {
+  if (!(await canSeeItem(userId, itemId, modeOverride, explicitNodeIds))) throw new HttpError(404, "Resource not found");
 }
 
 async function descendantIdsIncludingSelf(itemId: string): Promise<string[]> {
