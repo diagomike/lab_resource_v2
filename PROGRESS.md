@@ -2610,6 +2610,156 @@ its model that make porting it as-is the wrong move.
   been adding since the 2026-09-04 baseline of 238 — not something this session
   added), 0 access views, 5 org nodes.
 
+- **2026-09-07/08 (Track 2 — lab draft/visible/ideal states)** — Started as "wire up
+  the already-built multi-office approval-chain engine" (`lib/domain/approvals.ts`,
+  511 lines/45 tests, `ApprovalPolicy`/`ChangeRequest`/`ChainStep` in Prisma). Three
+  rounds of clarification with the user revealed the actual day-to-day workflow
+  wanted is different: a **draft/publish model with exactly one decider (the
+  department head)**, plus a separate **ideal-vs-actual planning concept** feeding
+  procurement — not a multi-office walked chain for ordinary lab edits. That engine
+  is retargeted, not wasted: it is now understood to be Track 3's tool (cross-lab
+  transfers: owner head → target head → receipt) and Track 4's (the procurement
+  review chain — department → dean → AVP → procurement office, "confirming a
+  purchase ask is not outrageous"). Confirmed directly against the live database
+  before finalizing the design: **no `OFFICE`-kind `OrgNode` and no
+  `PROCUREMENT`-role account exist yet**, which is exactly why `SEED_POLICIES`'
+  `"proc-office"` placeholder could not have been applied safely — a real finding
+  that shaped deferring the whole chain-engine wiring to Track 4, once that office
+  exists. Full design at `~/.claude/plans/lets-merge-the-work-memoized-journal.md`
+  §5. Built on a dedicated branch, `track-2-lab-drafts`, off `master` — the user
+  asked that remaining tracks stop landing on `master`/`origin` directly the way
+  Track 0/1 had.
+
+  **The model**: every lab (a root `Item` a custodian custodies) has three views of
+  its own subtree — VISIBLE (today's live `Item` rows, unchanged), DRAFT (free
+  CRUD within the lab, no approval to stage), and IDEAL (a per-category target
+  quantity, e.g. "8 Computers"). Committing publishes to VISIBLE (default) or
+  IDEAL; both need exactly one approval — the lab's owning department's head,
+  resolved LIVE (a vacant post blocks, a headship change redirects who decides,
+  with no rebuild — the same invariant the untouched chain engine already proves,
+  applied here to a single step). Rejecting leaves the draft intact for revision
+  (the user's explicit choice) rather than discarding it. Procurement's input is
+  derived, not authored: per lab/category, a quantity gap (ideal − actual) and a
+  list of currently BROKEN/IMPAIRED items — Track 4 will let a head adjust this
+  before it becomes a real `PurchaseRequest`.
+
+  **Schema** (additive migration `20260907183910_track2_lab_drafts`):
+  `OrgNode.draftWorkflowEnabled` (default `false` — the per-department rollout
+  switch), `ItemDraftChange` (one staged operation; `payload` is an
+  `ItemChangeInput` for VISIBLE or `{categoryId, qty}` for IDEAL — deliberately
+  NOT unioned into `ItemChangeInput` itself, since an ideal-target proposal never
+  reaches `applyChange`), `LabCommitRequest` (reuses the existing `RequestStatus`
+  enum verbatim, including `STALE` for a version conflict at approval time), and
+  `LabIdealTarget` (the approved target quantities). A NEW, smaller pair of tables
+  rather than reusing `ChangeRequest`/`ChainStep`: those are shaped for one
+  operation decided by a WALKED multi-step chain; a lab commit is MANY
+  heterogeneous operations decided by exactly ONE fixed person.
+
+  **`lib/server/resources/lab-drafts.ts`** (new, `import "server-only"`) —
+  `stageChange` (custody-checked; for VISIBLE, runs the existing `previewChange`
+  first so a doomed edit is caught before it's even staged; only
+  setName/setStatus/setQuantity/deleteItem/moveInTree-within-the-lab/createItem-
+  into-the-lab are stageable — `transferItem`/`setOwnerOrg`/`setCurrentOrg`/
+  `setCustodian` and a brand-new root are explicitly excluded, matching the user's
+  own line: "within his own lab, everything is in his power... but move to other
+  people's owned things are an issue"), `submitDraft` (groups OPEN rows under one
+  `batchId`, snapshots `expectedVersions` into `baseVersions` — the SAME
+  optimistic-concurrency map `assertVersionsMatch` already uses, so staleness at
+  approval time is the identical mechanism as a direct edit, no new check
+  invented), `decideCommit` (resolves the decider directly via `OrgNode.userId`,
+  no chain walk; REJECT resets covered rows to `OPEN`; APPROVE+VISIBLE pre-flights
+  every staged operation as a dry run before applying any for real — "nothing
+  partially applies" in practice, though not FORMALLY atomic across N separate
+  `applyChange` transactions, documented as a known, narrow residual race;
+  APPROVE+IDEAL upserts `LabIdealTarget` directly, no `Item` write at all),
+  `getIdealVsActual` (per category: target, live count via the exact same
+  `computeStatuses`/`NEEDS_ATTENTION` the register/dashboard already use — not the
+  raw stored status column, so a container rolled up as IMPAIRED is caught too).
+
+  **A real authorization gap found live, not by inspection.** Verifying the full
+  flow in-browser (stage → submit → approve as `head.se@astu.edu.et` → confirmed
+  in Postgres) surfaced that the ORDINARY direct-write endpoint
+  (`POST /api/resources/items/changes`) was completely unaware of
+  `draftWorkflowEnabled` — a department could opt in and custodians could just
+  keep calling the old endpoint, making the toggle purely cosmetic. Fixed with
+  `mutate.ts`'s new `assertDraftWorkflowNotBlocking`, run for every non-SYS_ADMIN
+  actor right after the SYS_ADMIN bypass: if any touched item's owning unit has
+  the workflow on, the direct write is refused with a message pointing at
+  staging. This in turn required a `bypassDraftWorkflowBlock` opt threaded through
+  `applyChange`/`previewChange`, used ONLY by `lab-drafts.ts`'s own three internal
+  calls (the pre-stage preview, the pre-flight loop, and the real apply loop) —
+  those ARE the legitimate conclusion of the workflow the block exists to
+  require, not a bypass attempt. Deliberately re-implemented rather than imported
+  from `lab-drafts.ts` (which already calls `applyChange`/`previewChange`) to
+  avoid a circular module dependency. Added as its own regression test
+  (`lab-drafts.spec.ts`'s "toggle on — the direct write door refuses to be
+  bypassed") the moment it was found, alongside every other case.
+
+  **UI**: Org Studio's node inspector gained a "Resource drafts" checkbox
+  (reversible, purely additive — applies immediately with no confirmation,
+  matching this app's own rule for that class of action).
+  `components/resources/LabDraftPanel.tsx` (new) is the custodian's staging area
+  — opened via Inspector's new "Manage draft…" button (shown only when viewing a
+  lab root you yourself custody): a form to stage the four common corrections
+  against any item in the lab (fetched via the existing `/items/tree` and
+  filtered client-side to the lab's own subtree), a list of OPEN staged changes
+  with per-row Withdraw and a batch "Submit for approval", and an "Ideal state"
+  section (stage a target quantity per category, plus a live ideal/actual/gap/
+  needs-attention table). `components/resources/ApprovalsPage.tsx` replaces the
+  `/approvals` `ComingSoon` with "Routed to me"/"Raised by me" tabs over
+  `LabCommitRequestDto`, each request showing its full staged diff and
+  Approve/Reject through the existing `ConfirmDialog` pattern — createItem/
+  moveInTree/images/custom-properties staging exists server-side already but has
+  no UI affordance yet, a disclosed trim rather than a capability gap.
+
+  **`lib/server/resources/lab-drafts.spec.ts`** (new, DB-backed, 11 cases,
+  isolated on a freshly created orphan test `OrgNode` rather than the shared
+  seed departments — Track 1's `views.spec.ts` had briefly collided with
+  concurrently-running spec files by mutating a SHARED node's state; this file
+  creates and deletes its own): the toggle-off regression guard (direct staging
+  refused, byte-identical to pre-Track-2 otherwise), the toggle-on direct-write
+  block and its bypass-for-legitimate-callers counterpart, staging accumulates
+  heterogeneous changes untouched until approval, a vacant headship blocks
+  everyone including the requester and self-heals the instant someone is
+  appointed, approval-to-VISIBLE applies through the unmodified write door with
+  correct audit attribution, approval-to-IDEAL touches only `LabIdealTarget`,
+  rejection resets to `OPEN` rather than discarding, and `getIdealVsActual`
+  matches the user's own worked example exactly (ideal 8, actual 6 → gap 2).
+
+  **Verified live**, signed in as `custodian.se@astu.edu.et` and
+  `head.se@astu.edu.et` against the real dev database (not a throwaway fixture):
+  enabled the toggle for Software Engineering as SYS_ADMIN through the real Org
+  Studio UI; as the custodian, opened "SE Lab X Software Lab 3" (their own real
+  lab), staged a status change on a real RAM item to BROKEN through the real
+  `LabDraftPanel`, confirmed the live item was untouched while staged, submitted;
+  as the head, saw the pending request in a real Approvals inbox with the
+  correct diff and requester name, approved it through the real `ConfirmDialog`
+  — confirmed in Postgres directly that the RAM item's status flipped to BROKEN
+  (version bumped) and its `ItemChange` row's `actorId` is the ORIGINAL
+  REQUESTER (Girma Wolde), not the approving head, proving "a routed-and-
+  approved change produces a record identical to applying it directly" holds
+  for this simpler model too. Separately verified rejection end-to-end (staged a
+  rename, submitted, rejected as the head with a note, confirmed as the
+  custodian that the draft was back at `OPEN` and the live item's name was
+  unchanged) and the direct-write block itself (a raw `fetch()` POST to the
+  ordinary write endpoint while the toggle was on got back `403` naming the
+  department by name). `npx tsc --noEmit`, `npm test` (314 tests — the pre-
+  existing shared-dev-database test-concurrency flakiness this file already
+  documented elsewhere surfaced twice during this round, in files this track
+  never touched; both times a clean immediate re-run confirmed it was transient,
+  not a regression), `npm run build`, `npx prisma validate`/`migrate status` all
+  clean. **All fixtures cleaned up afterward**: `draftWorkflowEnabled` reset to
+  `false` on every `OrgNode` (confirmed via direct query), the RAM item reverted
+  to `WORKING` through a real audit-logged update (not a raw revert) rather than
+  left as demo-data noise, the two `LabCommitRequest`/one `ItemDraftChange` test
+  rows deleted (working-state tables, not a permanent audit log — unlike
+  `ItemChange`, leaving them would show as stray entries in a real person's own
+  "Raised by me" tab), and a stray `__test-views-*` category/group pair (0 items)
+  left behind by an earlier, differently-interrupted `views.spec.ts` run —
+  unrelated to this track — found and removed while auditing dev-database state
+  during this pass. Final counts unchanged from before this round: 18 users, 740
+  items, 6 access views, 5 org nodes, all `draftWorkflowEnabled: false`.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

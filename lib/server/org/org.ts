@@ -21,6 +21,7 @@ export async function list(activeOnly: boolean): Promise<OrgNodeDto[]> {
     occupant: n.user ? { id: n.user.id, name: n.user.name, email: n.user.email } : null,
     // TODO: fold in owned Location/Asset/StockLine/etc. counts once those modules ship.
     hasOwnedContent: n.residents.length > 0,
+    draftWorkflowEnabled: n.draftWorkflowEnabled,
   }));
 }
 

@@ -111,6 +111,15 @@ export const stepStatuses = ["PENDING", "WAITING", "APPROVED", "REJECTED", "SKIP
 export const StepStatusSchema = z.enum(stepStatuses);
 export type StepStatus = (typeof stepStatuses)[number];
 
+// ── Track 2: lab draft/visible/ideal ────────────────────────────────────
+export const draftTargetKinds = ["VISIBLE", "IDEAL"] as const;
+export const DraftTargetKindSchema = z.enum(draftTargetKinds);
+export type DraftTargetKind = (typeof draftTargetKinds)[number];
+
+export const draftChangeStatuses = ["OPEN", "SUBMITTED", "APPLIED"] as const;
+export const DraftChangeStatusSchema = z.enum(draftChangeStatuses);
+export type DraftChangeStatus = (typeof draftChangeStatuses)[number];
+
 /** Which selector produced a ChainStep, so it can say how to re-resolve itself.
  *  Authorization must not hang off display text. */
 export const stepSelectorTypes = [

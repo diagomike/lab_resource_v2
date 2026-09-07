@@ -101,6 +101,9 @@ model User {
   purchaseRequestsRaised PurchaseRequest[]    @relation("PurchaseRequestRaisedBy")
   purchaseLinesReceived  PurchaseLine[]       @relation("PurchaseLineReceivedBy")
   purchaseEventsLogged   PurchaseEvent[]      @relation("PurchaseEventBy")
+  labCommitsRequested LabCommitRequest[] @relation("LabCommitRequester")
+  labCommitsDecided   LabCommitRequest[] @relation("LabCommitDecidedBy")
+  labDraftItemsStaged ItemDraftChange[]  @relation("DraftChangeAuthor")
 
   @@index([emailLower])
   @@index([homeNodeId])
@@ -182,6 +185,12 @@ model OrgNode {
   /// Stable short key ("SE", "CHEM") — dense-table display AND the key a data importer
   /// resolves against instead of a live-database cuid. Optional: not every node needs one.
   code      String?     @unique
+  /// Track 2 — per-department activation for the lab draft/visible/ideal workflow.
+  /// Default false: a department's custodians keep editing directly (today's
+  /// behaviour, unchanged) until an administrator opts THIS department in. Read by
+  /// lab-drafts.ts before staging/submitting anything for a lab owned here — never
+  /// inferred from row counts elsewhere.
+  draftWorkflowEnabled Boolean @default(false)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -355,6 +364,7 @@ model ResourceCategory {
   templateAsChild  CategoryTemplateChild[] @relation("TemplateChild")
   needLines        NeedLine[]
   purchaseLines    PurchaseLine[]
+  labIdealTargets  LabIdealTarget[]
 
   /// This category's own allow-list when its OWN placement is ONLY_LISTED — the
   /// categories it may be placed directly inside.
@@ -492,6 +502,13 @@ model Item {
   custodian    User             @relation("ItemCustodian", fields: [custodianId], references: [id], onDelete: Restrict)
   images       ItemImage[]
   imageUploads ImageUpload[]
+
+  /// Track 2 — lab draft/visible/ideal states. Populated only when this item is itself
+  /// a lab root (a draft change/commit request/ideal target is always keyed by the LAB,
+  /// never by an arbitrary descendant item) — nothing here for an ordinary item.
+  labDraftChanges   ItemDraftChange[]  @relation("LabDraftChanges")
+  labCommitRequests LabCommitRequest[] @relation("LabCommitRequestLab")
+  labIdealTargets   LabIdealTarget[]   @relation("LabIdealTargets")
 
   @@unique([sourceSystem, sourceKey])
   @@index([parentId])
@@ -981,4 +998,107 @@ model PurchaseEvent {
   by       User            @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
 
   @@index([purchaseId, at])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 2 — lab draft/visible/ideal states. See
+// ~/.claude/plans/lets-merge-the-work-memoized-journal.md §5 for the full design.
+//
+// A custodian free-edits their own lab in DRAFT (ItemDraftChange rows — no approval
+// needed to stage). Submitting a batch creates ONE LabCommitRequest, decided by
+// exactly the lab's owning department's head (no multi-office chain — the generic
+// ApprovalPolicy/ChainStep engine elsewhere in this schema is reserved for Track 3's
+// transfers and Track 4's procurement review, which genuinely need a walked chain).
+// Approval to VISIBLE applies every staged operation through mutate.ts's existing,
+// unmodified applyChange — one write door, still. Approval to IDEAL instead upserts
+// LabIdealTarget rows directly (not an Item write at all).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum DraftTargetKind {
+  /// The custodian's default: "here is what my lab actually now has."
+  VISIBLE
+  /// The custodian's explicit alternative: "this is what my lab's target/optimal
+  /// state should be" — never applied to a live Item, only to LabIdealTarget.
+  IDEAL
+}
+
+enum DraftChangeStatus {
+  /// Staged, not yet part of any submitted batch. Freely edited/withdrawn.
+  OPEN
+  /// Part of a batch a LabCommitRequest is deciding. Reset to OPEN on rejection —
+  /// never deleted, never silently discarded (the user's own explicit choice).
+  SUBMITTED
+  /// The covering LabCommitRequest was approved and this row's payload was applied.
+  APPLIED
+}
+
+/// One staged, not-yet-applied operation against a lab's own subtree. `payload`'s
+/// shape depends on `targetKind`: VISIBLE stores an ItemChangeInput-shaped operation
+/// (the exact vocabulary mutate.ts's write door already validates — createItem,
+/// setStatus, setProperty, deleteItem, setQuantity, ...); IDEAL stores a
+/// `{ categoryId, qty }` pair for `getIdealVsActual`'s target table. Deliberately NOT
+/// unioned into ItemChangeInput itself — an ideal-target proposal never reaches
+/// applyChange, so it has no business in that door's own vocabulary.
+model ItemDraftChange {
+  id        String            @id @default(cuid())
+  labItemId String
+  authorId  String
+  targetKind DraftTargetKind
+  payload   Json
+  status    DraftChangeStatus @default(OPEN)
+  /// Set when submitted — groups every row one submission covers. Null while OPEN.
+  batchId   String?
+  createdAt DateTime          @default(now())
+
+  lab    Item @relation("LabDraftChanges", fields: [labItemId], references: [id], onDelete: Cascade)
+  author User @relation("DraftChangeAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([labItemId, status])
+  @@index([batchId])
+}
+
+/// The one decision a submitted draft batch needs — the lab's owning department's
+/// head, resolved live via the org chart (never a frozen id; a vacant post BLOCKS,
+/// exactly like the generic chain engine's own already-proven invariant, just applied
+/// to a single step here instead of a walked one).
+model LabCommitRequest {
+  id           String        @id @default(cuid())
+  labItemId    String
+  targetKind   DraftTargetKind
+  requesterId  String
+  /// The ItemDraftChange rows this request covers (their shared batchId).
+  batchId      String
+  status       RequestStatus @default(PENDING)
+  /// Reuses mutate.ts's own expectedVersions shape verbatim — keyed by item id,
+  /// re-checked at approval time by the SAME assertVersionsMatch a direct edit uses.
+  baseVersions Json
+  note         String?
+  decidedById  String?
+  decidedAt    DateTime?
+  resolution   String?
+  createdAt    DateTime      @default(now())
+
+  lab       Item  @relation("LabCommitRequestLab", fields: [labItemId], references: [id], onDelete: Cascade)
+  requester User  @relation("LabCommitRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  decidedBy User? @relation("LabCommitDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([labItemId, status])
+  @@index([requesterId])
+  @@index([batchId])
+}
+
+/// The APPROVED (committed) ideal target for one category within one lab — "this lab
+/// should have 8 Computers." A PROPOSAL to change one is just another
+/// ItemDraftChange row (targetKind: IDEAL); this table only ever holds what a
+/// department head has actually approved.
+model LabIdealTarget {
+  id         String @id @default(cuid())
+  labItemId  String
+  categoryId String
+  idealQty   Int
+
+  lab      Item             @relation("LabIdealTargets", fields: [labItemId], references: [id], onDelete: Cascade)
+  category ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([labItemId, categoryId])
 }
