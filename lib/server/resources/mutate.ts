@@ -53,9 +53,9 @@ function scopeSnapshot(item: { ownerOrgNodeId: string; currentOrgNodeId: string;
 export async function applyChange(
   actorId: string,
   input: ItemChangeInput,
-  opts?: { dryRun?: boolean; viewId?: string | null },
+  opts?: { dryRun?: boolean; viewId?: string | null; viaApprovalEngine?: boolean },
 ): Promise<ItemChangeResultDto> {
-  await assertAuthorized(actorId, input, opts?.viewId);
+  await assertAuthorized(actorId, input, opts?.viewId, opts?.viaApprovalEngine);
 
   let captured: ItemChangeResultDto | undefined;
   // Storage keys a successful commit makes unreferenced (a removed photo, a deleted
@@ -100,10 +100,23 @@ export function previewChange(actorId: string, input: ItemChangeInput, viewId?: 
 //    which roles a caller holds (custody is the `Item.custodianId` column, a data
 //    fact, not a role label). ──────────────────────────────────────────────────────
 
-async function assertAuthorized(actorId: string, input: ItemChangeInput, viewId?: string | null): Promise<void> {
+async function assertAuthorized(actorId: string, input: ItemChangeInput, viewId?: string | null, viaApprovalEngine?: boolean): Promise<void> {
   await assertViewAllowsEdit(actorId, viewId);
 
   if (await scope.isSysAdmin(actorId)) return;
+
+  if (input.kind === "transferItem" && !viaApprovalEngine) {
+    // Track 3 (~/.claude/plans/lets-merge-the-work-memoized-journal.md §6.2): every
+    // transfer, even one where the actor already custodies both ends, must be
+    // REQUESTED through lib/server/resources/approvals.ts — which itself applies
+    // immediately when the resolved chain turns out to be entirely self-held, so
+    // this refusal costs nothing for that case, it only closes the direct door.
+    // Without this, a legacy direct call to this write door would let anyone
+    // custodying both ends skip the chain engine entirely, making it optional —
+    // the same shape of gap Track 2 found and fixed for its own draft-workflow
+    // toggle, caught here during Track 3's own planning instead of after shipping.
+    throw new HttpError(403, "Transfers must be requested through the approvals flow — see Approvals.");
+  }
 
   if (input.kind === "createItem") {
     if (input.parentId) {
@@ -127,19 +140,14 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viewId?
 
   await scope.assertCanMutate(actorId, input.itemIds);
 
-  // The destination of a move/transfer is a write target too, checked the same
-  // direct way as itemIds above — moving your own item somewhere does not require
-  // custody of what else is in that container, but it does require custody of the
-  // container itself, not merely being able to see it. A transfer into a genuinely
-  // foreign, non-custodied container is therefore SYS_ADMIN-only for now, by design —
-  // exactly the "cross-unit movement... follows the approval policies defined by
-  // their later phase" the plan already calls for; Phase 12 is what gives an ordinary
-  // custodian a legitimate path to request one.
+  // moveInTree's destination is still checked directly here — reordering within
+  // one's own containment tree only ever targets something the actor already
+  // custodies. transferItem is the opposite case (its whole point is a destination
+  // outside the actor's custody), which is why it's refused above instead and
+  // routed through approvals.ts, whose own request-time validation checks placement
+  // legality and an active org node rather than custody.
   if (input.kind === "moveInTree" && input.value !== null) {
     await scope.assertCanMutate(actorId, [input.value]);
-  }
-  if (input.kind === "transferItem") {
-    await scope.assertCanMutate(actorId, [input.transfer.targetParentId]);
   }
 }
 

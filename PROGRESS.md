@@ -2610,6 +2610,144 @@ its model that make porting it as-is the wrong move.
   been adding since the 2026-09-04 baseline of 238 — not something this session
   added), 0 access views, 5 org nodes.
 
+- **2026-09-08** — Track 3 (cross-lab transfers) planned and implemented, on its own
+  branch (`track-3-transfers`, off `master` — deliberately NOT off `track-2-lab-
+  drafts`, since transfers need none of Track 2's schema; Track 2 itself is complete,
+  tested and committed on its own unmerged branch, still awaiting the user's decision
+  on when to merge, so this file's Timeline above this entry does not yet reflect it).
+  Full design at `~/.claude/plans/lets-merge-the-work-memoized-journal.md` §6.
+
+  **No new Prisma models** — `ApprovalPolicy`/`ChangeRequest`/`ChainStep` have existed
+  since replatforming Phase 2 and `lib/shared/resources/approvals.ts`'s wire contracts
+  were already complete; a repo-wide search confirmed zero server code read any of it
+  before this track. `lib/domain/approvals.ts` (561 lines, 45 tests, unmodified) was
+  the reference the new server module (`lib/server/resources/approvals.ts`) wires
+  against live Prisma data — ported from `temp_works/src/lib/store.ts`'s `route()`/
+  `decideRequest()`, the same reference implementation the domain tests were written
+  against, the same porting discipline `lab-drafts.ts` used for Track 2.
+
+  Deliberately narrow scope: only `transferItem` reads `ApprovalPolicy` rows now.
+  `prisma/seed-policies.ts` (new, `npm run seed:policies`, idempotent upsert by each
+  policy's stable id — mirrors `seed-views.ts`'s convention) seeds the FULL 52-rule
+  `SEED_POLICIES` set, which is safe because every other operation (`setStatus`,
+  `setProperty`, `createItem`, ...) still applies directly through `mutate.ts`,
+  completely unaffected — Track 4 (procurement) will be the second, not the reason
+  this track had to seed narrowly.
+
+  **A loophole closed by design, not discovered after shipping**: `mutate.ts`'s
+  `assertAuthorized` previously let a `transferItem` call apply directly, instantly,
+  for anyone who already custodied BOTH the item and the destination — the code's own
+  comment already called this "SYS_ADMIN-only for now, by design," since nobody in
+  production could do a real cross-department transfer at all. Adding the routed path
+  alongside that unchanged would have left the direct door open as a bypass — the same
+  shape of gap Track 2 found live and fixed for its own draft-workflow toggle. Fixed
+  here proactively: `assertAuthorized` gained `assertTransferGoesThroughApprovals`,
+  refusing a direct `transferItem` call for anyone but SYS_ADMIN unless a new
+  `opts.viaApprovalEngine` flag is set — set only by `approvals.ts`'s own settle-and-
+  apply call once a chain (or an AUTO policy, or an all-self-held chain) has resolved
+  it. The one deliberate behavior change: a person who custodies both ends of a
+  transfer can no longer do it instantly — they go through the same routed path as
+  everyone else, which itself still applies immediately when every resolved step
+  turns out to be a post they themselves hold.
+
+  `lib/server/resources/approvals.ts`: `requestTransfer` custody-checks the SOURCE
+  only (never the destination — asking for a transfer must not require already
+  custodying where it's going), resolves policy with worst-outcome-wins across a bulk
+  selection's categories (DENY beats CHAIN beats AUTO, ported verbatim from `route()`),
+  and for a CHAIN outcome builds the chain against a lightweight live `OrgNode`
+  projection (no `org-chain.ts` ancestor walk needed — a transfer's own policies only
+  ever use `ITEM_CUSTODIAN`/`OWNER_HEAD`/`TARGET_HEAD`/`REQUESTER_RECEIPT`, all direct
+  lookups). `decideStep` re-resolves the current step's approver against FRESH org
+  data on every call (a headship change mid-flight redirects who decides, never a
+  frozen id); `REJECT` ends the whole request outright (no draft to preserve, unlike
+  Track 2's lab commits); `APPROVE` arms the next step and, critically, **the actual
+  `Item` write does not happen until the `REQUESTER_RECEIPT` step is itself approved**
+  — it's just another step in the same chain, so the register only reflects a
+  transfer once physical delivery is confirmed, with no need to model an "in transit"
+  state. The eventual `applyChange` call is attributed to the ORIGINAL REQUESTER
+  (never the last approver), passing the request's snapshotted `baseVersions` as
+  `expectedVersions` so a stale write surfaces as the existing `VERSION_CONFLICT`
+  path (caught, marks the request `STALE`) rather than a bespoke check.
+
+  New read endpoint, `items.ts`'s `transferDestinations` (`GET /resources/transfers/
+  destinations`) — deliberately the inverse of the existing `containers()`: no
+  custody filter (the whole point is a destination OUTSIDE the requester's custody)
+  and no `assertCanBrowseUniversity` gate (today `MANAGER`/`STORE_KEEPER`-only, which
+  would have shut an ordinary custodian out of naming a transfer target at all).
+  Narrowed instead by requiring a ≥2-character search query and capping results at
+  25 — a "name the place you already have in mind" search, never a full cross-
+  university browse/dump.
+
+  UI: `TransferModal` (new) on Inspector's action row, next to the existing same-lab-
+  only "Position" control — searches a destination, previews the resolution
+  (`POST /resources/transfers/preview`, side-effect-free) before committing, shows
+  "applies immediately" or the pending chain's labels. Deliberately keeps the current
+  custodian (`targetCustodianId: null`) rather than adding a cross-department people
+  picker in this first pass — once a transfer lands, the receiving side can reassign
+  custody directly like any other item in their own custody chain. `/approvals` (was
+  `ComingSoon` on this branch, since Track 2's own build-out of that page lives only
+  on the unmerged `track-2-lab-drafts` branch) now renders a real `ApprovalsPage` with
+  one "Transfers" panel, inbox/mine tabs, a chain-trail visualization per request
+  (labels joined by →, current/waiting/approved/rejected/skipped/vacant distinguished
+  by tag tone), and a `REQUESTER_RECEIPT` step's action button reading "Confirm
+  receipt" rather than "Approve".
+
+  Tests: `lib/server/resources/approvals.spec.ts`, 12 cases, DB-backed, every org node
+  a freshly created ORPHAN node (no parent edges) rather than the shared seeded SE/
+  ChemE departments — Track 2's lab-drafts.spec.ts had already found the hard way
+  that mutating a shared node's occupancy breaks other concurrently-running spec
+  files, and this file follows that lesson from the start rather than rediscovering
+  it. The closed-loophole regression guard, run first; AUTO applies immediately with
+  no `ChangeRequest` row; a CHAIN request's own custodian step is built `SKIPPED`
+  (not `PENDING`) when the requester IS the custodian — the common real case; a
+  vacant `OWNER_HEAD` blocks and an appointment unblocks immediately; a headship
+  change mid-flight redirects the decision; the full happy path proving the `Item`
+  untouched until `REQUESTER_RECEIPT`, then updated atomically and attributed to the
+  requester; `REJECT` ending the request outright with the `Item` never touched; a
+  version conflict at final settle marking the request `STALE`; `cancelRequest`
+  requester-only; the existing custody floor for requesting a transfer of something
+  not held.
+
+  Verified: `npx tsc --noEmit` clean (after clearing a stale `.next/` type-cache and
+  regenerating the Prisma client for this branch's own schema — a stale client from
+  switching branches surfaced phantom `LabIdealTarget`-shaped errors that had nothing
+  to do with this track); `npm test` — 315/315 (12 new); `npm run build` clean (all
+  six new `/api/resources/transfers/**` routes present); `npx prisma validate`/
+  `migrate status` clean, confirming no schema drift despite the branch switch.
+
+  **Live, full end-to-end pass**, not just automated tests: seeded `ApprovalPolicy`
+  (52 rows) against the local dev database via `seed-policies.ts --apply`. As the SE
+  custodian (Girma Wolde), requested a transfer of a real item ("Whiteboard") into
+  Chemical Engineering's "Mechanical Unit Operations Laboratory" through the actual
+  `TransferModal` UI — the preview correctly showed "Head — Software Engineering →
+  Receiving head — Chemical Engineering → Confirm receipt" (the `ITEM_CUSTODIAN` step
+  correctly invisible, self-skipped, since the requester IS the item's custodian).
+  Confirmed the new request appeared in the SE head's "Routed to me" tab and, once
+  approved, the ChemE head's — both real accounts, not test fixtures. Approved as
+  both heads via direct authenticated API calls; confirmed via a direct item read
+  that `currentOrgNodeId` had NOT changed after either approval; confirmed receipt as
+  the original requester and watched it flip atomically to Chemical Engineering, with
+  `ownerOrgNodeId` unchanged (borrowing, not selling) and the audit log's `actorName`
+  correctly reading "Girma Wolde" — the requester, not either approving head. Ran a
+  second live transfer request, then vacated the SE headship mid-flight via the real
+  `assign-node` endpoint: confirmed the pending request became undecidable (a direct
+  decide attempt by the now-former head refused with 403, the step's live
+  `approverId` reading `null`), reassigned the same head back, and confirmed it
+  became immediately decidable with no rebuild. Rejected that same request at the
+  ChemE head's step and confirmed it ended outright (`REJECTED`, the item never
+  touched, a second decide attempt refused `409`). **All fixtures cleaned up
+  afterward**: the two test `ChangeRequest`/`ChainStep` rows deleted directly: the
+  "Whiteboard" item's real move was reverted via two ordinary SYS_ADMIN-attributed
+  corrections (`moveInTree` back to its original parent, `setCurrentOrg` back to
+  Software Engineering) rather than left in its moved state — restored to byte-
+  identical `currentOrgNodeId`/`ownerOrgNodeId`/`path`/`custodianId` as before this
+  session touched it. The seeded `ApprovalPolicy` rows were deliberately LEFT in
+  place (unlike Track 1's own `AccessView` rollout, which was rolled back after
+  verification) — they are inert for every operation except `transferItem`, which is
+  this track's own point, so leaving them matches the "ship it seeded, safe by
+  construction" design rather than requiring a second manual step before the feature
+  actually works locally.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

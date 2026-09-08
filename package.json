@@ -16,7 +16,8 @@
     "prisma:seed": "prisma db seed",
     "seed:resources": "tsx prisma/resource-seed.ts",
     "bootstrap": "tsx prisma/bootstrap.ts",
-    "seed:views": "tsx prisma/seed-views.ts"
+    "seed:views": "tsx prisma/seed-views.ts",
+    "seed:policies": "tsx prisma/seed-policies.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

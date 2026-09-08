@@ -9,6 +9,7 @@ import {
   type ItemFilterFieldDef,
   type ItemRowDto,
   type ItemSummaryDto,
+  type TransferDestinationDto,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
@@ -454,6 +455,61 @@ export async function containers(userId: string, categoryId: string, excludeSubt
       categoryName: category?.name ?? item.categoryId,
       categoryIconKey: category?.iconKey ?? "Package",
       path: pathOf(forest.index, item.id),
+    };
+  });
+}
+
+/**
+ * Candidate TRANSFER destinations (Track 3, `GET /resources/transfers/destinations`)
+ * — deliberately the opposite of `containers()` above: a transfer's whole point is a
+ * destination OUTSIDE the requester's own custody, so this has no `writable` filter
+ * and no `computeScopedIds` visibility filter either (the requester may have never
+ * seen the receiving department's register at all). What still applies:
+ *  - custody of the SOURCE item(s) being transferred, the same floor requesting a
+ *    transfer itself requires;
+ *  - placement-legal for EVERY selected item's category, same as a real transfer
+ *    would enforce at apply time;
+ *  - the destination's current org node must be active.
+ * A non-empty, ≥2-character search query is required and results are capped — this
+ * is a narrow "name the place you already have in mind" search, never a full
+ * cross-university browse/dump (see the plan's own §6.5 for why, and the possible
+ * alternative flagged there).
+ */
+export async function transferDestinations(userId: string, itemIds: string[], q: string): Promise<TransferDestinationDto[]> {
+  const query = q.trim();
+  if (query.length < 2) throw new HttpError(400, "Type at least 2 characters to search.");
+  if (!itemIds.length) throw new HttpError(400, "Choose at least one resource to transfer.");
+  await scope.assertCanMutate(userId, itemIds);
+
+  const forest = await loadForest();
+  const sourceItems = itemIds.map((id) => forest.index.byId.get(id)).filter((i): i is NonNullable<typeof i> => i != null);
+  if (sourceItems.length !== itemIds.length) throw new HttpError(400, "One or more of these resources no longer exist.");
+
+  const excluded = new Set(subtreeIds(forest.index, itemIds));
+  const needle = query.toLowerCase();
+
+  const activeNodes = await prisma.orgNode.findMany({ where: { active: true }, select: { id: true, name: true } });
+  const nodeNameById = new Map(activeNodes.map((n) => [n.id, n.name]));
+
+  const options = forest.items
+    .filter((item) => !excluded.has(item.id))
+    .filter((item) => item.name.toLowerCase().includes(needle))
+    .filter((item) => nodeNameById.has(item.currentOrgNodeId))
+    .filter((item) => sourceItems.every((source) => canPlace(forest.categories, source.categoryId, item.categoryId)))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 25);
+
+  return options.map((item) => {
+    const category = forest.categories[item.categoryId];
+    return {
+      id: item.id,
+      name: item.name,
+      categoryId: item.categoryId,
+      categoryName: category?.name ?? item.categoryId,
+      categoryIconKey: category?.iconKey ?? "Package",
+      path: pathOf(forest.index, item.id),
+      orgNodeId: item.currentOrgNodeId,
+      orgNodeName: nodeNameById.get(item.currentOrgNodeId) ?? "",
     };
   });
 }

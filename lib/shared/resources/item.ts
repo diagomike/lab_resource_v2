@@ -111,6 +111,24 @@ export const ContainerOptionDto = z.object({
 });
 export type ContainerOptionDto = z.infer<typeof ContainerOptionDto>;
 
+/** A candidate TRANSFER destination — `GET /resources/transfers/destinations`.
+ *  Deliberately not `ContainerOptionDto`: that picker is scoped to destinations the
+ *  caller could already write into (their own custody); this one is the opposite —
+ *  a destination is only interesting here BECAUSE it sits outside the requester's own
+ *  custody, so it carries the owning department's name (`orgNodeName`) to say whose
+ *  approval a transfer there would need, and nothing about write-eligibility. */
+export const TransferDestinationDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  path: z.array(z.string()),
+  orgNodeId: z.string(),
+  orgNodeName: z.string(),
+});
+export type TransferDestinationDto = z.infer<typeof TransferDestinationDto>;
+
 export const ItemDetailDto = ItemRowDto.extend({
   images: z.array(ItemImageDto),
   /** Item-specific properties this ONE item carries beyond its category's own

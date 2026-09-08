@@ -13,6 +13,7 @@ import { usePendingChange } from "@/lib/register/usePendingChange";
 import { getActiveViewId } from "@/lib/register/active-view";
 import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
+import { TransferModal } from "./TransferModal";
 
 /**
  * The single-item edit surface — corrections (name, status-as-typed-fact... no,
@@ -65,6 +66,7 @@ export function Inspector({
   const [newCustomType, setNewCustomType] = useState<CustomPropType>("TEXT");
   const [newCustomValue, setNewCustomValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
   const options = useEditOptions();
 
   function load() {
@@ -637,7 +639,8 @@ export function Inspector({
               )}
             </div>
 
-            <div className="pt-4 border-t border-border">
+            <div className="pt-4 border-t border-border flex items-center gap-8">
+              <Button onClick={() => setTransferOpen(true)}>Transfer to another unit…</Button>
               <Button variant="danger" onClick={requestDelete}>
                 Delete resource
               </Button>
@@ -645,6 +648,18 @@ export function Inspector({
           </>
         )}
       </Modal>
+
+      {transferOpen && item && (
+        <TransferModal
+          itemId={item.id}
+          itemName={item.name}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => {
+            setTransferOpen(false);
+            onChanged();
+          }}
+        />
+      )}
 
       {pending && (
         <ConfirmDialog
