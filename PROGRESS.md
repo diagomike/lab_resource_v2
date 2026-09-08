@@ -2952,11 +2952,97 @@ its model that make porting it as-is the wrong move.
   Then, per the user's explicit request, flipped Software Engineering's
   `draftWorkflowEnabled` to `true` on the local dev database via Org Studio's own
   toggle (Track 1/2's existing admin affordance) — the first real department running
-  with it on outside a verification pass. Girma Wolde (SE custodian) now stages
-  changes instead of applying them instantly; `head.se@astu.edu.et` decides them via
+  with it on outside a verification pass. Girma Wolde (SE custodian) briefly staged
+  changes instead of applying them instantly; `head.se@astu.edu.et` decided them via
   the "Lab commits" panel on `/approvals`, alongside the "Transfers" panel from
-  Track 3. No other department is affected — the toggle is still per-`OrgNode` and
-  still defaults `false` for everyone else.
+  Track 3.
+
+  **Correction, same day**: leaving the toggle on turned out to have a real cost —
+  running the full test suite afterward failed 25 tests across 5 files
+  (`views.spec.ts` among them), all for the same reason: those older spec files
+  write directly against the REAL seeded Software Engineering `OrgNode` as a shared
+  fixture (predating the "always use an isolated orphan node" lesson Track 2/3's own
+  newer specs already learned), and every one of their direct-write assertions
+  assumed SE behaves as it does in today's production state — direct edits succeed.
+  With the toggle genuinely on, those direct writes now correctly refuse (the
+  feature working exactly as designed), which the old fixtures read as failure.
+  Reverted SE's `draftWorkflowEnabled` back to `false` via
+  `prisma.orgNode.updateMany` (not `update` — `name` isn't a unique field) to
+  restore a clean, all-green baseline before continuing other work; confirmed
+  326/326 passing again immediately after. **Still open**: enabling this toggle for
+  any real department will keep breaking those 5 older files' fixtures until they're
+  hardened to use isolated org nodes the same way `lab-drafts.spec.ts`/
+  `approvals.spec.ts` already do — a well-scoped, self-contained follow-up, not done
+  as part of this correction. The toggle is off for every department again, matching
+  today's actual production state.
+
+- **2026-09-08 (later still)** — Inspector reworked into `temp_works`' own
+  click-through-the-hierarchy-then-pick-a-change-kind pattern, at the user's
+  explicit request after they pointed at that sandbox's `Inspector.tsx`/
+  `ItemActionModal.tsx` as the reference. Read all four of `temp_works`' editing
+  components (`Inspector`, `ItemActionModal`, `ItemEditModal`, `RouteNotice`) before
+  scoping down: `ItemEditModal`'s "Category type" tab duplicates this app's own
+  standalone Category Studio (kept as the one place for that, not re-added here),
+  and `ItemActionModal`'s per-tab live route preview only makes sense where a real
+  approval chain exists — here that's `transferItem` alone (Track 3), so it was
+  deliberately left out; every other kind still applies directly, exactly as it did
+  before this round. Two scoping questions put to the user directly rather than
+  guessed at: keep transfer preview out of scope entirely (confirmed — it already
+  has its own dedicated `TransferModal`), and keep Inspector as today's centered
+  Modal rather than temp_works' slide-over Sheet, but add the children/parent
+  navigation itself (confirmed).
+
+  `lib/shared/resources/item.ts` gained `ItemChildDto` and `ItemDetailDto.children`
+  — direct children only, computed in `items.ts`'s `getOne` from the forest's
+  already-loaded `TreeIndex.childrenOf`, filtered to the SAME `closed`
+  (ancestor-closure) visibility a list read already grants, so clicking one to
+  navigate never lands on a 404 the child's own scope would have refused anyway.
+
+  New `components/resources/ChangeModal.tsx` — the `ItemActionModal` port: six tabs
+  (Status / Custody / Ownership / Current unit / Position / Delete — Name stays an
+  instant inline correction, matching this app's own `CONFIRMED_CHANGES` rule rather
+  than temp_works' divergent one), each showing current → new before submitting,
+  submitting directly against the existing write door (no second `ConfirmDialog`
+  layered on top — the modal's own clear current→new framing and explicit submit
+  button ARE the confirmation step, matching temp_works' own design exactly).
+
+  `Inspector.tsx`: removed the five scattered inline `<select>`s for Custodian/
+  Owning unit/Current unit/Position (each with its own `requestX` function feeding
+  `usePendingChange`'s `ConfirmDialog`) and the standalone "Delete resource" button,
+  replacing all of them with one "Change this…" entry point into the new modal —
+  Transfer stays its own separate button (Track 3's own flow, deliberately excluded
+  from the new modal per the scoping decision above). Added a new "Contains (N)"
+  section (both the editable body and `ReadOnlyBody`, via a shared `ContainsSection`
+  — the row shape and behavior are identical, only the enclosing screen's edit
+  rights differ, which this section has no part in) listing direct children as
+  clickable rows; clicking one calls a new `onNavigate?: (id: string) => void` prop
+  that all four call sites (`RegisterPage`/`DashboardPage`/`ChangeLogPage`/
+  `UniversityPage`) wire to their own existing `setInspectId` — Inspector itself
+  keeps no navigation history, it just re-renders against whatever id the parent
+  page's own state points at, which its existing `useEffect(load, [itemId])` already
+  handled correctly with no change needed there. "Go up" is the breadcrumb path
+  itself, now a button when `item.parentId` exists, navigating to it directly (the
+  immediate parent only, not full ancestor-chain clickability, per what was asked
+  for) — `usePendingChange` stays wired for the corrections that remain (name,
+  quantity, properties, custom properties, image add/remove), unaffected by any of
+  this.
+
+  Verified: `npx tsc --noEmit` clean, `npm test` — 326/326 unaffected (confirming
+  the earlier toggle-related failures were unrelated to this change, not masked by
+  it), `npm run build` clean. Live in-browser as the SE custodian: opened "SE Lab X
+  Software Lab 3", confirmed the new Accountability/Contains sections and the
+  "Change this…"/"Transfer to another unit…" button pair render correctly with no
+  standalone Delete button left over; clicked into a child ("Switch Rack") and
+  confirmed the Inspector navigated to it in place with a working "Go up to SE Lab X
+  Software Lab 3" link back; opened "Change this…", switched between Status and
+  Custody tabs and confirmed the blurb/current-new/options all update correctly per
+  tab; ran a REAL status change end to end (Working → Broken, applied, version
+  bumped, modal closed and Inspector auto-reloaded showing the new chip) and
+  reverted it the same way (Broken → Working) — confirmed the final derived state
+  (Working/Impaired, matching Switch Rack's own Impaired status rolling up)
+  byte-identical to before the test, only the version counter legitimately higher
+  from the two real edits. Checked the Delete tab's own rendering (danger styling,
+  current→new, warning copy) without submitting it.
 
 ## Working agreements for this project
 

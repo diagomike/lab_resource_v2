@@ -129,12 +129,35 @@ export const TransferDestinationDto = z.object({
 });
 export type TransferDestinationDto = z.infer<typeof TransferDestinationDto>;
 
+/** One direct child, for Inspector's own "Contains (N)" list — what lets a viewer
+ *  walk DOWN the hierarchy from an open Inspector without closing it and re-finding
+ *  the child in the register. Deliberately lighter than `ItemRowDto`: enough to
+ *  label, icon and status-badge a row that is really just a navigation target.
+ *  `readOnlyContext` mirrors the parent row's own field — a child can be visible
+ *  only as ancestor-closure context even when its own parent is directly actionable
+ *  (e.g. it was individually transferred elsewhere structurally still nested here). */
+export const ItemChildDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  effectiveStatus: EffectiveStatusSchema,
+  critical: z.boolean(),
+  readOnlyContext: z.boolean(),
+});
+export type ItemChildDto = z.infer<typeof ItemChildDto>;
+
 export const ItemDetailDto = ItemRowDto.extend({
   images: z.array(ItemImageDto),
   /** Item-specific properties this ONE item carries beyond its category's own
    *  fields — Inspector-only (not on the row list; the table's Specs cell stays
    *  category fields only), keyed the same way `props` is. */
   customProps: CustomProps,
+  /** Direct children only (one level) — Inspector's own hierarchy walk-through
+   *  clicks into one of these; the item's own `path`/`parentId` handle climbing
+   *  back up. Scope-filtered the same way a list read is (see items.ts's `getOne`). */
+  children: z.array(ItemChildDto),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

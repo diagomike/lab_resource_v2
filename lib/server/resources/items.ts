@@ -524,16 +524,38 @@ export async function getOne(userId: string, id: string, scopeOverride?: ScopeOv
   const item = forest.index.byId.get(id);
   if (!item) throw new HttpError(404, "Resource not found");
 
-  const [{ base }, lookups, images] = await Promise.all([
+  const [{ base, closed }, lookups, images] = await Promise.all([
     computeScopedIds(userId, forest, scopeOverride),
     nameLookups(),
     prisma.itemImage.findMany({ where: { itemId: id }, orderBy: { sortOrder: "asc" } }),
   ]);
   const row = toRowDto(item, forest, lookups, !base.has(id));
+
+  // Direct children only, in the SAME visibility a list read would grant them —
+  // closed (base + ancestor-closure) rather than the unfiltered index, so clicking
+  // one to navigate never lands on a 404 the child's own visibility would refuse.
+  const children = (forest.index.childrenOf.get(id) ?? [])
+    .filter((c) => closed.has(c.id))
+    .map((c) => {
+      const category = forest.categories[c.categoryId];
+      return {
+        id: c.id,
+        name: c.name,
+        categoryId: c.categoryId,
+        categoryName: category?.name ?? c.categoryId,
+        categoryIconKey: category?.iconKey ?? "Package",
+        effectiveStatus: statusOf(forest.statuses, c.id),
+        critical: c.critical,
+        readOnlyContext: !base.has(c.id),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return {
     ...row,
     images: images.map((img) => ({ id: img.id, url: `/api/resources/images/${img.storageKey}`, caption: img.caption, sortOrder: img.sortOrder })),
     customProps: item.customProps ?? {},
+    children,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

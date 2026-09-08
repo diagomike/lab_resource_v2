@@ -327,7 +327,7 @@ function RegisterPageInner() {
         )}
       </Panel>
 
-      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} readOnly={!canEdit} />
+      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} onNavigate={setInspectId} readOnly={!canEdit} />
 
       {canEdit && <AddModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={state.refetch} />}
 

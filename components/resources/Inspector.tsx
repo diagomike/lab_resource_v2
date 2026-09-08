@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { CategoryFieldDto, ContainerOptionDto, CustomPropType, ItemChangeDto, ItemDetailDto, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
-import { CUSTOM_PROP_KEY_PATTERN, customPropTypes, itemStatuses } from "@/lib/shared";
+import type { CategoryFieldDto, CustomPropType, ItemChangeDto, ItemDetailDto, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
+import { CUSTOM_PROP_KEY_PATTERN, customPropTypes } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
 import { Modal, ErrorNote, ConfirmDialog, Button } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
-import { useEditOptions } from "@/lib/register/useEditOptions";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { getActiveViewId } from "@/lib/register/active-view";
 import { useAuth } from "@/lib/auth-context";
@@ -16,6 +15,8 @@ import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
 import { TransferModal } from "./TransferModal";
 import { LabDraftPanel } from "./LabDraftPanel";
+import { ChangeModal } from "./ChangeModal";
+import { CategoryIcon } from "./IconPicker";
 
 /**
  * The single-item edit surface — corrections (name, status-as-typed-fact... no,
@@ -31,12 +32,20 @@ export function Inspector({
   itemId,
   onClose,
   onChanged,
+  onNavigate,
   readOnly = false,
   scope,
 }: {
   itemId: string | null;
   onClose: () => void;
   onChanged: () => void;
+  /** Walking the hierarchy from an open Inspector — a clicked child or "go up"
+   *  hands the new id back to whichever page owns `itemId`'s state, rather than
+   *  Inspector keeping its own navigation history. Every current call site already
+   *  tracks this as `inspectId`/`setInspectId`, so this is just `setInspectId`.
+   *  Omitted entirely (e.g. a caller with no such state) simply disables walking —
+   *  a child/parent still shows, just not as a clickable link. */
+  onNavigate?: (id: string) => void;
   /** No editable field, no Position/custodian/owner transfer, no delete — set either
    *  for the university-wide browse's drill-through (10b) or for an access view with
    *  `canEdit: false` (Track 1). Seeing further grants nothing; the write door stays
@@ -57,7 +66,6 @@ export function Inspector({
   const [item, setItem] = useState<ItemDetailDto | null>(null);
   const [changes, setChanges] = useState<ItemChangeDto[] | null>(null);
   const [category, setCategory] = useState<ResourceCategoryDto | null>(null);
-  const [moveTargets, setMoveTargets] = useState<ContainerOptionDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [qtyDraft, setQtyDraft] = useState("");
@@ -69,8 +77,8 @@ export function Inspector({
   const [newCustomValue, setNewCustomValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
   const [showDraftPanel, setShowDraftPanel] = useState(false);
-  const options = useEditOptions();
   const { user } = useAuth();
 
   function load() {
@@ -109,34 +117,8 @@ export function Inspector({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [itemId]);
 
-  // "Position"'s own options — the same container-picker endpoint AddModal's "Into"
-  // and the register toolbar's "Move to…" use, so this picker never offers a
-  // destination the write path would then refuse. Excludes the item's own subtree —
-  // mutate.ts's own isWithinSubtree check still enforces that regardless, this only
-  // keeps it from appearing choosable.
-  useEffect(() => {
-    if (!item || readOnly) {
-      setMoveTargets([]);
-      return;
-    }
-    let cancelled = false;
-    api
-      .get<ContainerOptionDto[]>(`/resources/items/containers?categoryId=${encodeURIComponent(item.categoryId)}&exclude=${encodeURIComponent(item.id)}`)
-      .then((rows) => !cancelled && setMoveTargets(rows))
-      .catch(() => !cancelled && setMoveTargets([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [item?.categoryId, item?.id]);
-
-  const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange((_result, input) => {
+  const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange(() => {
     onChanged();
-    // A delete leaves nothing here to reload — closing is the only sensible outcome;
-    // reloading would just 404 against the row this same action just removed.
-    if (input.kind === "deleteItem") {
-      onClose();
-      return;
-    }
     load();
   });
 
@@ -271,99 +253,6 @@ export function Inspector({
     }
   }
 
-  function requestStatus(value: string) {
-    if (!item || value === item.status) return;
-    request({
-      input: { kind: "setStatus", itemIds: [item.id], value: value as ItemDetailDto["status"], expectedVersions },
-      title: "Status change",
-      message: (
-        <>
-          Set <b className="text-text">{item.name}</b>'s status to <b className="text-text">{STATUS_LABEL[value as ItemDetailDto["status"]]}</b>?
-        </>
-      ),
-      tone: "warn",
-    });
-  }
-
-  function requestCustodian(value: string) {
-    if (!item || value === item.custodianId) return;
-    const label = options.custodian.find((o) => o.value === value)?.label ?? value;
-    request({
-      input: { kind: "setCustodian", itemIds: [item.id], value, expectedVersions },
-      title: "Custody transfer",
-      message: (
-        <>
-          Hand custody of <b className="text-text">{item.name}</b> to <b className="text-text">{label}</b>?
-        </>
-      ),
-      tone: "warn",
-    });
-  }
-
-  function requestOwner(value: string) {
-    if (!item || value === item.ownerOrgNodeId) return;
-    const label = options.owner.find((o) => o.value === value)?.label ?? value;
-    request({
-      input: { kind: "setOwnerOrg", itemIds: [item.id], value, expectedVersions },
-      title: "Ownership transfer",
-      message: (
-        <>
-          Permanently transfer <b className="text-text">{item.name}</b> to <b className="text-text">{label}</b>? For a temporary loan,
-          change the current unit instead.
-        </>
-      ),
-      tone: "warn",
-    });
-  }
-
-  function requestCurrentOrg(value: string) {
-    if (!item || value === item.currentOrgNodeId) return;
-    const label = options.currentOrg.find((o) => o.value === value)?.label ?? value;
-    request({
-      input: { kind: "setCurrentOrg", itemIds: [item.id], value, expectedVersions },
-      title: "Current unit change",
-      message: (
-        <>
-          Record <b className="text-text">{item.name}</b> as currently held by <b className="text-text">{label}</b>? Ownership stays as
-          it is.
-        </>
-      ),
-      tone: "warn",
-    });
-  }
-
-  function requestMove(value: string) {
-    if (!item) return;
-    const target = value || null;
-    request({
-      input: { kind: "moveInTree", itemIds: [item.id], value: target, expectedVersions },
-      title: "Relocation",
-      message: (
-        <>
-          Move <b className="text-text">{item.name}</b> to{" "}
-          <b className="text-text">{target ? (moveTargets.find((c) => c.id === target)?.name ?? target) : "the top level"}</b>? Owning
-          unit and custodian stay as they are.
-        </>
-      ),
-      tone: "warn",
-    });
-  }
-
-  function requestDelete() {
-    if (!item) return;
-    request({
-      input: { kind: "deleteItem", itemIds: [item.id], expectedVersions },
-      title: "Delete resource",
-      message: (
-        <>
-          Delete <b className="text-text">{item.name}</b> and everything physically nested inside it? This cannot be undone.
-        </>
-      ),
-      tone: "danger",
-      confirmLabel: "Delete",
-    });
-  }
-
   async function onAddImage(uploadSessionId: string, caption: string) {
     if (!item) return;
     setInlineError(null);
@@ -398,7 +287,7 @@ export function Inspector({
         {!item ? (
           <PanelLoading rows={4} />
         ) : readOnly ? (
-          <ReadOnlyBody item={item} category={category} changes={changes} />
+          <ReadOnlyBody item={item} category={category} changes={changes} onNavigate={onNavigate} />
         ) : (
           <>
             <ItemImageGallery item={item} category={category} expectedVersions={expectedVersions} onAdd={onAddImage} onRemove={onRemoveImage} />
@@ -413,21 +302,23 @@ export function Inspector({
                   className="text-13 font-semibold bg-transparent outline-none border-b border-transparent focus:border-accent w-full"
                 />
                 <div className="text-10.5 text-dim mt-2">{item.categoryName}</div>
-                {item.path.length > 0 && <div className="text-10 text-faint mt-2">{item.path.join(" › ")}</div>}
+                {item.path.length > 0 && (
+                  <div className="text-10 text-faint mt-2">
+                    {item.parentId && onNavigate ? (
+                      <button type="button" onClick={() => onNavigate(item.parentId!)} className="hover:text-accent hover:underline" title={`Go up to ${item.path[item.path.length - 1]}`}>
+                        ↑ {item.path.join(" › ")}
+                      </button>
+                    ) : (
+                      item.path.join(" › ")
+                    )}
+                  </div>
+                )}
               </div>
-              <select
-                value={item.status}
-                onChange={(e) => requestStatus(e.target.value)}
-                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent flex-none"
-              >
-                {itemStatuses.map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABEL[s]}
-                  </option>
-                ))}
-              </select>
+              <span className="flex-none self-start">
+                <StatusChip status={item.status} />
+              </span>
               {item.effectiveStatus !== item.status && (
-                <span className="flex-none self-center">
+                <span className="flex-none self-start">
                   <StatusChip status={item.effectiveStatus} title="Derived from this resource's parts — not directly settable" />
                 </span>
               )}
@@ -471,67 +362,28 @@ export function Inspector({
                   <span className="text-11 text-faint">1 unit</span>
                 )}
               </EditField>
-              <EditField label="Custodian">
-                <select
-                  value={item.custodianId}
-                  onChange={(e) => requestCustodian(e.target.value)}
-                  className="w-full h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-                >
-                  {!options.custodian.some((o) => o.value === item.custodianId) && <option value={item.custodianId}>{item.custodianName}</option>}
-                  {options.custodian.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </EditField>
-              <EditField label="Owning unit">
-                <select
-                  value={item.ownerOrgNodeId}
-                  onChange={(e) => requestOwner(e.target.value)}
-                  className="w-full h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-                >
-                  {!options.owner.some((o) => o.value === item.ownerOrgNodeId) && <option value={item.ownerOrgNodeId}>{item.ownerOrgNodeName}</option>}
-                  {options.owner.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </EditField>
-              <EditField label="Current unit">
-                <select
-                  value={item.currentOrgNodeId}
-                  onChange={(e) => requestCurrentOrg(e.target.value)}
-                  className="w-full h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-                >
-                  {!options.currentOrg.some((o) => o.value === item.currentOrgNodeId) && (
-                    <option value={item.currentOrgNodeId}>{item.currentOrgNodeName}</option>
-                  )}
-                  {options.currentOrg.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </EditField>
-              <EditField label="Position">
-                <select
-                  value={item.parentId ?? ""}
-                  onChange={(e) => requestMove(e.target.value)}
-                  className="w-full h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-                >
-                  <option value="">Top level</option>
-                  {moveTargets.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {[...c.path, c.name].join(" / ")}
-                    </option>
-                  ))}
-                </select>
-              </EditField>
               <EditField label="Version">
                 <span className="text-11 font-mono text-faint">{item.version}</span>
               </EditField>
+            </div>
+
+            <div>
+              <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Accountability</div>
+              <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
+                <EditField label="Custodian">
+                  <span className="text-11">{item.custodianName}</span>
+                </EditField>
+                <EditField label="Owning unit">
+                  <span className="text-11">{item.ownerOrgNodeName}</span>
+                </EditField>
+                <EditField label="Current unit">
+                  <span className="text-11">
+                    {item.currentOrgNodeName}
+                    {item.currentOrgNodeId !== item.ownerOrgNodeId && <span className="text-warn"> (on loan)</span>}
+                  </span>
+                </EditField>
+              </div>
+              <p className="text-10 text-faint mt-6">Use "Change this…" below to hand off custody, ownership, current unit or position.</p>
             </div>
 
             {category && category.fields.length > 0 && (
@@ -630,6 +482,8 @@ export function Inspector({
               )}
             </div>
 
+            <ContainsSection children={item.children} onNavigate={onNavigate} />
+
             <div>
               <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
               {changes === null ? (
@@ -658,14 +512,26 @@ export function Inspector({
             </div>
 
             <div className="pt-4 border-t border-border flex items-center gap-8">
-              <Button onClick={() => setTransferOpen(true)}>Transfer to another unit…</Button>
-              <Button variant="danger" onClick={requestDelete}>
-                Delete resource
+              <Button variant="primary" onClick={() => setChangeOpen(true)}>
+                Change this…
               </Button>
+              <Button onClick={() => setTransferOpen(true)}>Transfer to another unit…</Button>
             </div>
           </>
         )}
       </Modal>
+
+      {changeOpen && item && (
+        <ChangeModal
+          item={item}
+          onClose={() => setChangeOpen(false)}
+          onDone={() => {
+            setChangeOpen(false);
+            onChanged();
+            load();
+          }}
+        />
+      )}
 
       {transferOpen && item && (
         <TransferModal
@@ -718,7 +584,17 @@ export function Inspector({
  * custodian, condition, specs and photo — including "on loan"
  * (currentOrgNodeId ≠ ownerOrgNodeId), the owner/current split's whole point.
  */
-function ReadOnlyBody({ item, category, changes }: { item: ItemDetailDto; category: ResourceCategoryDto | null; changes: ItemChangeDto[] | null }) {
+function ReadOnlyBody({
+  item,
+  category,
+  changes,
+  onNavigate,
+}: {
+  item: ItemDetailDto;
+  category: ResourceCategoryDto | null;
+  changes: ItemChangeDto[] | null;
+  onNavigate?: (id: string) => void;
+}) {
   const onLoan = item.currentOrgNodeId !== item.ownerOrgNodeId;
   return (
     <>
@@ -727,7 +603,17 @@ function ReadOnlyBody({ item, category, changes }: { item: ItemDetailDto; catego
       <div>
         <div className="text-13 font-semibold">{item.name}</div>
         <div className="text-10.5 text-dim mt-2">{item.categoryName}</div>
-        {item.path.length > 0 && <div className="text-10 text-faint mt-2">{item.path.join(" › ")}</div>}
+        {item.path.length > 0 && (
+          <div className="text-10 text-faint mt-2">
+            {item.parentId && onNavigate ? (
+              <button type="button" onClick={() => onNavigate(item.parentId!)} className="hover:text-accent hover:underline" title={`Go up to ${item.path[item.path.length - 1]}`}>
+                ↑ {item.path.join(" › ")}
+              </button>
+            ) : (
+              item.path.join(" › ")
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-8">
@@ -779,6 +665,8 @@ function ReadOnlyBody({ item, category, changes }: { item: ItemDetailDto; catego
         </div>
       )}
 
+      <ContainsSection children={item.children} onNavigate={onNavigate} />
+
       <div>
         <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
         {changes === null ? (
@@ -800,6 +688,45 @@ function ReadOnlyBody({ item, category, changes }: { item: ItemDetailDto; catego
         )}
       </div>
     </>
+  );
+}
+
+/** The hierarchy walk-through's "down" half — "go up" lives next to the breadcrumb
+ *  above (both editable and read-only bodies), this is the click-into-a-child leg.
+ *  Shared between both render trees rather than duplicated, since the row shape and
+ *  behavior are identical either way (only the enclosing screen's own edit rights
+ *  differ, which this section has no part in). */
+function ContainsSection({ children, onNavigate }: { children: ItemDetailDto["children"]; onNavigate?: (id: string) => void }) {
+  return (
+    <div>
+      <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Contains ({children.length})</div>
+      {children.length === 0 ? (
+        <div className="text-10.5 text-faint">Nothing physically nested inside this resource.</div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {children.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              disabled={!onNavigate}
+              onClick={() => onNavigate?.(c.id)}
+              className={`flex items-center gap-8 rounded-2 border border-border px-8 py-6 text-left ${onNavigate ? "hover:bg-panel2" : "cursor-default"} ${c.readOnlyContext ? "opacity-60" : ""}`}
+            >
+              <CategoryIcon iconKey={c.categoryIconKey} className="size-13" />
+              <span className="flex-1 truncate text-11">{c.name}</span>
+              {c.critical && (
+                <span className="flex-none text-9 font-semibold text-warn border border-warn rounded-2 px-4 py-1" title="A failure can impair the parent">
+                  CRITICAL
+                </span>
+              )}
+              <span className="flex-none">
+                <StatusChip status={c.effectiveStatus} />
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
