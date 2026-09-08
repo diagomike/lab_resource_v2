@@ -53,9 +53,9 @@ function scopeSnapshot(item: { ownerOrgNodeId: string; currentOrgNodeId: string;
 export async function applyChange(
   actorId: string,
   input: ItemChangeInput,
-  opts?: { dryRun?: boolean; viewId?: string | null; viaApprovalEngine?: boolean },
+  opts?: { dryRun?: boolean; viewId?: string | null; bypassDraftWorkflowBlock?: boolean; viaApprovalEngine?: boolean },
 ): Promise<ItemChangeResultDto> {
-  await assertAuthorized(actorId, input, opts?.viewId, opts?.viaApprovalEngine);
+  await assertAuthorized(actorId, input, opts?.viewId, opts?.bypassDraftWorkflowBlock, opts?.viaApprovalEngine);
 
   let captured: ItemChangeResultDto | undefined;
   // Storage keys a successful commit makes unreferenced (a removed photo, a deleted
@@ -86,8 +86,13 @@ export async function applyChange(
 
 /** The preview variant — the same validate→apply path, nothing committed. What
  *  edit-impact previews and a pending request's "what would this do?" both use. */
-export function previewChange(actorId: string, input: ItemChangeInput, viewId?: string | null): Promise<ItemChangeResultDto> {
-  return applyChange(actorId, input, { dryRun: true, viewId });
+export function previewChange(
+  actorId: string,
+  input: ItemChangeInput,
+  viewId?: string | null,
+  bypassDraftWorkflowBlock?: boolean,
+): Promise<ItemChangeResultDto> {
+  return applyChange(actorId, input, { dryRun: true, viewId, bypassDraftWorkflowBlock });
 }
 
 // ── Authorization — WHO may do this. Never re-derived at a call site; see
@@ -100,7 +105,13 @@ export function previewChange(actorId: string, input: ItemChangeInput, viewId?: 
 //    which roles a caller holds (custody is the `Item.custodianId` column, a data
 //    fact, not a role label). ──────────────────────────────────────────────────────
 
-async function assertAuthorized(actorId: string, input: ItemChangeInput, viewId?: string | null, viaApprovalEngine?: boolean): Promise<void> {
+async function assertAuthorized(
+  actorId: string,
+  input: ItemChangeInput,
+  viewId?: string | null,
+  bypassDraftWorkflowBlock?: boolean,
+  viaApprovalEngine?: boolean,
+): Promise<void> {
   await assertViewAllowsEdit(actorId, viewId);
 
   if (await scope.isSysAdmin(actorId)) return;
@@ -117,6 +128,8 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viewId?
     // toggle, caught here during Track 3's own planning instead of after shipping.
     throw new HttpError(403, "Transfers must be requested through the approvals flow — see Approvals.");
   }
+
+  if (!bypassDraftWorkflowBlock) await assertDraftWorkflowNotBlocking(input);
 
   if (input.kind === "createItem") {
     if (input.parentId) {
@@ -148,6 +161,46 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viewId?
   // legality and an active org node rather than custody.
   if (input.kind === "moveInTree" && input.value !== null) {
     await scope.assertCanMutate(actorId, [input.value]);
+  }
+}
+
+/**
+ * Track 2 — once a department opts into the draft workflow
+ * (`OrgNode.draftWorkflowEnabled`), direct edits to items it owns are refused for
+ * everyone but SYS_ADMIN: the whole point of opting in is that changes go through
+ * `lab-drafts.ts`'s stage → submit → approve pipeline instead, and leaving this
+ * endpoint open would make that pipeline entirely optional — a custodian (or a
+ * stale client) could simply keep calling the direct write door and the toggle
+ * would do nothing. Deliberately re-implemented here rather than imported from
+ * `lab-drafts.ts`, which already calls `applyChange`/`previewChange` as the write
+ * door for an APPROVED commit — importing the other direction would be a circular
+ * module dependency. A brand-new top-level resource (`createItem` with no
+ * `parentId`) is exempt, matching `stageChange`'s own scoping note: creating an
+ * entirely new lab is not part of any existing lab's draft.
+ *
+ * `transferItem` is exempt outright, regardless of the flag above (Track 3's own
+ * `assertAuthorized` check already refuses a direct `transferItem` call unless it
+ * carries `viaApprovalEngine`, which is set ONLY by approvals.ts's own settle-and-
+ * apply call once a transfer request has been fully decided) — a transfer has its
+ * own dedicated approval path entirely separate from this department's draft
+ * toggle, matching `lab-drafts.ts`'s own `NOT_STAGEABLE` set, which already
+ * excludes `transferItem` for the identical reason (it reaches into another unit's
+ * accountability, which draft mode never covers). Without this exemption, an
+ * approved transfer's own finalizing `applyChange` call — which reaches this
+ * function with `viaApprovalEngine: true` but not `bypassDraftWorkflowBlock: true`
+ * — would be incorrectly blocked whenever the SOURCE item's department happens to
+ * have draft mode on.
+ */
+async function assertDraftWorkflowNotBlocking(input: ItemChangeInput): Promise<void> {
+  if (input.kind === "transferItem") return;
+  const ids = input.kind === "createItem" ? (input.parentId ? [input.parentId] : []) : input.itemIds;
+  if (!ids.length) return;
+  const rows = await prisma.item.findMany({ where: { id: { in: ids } }, select: { ownerOrgNodeId: true } });
+  const ownerIds = [...new Set(rows.map((r) => r.ownerOrgNodeId))];
+  if (!ownerIds.length) return;
+  const blocked = await prisma.orgNode.findFirst({ where: { id: { in: ownerIds }, draftWorkflowEnabled: true }, select: { name: true } });
+  if (blocked) {
+    throw new HttpError(403, `${blocked.name} uses draft mode for its resources — stage this change and submit it for the department head's approval instead of editing directly.`);
   }
 }
 

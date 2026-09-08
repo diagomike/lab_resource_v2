@@ -25,6 +25,10 @@ export const OrgNodeDto = z.object({
    *  call it home". Grows a term for each lab-management module as it ships (owned
    *  locations, assets, requests, ...), same as org.service.ts's deleteNode. */
   hasOwnedContent: z.boolean(),
+  /** Track 2's per-department rollout switch — default false. Read by the admin
+   *  toggle in Org Studio; direct editing is unaffected either way for anyone not
+   *  using the draft workflow. */
+  draftWorkflowEnabled: z.boolean(),
 });
 export type OrgNodeDto = z.infer<typeof OrgNodeDto>;
 

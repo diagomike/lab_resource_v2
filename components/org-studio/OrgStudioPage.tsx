@@ -273,6 +273,21 @@ export default function OrgStudioPage() {
     }
   }
 
+  /** Track 2's per-department rollout switch — reversible and purely additive
+   *  (it only ever narrows/widens whether THIS department's custodians go through
+   *  draft-then-approve; nothing already staged or applied is touched either way),
+   *  so it applies immediately with no confirmation, matching this app's own
+   *  established rule for that class of action. */
+  async function toggleDraftWorkflow(enabled: boolean) {
+    if (!selected) return;
+    try {
+      await api.post(`/org/nodes/${selected.id}/draft-workflow`, { enabled });
+      reload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not change the draft workflow setting");
+    }
+  }
+
   async function saveParents(parentIds: string[]) {
     if (!selected) return;
     try {
@@ -422,6 +437,21 @@ export default function OrgStudioPage() {
                       onSave={saveParents}
                     />
                   )}
+
+                  <div>
+                    <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-6">Resource drafts</div>
+                    <label className="flex items-center gap-8 text-11.5">
+                      <input
+                        type="checkbox"
+                        checked={selected.draftWorkflowEnabled}
+                        onChange={(e) => toggleDraftWorkflow(e.target.checked)}
+                      />
+                      Custodians here draft changes for head approval before they go visible
+                    </label>
+                    <p className="mt-4 text-9.5 text-faint">
+                      Off by default. A custodian can still edit directly until this is turned on for their unit.
+                    </p>
+                  </div>
 
                   <div className="flex items-center gap-8 pt-4 border-t border-border">
                     {selected.active ? (

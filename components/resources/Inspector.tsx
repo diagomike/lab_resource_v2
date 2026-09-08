@@ -11,9 +11,11 @@ import { PanelLoading } from "@/components/states";
 import { useEditOptions } from "@/lib/register/useEditOptions";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { getActiveViewId } from "@/lib/register/active-view";
+import { useAuth } from "@/lib/auth-context";
 import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
 import { TransferModal } from "./TransferModal";
+import { LabDraftPanel } from "./LabDraftPanel";
 
 /**
  * The single-item edit surface — corrections (name, status-as-typed-fact... no,
@@ -67,7 +69,9 @@ export function Inspector({
   const [newCustomValue, setNewCustomValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [showDraftPanel, setShowDraftPanel] = useState(false);
   const options = useEditOptions();
+  const { user } = useAuth();
 
   function load() {
     if (!itemId) return;
@@ -435,6 +439,20 @@ export function Inspector({
                 refused.
               </div>
             )}
+            {/* Track 2 — only for a lab root (no parent) the signed-in account itself
+                custodies. If the department hasn't turned on draft mode, staging
+                still just refuses with a clear message; the button is not hidden
+                pre-emptively on that basis (readOnlyContext already covers the case
+                where this item genuinely isn't theirs). */}
+            {!item.readOnlyContext && item.parentId === null && item.custodianId === user?.id && (
+              <button
+                type="button"
+                onClick={() => setShowDraftPanel(true)}
+                className="self-start text-10.5 text-accent border border-accent rounded-2 px-8 py-4"
+              >
+                Manage draft…
+              </button>
+            )}
             {inlineError && <ErrorNote>{inlineError}</ErrorNote>}
 
             <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
@@ -671,6 +689,17 @@ export function Inspector({
           error={pendingError}
           onConfirm={confirm}
           onCancel={cancel}
+        />
+      )}
+
+      {showDraftPanel && item && (
+        <LabDraftPanel
+          labItemId={item.id}
+          labName={item.name}
+          onClose={() => {
+            setShowDraftPanel(false);
+            load();
+          }}
         />
       )}
     </>
