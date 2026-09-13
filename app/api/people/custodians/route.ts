@@ -7,7 +7,8 @@ import { custodians } from "@/lib/server/people/people";
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession(request);
-    requireRole(user, ["CUSTODIAN", "PROPERTY_ADMIN"]);
+    // Anyone who can hand custody over through the register's Change → Custody tab.
+    requireRole(user, ["SYS_ADMIN", "PROPERTY_ADMIN", "MANAGER", "CUSTODIAN", "STORE_KEEPER"]);
     const q = request.nextUrl.searchParams.get("q") ?? undefined;
     const rows = await custodians(q);
     return NextResponse.json<PersonSummaryDto[]>(rows, { status: 200 });

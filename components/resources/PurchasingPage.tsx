@@ -5,12 +5,14 @@ import type {
   ChainStepDto,
   CompilePurchaseInput,
   ContainerOptionDto,
+  DepartmentPurchasablesDto,
   NeedLineDto,
   PurchaseRequestDto,
   ResourceCategoryDto,
 } from "@/lib/shared";
 import { PURCHASE_UNITS } from "@/lib/shared";
 import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished } from "@/lib/domain/purchasing";
+import { suggestedLines } from "@/lib/domain/purchasables";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag } from "@/components/ui";
@@ -173,6 +175,11 @@ function RaiseNeedPanel({ categories }: { categories: ResourceCategoryDto[] }) {
                   </div>
                   <div className="text-9.5 text-faint">{n.reason}</div>
                   {n.note && <div className="text-9.5 text-faint italic">"{n.note}"</div>}
+                  {n.purchaseReference && n.purchaseStage && (
+                    <div className="text-9.5 text-dim">
+                      Carried into {n.purchaseReference} · {STAGE_LABEL[n.purchaseStage]}
+                    </div>
+                  )}
                 </div>
                 <Tag tone={NEED_TONE[n.status]}>{n.status}</Tag>
               </div>
@@ -307,6 +314,100 @@ function toInputLines(lines: EditableLine[]): CompilePurchaseInput["lines"] {
     }));
 }
 
+// ── Department purchasables — the labs' ideal state vs. the live register ─────────
+
+/** Read-only roll-up of every lab this unit owns against its approved ideal targets
+ *  (`lib/domain/purchasables.ts`). "Fill request lines" hands the suggestion to the
+ *  lines editor below — the head still edits, reduces or removes anything before
+ *  submitting; nothing here is ever sent upward on its own. */
+function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill: (lines: EditableLine[]) => void }) {
+  const [data, setData] = useState<DepartmentPurchasablesDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [includeBroken, setIncludeBroken] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  function compute() {
+    setError(null);
+    setExpanded(true);
+    api
+      .get<DepartmentPurchasablesDto>(`/resources/departments/${encodeURIComponent(orgNodeId)}/purchasables`)
+      .then(setData)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not compute purchasables"));
+  }
+
+  function fill() {
+    if (!data) return;
+    onFill(
+      suggestedLines(data.rows, includeBroken).map((l) => ({
+        ...emptyLine(),
+        name: l.name,
+        qty: String(l.qty),
+        unit: "pcs",
+        categoryId: l.categoryId,
+        justification: l.justification,
+      })),
+    );
+  }
+
+  const suggestionCount = data ? suggestedLines(data.rows, includeBroken).length : 0;
+
+  return (
+    <div className="flex flex-col gap-8 border border-border rounded-3 p-10">
+      <div className="flex items-center justify-between gap-8">
+        <div className="text-10.5 text-dim">Start from what your labs are missing against their approved ideal state.</div>
+        <Button onClick={compute}>{data ? "Recompute" : "Compute from labs' ideal vs current"}</Button>
+      </div>
+      {error && <ErrorNote>{error}</ErrorNote>}
+      {expanded && data === null && !error && <PanelLoading rows={2} />}
+      {data && data.rows.length === 0 && (
+        <div className="text-10.5 text-faint">No lab owned by {data.orgNodeName} has an approved ideal target yet.</div>
+      )}
+      {data && data.rows.length > 0 && (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-11">
+              <thead>
+                <tr className="text-9.5 uppercase tracking-label text-faint border-b border-border">
+                  <th className="text-left px-8 py-6">Category</th>
+                  <th className="text-right px-8 py-6">Ideal</th>
+                  <th className="text-right px-8 py-6">Current</th>
+                  <th className="text-right px-8 py-6">Gap</th>
+                  <th className="text-right px-8 py-6">Broken</th>
+                  <th className="text-left px-8 py-6">By lab</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((r) => (
+                  <tr key={r.categoryId} className="border-b border-border last:border-0">
+                    <td className="px-8 py-6">{r.categoryName}</td>
+                    <td className="px-8 py-6 text-right font-mono">{r.idealQty}</td>
+                    <td className="px-8 py-6 text-right font-mono">{r.actualCount}</td>
+                    <td className={`px-8 py-6 text-right font-mono ${r.gap > 0 ? "text-warn" : ""}`}>{r.gap}</td>
+                    <td className={`px-8 py-6 text-right font-mono ${r.brokenCount > 0 ? "text-bad" : ""}`}>{r.brokenCount}</td>
+                    <td className="px-8 py-6 text-10 text-dim">
+                      {r.labs.map((l) => `${l.labName}: ${l.actualCount}/${l.idealQty}${l.brokenCount ? ` (${l.brokenCount} broken)` : ""}`).join(" · ")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-center gap-10">
+            <label className="flex items-center gap-6 text-10.5">
+              <input type="checkbox" checked={includeBroken} onChange={(e) => setIncludeBroken(e.target.checked)} />
+              Include replacements for broken units
+            </label>
+            <Button variant="primary" onClick={fill} disabled={suggestionCount === 0}>
+              Fill request lines ({suggestionCount})
+            </Button>
+            <span className="text-9.5 text-faint">Replaces the lines below — edit or reduce them before submitting.</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Compile a request (heads) ─────────────────────────────────────────────────────
 
 function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string; categories: ResourceCategoryDto[]; onCompiled: () => void }) {
@@ -355,6 +456,7 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
           <span className={labelCls}>Title</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q1 lab equipment" className={`${inputCls} max-w-[360px]`} />
         </label>
+        <PurchasablesSection orgNodeId={orgNodeId} onFill={setLines} />
         <LinesEditor lines={lines} onChange={setLines} categories={categories} openNeeds={openNeeds} />
         <div>
           <Button variant="primary" onClick={submit} disabled={busy || !title.trim() || !toInputLines(lines).length}>
@@ -368,6 +470,30 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
 
 // ── One request, shared by every list below ────────────────────────────────────
 
+/** The request's permanent record — every submission, decision (with who and why),
+ *  pipeline report and receipt, in order. Survives send-backs, unlike the live
+ *  chain above it. */
+export function HistoryTimeline({ history }: { history: PurchaseRequestDto["history"] }) {
+  const [open, setOpen] = useState(false);
+  if (!history.length) return null;
+  const shown = open ? history : history.slice(-3);
+  return (
+    <div className="flex flex-col gap-3 border-l-2 border-border pl-8">
+      {history.length > 3 && (
+        <button type="button" className="self-start text-9.5 text-accent" onClick={() => setOpen((o) => !o)}>
+          {open ? "Show latest only" : `Show full history (${history.length})`}
+        </button>
+      )}
+      {shown.map((e, i) => (
+        <div key={`${e.at}-${i}`} className="text-10 text-dim">
+          <span className="text-faint">{new Date(e.at).toLocaleString()}</span> · <span className="font-medium">{e.byName}</span> · {STAGE_LABEL[e.stage]}
+          {e.note ? <span> — {e.note}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RequestCard({
   request,
   viewerId,
@@ -375,6 +501,7 @@ function RequestCard({
   onChanged,
   showReceive,
   showAdvance,
+  readOnly,
 }: {
   request: PurchaseRequestDto;
   viewerId: string;
@@ -382,8 +509,11 @@ function RequestCard({
   onChanged: () => void;
   showReceive?: boolean;
   showAdvance?: boolean;
+  /** Status-following only — no decide/revise/withdraw affordances. */
+  readOnly?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
   const [lines, setLines] = useState<EditableLine[]>(() =>
@@ -402,8 +532,8 @@ function RequestCard({
   const [receiveState, setReceiveState] = useState<Record<string, { qty: string; categoryId: string; storeParentId: string; containers: ContainerOptionDto[] }>>({});
 
   const currentStep = request.steps.find((s) => s.status === "PENDING");
-  const canDecide = request.stage === "APPROVING" && currentStep?.approverId === viewerId;
-  const isRequester = request.raisedById === viewerId;
+  const canDecide = !readOnly && request.stage === "APPROVING" && currentStep?.approverId === viewerId;
+  const isRequester = !readOnly && request.raisedById === viewerId;
   const ordered = request.lines.reduce((n, l) => n + l.qty, 0);
   const received = request.lines.reduce((n, l) => n + (l.receivedQty ?? 0), 0);
 
@@ -411,7 +541,8 @@ function RequestCard({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision });
+      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note.trim() || undefined });
+      setNote("");
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not record this decision");
@@ -453,7 +584,8 @@ function RequestCard({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/advance`, {});
+      await api.post(`/resources/purchase-requests/${request.id}/advance`, { note: note.trim() || undefined });
+      setNote("");
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not advance this request");
@@ -517,6 +649,7 @@ function RequestCard({
 
       <ChainTrail steps={request.steps} />
       {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
+      <HistoryTimeline history={request.history} />
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="flex flex-col gap-4">
@@ -542,7 +675,8 @@ function RequestCard({
       )}
 
       {canDecide && !revising && (
-        <div className="flex items-center gap-8 pt-4">
+        <div className="flex flex-wrap items-center gap-8 pt-4">
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (why — shown to everyone following this request)" className={`${inputCls} min-w-[260px] flex-1`} />
           <Button variant="primary" onClick={() => decide("APPROVE")} disabled={busy}>
             Approve
           </Button>
@@ -594,11 +728,14 @@ function RequestCard({
       )}
 
       {showAdvance && (
-        <div className="pt-4 border-t border-border flex items-center justify-between">
+        <div className="pt-4 border-t border-border flex flex-wrap items-center justify-between gap-8">
           <span className="text-10.5 text-dim">{STAGE_HELP[request.stage]}</span>
-          <Button variant="primary" onClick={advance} disabled={busy}>
-            Advance
-          </Button>
+          <div className="flex items-center gap-8">
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" className={`${inputCls} min-w-[200px]`} />
+            <Button variant="primary" onClick={advance} disabled={busy}>
+              Advance
+            </Button>
+          </div>
         </div>
       )}
 
@@ -659,14 +796,16 @@ function RequestListPanel({
   emptyLabel,
   showReceive,
   showAdvance,
+  readOnly,
 }: {
   title: string;
-  box: "mine" | "pipeline" | "receiving";
+  box: "mine" | "pipeline" | "receiving" | "tracking";
   viewerId: string;
   categories: ResourceCategoryDto[];
   emptyLabel: string;
   showReceive?: boolean;
   showAdvance?: boolean;
+  readOnly?: boolean;
 }) {
   const [rows, setRows] = useState<PurchaseRequestDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -691,7 +830,7 @@ function RequestListPanel({
         ) : (
           <div className="p-12 flex flex-col gap-10">
             {rows.map((r) => (
-              <RequestCard key={r.id} request={r} viewerId={viewerId} categories={categories} onChanged={load} showReceive={showReceive} showAdvance={showAdvance} />
+              <RequestCard key={r.id} request={r} viewerId={viewerId} categories={categories} onChanged={load} showReceive={showReceive} showAdvance={showAdvance} readOnly={readOnly} />
             ))}
           </div>
         )}
@@ -739,6 +878,15 @@ export default function PurchasingPage() {
       {canReceive && (
         <RequestListPanel key={`receiving-${refreshKey}`} title="Receive" box="receiving" viewerId={user.id} categories={categories} emptyLabel="Nothing has arrived at the store yet." showReceive />
       )}
+      <RequestListPanel
+        key={`tracking-${refreshKey}`}
+        title="Purchase request status"
+        box="tracking"
+        viewerId={user.id}
+        categories={categories}
+        emptyLabel="No purchase request involving your unit or office yet."
+        readOnly
+      />
     </Screen>
   );
 }

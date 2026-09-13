@@ -28,6 +28,7 @@ import {
 } from "@/lib/domain/approvals";
 import { FIRST_PIPELINE_STAGE, canCompile, canRaiseNeed, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
+import type { RoleKind } from "@/lib/shared";
 
 /**
  * Track 4 — purchasing/procurement. See
@@ -152,6 +153,7 @@ const needInclude = {
   raisedBy: { select: { name: true } },
   orgNode: { select: { name: true } },
   handledBy: { select: { name: true } },
+  purchaseLine: { select: { purchase: { select: { reference: true, stage: true } } } },
 } satisfies Prisma.NeedLineInclude;
 
 type NeedRow = Prisma.NeedLineGetPayload<{ include: typeof needInclude }>;
@@ -175,6 +177,8 @@ function toNeedDto(row: NeedRow): NeedLineDto {
     handledAt: row.handledAt ? row.handledAt.toISOString() : null,
     note: row.note,
     purchaseLineId: row.purchaseLineId,
+    purchaseReference: row.purchaseLine?.purchase.reference ?? null,
+    purchaseStage: row.purchaseLine?.purchase.stage ?? null,
   };
 }
 
@@ -354,6 +358,7 @@ export async function compilePurchaseRequest(actorId: string, input: CompilePurc
     await tx.purchaseStep.createMany({
       data: steps.map((s) => ({ requestId: request.id, order: s.order, selector: s.selector, label: s.label, nodeId: s.nodeId, approverId: s.approverId, status: s.status, skipReason: s.skipReason })),
     });
+    await tx.purchaseEvent.create({ data: { purchaseId: request.id, byId: actorId, stage: "APPROVING", note: "Submitted for approval." } });
 
     return request.id;
   });
@@ -429,6 +434,7 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
     });
 
     await tx.purchaseRequest.update({ where: { id: requestId }, data: { title: input.title, stage: "APPROVING", feedback: null } });
+    await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: "APPROVING", note: "Revised and resubmitted." } });
   });
 
   await settleIfComplete(requestId, actorId, steps);
@@ -455,11 +461,16 @@ export async function decideStep(actorId: string, requestId: string, decision: "
   if (!canDecide(step, person, nodes)) throw new HttpError(403, "This decision is not yours to make.");
 
   const at = new Date();
+  // Every decision is also written to the request's permanent history — the steps
+  // themselves are working state (REVISE deletes them), so without this a request
+  // that went round several send-backs would show nothing of who sent it back or why.
+  const eventNote = (verb: string) => `${verb} — ${step!.label}${note ? `: ${note}` : ""}`;
 
   if (decision === "REJECT") {
     await prisma.$transaction([
       prisma.purchaseStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } }),
       prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REJECTED", feedback: note ?? null } }),
+      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote("Rejected") } }),
     ]);
     return loadDto(requestId);
   }
@@ -468,11 +479,15 @@ export async function decideStep(actorId: string, requestId: string, decision: "
     await prisma.$transaction([
       prisma.purchaseStep.deleteMany({ where: { requestId } }),
       prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REVISING", feedback: note ?? "Sent back for revision." } }),
+      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REVISING", note: eventNote("Sent back for revision") } }),
     ]);
     return loadDto(requestId);
   }
 
-  await prisma.purchaseStep.update({ where: { id: step!.id }, data: { status: "APPROVED", decidedById: actorId, decidedAt: at, note: note ?? null } });
+  await prisma.$transaction([
+    prisma.purchaseStep.update({ where: { id: step!.id }, data: { status: "APPROVED", decidedById: actorId, decidedAt: at, note: note ?? null } }),
+    prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "APPROVING", note: eventNote("Approved") } }),
+  ]);
 
   const refreshedRows = await prisma.purchaseStep.findMany({ where: { requestId }, orderBy: { order: "asc" } });
   const advanced = activate(refreshedRows.map(toDomainStep));
@@ -481,7 +496,7 @@ export async function decideStep(actorId: string, requestId: string, decision: "
   if (chainSettled(advanced)) {
     await prisma.$transaction([
       prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: FIRST_PIPELINE_STAGE } }),
-      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: FIRST_PIPELINE_STAGE, note: note ?? null } }),
+      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: FIRST_PIPELINE_STAGE, note: "Every approval step settled — handed to procurement." } }),
     ]);
   }
 
@@ -493,7 +508,10 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string):
   if (!request) throw new HttpError(404, "Request not found");
   if (request.raisedById !== actorId) throw new HttpError(403, "Only the person who raised this request may cancel it.");
   if (isFinished(request.stage)) throw new HttpError(409, "This request has already finished.");
-  await prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "CANCELLED" } });
+  await prisma.$transaction([
+    prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "CANCELLED" } }),
+    prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: "CANCELLED", note: "Withdrawn by the requester." } }),
+  ]);
 }
 
 /** The reporting pipeline: ORDER_PLACED → BUYER_FOUND → ON_DELIVERY → IN_STORE. A
@@ -588,19 +606,56 @@ async function loadDto(requestId: string): Promise<PurchaseRequestDto> {
   return toRequestDto(row);
 }
 
-/** Readable by the requester, any current/past step's approver, procurement, or
- *  SYS_ADMIN — 404 otherwise (Track 3's own discipline: a 403 would confirm the row
- *  exists). */
-export async function getRequest(actorId: string, requestId: string): Promise<PurchaseRequestDto> {
-  const dto = await loadDto(requestId);
+/** Roles that run or oversee the purchasing process for every department, and so
+ *  follow every request's status. */
+const READS_EVERY_REQUEST: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "STORE_KEEPER"];
 
-  const isParty = actorId === dto.raisedById || dto.steps.some((s) => s.approverId === actorId || s.decidedById === actorId);
-  if (!isParty) {
-    const person = await loadPerson(actorId);
-    const privileged = (await scope.isSysAdmin(actorId)) || canRunPipeline(person);
-    if (!privileged) throw new HttpError(404, "Resource not found");
-  }
-  return dto;
+/**
+ * Who may follow a purchase request's status — everyone who takes part in it, not
+ * just whoever has to act next:
+ *  - the university-wide purchasing roles (`READS_EVERY_REQUEST`);
+ *  - the person who raised it, anyone who ever decided or recorded anything on it
+ *    (its event history), and anyone named on a live step;
+ *  - the raising unit's own members (home unit), and the occupant of that unit or of
+ *    ANY unit above it in the org chart — the offices its ladder walks through,
+ *    resolved via `OrgClosure` so a newly appointed dean sees it immediately;
+ *  - the occupant of any office its chain names directly (the Procurement Office);
+ *  - anyone whose need was carried into one of its lines.
+ * Returned as a Prisma filter (`null` = unrestricted) so a list and a point read
+ * enforce exactly the same rule.
+ */
+async function readableRequestWhere(actorId: string): Promise<Prisma.PurchaseRequestWhereInput | null> {
+  const [roles, user, occupied] = await Promise.all([
+    scope.rolesOf(actorId),
+    prisma.user.findUnique({ where: { id: actorId }, select: { homeNodeId: true } }),
+    prisma.orgNode.findMany({ where: { userId: actorId, active: true }, select: { id: true } }),
+  ]);
+  if (roles.some((r) => READS_EVERY_REQUEST.includes(r))) return null;
+
+  const occupiedIds = occupied.map((n) => n.id);
+  const below = occupiedIds.length ? await prisma.orgClosure.findMany({ where: { ancestorId: { in: occupiedIds } }, select: { descendantId: true } }) : [];
+  const unitIds = [...new Set([...occupiedIds, ...below.map((c) => c.descendantId), ...(user?.homeNodeId ? [user.homeNodeId] : [])])];
+
+  const stepMatch: Prisma.PurchaseStepWhereInput[] = [{ approverId: actorId }, { decidedById: actorId }];
+  if (occupiedIds.length) stepMatch.push({ nodeId: { in: occupiedIds } });
+
+  const or: Prisma.PurchaseRequestWhereInput[] = [
+    { raisedById: actorId },
+    { events: { some: { byId: actorId } } },
+    { steps: { some: { OR: stepMatch } } },
+    { lines: { some: { answeredNeeds: { some: { raisedById: actorId } } } } },
+  ];
+  if (unitIds.length) or.push({ orgNodeId: { in: unitIds } });
+  return { OR: or };
+}
+
+/** 404 when unreadable (Track 3's own discipline: a 403 would confirm the row
+ *  exists) — see `readableRequestWhere` for who may read. */
+export async function getRequest(actorId: string, requestId: string): Promise<PurchaseRequestDto> {
+  const where = await readableRequestWhere(actorId);
+  const visible = await prisma.purchaseRequest.count({ where: where ? { AND: [{ id: requestId }, where] } : { id: requestId } });
+  if (!visible) throw new HttpError(404, "Resource not found");
+  return loadDto(requestId);
 }
 
 const PIPELINE_STAGES = ["ORDER_PLACED", "BUYER_FOUND", "ON_DELIVERY", "IN_STORE"] as const;
@@ -613,7 +668,13 @@ const PIPELINE_STAGES = ["ORDER_PLACED", "BUYER_FOUND", "ON_DELIVERY", "IN_STORE
  *  `receivePurchaseLine` acts on. The last two are university-wide rather than
  *  scoped to the requester's own unit because procurement and the store run this
  *  half of the process for every department, not just their own. */
-export async function listForActor(actorId: string, box: "inbox" | "mine" | "pipeline" | "receiving"): Promise<PurchaseRequestDto[]> {
+export async function listForActor(actorId: string, box: "inbox" | "mine" | "pipeline" | "receiving" | "tracking"): Promise<PurchaseRequestDto[]> {
+  if (box === "tracking") {
+    const where = await readableRequestWhere(actorId);
+    const rows = await prisma.purchaseRequest.findMany({ where: where ?? {}, include: requestInclude, orderBy: { createdAt: "desc" } });
+    return Promise.all(rows.map(toRequestDto));
+  }
+
   if (box === "mine") {
     const rows = await prisma.purchaseRequest.findMany({ where: { raisedById: actorId }, include: requestInclude, orderBy: { createdAt: "desc" } });
     return Promise.all(rows.map(toRequestDto));

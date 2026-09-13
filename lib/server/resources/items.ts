@@ -491,15 +491,17 @@ export async function transferDestinations(userId: string, itemIds: string[], q:
   const activeNodes = await prisma.orgNode.findMany({ where: { active: true }, select: { id: true, name: true } });
   const nodeNameById = new Map(activeNodes.map((n) => [n.id, n.name]));
 
-  const options = forest.items
+  const candidates = forest.items
     .filter((item) => !excluded.has(item.id))
     .filter((item) => item.name.toLowerCase().includes(needle))
     .filter((item) => nodeNameById.has(item.currentOrgNodeId))
     .filter((item) => sourceItems.every((source) => canPlace(forest.categories, source.categoryId, item.categoryId)))
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, 25);
+  const custodians = await prisma.user.findMany({ where: { id: { in: [...new Set(candidates.map((i) => i.custodianId))] } }, select: { id: true, name: true } });
+  const custodianNameById = new Map(custodians.map((u) => [u.id, u.name]));
 
-  return options.map((item) => {
+  return candidates.map((item) => {
     const category = forest.categories[item.categoryId];
     return {
       id: item.id,
@@ -510,6 +512,8 @@ export async function transferDestinations(userId: string, itemIds: string[], q:
       path: pathOf(forest.index, item.id),
       orgNodeId: item.currentOrgNodeId,
       orgNodeName: nodeNameById.get(item.currentOrgNodeId) ?? "",
+      custodianId: item.custodianId,
+      custodianName: custodianNameById.get(item.custodianId) ?? "",
     };
   });
 }

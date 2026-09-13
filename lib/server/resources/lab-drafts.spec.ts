@@ -320,3 +320,80 @@ describe("a custodian cannot stage a change against a lab they do not custody", 
     ).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe("department purchasables and staged additions — a separate orphan department", () => {
+  let deptId: string;
+  let headId: string;
+  let custodianId: string;
+
+  async function labIn(name: string) {
+    const item = await prisma.item.create({ data: { categoryId, name, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId } });
+    createdItemIds.push(item.id);
+    return item.id;
+  }
+
+  async function unitsIn(labId: string, count: number, broken = 0) {
+    for (let i = 0; i < count; i += 1) {
+      const item = await prisma.item.create({
+        data: { parentId: labId, categoryId, name: `Unit ${i}`, countingMode: "SERIALIZED", status: i < broken ? "BROKEN" : "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId },
+      });
+      createdItemIds.push(item.id);
+    }
+  }
+
+  beforeAll(async () => {
+    headId = await makeUser("purch-head", { roles: ["MANAGER"] });
+    const node = await prisma.orgNode.create({ data: { name: `${testKey}-purch-dept`, level: 2, kind: "DEPARTMENT", userId: headId, draftWorkflowEnabled: true } });
+    deptId = node.id;
+    custodianId = await makeUser("purch-custodian", { homeNodeId: deptId, roles: ["CUSTODIAN"] });
+  });
+
+  afterAll(async () => {
+    await prisma.orgNode.update({ where: { id: deptId }, data: { userId: null } });
+    await prisma.labCommitRequest.deleteMany({ where: { labItemId: { in: createdItemIds } } });
+    await prisma.itemDraftChange.deleteMany({ where: { labItemId: { in: createdItemIds } } });
+    await prisma.labIdealTarget.deleteMany({ where: { labItemId: { in: createdItemIds } } });
+    await prisma.itemChange.deleteMany({ where: { categoryId } });
+    await prisma.item.deleteMany({ where: { ownerOrgNodeId: deptId, parentId: { not: null } } });
+    await prisma.item.deleteMany({ where: { ownerOrgNodeId: deptId } });
+    await prisma.orgNode.delete({ where: { id: deptId } });
+  });
+
+  it("rolls every owned lab's ideal-vs-actual up per category, gaps floored per lab — readable by the head only", async () => {
+    const labA = await labIn("Purch Lab A");
+    const labB = await labIn("Purch Lab B");
+    await labIn("Purch Lab Without Targets");
+    await unitsIn(labA, 6, 1);
+    await unitsIn(labB, 5);
+    await prisma.labIdealTarget.createMany({ data: [{ labItemId: labA, categoryId, idealQty: 8 }, { labItemId: labB, categoryId, idealQty: 3 }] });
+
+    const dto = await labDrafts.getDepartmentPurchasables(headId, deptId);
+    expect(dto.labCount).toBe(2);
+    expect(dto.rows).toHaveLength(1);
+    // Lab A is short 2, lab B holds 2 more than its target — that surplus must not cancel A's gap.
+    expect(dto.rows[0]).toMatchObject({ categoryId, idealQty: 11, actualCount: 11, gap: 2, brokenCount: 1 });
+    expect(dto.rows[0].labs.map((l) => [l.labName, l.gap])).toEqual([
+      ["Purch Lab A", 2],
+      ["Purch Lab B", 0],
+    ]);
+
+    await expect(labDrafts.getDepartmentPurchasables(custodianId, deptId)).rejects.toMatchObject({ status: 403 });
+    await expect(labDrafts.getDepartmentPurchasables(sysAdminId, deptId)).resolves.toMatchObject({ labCount: 2 });
+  });
+
+  it("a staged 'add resources' change creates nothing until the head approves, then creates them under the lab, attributed to the custodian", async () => {
+    const labId = await labIn("Purch Staged-Create Lab");
+    await labDrafts.stageChange(custodianId, labId, { targetKind: "VISIBLE", change: { kind: "createItem", parentId: labId, categoryId, count: 3, name: "Staged Computer" } });
+
+    expect(await prisma.item.count({ where: { parentId: labId, deletedAt: null } })).toBe(0);
+    const request = await labDrafts.submitDraft(custodianId, labId, "VISIBLE");
+    const decided = await labDrafts.decideCommit(headId, request.id, "APPROVE");
+    expect(decided.status).toBe("APPLIED");
+
+    const created = await prisma.item.findMany({ where: { parentId: labId, deletedAt: null } });
+    expect(created).toHaveLength(3);
+    expect(created.every((i) => i.name.startsWith("Staged Computer") && i.custodianId === custodianId)).toBe(true);
+    const log = await prisma.itemChange.findFirstOrThrow({ where: { itemId: created[0].id, kind: "createItem" } });
+    expect(log.actorId).toBe(custodianId);
+  });
+});

@@ -126,6 +126,9 @@ export const TransferDestinationDto = z.object({
   path: z.array(z.string()),
   orgNodeId: z.string(),
   orgNodeName: z.string(),
+  /** Who answers for the destination — the person a store handover hands custody to. */
+  custodianId: z.string(),
+  custodianName: z.string(),
 });
 export type TransferDestinationDto = z.infer<typeof TransferDestinationDto>;
 
@@ -260,10 +263,12 @@ export const MoveInTreeChange = Base.extend({
 });
 
 /**
- * Borrowing, not selling: `ownerOrgNodeId` is deliberately absent from `transfer` —
- * the whole point of the owner/current split is that a resource can sit in another
- * department's lab without changing hands. `targetCustodianId: null` keeps the
- * existing custodian.
+ * Borrowing, not selling, by default: the whole point of the owner/current split is
+ * that a resource can sit in another department's lab without changing hands.
+ * `targetCustodianId: null` keeps the existing custodian. `transferOwnership` is the
+ * one exception — the main store handing stock over to a department, where the
+ * receiving unit becomes the owner too. Only a store keeper (or SYS_ADMIN) may ask for
+ * it; approvals.ts enforces that before a request is ever raised.
  */
 export const TransferItemChange = Base.extend({
   kind: z.literal("transferItem"),
@@ -272,6 +277,7 @@ export const TransferItemChange = Base.extend({
     targetParentId: z.string(),
     targetOrgNodeId: z.string(),
     targetCustodianId: z.string().nullable(),
+    transferOwnership: z.boolean().optional(),
   }),
 });
 

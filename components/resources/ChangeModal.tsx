@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ContainerOptionDto, ItemDetailDto } from "@/lib/shared";
+import type { ContainerOptionDto, ItemDetailDto, PersonSummaryDto } from "@/lib/shared";
 import { itemStatuses } from "@/lib/shared";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
@@ -81,7 +81,29 @@ export function ChangeModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [moveTargets, setMoveTargets] = useState<ContainerOptionDto[]>([]);
+  const [people, setPeople] = useState<PersonSummaryDto[]>([]);
   const options = useEditOptions();
+
+  // Custody can go to anyone eligible, not only people who already custody something
+  // in the loaded register — the forest-derived list alone could never offer a newly
+  // appointed store keeper or custodian.
+  useEffect(() => {
+    if (kind !== "setCustodian") return;
+    let cancelled = false;
+    api
+      .get<PersonSummaryDto[]>("/people/custodians")
+      .then((rows) => !cancelled && setPeople(rows))
+      .catch(() => !cancelled && setPeople([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [kind]);
+
+  const custodianOptions = (() => {
+    const byId = new Map(options.custodian.map((o) => [o.value, o.label]));
+    for (const p of people) byId.set(p.id, p.homeNodeName ? `${p.name} — ${p.homeNodeName}` : p.name);
+    return [...byId.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  })();
 
   useEffect(() => {
     setValue(currentValueFor(kind, item));
@@ -108,7 +130,7 @@ export function ChangeModal({
     kind === "setStatus"
       ? itemStatuses.map((s) => ({ value: s, label: STATUS_LABEL[s] }))
       : kind === "setCustodian"
-        ? options.custodian
+        ? custodianOptions
         : kind === "setOwnerOrg"
           ? options.owner
           : kind === "setCurrentOrg"

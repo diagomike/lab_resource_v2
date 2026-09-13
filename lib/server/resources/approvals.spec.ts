@@ -352,3 +352,69 @@ describe("custody floor — requesting a transfer of something you don't custody
     await expect(approvals.requestTransfer(outsiderId, transferInput([sourceId], destLabId, targetNodeId))).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe("store handover — the main store hands stock over to a department", () => {
+  const STORE_CHAIN = [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }];
+
+  function handoverInput(itemIds: string[], targetParentId: string, targetOrgNodeId: string, targetCustodianId: string) {
+    return { kind: "transferItem" as const, itemIds, transfer: { targetParentId, targetOrgNodeId, targetCustodianId, transferOwnership: true } };
+  }
+
+  beforeAll(async () => {
+    await makePolicy({ id: `${testKey}-chain-storekeeper`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: STORE_CHAIN });
+  });
+
+  it("routes receiving head → receiving custodian; owner, current unit and custody all move only once the custodian accepts", async () => {
+    const keeperId = await makeUser("store-keeper", ["STORE_KEEPER", "STAFF"]);
+    const labHeadId = await makeUser("store-lab-head", ["MANAGER"]);
+    const labCustodianId = await makeUser("store-lab-custodian", ["CUSTODIAN"]);
+    const storeNodeId = await makeNode("store-university", null);
+    const deptNodeId = await makeNode("store-dept", labHeadId);
+    const labId = await makeItem(deptNodeId, labCustodianId, "Handover Dest Lab");
+    const stockA = await makeItem(storeNodeId, keeperId, "Handover Stock A");
+    const stockB = await makeItem(storeNodeId, keeperId, "Handover Stock B");
+
+    const preview = await approvals.previewTransfer(keeperId, handoverInput([stockA, stockB], labId, deptNodeId, labCustodianId));
+    expect(preview.outcome).toBe("ROUTED");
+    expect(preview.steps?.map((s) => [s.selector, s.approverId])).toEqual([
+      ["TARGET_HEAD", labHeadId],
+      ["TARGET_CUSTODIAN", labCustodianId],
+    ]);
+
+    const result = await approvals.requestTransfer(keeperId, handoverInput([stockA, stockB], labId, deptNodeId, labCustodianId));
+    if (result.outcome !== "ROUTED") throw new Error("expected ROUTED");
+    createdRequestIds.push(result.request.id);
+    expect(result.request.summary).toMatch(/^Store handover: 2 resources/);
+
+    // The custodian cannot accept before the head has approved.
+    await expect(approvals.decideStep(labCustodianId, result.request.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+    await approvals.decideStep(labHeadId, result.request.id, "APPROVE");
+
+    let item = await prisma.item.findUniqueOrThrow({ where: { id: stockA } });
+    expect([item.ownerOrgNodeId, item.custodianId, item.parentId]).toEqual([storeNodeId, keeperId, null]);
+
+    const final = await approvals.decideStep(labCustodianId, result.request.id, "APPROVE", "arrived, 2 units");
+    expect(final.status).toBe("APPLIED");
+
+    for (const id of [stockA, stockB]) {
+      item = await prisma.item.findUniqueOrThrow({ where: { id } });
+      expect([item.parentId, item.ownerOrgNodeId, item.currentOrgNodeId, item.custodianId]).toEqual([labId, deptNodeId, deptNodeId, labCustodianId]);
+    }
+
+    const lines = await prisma.itemChange.findMany({ where: { itemId: stockA }, orderBy: { kind: "asc" } });
+    expect(lines.map((l) => l.kind).sort()).toEqual(["setCustodian", "setOwnerOrg", "transferItem"]);
+    expect(new Set(lines.map((l) => l.batchId)).size).toBe(1);
+    expect(lines.every((l) => l.actorId === keeperId && l.ownerOrgNodeId === deptNodeId && l.custodianId === labCustodianId)).toBe(true);
+  });
+
+  it("refuses an ownership move requested by anyone but a store keeper or SYS_ADMIN", async () => {
+    const custodianId = await makeUser("handover-not-keeper", ["CUSTODIAN"]);
+    const ownerNodeId = await makeNode("handover-refuse-owner", null);
+    const targetNodeId = await makeNode("handover-refuse-target", null);
+    const destLabId = await makeItem(targetNodeId, custodianId, "Handover Refuse Dest");
+    const sourceId = await makeItem(ownerNodeId, custodianId, "Handover Refuse Source");
+
+    await expect(approvals.requestTransfer(custodianId, handoverInput([sourceId], destLabId, targetNodeId, custodianId))).rejects.toMatchObject({ status: 403 });
+    await expect(approvals.previewTransfer(custodianId, handoverInput([sourceId], destLabId, targetNodeId, custodianId))).rejects.toMatchObject({ status: 403 });
+  });
+});

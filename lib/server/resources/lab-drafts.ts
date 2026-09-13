@@ -1,12 +1,13 @@
 import "server-only";
 import crypto from "node:crypto";
-import type { ItemChangeInput, StageDraftChangeInput, DraftTargetKind, ItemDraftChangeDto, LabCommitRequestDto, IdealVsActualRowDto } from "@/lib/shared";
+import type { ItemChangeInput, StageDraftChangeInput, DraftTargetKind, ItemDraftChangeDto, LabCommitRequestDto, IdealVsActualRowDto, DepartmentPurchasablesDto } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
 import { applyChange, previewChange } from "./mutate";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { computeStatuses, statusOf, NEEDS_ATTENTION } from "@/lib/domain/status";
+import { aggregatePurchasables, type LabIdealSheet } from "@/lib/domain/purchasables";
 
 /**
  * Track 2 — lab draft/visible/ideal states. See
@@ -383,14 +384,20 @@ export async function decideCommit(actorId: string, requestId: string, decision:
  *  everywhere else in this app. */
 export async function getIdealVsActual(actorId: string, labItemId: string): Promise<IdealVsActualRowDto[]> {
   await scope.assertCanSeeItem(actorId, labItemId);
+  return idealVsActualRows(labItemId, await loadCategoryRows());
+}
 
+function loadCategoryRows() {
+  return prisma.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true } });
+}
+
+async function idealVsActualRows(labItemId: string, categoryRows: Awaited<ReturnType<typeof loadCategoryRows>>): Promise<IdealVsActualRowDto[]> {
   const subtree = await subtreeIdSet(labItemId);
   subtree.delete(labItemId); // categories apply to what's placed INSIDE the lab, not the lab row itself
 
-  const [targets, itemRows, categoryRows] = await Promise.all([
+  const [targets, itemRows] = await Promise.all([
     prisma.labIdealTarget.findMany({ where: { labItemId }, include: { category: { select: { name: true } } } }),
     subtree.size ? prisma.item.findMany({ where: { id: { in: [...subtree] } }, include: { images: true } }) : Promise.resolve([]),
-    prisma.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true } }),
   ]);
 
   const categories = toDomainCategoryMap(categoryRows);
@@ -422,4 +429,35 @@ export async function getIdealVsActual(actorId: string, labItemId: string): Prom
       brokenItems: actual?.broken ?? [],
     };
   });
+}
+
+/**
+ * What a department could buy to bring every one of its labs to its approved ideal
+ * state — each lab that owns at least one `LabIdealTarget` and is OWNED by
+ * `orgNodeId`, run through the same per-lab computation `getIdealVsActual` uses, then
+ * rolled up by `lib/domain/purchasables.ts`. Ownership, not current location: a lab's
+ * ideal state is its owning department's responsibility to fund. Readable by that
+ * department's live head or SYS_ADMIN — the one person who compiles its purchase
+ * requests.
+ */
+export async function getDepartmentPurchasables(actorId: string, orgNodeId: string): Promise<DepartmentPurchasablesDto> {
+  const node = await prisma.orgNode.findUnique({ where: { id: orgNodeId }, select: { id: true, name: true } });
+  if (!node) throw new HttpError(404, "Org node not found");
+  if (!(await scope.isSysAdmin(actorId))) {
+    const head = await currentHeadOf(orgNodeId);
+    if (head?.id !== actorId) throw new HttpError(403, "Only this unit's head may compute its purchasables.");
+  }
+
+  const labs = await prisma.item.findMany({
+    where: { ownerOrgNodeId: orgNodeId, deletedAt: null, labIdealTargets: { some: {} } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  const categoryRows = await loadCategoryRows();
+  const sheets: LabIdealSheet[] = [];
+  for (const lab of labs) {
+    sheets.push({ labItemId: lab.id, labName: lab.name, rows: await idealVsActualRows(lab.id, categoryRows) });
+  }
+
+  return { orgNodeId: node.id, orgNodeName: node.name, labCount: labs.length, rows: aggregatePurchasables(sheets) };
 }

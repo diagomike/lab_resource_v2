@@ -542,9 +542,12 @@ export const SEED_POLICIES: ApprovalPolicy[] = [
   ...(["createItem", "setProperty", "setName", "setQuantity", "setStatus", "addImage", "removeImage", "moveInTree"] as ChangeKind[]).map((op) =>
     p(`pol-store-${op}`, "The store keeps its own shelves", op, "STORE_KEEPER", "AUTO"),
   ),
-  // Handing stock out to a department is not a shelf move: ownership changes, so
-  // the receiving custodian has to accept it.
-  p("pol-store-transfer", "Handing stock over needs the receiving custodian", "transferItem", "STORE_KEEPER", "CHAIN", { chain: [{ type: "TARGET_CUSTODIAN" }] }),
+  // Handing stock out to a department is not a shelf move: ownership changes, so the
+  // receiving department's head approves taking it on, then the receiving custodian
+  // accepts it into their lab — the moment custody actually changes hands.
+  p("pol-store-transfer", "Handing stock over needs the receiving head and custodian", "transferItem", "STORE_KEEPER", "CHAIN", {
+    chain: [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }],
+  }),
 
   // ── The offices that hold the register ──────────────────────────────────
   // Property administration is the custodian of the whole register and

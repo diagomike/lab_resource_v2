@@ -331,16 +331,20 @@ export async function assignNode(
  * contact. Was org/people.controller.ts's inline query (no separate service) in the
  * NestJS app; moved here for the same reason `me()` moved into auth.ts.
  */
+/** Everyone who may be handed custody of a resource: custodians, store keepers and
+ *  heads — the roles that answer for physical things. Deliberately NOT derived from
+ *  who already custodies something in the register, or a brand-new store keeper
+ *  could never be given the store they were hired to run. */
 export async function custodians(q: string | undefined): Promise<PersonSummaryDto[]> {
   const rows = await prisma.user.findMany({
     where: {
-      roles: { some: { kind: "CUSTODIAN" } },
+      roles: { some: { kind: { in: ["CUSTODIAN", "STORE_KEEPER", "MANAGER"] } } },
       status: "ACTIVE",
       ...(q?.trim() ? { name: { contains: q.trim(), mode: "insensitive" as const } } : {}),
     },
     include: { homeNode: { select: { name: true } } },
     orderBy: { name: "asc" },
-    take: 50,
+    take: 200,
   });
   return rows.map((r) => ({ id: r.id, name: r.name, email: r.email, homeNodeName: r.homeNode?.name ?? null }));
 }

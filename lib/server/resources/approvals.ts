@@ -197,18 +197,30 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   return { outcome: "ROUTED", reason: routed.reason, steps };
 }
 
-function summarize(ctx: TransferContext): string {
+function summarize(ctx: TransferContext, input: TransferInput): string {
   const subject = ctx.items.length === 1 ? ctx.items[0].name : `${ctx.items.length} resources`;
-  return `Transfer between units: ${subject} → ${ctx.destination.name}`;
+  return `${input.transfer.transferOwnership ? "Store handover" : "Transfer between units"}: ${subject} → ${ctx.destination.name}`;
 }
 
 // ── Requesting a transfer ────────────────────────────────────────────────────────
+
+/** Moving OWNERSHIP along with the resource is the main store handing stock over to a
+ *  department — nobody else's to ask for. A custodian or head lending something keeps
+ *  their own unit as the owner, which is the whole point of the owner/current split. */
+async function assertMayTransferOwnership(actorId: string, input: TransferInput): Promise<void> {
+  if (!input.transfer.transferOwnership) return;
+  const roles = await scope.rolesOf(actorId);
+  if (!roles.includes("STORE_KEEPER") && !roles.includes("SYS_ADMIN")) {
+    throw new HttpError(403, "Only the store keeper may hand ownership of stock over to another unit.");
+  }
+}
 
 /** Preview only — resolves what WOULD happen, commits nothing. What `TransferModal`
  *  calls before the requester commits to asking, so it can say "applies immediately"
  *  or "needs approval from X, then Y" up front. */
 export async function previewTransfer(actorId: string, input: TransferInput): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] }> {
   await scope.assertCanMutate(actorId, input.itemIds);
+  await assertMayTransferOwnership(actorId, input);
   const ctx = await loadTransferContext(input);
   const resolution = await resolveTransfer(actorId, input, ctx);
   if (resolution.outcome !== "ROUTED") return resolution;
@@ -231,6 +243,7 @@ export async function requestTransfer(actorId: string, input: TransferInput): Pr
   // transfer must not require already custodying where it's going, or there would be
   // nothing left for OWNER_HEAD/TARGET_HEAD to actually decide.
   await scope.assertCanMutate(actorId, input.itemIds);
+  await assertMayTransferOwnership(actorId, input);
 
   const ctx = await loadTransferContext(input);
   const resolution = await resolveTransfer(actorId, input, ctx);
@@ -251,7 +264,7 @@ export async function requestTransfer(actorId: string, input: TransferInput): Pr
         requesterId: actorId,
         status: "PENDING",
         baseVersions,
-        summary: summarize(ctx),
+        summary: summarize(ctx, input),
         note: input.note ?? null,
       },
     });

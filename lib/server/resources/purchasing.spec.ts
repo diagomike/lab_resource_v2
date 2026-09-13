@@ -470,3 +470,99 @@ describe("the reporting pipeline and receiving", () => {
     expect(created[0].name.startsWith("Ethanol")).toBe(true);
   });
 });
+
+describe("history and visibility — every send-back is kept, everyone involved can follow it", () => {
+  /** makeChain adds edges only; readableRequestWhere reads OrgClosure, so this block
+   *  writes the closure rows the real org module would have (cascade-deleted with
+   *  the orphan nodes in afterAll). */
+  async function addClosure(universityId: string, collegeId: string, deptId: string) {
+    await prisma.orgClosure.createMany({
+      data: [
+        { ancestorId: universityId, descendantId: universityId, depth: 0 },
+        { ancestorId: collegeId, descendantId: collegeId, depth: 0 },
+        { ancestorId: deptId, descendantId: deptId, depth: 0 },
+        { ancestorId: universityId, descendantId: collegeId, depth: 1 },
+        { ancestorId: collegeId, descendantId: deptId, depth: 1 },
+        { ancestorId: universityId, descendantId: deptId, depth: 2 },
+      ],
+    });
+  }
+
+  it("records submit, every decision with its note, and every resubmit — surviving REVISE clearing the steps", async () => {
+    const deptHeadId = await makeUser("hist-dept-head", ["MANAGER"]);
+    const deanId = await makeUser("hist-dean");
+    const avpId = await makeUser("hist-avp");
+    const { universityId, collegeId, deptId } = await makeChain("hist", deptHeadId);
+    await setHead(collegeId, deanId);
+    await setHead(universityId, avpId);
+
+    const lines = [{ name: "Computer", qty: 6, unit: "pcs", fromNeedIds: [] }];
+    const compiled = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId, { lines }));
+    createdRequestIds.push(compiled.id);
+
+    await purchasing.decideStep(deanId, compiled.id, "REVISE", "Reduce computers by 2");
+    await purchasing.reviseAndResubmit(deptHeadId, compiled.id, compileInput(deptId, { lines: [{ ...lines[0], qty: 4 }] }));
+    await purchasing.decideStep(deanId, compiled.id, "APPROVE");
+    await purchasing.decideStep(avpId, compiled.id, "REVISE", "Add unit costs");
+    await purchasing.reviseAndResubmit(deptHeadId, compiled.id, compileInput(deptId, { lines: [{ ...lines[0], qty: 4, estimatedUnitCost: 900 }] }));
+    await purchasing.decideStep(deanId, compiled.id, "APPROVE");
+    await purchasing.decideStep(avpId, compiled.id, "APPROVE");
+    const final = await purchasing.decideStep(procurementUserId, compiled.id, "APPROVE", "Budget line confirmed");
+
+    expect(final.stage).toBe("ORDER_PLACED");
+    expect(final.history.map((h) => [h.stage, h.byId])).toEqual([
+      ["APPROVING", deptHeadId], // submitted
+      ["REVISING", deanId],
+      ["APPROVING", deptHeadId], // resubmitted
+      ["APPROVING", deanId], // approved
+      ["REVISING", avpId],
+      ["APPROVING", deptHeadId], // resubmitted
+      ["APPROVING", deanId],
+      ["APPROVING", avpId],
+      ["APPROVING", procurementUserId],
+      ["ORDER_PLACED", procurementUserId],
+    ]);
+    expect(final.history[1].note).toMatch(/^Sent back for revision — .+: Reduce computers by 2$/);
+    expect(final.history[4].note).toMatch(/Add unit costs$/);
+    expect(final.history[8].note).toMatch(/^Approved — .+: Budget line confirmed$/);
+  });
+
+  it("the raising unit's members, the offices above it, need raisers and the store can read it; an unrelated head cannot", async () => {
+    const deptHeadId = await makeUser("vis-dept-head", ["MANAGER"]);
+    const deanId = await makeUser("vis-dean");
+    const avpId = await makeUser("vis-avp");
+    const { universityId, collegeId, deptId } = await makeChain("vis", deptHeadId);
+    await setHead(collegeId, deanId);
+    await setHead(universityId, avpId);
+    await addClosure(universityId, collegeId, deptId);
+
+    const memberId = await makeUser("vis-member", ["CUSTODIAN"]);
+    await prisma.user.update({ where: { id: memberId }, data: { homeNodeId: deptId } });
+    const storeKeeperId = await makeUser("vis-store", ["STORE_KEEPER"]);
+    const otherHeadId = await makeUser("vis-other-head", ["MANAGER"]);
+    await makeNode("vis-other-dept", "DEPARTMENT", 2, otherHeadId);
+    const otherMemberId = await makeUser("vis-other-member", ["CUSTODIAN"]);
+
+    const need = await purchasing.raiseNeed(memberId, { name: "Oscilloscope", qty: 1, reason: "Signals course" });
+    createdNeedIds.push(need.id);
+    const compiled = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId, { lines: [{ name: "Oscilloscope", qty: 1, fromNeedIds: [need.id] }] }));
+    createdRequestIds.push(compiled.id);
+
+    // A dean still following it after sending it back — no live step names them any more.
+    await purchasing.decideStep(deanId, compiled.id, "REVISE", "Get a second quote");
+
+    for (const readerId of [deptHeadId, memberId, deanId, avpId, procurementUserId, storeKeeperId, sysAdminId]) {
+      const box = await purchasing.listForActor(readerId, "tracking");
+      expect(box.map((r) => r.id)).toContain(compiled.id);
+      await expect(purchasing.getRequest(readerId, compiled.id)).resolves.toMatchObject({ id: compiled.id, stage: "REVISING" });
+    }
+    for (const outsiderId of [otherHeadId, otherMemberId]) {
+      const box = await purchasing.listForActor(outsiderId, "tracking");
+      expect(box.map((r) => r.id)).not.toContain(compiled.id);
+      await expect(purchasing.getRequest(outsiderId, compiled.id)).rejects.toMatchObject({ status: 404 });
+    }
+
+    const [mine] = (await purchasing.listMyNeeds(memberId)).filter((n) => n.id === need.id);
+    expect([mine.status, mine.purchaseReference, mine.purchaseStage]).toEqual(["CARRIED", compiled.reference, "REVISING"]);
+  });
+});

@@ -21,13 +21,15 @@ export async function POST(request: NextRequest) {
 /** `?box=inbox` — every request at APPROVING whose current step this actor may
  *  decide right now. `?box=mine` — every request this actor raised, any status.
  *  `?box=pipeline` — procurement's own view of everything it's running.
- *  `?box=receiving` — the store keeper's own view of what's ready to register. */
+ *  `?box=receiving` — the store keeper's own view of what's ready to register.
+ *  `?box=tracking` — every request this actor takes part in, any stage, for
+ *  following its status (see purchasing.ts's `readableRequestWhere`). */
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession(request);
     const box = request.nextUrl.searchParams.get("box");
-    if (box !== "inbox" && box !== "mine" && box !== "pipeline" && box !== "receiving") {
-      throw new HttpError(400, "box must be 'inbox', 'mine', 'pipeline', or 'receiving'.");
+    if (box !== "inbox" && box !== "mine" && box !== "pipeline" && box !== "receiving" && box !== "tracking") {
+      throw new HttpError(400, "box must be 'inbox', 'mine', 'pipeline', 'receiving', or 'tracking'.");
     }
     const rows = await listForActor(user.id, box);
     return NextResponse.json<PurchaseRequestDto[]>(rows, { status: 200 });

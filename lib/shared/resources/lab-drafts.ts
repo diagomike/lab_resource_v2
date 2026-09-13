@@ -82,3 +82,35 @@ export const IdealVsActualRowDto = z.object({
   brokenItems: z.array(z.object({ id: z.string(), name: z.string(), status: z.string() })),
 });
 export type IdealVsActualRowDto = z.infer<typeof IdealVsActualRowDto>;
+
+/** A department's labs rolled up against their approved ideal state — see
+ *  `lib/domain/purchasables.ts`. What a head reads before compiling a purchase
+ *  request; a suggestion, never converted into one automatically. */
+export const PurchasableLabDto = z.object({
+  labItemId: z.string(),
+  labName: z.string(),
+  idealQty: z.number().int(),
+  actualCount: z.number().int(),
+  gap: z.number().int(),
+  brokenCount: z.number().int(),
+});
+export type PurchasableLabDto = z.infer<typeof PurchasableLabDto>;
+
+export const PurchasableRowDto = z.object({
+  categoryId: z.string(),
+  categoryName: z.string(),
+  idealQty: z.number().int(),
+  actualCount: z.number().int(),
+  gap: z.number().int(),
+  brokenCount: z.number().int(),
+  labs: z.array(PurchasableLabDto),
+});
+export type PurchasableRowDto = z.infer<typeof PurchasableRowDto>;
+
+export const DepartmentPurchasablesDto = z.object({
+  orgNodeId: z.string(),
+  orgNodeName: z.string(),
+  labCount: z.number().int(),
+  rows: z.array(PurchasableRowDto),
+});
+export type DepartmentPurchasablesDto = z.infer<typeof DepartmentPurchasablesDto>;

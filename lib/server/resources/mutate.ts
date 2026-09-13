@@ -539,7 +539,7 @@ async function applyTransferItem(
   at: Date,
   input: Extract<ItemChangeInput, { kind: "transferItem" }>,
 ): Promise<ItemChangeResultDto> {
-  const { targetParentId, targetOrgNodeId, targetCustodianId } = input.transfer;
+  const { targetParentId, targetOrgNodeId, targetCustodianId, transferOwnership } = input.transfer;
   const [destination, targetNode] = await Promise.all([
     tx.item.findUnique({ where: { id: targetParentId } }),
     tx.orgNode.findUnique({ where: { id: targetOrgNodeId } }),
@@ -553,7 +553,9 @@ async function applyTransferItem(
 
   const roots = await tx.item.findMany({ where: { id: { in: input.itemIds }, deletedAt: null } });
   const applied: string[] = [];
-  const batchId = roots.length > 1 ? newId("b") : undefined;
+  // A handover writes several log lines per resource (position, ownership, custody),
+  // so it always groups them; a plain borrow keeps the old one-line-per-root shape.
+  const batchId = roots.length > 1 || transferOwnership || targetCustodianId ? newId("b") : undefined;
 
   // Whole-refusal, not partial — same discipline assertSubtreeInScope's own header
   // describes for a policy check, as opposed to the per-root "skip, don't abort" below
@@ -573,6 +575,7 @@ async function applyTransferItem(
         data: {
           parentId: node.id === root.id ? targetParentId : node.parentId,
           currentOrgNodeId: targetOrgNodeId,
+          ownerOrgNodeId: transferOwnership ? targetOrgNodeId : node.ownerOrgNodeId,
           custodianId: targetCustodianId ?? node.custodianId,
           version: { increment: 1 },
         },
@@ -595,9 +598,40 @@ async function applyTransferItem(
         note: input.note,
         // The state this transfer RESULTS in, not root's pre-transfer snapshot — see
         // scopeSnapshot's own header.
-        ...scopeSnapshot({ ownerOrgNodeId: root.ownerOrgNodeId, currentOrgNodeId: targetOrgNodeId, custodianId: targetCustodianId ?? root.custodianId }),
+        ...scopeSnapshot({ ownerOrgNodeId: transferOwnership ? targetOrgNodeId : root.ownerOrgNodeId, currentOrgNodeId: targetOrgNodeId, custodianId: targetCustodianId ?? root.custodianId }),
       },
     });
+    const resulting = {
+      ownerOrgNodeId: transferOwnership ? targetOrgNodeId : root.ownerOrgNodeId,
+      currentOrgNodeId: targetOrgNodeId,
+      custodianId: targetCustodianId ?? root.custodianId,
+    };
+    const accountability: Array<{ kind: "setOwnerOrg" | "setCustodian"; field: string; before: string; after: string }> = [];
+    if (transferOwnership && root.ownerOrgNodeId !== targetOrgNodeId) {
+      accountability.push({ kind: "setOwnerOrg", field: "ownerOrgNodeId", before: root.ownerOrgNodeId, after: targetOrgNodeId });
+    }
+    if (targetCustodianId && root.custodianId !== targetCustodianId) {
+      accountability.push({ kind: "setCustodian", field: "custodianId", before: root.custodianId, after: targetCustodianId });
+    }
+    for (const line of accountability) {
+      await tx.itemChange.create({
+        data: {
+          at,
+          actorId,
+          kind: line.kind,
+          targetKind: "ITEM",
+          itemId: root.id,
+          itemName: root.name,
+          categoryId: root.categoryId,
+          field: line.field,
+          before: line.before,
+          after: line.after,
+          batchId,
+          note: input.note,
+          ...scopeSnapshot(resulting),
+        },
+      });
+    }
     applied.push(root.id);
   }
 

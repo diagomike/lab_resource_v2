@@ -15,6 +15,7 @@ import { FilterBar } from "./FilterBar";
 import { Inspector } from "./Inspector";
 import { AddModal } from "./AddModal";
 import { BulkPropModal } from "./BulkPropModal";
+import { TransferModal } from "./TransferModal";
 
 const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
 
@@ -23,6 +24,7 @@ function RegisterPageInner() {
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [propField, setPropField] = useState<CategoryFieldDto | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const allExpanded = state.expanded === true;
   const options = useEditOptions();
@@ -286,6 +288,7 @@ function RegisterPageInner() {
                 ))}
               </select>
             )}
+            <Button onClick={() => setTransferOpen(true)}>Transfer…</Button>
             <button onClick={bulkDelete} className="text-10.5 text-bad ml-auto">
               Delete selected
             </button>
@@ -338,6 +341,19 @@ function RegisterPageInner() {
           onClose={() => setPropField(null)}
           onApplied={() => {
             setPropField(null);
+            state.setSelection({});
+            state.refetch();
+          }}
+        />
+      )}
+
+      {transferOpen && selectedIds.length > 0 && (
+        <TransferModal
+          itemIds={selectedIds}
+          label={selectedIds.length === 1 ? `"${selectedRows[0]?.name ?? "1 resource"}"` : `${selectedIds.length} resources`}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => {
+            setTransferOpen(false);
             state.setSelection({});
             state.refetch();
           }}

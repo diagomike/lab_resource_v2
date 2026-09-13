@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ChainStepDto, ChangeRequestDto, ItemChangeInput, LabCommitRequestDto, PurchaseRequestDto } from "@/lib/shared";
+import type { ChainStepDto, ChangeRequestDto, ItemChangeInput, LabCommitRequestDto, PurchaseRequestDto, ResourceCategoryDto } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
+import { HistoryTimeline } from "./PurchasingPage";
 
 const STATUS_TONE: Record<string, "warn" | "good" | "bad" | "neutral"> = {
   PENDING: "warn",
@@ -36,20 +37,21 @@ function TabBar({ tab, onChange }: { tab: "inbox" | "mine"; onChange: (t: "inbox
 
 // ── Track 2 — lab commits (draft → visible/ideal, one decider: the lab's head) ────
 
-function describeChange(payload: unknown, targetKind: string): string {
+function describeChange(payload: unknown, targetKind: string, categoryName: (id: string) => string): string {
   if (targetKind === "IDEAL") {
     const p = payload as { categoryId: string; qty: number };
-    return `Ideal target → ${p.qty}`;
+    return `Ideal target → ${p.qty} × ${categoryName(p.categoryId)}`;
   }
   const p = payload as ItemChangeInput;
   const label = CHANGE_LABEL[p.kind] ?? p.kind;
+  if (p.kind === "createItem") return `${label} → ${p.count} × ${p.name ? `"${p.name}" (${categoryName(p.categoryId)})` : categoryName(p.categoryId)}`;
   if (p.kind === "setName") return `${label} → "${p.value}"`;
   if (p.kind === "setStatus") return `${label} → ${STATUS_LABEL[p.value as keyof typeof STATUS_LABEL] ?? p.value}`;
   if (p.kind === "setQuantity") return `${label} → ${p.value}`;
   return label;
 }
 
-function LabCommitCard({ request, onDecided, canAct }: { request: LabCommitRequestDto; onDecided: () => void; canAct: boolean }) {
+function LabCommitCard({ request, onDecided, canAct, categoryName }: { request: LabCommitRequestDto; onDecided: () => void; canAct: boolean; categoryName: (id: string) => string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | null>(null);
@@ -86,7 +88,7 @@ function LabCommitCard({ request, onDecided, canAct }: { request: LabCommitReque
       <div className="flex flex-col gap-4">
         {request.changes.map((c) => (
           <div key={c.id} className="text-10.5 text-dim">
-            {describeChange(c.payload, c.targetKind)}
+            {describeChange(c.payload, c.targetKind, categoryName)}
           </div>
         ))}
       </div>
@@ -144,6 +146,16 @@ function LabCommitsPanel() {
   const [tab, setTab] = useState<"inbox" | "mine">("inbox");
   const [rows, setRows] = useState<LabCommitRequestDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
+
+  useEffect(() => {
+    api
+      .get<ResourceCategoryDto[]>("/resources/categories")
+      .then(setCategories)
+      .catch(() => setCategories([]));
+  }, []);
+
+  const categoryName = (id: string) => categories.find((c) => c.id === id)?.name ?? "this category";
 
   function load() {
     setRows(null);
@@ -169,7 +181,7 @@ function LabCommitsPanel() {
         ) : (
           <div className="p-12 flex flex-col gap-10">
             {rows.map((r) => (
-              <LabCommitCard key={r.id} request={r} onDecided={load} canAct={tab === "inbox"} />
+              <LabCommitCard key={r.id} request={r} onDecided={load} canAct={tab === "inbox"} categoryName={categoryName} />
             ))}
           </div>
         )}
@@ -213,6 +225,8 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
   const currentStep = request.steps.find((s) => s.status === "PENDING");
   const canDecide = request.status === "PENDING" && currentStep?.approverId === viewerId;
   const isReceipt = currentStep?.selector === "REQUESTER_RECEIPT";
+  const isAcceptance = currentStep?.selector === "TARGET_CUSTODIAN";
+  const approveLabel = isReceipt ? "Confirm receipt" : isAcceptance ? "Accept into my custody" : "Approve";
 
   async function decide(decision: "APPROVE" | "REJECT") {
     setBusy(true);
@@ -249,7 +263,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
       {canDecide && (
         <div className="flex items-center gap-8 pt-4">
           <Button variant="primary" onClick={() => setConfirming("APPROVE")} disabled={busy}>
-            {isReceipt ? "Confirm receipt" : "Approve"}
+            {approveLabel}
           </Button>
           <Button variant="danger" onClick={() => setConfirming("REJECT")} disabled={busy}>
             Reject
@@ -264,9 +278,9 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
 
       {confirming && (
         <ConfirmDialog
-          title={confirming === "APPROVE" ? (isReceipt ? "Confirm receipt" : "Approve this step") : "Reject this request"}
+          title={confirming === "APPROVE" ? (isReceipt || isAcceptance ? approveLabel : "Approve this step") : "Reject this request"}
           tone={confirming === "APPROVE" ? "primary" : "danger"}
-          confirmLabel={confirming === "APPROVE" ? (isReceipt ? "Confirm receipt" : "Approve") : "Reject"}
+          confirmLabel={confirming === "APPROVE" ? approveLabel : "Reject"}
           busy={busy}
           error={null}
           message={
@@ -275,7 +289,9 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
                 {confirming === "APPROVE"
                   ? isReceipt
                     ? "Confirms the resource has physically arrived — this is what applies the transfer to the register."
-                    : "Advances this request to its next step."
+                    : isAcceptance
+                      ? "Confirms it has arrived and you now answer for it — this is what applies the handover to the register."
+                      : "Advances this request to its next step."
                   : "Ends this request outright — the requester can raise a new one if circumstances change."}
               </span>
               <input
@@ -377,7 +393,19 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
 
       <ChainTrail steps={request.steps} />
 
+      <div className="flex flex-col gap-3">
+        {request.lines.map((l) => (
+          <div key={l.id} className="text-10.5 text-dim">
+            {l.name} · {l.qty}
+            {l.unit ? ` ${l.unit}` : ""}
+            {l.estimatedUnitCost !== null ? ` · ~${l.estimatedUnitCost}/unit` : ""}
+            {l.justification ? <span className="text-faint"> — {l.justification}</span> : null}
+          </div>
+        ))}
+      </div>
+
       {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
+      <HistoryTimeline history={request.history} />
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {canDecide && (

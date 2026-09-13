@@ -535,8 +535,8 @@ export function Inspector({
 
       {transferOpen && item && (
         <TransferModal
-          itemId={item.id}
-          itemName={item.name}
+          itemIds={[item.id]}
+          label={`"${item.name}"`}
           onClose={() => setTransferOpen(false)}
           onDone={() => {
             setTransferOpen(false);

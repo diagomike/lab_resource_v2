@@ -34,6 +34,9 @@ export const NeedLineDto = z.object({
   handledAt: z.string().nullable(),
   note: z.string().nullable(),
   purchaseLineId: z.string().nullable(),
+  /** The request this need was carried into, so whoever raised it can follow it. */
+  purchaseReference: z.string().nullable(),
+  purchaseStage: PurchaseStageSchema.nullable(),
 });
 export type NeedLineDto = z.infer<typeof NeedLineDto>;
 
