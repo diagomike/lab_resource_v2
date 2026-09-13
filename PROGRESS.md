@@ -3044,6 +3044,137 @@ its model that make porting it as-is the wrong move.
   from the two real edits. Checked the Delete tab's own rendering (danger styling,
   current→new, warning copy) without submitting it.
 
+- **2026-09-10** — Track 4 (purchasing/procurement) planned and implemented, on
+  `track-3-transfers` (continuing the same branch, at explicit instruction — not a
+  fresh branch off `master`). Full design at
+  `~/.claude/plans/replicated-sparking-gray.md`.
+
+  **The approval ladder is the org chart itself, not a fixed named sequence** — the
+  one real design departure from `temp_works`' own `PURCHASE_LADDER` (which
+  hardcoded fixture ids like `"cmd-office"`/`"proc-office"`, meaningless against a
+  real chart). Resolved directly with the user: a department's request walks
+  `OWNER_HEAD` → `HIERARCHY` all the way to `UNIVERSITY` (both branches of a
+  multi-parent department required, not a choice between them — confirmed live with
+  a two-college test department) → `NODE_OCCUPANT` on the real "Procurement Office"
+  node, reusing `lib/domain/approvals.ts`'s existing selectors completely unchanged.
+  The university root's own occupant fills the AVP role implicitly — no separate
+  office needed. Sequential arming (today's shared-engine behaviour) was kept
+  deliberately, not made simultaneous, per explicit instruction: "keep the
+  sequential one... if it feels off I will make it simultaneously" — a real
+  discovery surfaced en route was that `OrgNode.userId` is unique, so "simultaneous"
+  would need a genuinely different mechanism than today's engine provides, not a
+  toggle.
+
+  **No changes to the shared chain engine.** `PurchaseStep` (new Prisma model) is a
+  sibling of `ChainStep`, not a variant — `ChainStep` is hard-tied to
+  `ChangeRequest`'s Item-shaped payload/`baseVersions`, which a purchase request has
+  no use for (it has no item to point at yet). Fed through the exact same pure
+  `buildChain`/`activate`/`canDecide`/`resolveApprover`/`chainSettled` functions
+  Track 3's own `lib/server/resources/approvals.ts` already proved live — new
+  `lib/server/resources/purchasing.ts` mirrors that module's pattern closely.
+  `lib/shared/resources/purchasing.ts`'s `PurchaseRequestDto` gained one field,
+  `steps: ChainStepDto[]`, reusing the already-generic `ChainStepDto` verbatim.
+
+  Server module covers the full lifecycle: `raiseNeed`/`listOpenNeeds`/
+  `listMyNeeds`/`declineNeed` for `NeedLine`; `compilePurchaseRequest` (builds the
+  chain, straight into `APPROVING` — no separate draft-then-submit step in this
+  first pass) and `reviseAndResubmit` (REVISE clears the in-flight `PurchaseStep`
+  rows and rebuilds fresh, since they're working state, not an audit log, matching
+  Track 2/3's own established discipline) for `PurchaseRequest`; `decideStep` with
+  three outcomes (`APPROVE`/`REJECT`/**`REVISE`**, the one decision transfers don't
+  have); `advanceStage` for the four-stage reporting pipeline; `receivePurchaseLine`
+  as the one seam back into the register (`applyChange`'s ordinary `createItem` —
+  SERIALIZED receives one root item per unit, BULK receives one root at `count: 1`
+  then a follow-up `setQuantity` to the received amount — cumulative across several
+  deliveries, auto-closing the request once every line's own received amount meets
+  its ordered amount). `listForActor` gained two boxes beyond transfers' own
+  `inbox`/`mine`: `pipeline` (procurement's university-wide view of everything it's
+  running) and `receiving` (the store keeper's own view of what's at `IN_STORE`) —
+  a gap found while building the UI, not anticipated in the original plan.
+
+  A real bug found and fixed during the FIRST live pass, not by inspection: `decideStep`'s
+  REVISE branch and `receivePurchaseLine` both called the public, access-gated
+  `getRequest` to return their own result — but `getRequest`'s "who may read this"
+  check (requester, or a step's live approver/decider) doesn't recognize a REVISE
+  decider once every step is cleared, or a receiving STORE_KEEPER who was never a
+  chain-approval party at all, so both actions incorrectly 404'd on their own output.
+  Fixed by adding a private `loadDto` (no access check) that every mutating function
+  returns through, keeping the public `getRequest` — used only by the GET route — as
+  the sole place enforcing that gate.
+
+  UI: `components/resources/PurchasingPage.tsx` (new, wired at `/purchasing`,
+  replacing its `ComingSoon`) — raise-a-need form, a head's compile-a-request panel
+  (an open-need dropdown per line auto-fills name/qty/unit/category), "My requests"
+  with inline revise-and-resubmit and withdraw, a procurement-only Pipeline panel,
+  and a store-keeper-only Receive panel (reusing the existing `/resources/items/
+  containers` picker behind Add-resource/Move, exactly as the plan intended — no new
+  picker built). `ApprovalsPage.tsx` gained a third panel, `PurchasingPanel`,
+  alongside the existing Transfers/Lab-commits ones, with the extra REVISE button
+  the other two panels don't need. `lib/nav.ts`'s pre-existing `"purchasing"` entry
+  gained a `roles` list excluding STUDENT, matching `canRaiseNeed`'s own gate.
+
+  Tests: `lib/server/resources/purchasing.spec.ts`, 15 cases, DB-backed, every org
+  node a freshly created orphan (including a genuine two-college department for the
+  multi-parent case) — plus one wrinkle neither Track 2 nor Track 3 had to handle:
+  `findProcurementOffice` resolves by NAME across the whole org chart, so the test
+  file temporarily deactivates any real "Procurement Office" for its own run and
+  restores it in `afterAll`, rather than risking an "ambiguous" refusal against
+  whatever this track's own live-verification pass leaves behind. A first full run
+  surfaced `OrgNode.userId`'s uniqueness the hard way (a fixture tried to make one
+  person head three nodes at once) and several decide-sequence bugs where a test
+  assumed the compiling head's own self-skipped step was still decidable — both
+  fixed in the fixtures, not the product code.
+
+  **Verified live**, end to end, on the real dev database: as SYS_ADMIN, created a
+  real "Procurement Office" `OFFICE`-kind node and invited a real Procurement
+  Officer account to it (catching and correcting an actual invite-form slip along
+  the way — a double-click on the role toggle left them as `manager` instead of
+  `procurement`, fixed via Manage before continuing) — this is genuine new
+  infrastructure this track needs going forward, left in place afterward, matching
+  Track 3's own precedent for its seeded `ApprovalPolicy` rows. Invited a temporary
+  CoEEC Dean to unblock the college-level step (Software Engineering's own college
+  was headless in the seed data) and a temporary store-keeper account. As the real
+  SE custodian, raised a need through the actual UI; as the real SE head, compiled a
+  request carrying it — confirmed the resolved chain live: dept head self-skipped,
+  dean/AVP/Procurement all correctly resolved against the real chart. Approved each
+  real step as the correct real accounts in sequence through the real Approvals
+  page; advanced the real pipeline through all four stages as Procurement; received
+  the line as SYS_ADMIN (who also satisfies `canReceive`) into the real "ASTU Main
+  Store" — confirmed a genuine new `Item` row in the register and the request
+  auto-closing to `CLOSED`.
+
+  **A second real bug found only by reading the resulting register row, not by
+  re-reading the code**: the received item was named after its *category*'s own
+  generic auto-numbering ("Computer 01") rather than what was actually purchased
+  ("Oscilloscope") — `receivePurchaseLine` built its `createItem` change without
+  ever passing the purchase line's own `name` through. Fixed by passing `name:
+  line.name`; added a regression assertion to both the SERIALIZED and BULK
+  automated tests, re-ran (15/15 clean) — the fix was verified by the test suite,
+  not re-driven through the browser a second time, since the live pass had already
+  exhausted the wiring/UI/auth path the bug lived outside of.
+
+  A genuine, pre-existing gap found along the way, unrelated to this track: the
+  Inspector's own "Change this… → Custody" picker is derived from custodians already
+  visible in the currently-loaded item forest, not a live people search — a
+  brand-new `STORE_KEEPER` who has never custodied anything cannot be assigned
+  custody of an existing item through that UI at all (a chicken-and-egg gap). Not
+  fixed here (out of scope for this track); worked around during verification by
+  having SYS_ADMIN receive directly, since `canReceive`/`assertCanMutate` both
+  already permit that.
+
+  All verification fixtures cleaned up afterward: the two mis-named test items
+  (and their full auto-instantiated category subtree — "Computer" carries default
+  children) deleted, the test `PurchaseRequest`/`NeedLine` deleted, the CoEEC
+  Dean's headship vacated and the account **disabled** rather than deleted
+  (`OrgNodeAssignment` is a permanent occupancy ledger; hard-deleting the user
+  would have violated it — the same "someone's tenure ended" handling Personnel's
+  own Deactivate already uses), the unused store-keeper test account removed
+  outright. Final state confirmed by direct query: 741 items (unchanged from
+  before this round), zero `PurchaseRequest`/`NeedLine` rows, and the Procurement
+  Office node/occupant the only lasting change — exactly the real infrastructure
+  this track was meant to add. `npx tsc --noEmit`, `npm test` (**341/341**),
+  `npm run build`, `npx prisma validate`/`migrate status` all clean throughout.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

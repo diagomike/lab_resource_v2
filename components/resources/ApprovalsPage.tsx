@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ChainStepDto, ChangeRequestDto, ItemChangeInput, LabCommitRequestDto } from "@/lib/shared";
+import type { ChainStepDto, ChangeRequestDto, ItemChangeInput, LabCommitRequestDto, PurchaseRequestDto } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
@@ -332,6 +332,143 @@ function TransfersPanel({ viewerId }: { viewerId: string }) {
   );
 }
 
+// ── Track 4 — purchase requests (the org chart as the ladder: head → every ancestor
+// up to the university root → Procurement). Decide gains a third option, REVISE,
+// that transfers/lab-commits don't have — sends it back to the raiser to edit and
+// resubmit rather than only approve/reject. ──────────────────────────────────────
+
+function PurchaseRequestCard({ request, viewerId, onDecided }: { request: PurchaseRequestDto; viewerId: string; onDecided: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | "REVISE" | null>(null);
+  const [note, setNote] = useState("");
+
+  const currentStep = request.steps.find((s) => s.status === "PENDING");
+  const canDecide = request.stage === "APPROVING" && currentStep?.approverId === viewerId;
+
+  async function decide(decision: "APPROVE" | "REJECT" | "REVISE") {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note || undefined });
+      setConfirming(null);
+      setNote("");
+      onDecided();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not record this decision");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="border border-border rounded-3 p-12 flex flex-col gap-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-11.5 font-medium">
+            {request.reference} · {request.title}
+          </div>
+          <div className="text-10.5 text-dim">
+            {request.orgNodeName} · by {request.raisedByName} · {new Date(request.createdAt).toLocaleString()}
+          </div>
+        </div>
+        <Tag tone={request.stage === "REJECTED" ? "bad" : request.stage === "REVISING" ? "warn" : request.stage === "APPROVING" ? "warn" : "good"}>{request.stage}</Tag>
+      </div>
+
+      <ChainTrail steps={request.steps} />
+
+      {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
+      {error && <ErrorNote>{error}</ErrorNote>}
+
+      {canDecide && (
+        <div className="flex items-center gap-8 pt-4">
+          <Button variant="primary" onClick={() => setConfirming("APPROVE")} disabled={busy}>
+            Approve
+          </Button>
+          <Button variant="danger" onClick={() => setConfirming("REJECT")} disabled={busy}>
+            Reject
+          </Button>
+          <Button onClick={() => setConfirming("REVISE")} disabled={busy}>
+            Send back for revision
+          </Button>
+        </div>
+      )}
+      {request.stage === "APPROVING" && !canDecide && currentStep && (
+        <div className="text-10.5 text-faint">
+          {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting — ${currentStep.label} is currently vacant.`}
+        </div>
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title={confirming === "APPROVE" ? "Approve this step" : confirming === "REJECT" ? "Reject this request" : "Send back for revision"}
+          tone={confirming === "REJECT" ? "danger" : "primary"}
+          confirmLabel={confirming === "APPROVE" ? "Approve" : confirming === "REJECT" ? "Reject" : "Send back"}
+          busy={busy}
+          error={null}
+          message={
+            <div className="flex flex-col gap-8">
+              <span>
+                {confirming === "APPROVE"
+                  ? "Advances this request to its next step."
+                  : confirming === "REJECT"
+                    ? "Ends this request outright — the requester can raise a new one if circumstances change."
+                    : "Sends this back to the requester to edit and resubmit — the approval chain restarts once they do."}
+              </span>
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Optional note"
+                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+              />
+            </div>
+          }
+          onConfirm={() => decide(confirming)}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PurchasingPanel({ viewerId }: { viewerId: string }) {
+  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
+  const [rows, setRows] = useState<PurchaseRequestDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    setRows(null);
+    setError(null);
+    api
+      .get<PurchaseRequestDto[]>(`/resources/purchase-requests?box=${tab}`)
+      .then(setRows)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load requests"));
+  }
+
+  useEffect(load, [tab]);
+
+  return (
+    <>
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <Panel title="Purchasing" actions={<TabBar tab={tab} onChange={setTab} />}>
+        {rows === null ? (
+          <PanelLoading rows={3} />
+        ) : rows.length === 0 ? (
+          <div className="px-14 py-14 text-11.5 text-dim">
+            {tab === "inbox" ? "Nothing waiting on your decision." : "You haven't compiled any purchase requests."}
+          </div>
+        ) : (
+          <div className="p-12 flex flex-col gap-10">
+            {rows.map((r) => (
+              <PurchaseRequestCard key={r.id} request={r} viewerId={viewerId} onDecided={load} />
+            ))}
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ApprovalsPage() {
@@ -342,6 +479,7 @@ export default function ApprovalsPage() {
     <Screen>
       <TransfersPanel viewerId={user.id} />
       <LabCommitsPanel />
+      <PurchasingPanel viewerId={user.id} />
     </Screen>
   );
 }

@@ -45,7 +45,16 @@ export const NAV: NavGroup[] = [
       // ~/.claude/plans/three-product-changes-dynamic-thompson.md).
       { key: "university", label: "University resources", icon: "◫", path: "/university", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER"] },
       { key: "approvals", label: "Approvals", icon: "✓", path: "/approvals" },
-      { key: "purchasing", label: "Purchasing", icon: "▣", path: "/purchasing" },
+      {
+        key: "purchasing",
+        label: "Purchasing",
+        icon: "▣",
+        path: "/purchasing",
+        // Everyone may raise a need except a student (lib/domain/purchasing.ts's
+        // own canRaiseNeed gate) — hiding the entry is convenience, not the real
+        // enforcement, which the server still applies on every write.
+        roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER", "EXTERNAL"],
+      },
       { key: "change-log", label: "Change log", icon: "◷", path: "/change-log" },
       { key: "categories", label: "Categories", icon: "◈", path: "/categories" },
     ],

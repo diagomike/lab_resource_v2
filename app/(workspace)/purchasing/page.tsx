@@ -1,10 +1,5 @@
-import ComingSoon from "@/components/resources/ComingSoon";
+import PurchasingPage from "@/components/resources/PurchasingPage";
 
 export default function Page() {
-  return (
-    <ComingSoon
-      title="Purchasing"
-      body="Needs, purchase requests, and what has arrived — lands in a later phase of the replatforming plan."
-    />
-  );
+  return <PurchasingPage />;
 }

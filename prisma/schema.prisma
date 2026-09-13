@@ -101,6 +101,8 @@ model User {
   purchaseRequestsRaised PurchaseRequest[]    @relation("PurchaseRequestRaisedBy")
   purchaseLinesReceived  PurchaseLine[]       @relation("PurchaseLineReceivedBy")
   purchaseEventsLogged   PurchaseEvent[]      @relation("PurchaseEventBy")
+  purchaseStepsToApprove PurchaseStep[]       @relation("PurchaseStepApprover")
+  purchaseStepsDecided   PurchaseStep[]       @relation("PurchaseStepDecidedBy")
   labCommitsRequested LabCommitRequest[] @relation("LabCommitRequester")
   labCommitsDecided   LabCommitRequest[] @relation("LabCommitDecidedBy")
   labDraftItemsStaged ItemDraftChange[]  @relation("DraftChangeAuthor")
@@ -211,6 +213,7 @@ model OrgNode {
   chainStepsAt     ChainStep[]       @relation("ChainStepNode")
   needLines        NeedLine[]
   purchaseRequests PurchaseRequest[]
+  purchaseStepsAt  PurchaseStep[]    @relation("PurchaseStepNode")
 
   @@index([level])
 }
@@ -940,8 +943,12 @@ enum PurchaseStage {
   CANCELLED
 }
 
-/// The department's formal ask, compiled by the head. Walks Head → Dean → College
-/// Managing Directorate → Academic Vice President → Procurement Office.
+/// The department's formal ask, compiled by the head. Walks the org chart itself —
+/// the owning unit's head, then every ancestor up to the university root (both
+/// branches of a multi-parent department required, not a choice between them, via
+/// the same HIERARCHY selector/ancestorsOfChain() Track 3 already relies on) — then
+/// the Procurement Office. See Track 4's plan for why this is dynamic rather than a
+/// fixed named sequence.
 model PurchaseRequest {
   id         String        @id @default(cuid())
   reference  String        @unique
@@ -958,6 +965,7 @@ model PurchaseRequest {
   raisedBy User            @relation("PurchaseRequestRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
   lines    PurchaseLine[]
   events   PurchaseEvent[]
+  steps    PurchaseStep[]
 
   @@index([orgNodeId])
   @@index([stage])
@@ -998,6 +1006,40 @@ model PurchaseEvent {
   by       User            @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
 
   @@index([purchaseId, at])
+}
+
+/// A PurchaseRequest's own approval chain — the same shape as ChainStep, but ChainStep
+/// is hard-tied to ChangeRequest (payload: ItemChangeInput, baseVersions keyed by item
+/// id), which a purchase request has no use for: it has no item to point at yet, which
+/// is the whole point of raising one. Reuses StepSelectorType/StepStatus verbatim and
+/// is walked by the exact same pure lib/domain/approvals.ts functions
+/// (buildChain/activate/canDecide/resolveApprover/chainSettled), just persisted here
+/// instead. No `receipt` column — this ladder never uses REQUESTER_RECEIPT; the actual
+/// receiving happens later, physically, via receivePurchaseLine.
+model PurchaseStep {
+  id          String           @id @default(cuid())
+  requestId   String
+  order       Int
+  selector    StepSelectorType
+  label       String
+  /// The office this step belongs to. Null for the owning unit's own head step.
+  nodeId      String?
+  /// Who may decide it, resolved at build time and re-checked live at decision time.
+  /// Null means the post is VACANT, which HOLDS the request rather than skipping it.
+  approverId  String?
+  status      StepStatus       @default(PENDING)
+  skipReason  String?
+  decidedById String?
+  decidedAt   DateTime?
+  note        String?
+
+  request   PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  node      OrgNode?        @relation("PurchaseStepNode", fields: [nodeId], references: [id], onDelete: SetNull)
+  approver  User?           @relation("PurchaseStepApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  decidedBy User?           @relation("PurchaseStepDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([requestId, order])
+  @@index([approverId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -6,12 +6,15 @@
  * Items moving through the ordinary applyChange path.
  *
  * Three separate things, kept separate: a NEED (informal, never auto-converted), a
- * PURCHASE REQUEST (the department's formal ask, walking Head → Dean → CMD → AVP →
- * Procurement), and the PROCUREMENT PIPELINE (what purchasing reports afterward —
- * recorded, not decided).
+ * PURCHASE REQUEST (the department's formal ask, walking the org chart itself —
+ * owning unit's head, then every ancestor up to the university root, then
+ * Procurement — see Track 4's plan for why this is dynamic rather than a fixed
+ * named sequence), and the PROCUREMENT PIPELINE (what purchasing reports
+ * afterward — recorded, not decided).
  */
 import { z } from "zod";
 import { NeedStatusSchema, PurchaseStageSchema } from "./enums";
+import { ChainStepDto } from "./approvals";
 
 export const NeedLineDto = z.object({
   id: z.string(),
@@ -87,6 +90,11 @@ export const PurchaseRequestDto = z.object({
   history: z.array(PurchaseEventDto),
   /** The last feedback from an approver who sent it back. */
   feedback: z.string().nullable(),
+  /** The chain this request is walking — the owning unit's head, then every
+   *  ancestor up to the university root, then the Procurement Office. Empty
+   *  outside APPROVING (a request that never left DRAFT, or one already
+   *  settled/rejected/revised, has no live chain to show). */
+  steps: z.array(ChainStepDto),
 });
 export type PurchaseRequestDto = z.infer<typeof PurchaseRequestDto>;
 
