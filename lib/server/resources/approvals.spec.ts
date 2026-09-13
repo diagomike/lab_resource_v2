@@ -418,3 +418,44 @@ describe("store handover — the main store hands stock over to a department", (
     await expect(approvals.previewTransfer(custodianId, handoverInput([sourceId], destLabId, targetNodeId, custodianId))).rejects.toMatchObject({ status: 403 });
   });
 });
+
+describe("a tree selection — a container ticked together with what is inside it", () => {
+  it("transfer and move act on the top-most items only; nested parts travel inside them instead of being pulled out", async () => {
+    const keeperId = await makeUser("nested-keeper", ["STORE_KEEPER", "STAFF"]);
+    const headId = await makeUser("nested-head", ["MANAGER"]);
+    const custodianId = await makeUser("nested-custodian", ["CUSTODIAN"]);
+    const storeNodeId = await makeNode("nested-store", null);
+    const deptNodeId = await makeNode("nested-dept", headId);
+    const labId = await makeItem(deptNodeId, custodianId, "Nested Dest Lab");
+    const computerId = await makeItem(storeNodeId, keeperId, "Nested Computer");
+    const ram = await prisma.item.create({
+      data: { parentId: computerId, categoryId, name: "Nested RAM", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: storeNodeId, currentOrgNodeId: storeNodeId, custodianId: keeperId },
+    });
+    createdItemIds.push(ram.id);
+
+    // The register sends the child's id along with its container's.
+    const selection = [computerId, ram.id];
+    const preview = await approvals.previewTransfer(keeperId, { kind: "transferItem", itemIds: selection, transfer: { targetParentId: labId, targetOrgNodeId: deptNodeId, targetCustodianId: custodianId, transferOwnership: true } });
+    expect(preview.outcome).toBe("ROUTED");
+
+    const result = await approvals.requestTransfer(keeperId, { kind: "transferItem", itemIds: selection, transfer: { targetParentId: labId, targetOrgNodeId: deptNodeId, targetCustodianId: custodianId, transferOwnership: true } });
+    if (result.outcome !== "ROUTED") throw new Error("expected ROUTED");
+    createdRequestIds.push(result.request.id);
+    const stored = await prisma.changeRequest.findUniqueOrThrow({ where: { id: result.request.id } });
+    expect((stored.payload as { itemIds: string[] }).itemIds).toEqual([computerId]);
+
+    await approvals.decideStep(headId, result.request.id, "APPROVE");
+    await approvals.decideStep(custodianId, result.request.id, "APPROVE");
+
+    const [computer, nestedRam] = await Promise.all([prisma.item.findUniqueOrThrow({ where: { id: computerId } }), prisma.item.findUniqueOrThrow({ where: { id: ram.id } })]);
+    expect(computer.parentId).toBe(labId);
+    expect([nestedRam.parentId, nestedRam.ownerOrgNodeId, nestedRam.custodianId]).toEqual([computerId, deptNodeId, custodianId]);
+
+    // Same rule for a plain move within someone's own custody.
+    const shelfId = await makeItem(deptNodeId, custodianId, "Nested Shelf");
+    await mutate.applyChange(sysAdminId, { kind: "moveInTree", itemIds: [computerId, ram.id], value: shelfId });
+    const [movedComputer, movedRam] = await Promise.all([prisma.item.findUniqueOrThrow({ where: { id: computerId } }), prisma.item.findUniqueOrThrow({ where: { id: ram.id } })]);
+    expect(movedComputer.parentId).toBe(shelfId);
+    expect(movedRam.parentId).toBe(computerId);
+  });
+});

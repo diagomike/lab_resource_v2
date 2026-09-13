@@ -4,7 +4,7 @@ import type { ChangeRequestDto, ChainStepDto, ItemChangeInput, RequestTransferRe
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
-import { applyChange } from "./mutate";
+import { applyChange, topMostItemIds } from "./mutate";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { canPlace } from "@/lib/domain/placement";
 import {
@@ -218,7 +218,15 @@ async function assertMayTransferOwnership(actorId: string, input: TransferInput)
 /** Preview only — resolves what WOULD happen, commits nothing. What `TransferModal`
  *  calls before the requester commits to asking, so it can say "applies immediately"
  *  or "needs approval from X, then Y" up front. */
-export async function previewTransfer(actorId: string, input: TransferInput): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] }> {
+/** The request is about the top-most selected resources only — see
+ *  `topMostItemIds`. Collapsed before anything else runs, so placement, policy and
+ *  the stored payload all describe what will actually move. */
+async function normalizeTransfer(input: TransferInput): Promise<TransferInput> {
+  return { ...input, itemIds: await topMostItemIds(prisma, input.itemIds) };
+}
+
+export async function previewTransfer(actorId: string, rawInput: TransferInput): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] }> {
+  const input = await normalizeTransfer(rawInput);
   await scope.assertCanMutate(actorId, input.itemIds);
   await assertMayTransferOwnership(actorId, input);
   const ctx = await loadTransferContext(input);
@@ -238,7 +246,8 @@ export async function previewTransfer(actorId: string, input: TransferInput): Pr
   };
 }
 
-export async function requestTransfer(actorId: string, input: TransferInput): Promise<RequestTransferResultDto> {
+export async function requestTransfer(actorId: string, rawInput: TransferInput): Promise<RequestTransferResultDto> {
+  const input = await normalizeTransfer(rawInput);
   // Custody-checks the SOURCE only — never the destination. See §6.2: asking for a
   // transfer must not require already custodying where it's going, or there would be
   // nothing left for OWNER_HEAD/TARGET_HEAD to actually decide.

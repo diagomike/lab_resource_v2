@@ -54,6 +54,20 @@ function RegisterPageInner() {
   });
 
   const selectedIds = state.selectedItemIds;
+  /** Ticking a row ticks everything inside it too; a move or transfer is about the
+   *  top-most of those only — their contents travel with them (the server collapses
+   *  the selection the same way). */
+  const selectedRootIds = useMemo(() => {
+    const chosen = new Set(selectedIds);
+    return selectedIds.filter((id) => {
+      let parentId = state.byId.get(id)?.parentId ?? null;
+      while (parentId) {
+        if (chosen.has(parentId)) return false;
+        parentId = state.byId.get(parentId)?.parentId ?? null;
+      }
+      return true;
+    });
+  }, [selectedIds, state.byId]);
   const selectedRows = useMemo(() => selectedIds.map((id) => state.byId.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r)), [selectedIds, state.byId]);
 
   /** "Move to…"'s own options — the same container-picker endpoint AddModal's "Into"
@@ -111,9 +125,9 @@ function RegisterPageInner() {
     if (!rawValue) return; // the picker's own placeholder, not a real choice
     const value = rawValue === MOVE_TOP_LEVEL ? null : rawValue;
     request({
-      input: { kind: "moveInTree", itemIds: selectedIds, value },
+      input: { kind: "moveInTree", itemIds: selectedRootIds, value },
       title: "Relocation",
-      message: `Move ${selectedIds.length} selected resources to ${value ? "the chosen destination" : "the top level"}?`,
+      message: `Move ${selectedRootIds.length} selected resource${selectedRootIds.length === 1 ? "" : "s"} (with everything inside them) to ${value ? "the chosen destination" : "the top level"}?`,
       tone: "warn",
     });
   }
@@ -347,10 +361,10 @@ function RegisterPageInner() {
         />
       )}
 
-      {transferOpen && selectedIds.length > 0 && (
+      {transferOpen && selectedRootIds.length > 0 && (
         <TransferModal
-          itemIds={selectedIds}
-          label={selectedIds.length === 1 ? `"${selectedRows[0]?.name ?? "1 resource"}"` : `${selectedIds.length} resources`}
+          itemIds={selectedRootIds}
+          label={selectedRootIds.length === 1 ? `"${state.byId.get(selectedRootIds[0])?.name ?? "1 resource"}"` : `${selectedRootIds.length} resources`}
           onClose={() => setTransferOpen(false)}
           onDone={() => {
             setTransferOpen(false);

@@ -522,7 +522,7 @@ describe("history and visibility — every send-back is kept, everyone involved 
       ["APPROVING", procurementUserId],
       ["ORDER_PLACED", procurementUserId],
     ]);
-    expect(final.history[1].note).toMatch(/^Sent back for revision — .+: Reduce computers by 2$/);
+    expect(final.history[1].note).toMatch(/^(?!Sent back).+: Reduce computers by 2$/);
     expect(final.history[4].note).toMatch(/Add unit costs$/);
     expect(final.history[8].note).toMatch(/^Approved — .+: Budget line confirmed$/);
   });

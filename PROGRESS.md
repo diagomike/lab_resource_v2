@@ -3175,6 +3175,91 @@ its model that make porting it as-is the wrong move.
   this track was meant to add. `npx tsc --noEmit`, `npm test` (**341/341**),
   `npm run build`, `npx prisma validate`/`migrate status` all clean throughout.
 
+- **2026-09-13** — End-to-end lab lifecycle: gaps closed, then the whole loop walked
+  on real data. Plan: `~/.claude/plans/i-have-added-multiple-federated-reddy.md`; full
+  scene-by-scene log: `docs/e2e-lifecycle-run.md`. Still on `track-3-transfers`.
+
+  The user wanted one continuous process working before lab booking:
+
+  - custodian sets ideal, then current data in drafts;
+  - the head approves;
+  - cross-department transfer;
+  - the head computes purchasables from ideal vs current;
+  - the college (and every higher office) sends it back and the head reduces;
+  - procurement runs the pipeline, visible to everyone involved;
+  - the store receives;
+  - the store hands stock to labs.
+
+  Reading the code against that found 3 missing and 3 partial pieces. User decisions:
+
+  - build the gaps first, then test;
+  - the department head (not admin) approves drafts;
+  - the **store keeper pushes** stock, with the receiving head approving and the
+    receiving custodian accepting;
+  - run on the real SE/ChemE data and clean up afterwards.
+
+  **Part A (commit `a492fbc`)**:
+
+  - **(A1)** `LabDraftPanel` stages "Add resource" (`createItem`); the approvals diff names
+    category and count.
+  - **(A2)** `lib/domain/purchasables.ts` plus `lab-drafts.ts`'s
+    `getDepartmentPurchasables`, served at
+    `GET /api/resources/departments/:nodeId/purchasables`. It rolls every owned lab's
+    ideal-vs-actual up per category, with gaps floored per lab so one lab's surplus never
+    cancels another's shortage. The head's compile panel computes it and prefills lines
+    with per-lab justifications.
+  - **(A3)** `PurchaseEvent` written for every submit, decision, resubmit and cancel, so
+    send-back cycles survive REVISE deleting the steps. `readableRequestWhere` (unit
+    members, occupants of the unit or any ancestor via `OrgClosure`, chain offices, need
+    raisers, purchasing roles) backs `getRequest` and a new `box=tracking`. The Purchasing
+    page gained a status panel, a history timeline and decision notes; needs show which
+    request carried them.
+  - **(A4)** `pol-store-transfer` now routes `[TARGET_HEAD, TARGET_CUSTODIAN]`
+    (re-seeded). `transferItem.transfer.transferOwnership` (store keeper/SYS_ADMIN only)
+    moves owner and custody with audit lines. `TransferModal` is multi-item with a
+    store-keeper "Hand over" option, and the Register bulk toolbar gained "Transfer…".
+  - **(A5)** The Custody picker offers every active custodian, store keeper or head, not
+    only people already holding something.
+
+  **Part B**: `prisma/e2e-workflow-fixture.ts` is dev-only and reversible
+  (`--setup` / `--teardown` / report). It reactivates the CoEEC dean, creates a store
+  keeper and sets known passwords. Teardown removes every workflow row and soft-deletes
+  every item the cast created (never admin's). Its state file is gitignored.
+
+  All 11 scenes (S0–S10) passed. How it was driven:
+
+  - Nobody had this session's window open, so the Browser pane could not draw.
+  - Another session's `next dev` already held :3000 for this folder, and a second
+    `next dev` refuses to start.
+  - The UI was therefore driven by dispatching real DOM events on the rendered React
+    components, with every outcome read back from the page and confirmed in Postgres.
+
+  **Two real defects found and fixed live, each with a regression test**:
+
+  1. A tree selection ticks a row's whole subtree, and bulk Transfer — and the
+     pre-existing bulk Move — treated every ticked id as a root. That would pull nested
+     parts out into the destination.
+     - The server now collapses move/transfer selections to top-most items
+       (`mutate.ts` `topMostItemIds`).
+     - The Register sends and labels top-most ids only.
+     - The modal had not been submitted before the fix.
+  2. Purchase history notes duplicated the stage label.
+
+  **Open findings for the user**:
+
+  - Each delivery restarts receipt numbering at 01 (medium).
+  - The Receive "Into" picker lists every nested container (low).
+  - A rejected lab commit card no longer lists its changes (low).
+  - A borrowed item is editable by the host lab's custodian, because custody resolves
+    through containment (design question).
+
+  Teardown restored the baseline: 750 items, 0 workflow rows, SE draft mode off, dean and
+  store keeper disabled, CoEEC vacant, Main Store back with admin. (750 rather than
+  2026-09-10's 747: the 3 extra are leftovers from the test suite's placement specs.) The
+  approval policies stay re-seeded with the new store chain. `tsc` clean,
+  `npm test` 353/353 (one run hit the documented `views.spec.ts` shared-DB flake, then
+  green), `npm run build` clean.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

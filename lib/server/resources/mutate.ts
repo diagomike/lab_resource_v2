@@ -459,6 +459,29 @@ async function subtreeDeepestFirst(tx: Tx, rootIds: string[]): Promise<PrismaIte
   return ids.map((id) => byId.get(id)).filter((i): i is PrismaItem => Boolean(i));
 }
 
+/**
+ * A selection made in the register's tree ticks a row's whole subtree along with it, so
+ * a move or transfer can arrive naming both a container AND things already inside it.
+ * Treating every id as a root would pull each nested part out on its own — a computer
+ * moved as a computer, plus its RAM re-parented straight into the destination beside it.
+ * Only the top-most selected items move; everything under them travels with them, as it
+ * always has. Order is preserved.
+ */
+export async function topMostItemIds(tx: Tx, ids: string[]): Promise<string[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length < 2) return unique;
+  const nested = await tx.$queryRaw<{ start: string }[]>`
+    WITH RECURSIVE ancestry AS (
+      SELECT id AS start, "parentId" AS ancestor FROM "Item" WHERE id = ANY(${unique})
+      UNION ALL
+      SELECT a.start, i."parentId" FROM "Item" i INNER JOIN ancestry a ON i.id = a.ancestor WHERE a.ancestor IS NOT NULL
+    )
+    SELECT DISTINCT start FROM ancestry WHERE ancestor = ANY(${unique})
+  `;
+  const drop = new Set(nested.map((r) => r.start));
+  return unique.filter((id) => !drop.has(id));
+}
+
 async function isWithinSubtree(tx: Tx, ancestorId: string, candidateId: string): Promise<boolean> {
   if (ancestorId === candidateId) return true;
   const subtree = await tx.$queryRaw<{ id: string }[]>`
@@ -551,7 +574,7 @@ async function applyTransferItem(
     if (!custodian) throw new HttpError(400, "Choose an existing custodian.");
   }
 
-  const roots = await tx.item.findMany({ where: { id: { in: input.itemIds }, deletedAt: null } });
+  const roots = await tx.item.findMany({ where: { id: { in: await topMostItemIds(tx, input.itemIds) }, deletedAt: null } });
   const applied: string[] = [];
   // A handover writes several log lines per resource (position, ownership, custody),
   // so it always groups them; a plain borrow keeps the old one-line-per-root shape.
@@ -645,7 +668,7 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
     if (!target || target.deletedAt) throw new HttpError(400, "Choose an existing destination.");
   }
 
-  const roots = await tx.item.findMany({ where: { id: { in: input.itemIds }, deletedAt: null } });
+  const roots = await tx.item.findMany({ where: { id: { in: await topMostItemIds(tx, input.itemIds) }, deletedAt: null } });
   const applied: string[] = [];
   const batchId = roots.length > 1 ? newId("b") : undefined;
 

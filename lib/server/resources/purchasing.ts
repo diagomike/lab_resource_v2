@@ -464,13 +464,15 @@ export async function decideStep(actorId: string, requestId: string, decision: "
   // Every decision is also written to the request's permanent history — the steps
   // themselves are working state (REVISE deletes them), so without this a request
   // that went round several send-backs would show nothing of who sent it back or why.
-  const eventNote = (verb: string) => `${verb} — ${step!.label}${note ? `: ${note}` : ""}`;
+  // The event's own stage already says what happened ("Sent back for revision",
+  // "Rejected") — the note carries WHO decided at which step, and why.
+  const eventNote = (verb?: string) => `${verb ? `${verb} — ` : ""}${step!.label}${note ? `: ${note}` : ""}`;
 
   if (decision === "REJECT") {
     await prisma.$transaction([
       prisma.purchaseStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } }),
       prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REJECTED", feedback: note ?? null } }),
-      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote("Rejected") } }),
+      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote() } }),
     ]);
     return loadDto(requestId);
   }
@@ -479,7 +481,7 @@ export async function decideStep(actorId: string, requestId: string, decision: "
     await prisma.$transaction([
       prisma.purchaseStep.deleteMany({ where: { requestId } }),
       prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REVISING", feedback: note ?? "Sent back for revision." } }),
-      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REVISING", note: eventNote("Sent back for revision") } }),
+      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REVISING", note: eventNote() } }),
     ]);
     return loadDto(requestId);
   }
