@@ -3509,6 +3509,116 @@ its model that make porting it as-is the wrong move.
   - The calendar shows one room at a time.
   - Cron-based hold expiry arrives with Track 7; writes already sweep their own lab.
 
+- **2026-09-14 (later still)** — Track 7: the public portal and the external booking
+  workflow. Plan: `~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md`.
+  Same branch.
+
+  **Flow**: requester (no account) → AVP forwards to departments → custodians HOLD slots
+  → each head accepts (Google Sheet link + amount) or declines → AVP sends one quote →
+  (Track 8) verified payment confirms the holds.
+
+  **Schema** (migration `20260914120000_external_requests`):
+
+  - `ExternalRequest`:
+    - reference `EXT-YYYY-NNN`;
+    - status SUBMITTED / UNDER_REVIEW / QUOTED / PAYMENT_SUBMITTED / PAID / SCHEDULED /
+      DECLINED / CANCELLED / EXPIRED;
+    - contact fields, lines JSON, and letter storage key/name/size;
+    - `trackingTokenHash` (hashed at rest), `submitterIpHash`;
+    - quote amount in integer santim, deadline, closing note.
+  - `ExternalRequestWindow` (civil date/times plus instants), `ExternalRequestAssignment`
+    (per department: status, sheet URL, amount, `noCalendarNeeded`, note, decider) and
+    `ExternalRequestEvent` (append-only).
+  - `Reservation.externalRequestId` links holds.
+
+  **Public** (`proxy.ts` matcher excludes `portal`; `/api` was already excluded):
+
+  - `/portal`: counts of `publicListed` categories, working items only. Served by
+    `items.ts publicCatalog()` over the same forest/derived-status engine, with an edge
+    cache header. It returns counts, name and icon only; never units, locations or items.
+  - `/portal/request`: organisation, contact, purpose, dates (up to 10, Addis time),
+    free-text lines with an optional catalog kind, and the PDF letter.
+    - `POST /api/public/requests` (multipart) checks `%PDF-` bytes and a 4 MB limit.
+    - Also: a honeypot, and a throttle of 3 per email and 10 per IP-hash per day, counted
+      from the table.
+    - Dates must be at least a day ahead. The letter goes through the existing
+      `StorageDriver`.
+    - A reference collision under concurrency retries on P2002.
+  - `/portal/track/[token]`: status, quote (amount, deadline, bank from
+    `UNIVERSITY_BANK_*` env, accepted sheet links), a public-safe timeline that hides
+    internal events like holds and department decisions, and cancel before payment.
+
+  **Staff** (`lib/server/external/requests.ts`):
+
+  - The AVP is the occupant of an active UNIVERSITY node, or SYS_ADMIN. Heads are resolved
+    live from `OrgNode.userId`. A custodian's units are the owning/holding units of rooms
+    they keep, plus their home unit.
+  - `forward`: AVP only, emails each head.
+  - `placeHold`: the room's custodian, and the room's department must be assigned and not
+    declined. Goes through Track 6's shared `writeReservation`, which was extracted from
+    `createStaffBooking` so both use one locked write path. The hold is HELD for 14 days
+    before a quote, or until the payment deadline once quoted.
+  - `extendHolds`: AVP or an assigned head.
+  - `decideAssignment`: the node's head or SYS_ADMIN. ACCEPT needs an https sheet link and
+    an amount, and either at least one held slot or an explicit "no calendar needed".
+    DECLINE releases that department's holds.
+  - `sendQuote`: AVP; every assignment answered and at least one accepted.
+    - Aligns hold expiry to the deadline.
+    - **Regenerates the tracking token** (the raw token is never stored, so the emailed
+      link is the only copy; the old link dies).
+    - Emails the amount, bank and sheet links.
+  - `closeRequest` (decline, releasing holds), `expireOverdueQuotes`, letter download
+    (authorized to parties only; `nosniff`, `no-store`).
+  - Mail helpers escape everything the public typed.
+  - `app/api/cron/expire-holds` needs `Bearer $CRON_SECRET`. `vercel.json` schedules it
+    daily; Hobby allows daily only.
+
+  **UI**: sidebar "External requests" (`/external-requests`, SYS_ADMIN/MANAGER/CUSTODIAN).
+  A list plus detail: requester and letter link, windows, purpose, lines, quote, and
+  panels for departments (Accept… / Decline… per head), held slots and history. Modals:
+  Forward (department checklist), Hold a slot (room, machines, prefilled from the
+  request's windows, clash list on 409), Send quote (prefilled from accepted amounts plus
+  a 7-day deadline), Decline.
+
+  **Tests**: `lib/server/external/requests.spec.ts` (6, DB-backed, mail mocked). An orphan
+  UNIVERSITY node stands in for the test AVP; the real root is never touched, since an
+  early draft deactivated it and that would disturb concurrent spec files. Cases:
+
+  - intake stores the PDF, hashes the token and sends 2 mails;
+  - non-PDF, honeypot, too-soon and throttle refusals;
+  - the full forward → hold (a staff booking on that slot then 409s) → head decisions,
+    including authorization and the sheet requirement → quote. Quote refused until every
+    department answers; the old token 404s after the quote;
+  - decline releases holds and frees the slot;
+  - holds refused for an unassigned department or a non-custodian;
+  - an overdue quote expires with its holds, and the requester can cancel.
+
+  **Verified**: `tsc` clean, `npm test` **391/391**, `npm run build` clean. The migration
+  diff against the live DB is empty.
+
+  **Live walkthrough.** A new `.claude/launch.json` profile `dev-nomail` points SMTP at
+  `127.0.0.1:1`, so nothing left the machine, and sets test bank details.
+
+  - As admin, flagged Lab/Computer/Workstation Setup `publicListed`.
+  - Signed out, `/portal` showed Lab 24, Computer 37, Workstation Setup 33. Submitted the
+    real form with a PDF → EXT-2026-001. Server logs show the requester and AVP mails
+    attempted and blocked.
+  - As AVP (admin): the list and detail rendered; the letter downloaded as
+    `application/pdf`; forwarded to Software Engineering via the modal.
+  - As Girma: "Hold a slot…" prefilled 2026-09-28 09:00–12:00 on SE Lab X → HELD until
+    09-28.
+  - As the SE head: accepted with a sheet link and "18,750.00" → ETB 18,750.00.
+  - As AVP: Send quote prefilled 18750.00 and 2026-09-21 → QUOTED; the hold is now held
+    until 09-21. The old tracking link → 404.
+  - With a dev-set token, the tracking page showed the quote, bank, sheet link and public
+    timeline.
+  - Probes: cron without secret → 401, `/portal` signed out → 200, `/register` → 307 to
+    login, letter signed out → 401.
+
+  **Left in place for Track 8's live pass**: EXT-2026-001 (QUOTED, one HELD reservation
+  on SE Lab X) and `publicListed` on Lab/Computer/Workstation Setup. To be cleaned up
+  after Track 8.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

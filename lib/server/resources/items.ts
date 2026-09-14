@@ -9,6 +9,7 @@ import {
   type ItemFilterFieldDef,
   type ItemRowDto,
   type ItemSummaryDto,
+  type PublicCatalogDto,
   type TransferDestinationDto,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
@@ -341,6 +342,42 @@ export async function facets(userId: string, query: ItemQuery, scopeOverride?: S
 }
 
 const NEEDS_ATTENTION: EffectiveStatus[] = ["BROKEN", "IMPAIRED", "UNDER_MAINTENANCE", "LOST"];
+
+/**
+ * Track 7 — the public portal's catalog: for each category an administrator has marked
+ * `publicListed`, how many WORKING units (derived status, the same engine the dashboard
+ * uses — a lab whose switch rack died is not offered) exist across the whole university.
+ * For stock, the working quantity. Deliberately nothing else: no unit, no location, no
+ * item, no tree — "we have 700 workstations", never where they are.
+ */
+export async function publicCatalog(): Promise<PublicCatalogDto> {
+  const [forest, listed] = await Promise.all([
+    loadForest(),
+    prisma.resourceCategory.findMany({ where: { publicListed: true, active: true }, include: { group: { select: { name: true, sortOrder: true } } } }),
+  ]);
+  const counts = new Map<string, number>();
+  for (const item of forest.items) {
+    if (!listed.some((c) => c.id === item.categoryId)) continue;
+    const effective = forest.statuses.get(item.id)?.effective ?? "WORKING";
+    if (NEEDS_ATTENTION.includes(effective) || effective === "CONSUMED") continue;
+    counts.set(item.categoryId, (counts.get(item.categoryId) ?? 0) + (forest.categories[item.categoryId]?.countingMode === "BULK" ? Number(item.qty) : 1));
+  }
+  const groups = new Map<string, { name: string; sortOrder: number; categories: PublicCatalogDto["groups"][number]["categories"] }>();
+  for (const c of listed) {
+    const count = counts.get(c.id) ?? 0;
+    if (count === 0) continue;
+    const g = groups.get(c.groupId) ?? { name: c.group.name, sortOrder: c.group.sortOrder, categories: [] };
+    g.categories.push({ id: c.id, name: c.name, iconKey: c.iconKey, bookingMode: c.bookingMode, count, unit: c.unit });
+    groups.set(c.groupId, g);
+  }
+  const rank = (mode: string) => (mode === "ROOM" ? 0 : mode === "EQUIPMENT" ? 1 : 2);
+  return {
+    groups: [...groups.values()]
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+      .map((g) => ({ name: g.name, categories: g.categories.sort((a, b) => rank(a.bookingMode) - rank(b.bookingMode) || a.name.localeCompare(b.name)) })),
+    generatedAt: new Date().toISOString(),
+  };
+}
 
 /** Dashboard totals over the exact same direct-scope, genuine-match set returned by
  * `search()`. Context-only ancestors are a tree navigation aid, not resources that

@@ -5,3 +5,4 @@ export * from "./org";
 export * from "./people";
 export * from "./resources";
 export * from "./scheduling";
+export * from "./external";

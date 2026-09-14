@@ -49,6 +49,9 @@ export const NAV: NavGroup[] = [
       // Track 6 — lab calendars. Students are booked for by their advisor, so the
       // screen is for the roles the booking service itself accepts.
       { key: "schedule", label: "Schedule", icon: "◴", path: "/schedule", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN", "STAFF"] },
+      // Track 7 — outside institutions' requests. The service decides what each person
+      // sees (all of them for the AVP's office, their department's for heads/custodians).
+      { key: "external-requests", label: "External requests", icon: "⇲", path: "/external-requests", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN"] },
       { key: "approvals", label: "Approvals", icon: "✓", path: "/approvals" },
       {
         key: "purchasing",
@@ -87,6 +90,7 @@ export const META: Record<string, [string, string, string]> = {
   register: ["", "Register", "Hierarchy, rollup and search views over the resources you can see"],
   university: ["", "University resources", "Every unit's resources — find what you need and request it into your lab"],
   schedule: ["", "Schedule", "Lab calendars — weekly classes, and booking a room or machine"],
+  "external-requests": ["", "External requests", "Workshops and trainings outside institutions have asked the university to host"],
   approvals: ["", "Approvals", "Requests routed to you, and what you have asked for yourself"],
   purchasing: ["", "Purchasing", "Needs raised, purchase requests, and what has arrived"],
   "change-log": ["", "Change log", "Every applied change, who made it, and when"],

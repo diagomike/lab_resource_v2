@@ -22,6 +22,7 @@ import {
   toClashDtos,
   toReservationDto,
   viewerOf,
+  type BookingTarget,
   type TreeRow,
 } from "./context";
 
@@ -51,7 +52,7 @@ function parentLookup(rows: TreeRow[]): (id: string) => string | null {
   return (id) => parents.get(id) ?? null;
 }
 
-async function loadDto(id: string, userId: string): Promise<ReservationDto> {
+export async function loadDto(id: string, userId: string): Promise<ReservationDto> {
   const [row, viewer] = await Promise.all([prisma.reservation.findUniqueOrThrow({ where: { id }, include: RESERVATION_INCLUDE }), viewerOf(userId)]);
   return toReservationDto(row, viewer);
 }
@@ -84,18 +85,30 @@ export async function previewBooking(userId: string, input: BookingInput): Promi
   };
 }
 
-export async function createStaffBooking(userId: string, input: BookingInput): Promise<ReservationDto> {
-  await assertMayBook(userId);
-  const { startsAt, endsAt } = windowOf(input);
-  if (startsAt.getTime() < Date.now()) throw new HttpError(400, "That time has already started — choose a time in the future.");
-  const target = await resolveBookingTarget(prisma, input.itemIds);
-  const viewer = await viewerOf(userId);
-  const confirms = decidesFor(viewer, target.lab.id);
-  const itemIds = target.items.map((i) => i.id);
+export interface NewReservation {
+  source: "STAFF" | "EXTERNAL" | "MAINTENANCE";
+  state: "REQUESTED" | "HELD" | "CONFIRMED";
+  title: string;
+  requestedById: string;
+  decidedById?: string | null;
+  onBehalfOfNote?: string | null;
+  participantCount?: number | null;
+  note?: string | null;
+  externalRequestId?: string | null;
+  holdExpiresAt?: Date | null;
+}
 
-  let id: string;
+/**
+ * The one locked write every one-off reservation goes through — a staff booking here,
+ * an external hold from lib/server/external/requests.ts. Refuses with 409 + `clashes`
+ * when a HELD/CONFIRMED claim is in the way. Callers do their own authorization first.
+ */
+export async function writeReservation(target: BookingTarget, window: Pick<BookingInput, "date" | "start" | "end">, data: NewReservation): Promise<string> {
+  const { startsAt, endsAt } = windowOf(window);
+  if (startsAt.getTime() < Date.now()) throw new HttpError(400, "That time has already started — choose a time in the future.");
+  const itemIds = target.items.map((i) => i.id);
   try {
-    id = await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx) => {
       await lockTree(tx, target.rootId);
       const tree = await subtreeRows(tx, target.rootId);
       const treeIds = tree.map((r) => r.id);
@@ -108,24 +121,25 @@ export async function createStaffBooking(userId: string, input: BookingInput): P
           clashes: toClashDtos(blocking, new Map(tree.map((r) => [r.id, r.name])), meta),
         });
       }
-      const now = new Date();
-      const state = confirms ? "CONFIRMED" : "REQUESTED";
+      const blocks = data.state !== "REQUESTED";
       const row = await tx.reservation.create({
         data: {
-          source: "STAFF",
-          state,
-          title: input.title,
+          source: data.source,
+          state: data.state,
+          title: data.title,
           labItemId: target.lab.id,
           startsAt,
           endsAt,
-          occursOnLocal: dateColumn(input.date),
-          requestedById: userId,
-          onBehalfOfNote: input.onBehalfOfNote || null,
-          participantCount: input.participantCount ?? null,
-          note: input.note || null,
-          decidedById: confirms ? userId : null,
-          decidedAt: confirms ? now : null,
-          resources: { create: itemIds.map((itemId) => ({ itemId, startsAt, endsAt, blocking: state === "CONFIRMED" })) },
+          occursOnLocal: dateColumn(window.date),
+          requestedById: data.requestedById,
+          onBehalfOfNote: data.onBehalfOfNote || null,
+          participantCount: data.participantCount ?? null,
+          note: data.note || null,
+          externalRequestId: data.externalRequestId ?? null,
+          holdExpiresAt: data.holdExpiresAt ?? null,
+          decidedById: data.decidedById ?? null,
+          decidedAt: data.decidedById ? new Date() : null,
+          resources: { create: itemIds.map((itemId) => ({ itemId, startsAt, endsAt, blocking: blocks })) },
         },
       });
       return row.id;
@@ -134,6 +148,24 @@ export async function createStaffBooking(userId: string, input: BookingInput): P
     if (isOverlapViolation(err)) throw overlapConflict();
     throw err;
   }
+}
+
+export async function createStaffBooking(userId: string, input: BookingInput): Promise<ReservationDto> {
+  await assertMayBook(userId);
+  windowOf(input);
+  const target = await resolveBookingTarget(prisma, input.itemIds);
+  const viewer = await viewerOf(userId);
+  const confirms = decidesFor(viewer, target.lab.id);
+  const id = await writeReservation(target, input, {
+    source: "STAFF",
+    state: confirms ? "CONFIRMED" : "REQUESTED",
+    title: input.title,
+    requestedById: userId,
+    decidedById: confirms ? userId : null,
+    onBehalfOfNote: input.onBehalfOfNote,
+    participantCount: input.participantCount,
+    note: input.note,
+  });
   return loadDto(id, userId);
 }
 
