@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth-context";
 import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
 import { TransferModal } from "./TransferModal";
+import { PullTransferModal } from "./PullTransferModal";
 import { LabDraftPanel } from "./LabDraftPanel";
 import { ChangeModal } from "./ChangeModal";
 import { CategoryIcon } from "./IconPicker";
@@ -35,6 +36,7 @@ export function Inspector({
   onNavigate,
   readOnly = false,
   scope,
+  canRequestPull = false,
 }: {
   itemId: string | null;
   onClose: () => void;
@@ -62,6 +64,9 @@ export function Inspector({
    *  by `assertCanBrowseUniversity` for any account that isn't MANAGER/STORE_KEEPER/
    *  a global role. */
   scope?: "UNIVERSITY";
+  /** University resources' drill-through only: offer "Request to my lab…" on a
+   *  resource the viewer doesn't already hold (Track 5 — transfers are pulled). */
+  canRequestPull?: boolean;
 }) {
   const [item, setItem] = useState<ItemDetailDto | null>(null);
   const [changes, setChanges] = useState<ItemChangeDto[] | null>(null);
@@ -77,9 +82,11 @@ export function Inspector({
   const [newCustomValue, setNewCustomValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [pullOpen, setPullOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
   const [showDraftPanel, setShowDraftPanel] = useState(false);
   const { user } = useAuth();
+  const canHandOver = Boolean(user?.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));
 
   function load() {
     if (!itemId) return;
@@ -287,7 +294,17 @@ export function Inspector({
         {!item ? (
           <PanelLoading rows={4} />
         ) : readOnly ? (
-          <ReadOnlyBody item={item} category={category} changes={changes} onNavigate={onNavigate} />
+          <>
+            <ReadOnlyBody item={item} category={category} changes={changes} onNavigate={onNavigate} />
+            {canRequestPull && item.custodianId !== user?.id && (
+              <div className="pt-4 border-t border-border flex items-center gap-8">
+                <Button variant="primary" onClick={() => setPullOpen(true)}>
+                  Request to my lab…
+                </Button>
+                <span className="text-10.5 text-faint">Held by {item.custodianName} · {item.ownerOrgNodeName}</span>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <ItemImageGallery item={item} category={category} expectedVersions={expectedVersions} onAdd={onAddImage} onRemove={onRemoveImage} />
@@ -515,7 +532,7 @@ export function Inspector({
               <Button variant="primary" onClick={() => setChangeOpen(true)}>
                 Change this…
               </Button>
-              <Button onClick={() => setTransferOpen(true)}>Transfer to another unit…</Button>
+              {canHandOver && <Button onClick={() => setTransferOpen(true)}>Hand over to a lab…</Button>}
             </div>
           </>
         )}
@@ -529,6 +546,17 @@ export function Inspector({
             setChangeOpen(false);
             onChanged();
             load();
+          }}
+        />
+      )}
+
+      {pullOpen && item && (
+        <PullTransferModal
+          items={[item]}
+          onClose={() => setPullOpen(false)}
+          onDone={() => {
+            setPullOpen(false);
+            onChanged();
           }}
         />
       )}

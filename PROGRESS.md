@@ -3260,6 +3260,115 @@ its model that make porting it as-is the wrong move.
   `npm test` 353/353 (one run hit the documented `views.spec.ts` shared-DB flake, then
   green), `npm run build` clean.
 
+- **2026-09-14** — Planned the next four tracks, then built Track 5 (pull transfers). Plan:
+  `~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md`. New branch
+  `track-5-scheduling`, cut from `track-3-transfers`. The four tracks:
+
+  - **Track 5**: transfers become pull-initiated, and custodians can browse the whole
+    university.
+  - **Track 6**: the scheduling core. Weekly class slots, staff bookings approved by the
+    lab's custodian, and a Postgres exclusion constraint against double-booking.
+  - **Track 7**: a public portal (counts of flagged categories only) and the external
+    booking workflow. Requester → AVP → department heads (Google Sheet quote link) → quote
+    → tentative HELD reservations.
+  - **Track 8**: payment verification through a self-hosted `Vixen878/verifier-api`,
+    behind a driver interface, with manual fallback; verified payment confirms the holds.
+
+  User decisions:
+
+  - Push is kept only for the store keeper's handover.
+  - Timetable slots carry their own date range; there is no academic-term model.
+  - External holds are placed at feasibility time and expire if unpaid.
+  - The verifier is self-hosted.
+  - Only admin-flagged categories are public.
+  - The lab custodian approves staff bookings.
+
+  **Track 5, what changed**:
+
+  - **Browse**: `UNIVERSITY_BROWSE_ROLES` gains `CUSTODIAN` (the nav entry too).
+  - **Pull request**: `approvals.ts` has a new `assertTransferParties`. A non-handover
+    request is checked against the destination: the requester must be able to write it,
+    and must not already hold the source (that's a Move, 400). The receiving unit comes
+    from the destination's `currentOrgNodeId`, not the client. `targetCustodianId` stays
+    null, so it's still a borrow and the lender keeps custody.
+  - **Handover**: the store keeper/SYS_ADMIN path is unchanged.
+  - **Destination search**: `transferDestinations` is now store keeper/SYS_ADMIN only.
+  - **Chain**: `pol-transfer-cust` already fits pull with no re-seed. The item's custodian
+    now genuinely decides first, then the owning head, the requester's head, and the
+    requester's receipt.
+
+  **A real apply-time bug avoided by reading, before shipping**:
+
+  - The settle call `applyChange(requester, …, {viaApprovalEngine})` fell through to
+    `assertCanMutate(requester, sourceItems)`, and `applyTransferItem` re-ran
+    `assertSubtreeInScope` against the requester.
+  - Every approved pull would therefore have gone STALE ("Resource not found") at the
+    receipt step, because the requester by definition doesn't hold what they asked for.
+  - Fix in `mutate.ts`: a non-ownership `transferItem` arriving via the approval engine is
+    authorized by its settled chain. It re-checks only that the requester still holds the
+    destination, and skips the source-subtree custody check. A handover keeps both checks.
+  - A new regression test covers losing custody of the destination mid-flight: the request
+    goes STALE instead of landing somewhere the requester no longer holds.
+
+  **UI**:
+
+  - Inspector's "Transfer to another unit…" and the Register's bulk "Transfer…" render
+    only for STORE_KEEPER/SYS_ADMIN, relabelled "Hand over…". `TransferModal` is now
+    handover-only.
+  - New `PullTransferModal`:
+    - "Into" is one of my containers, from `/items/containers` intersected across
+      categories and sorted by path;
+    - optional note;
+    - live chain preview showing approver names.
+  - `UniversityPage` rows are selectable, with a "Request transfer to my lab…" toolbar.
+    Selections collapse to top-most items and exclude rows the viewer already holds.
+    Inspector gets a `canRequestPull` prop that shows "Request to my lab…" in its
+    read-only body.
+  - Fixed a pre-existing duplicate React key in the university rollup: rows were keyed by
+    unit and category names, and leftover test categories share names. They're now keyed
+    by ids.
+
+  **Tests**: `approvals.spec.ts` was rewritten to pull shape. Every request is raised by
+  the destination's custodian against a lender's item. Added cases:
+
+  - the lender's custodian step is armed first;
+  - the receiving unit is derived even when the client sends a decoy;
+  - losing destination custody → STALE;
+  - pulling into a destination you don't hold → 404 (request and preview);
+  - pulling your own item → 400.
+
+  `university-scope.spec.ts` now expects CUSTODIAN allowed and STAFF refused.
+
+  **Verified**: `tsc` clean, `npm test` 356/356 (DB-backed hooks need
+  `--hookTimeout 60000` on a cold run; the default 10s timed out once, before any test ran),
+  `npm run build` clean.
+
+  **Live walkthrough on the real dev DB.** Password entry into forms isn't allowed for this
+  session, so dev sessions were minted directly into `Session` for the seeded accounts and
+  deleted afterwards.
+
+  - As Hanna Bekele (ChemE custodian), University resources showed the new nav entry and
+    checkboxes. Searched "Whiteboard", ticked SE's Whiteboard and opened the modal. The
+    preview read "Current custodian (Girma Wolde) → Head — SE → Receiving head — ChemE →
+    Confirm receipt (Hanna Bekele)". Requested into "Mechanical Unit Operations
+    Laboratory".
+  - The DB showed PENDING, with `targetOrgNodeId` filled server-side.
+  - As Girma, saw it under Approvals → Routed to me and approved through the real dialog.
+  - SE head approved. Hanna trying to decide early → 403. ChemE head approved. Hanna
+    confirmed receipt → **APPLIED**, the Whiteboard in her lab, still SE-owned and
+    Girma-custodied.
+  - As Girma: the handover destinations endpoint → 403. A direct push request of his own
+    lab into ChemE → 404. His Inspector shows "Change this…" with no transfer or hand-over
+    button.
+
+  **Cleanup**: the Whiteboard was restored via two SYS_ADMIN corrections (`moveInTree` back
+  to SE Lab X, `setCurrentOrg` back to SE), leaving the parent, units and custodian as they
+  were before the walkthrough. The test `ChangeRequest`/steps and the 5 minted sessions were
+  deleted. Counts: 750 items, 0 change requests.
+
+  **Still open (pre-existing)**: the "Into" picker lists every nested container (e.g. a
+  whiteboard "inside Acetone"). It's now sorted shallow-first, but not filtered.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

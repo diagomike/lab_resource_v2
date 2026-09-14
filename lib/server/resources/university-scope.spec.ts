@@ -129,15 +129,15 @@ afterAll(async () => {
 });
 
 describe("assertCanBrowseUniversity — the gate itself", () => {
-  it("allows SYS_ADMIN, MANAGER, and STORE_KEEPER", async () => {
+  it("allows SYS_ADMIN, MANAGER, STORE_KEEPER and — since pull transfers (Track 5) — CUSTODIAN", async () => {
     await expect(scope.assertCanBrowseUniversity(sysAdminId)).resolves.toBeUndefined();
     await expect(scope.assertCanBrowseUniversity(seHeadId)).resolves.toBeUndefined();
     await expect(scope.assertCanBrowseUniversity(storeKeeperId)).resolves.toBeUndefined();
+    await expect(scope.assertCanBrowseUniversity(seCustodianId)).resolves.toBeUndefined();
   });
 
-  it("refuses a plain STAFF account and a custodian with no other role, with 403", async () => {
+  it("refuses a plain STAFF account, with 403", async () => {
     await expect(scope.assertCanBrowseUniversity(staffOnlyId)).rejects.toMatchObject({ status: 403 });
-    await expect(scope.assertCanBrowseUniversity(seCustodianId)).rejects.toMatchObject({ status: 403 });
   });
 });
 

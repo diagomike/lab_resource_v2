@@ -215,6 +215,41 @@ async function assertMayTransferOwnership(actorId: string, input: TransferInput)
   }
 }
 
+/**
+ * Track 5 — who is on which end of a transfer. Transfers are PULLED: the unit that
+ * needs something finds it (University resources) and asks for it into a place it
+ * already holds, and the chain (`pol-transfer-cust`: the item's custodian → its owning
+ * head → the requester's head → the requester's receipt) is how the other side says
+ * yes. So a pull is checked against the DESTINATION — the requester must be able to
+ * write it — and the source must not already be theirs (that is a Move, not a
+ * transfer). The receiving unit is read off the destination rather than trusted from
+ * the client, and custody stays with the lender, the same borrow semantics as before.
+ *
+ * The one push left is the main store handing stock over (`transferOwnership`):
+ * store keeper/SYS_ADMIN only, checked against the SOURCE as it always was.
+ */
+async function assertTransferParties(actorId: string, input: TransferInput): Promise<TransferInput> {
+  if (input.transfer.transferOwnership) {
+    await assertMayTransferOwnership(actorId, input);
+    await scope.assertCanMutate(actorId, input.itemIds);
+    return input;
+  }
+
+  const destination = await prisma.item.findUnique({ where: { id: input.transfer.targetParentId } });
+  if (!destination || destination.deletedAt) throw new HttpError(400, "The destination no longer exists.");
+  await scope.assertCanMutate(actorId, [destination.id]);
+
+  const held = new Set(await scope.custodyItemIdsOf(actorId));
+  if (input.itemIds.some((id) => held.has(id))) {
+    throw new HttpError(400, "You already hold this resource — use Move to place it elsewhere in your own lab.");
+  }
+
+  return {
+    ...input,
+    transfer: { targetParentId: destination.id, targetOrgNodeId: destination.currentOrgNodeId, targetCustodianId: null },
+  };
+}
+
 /** Preview only — resolves what WOULD happen, commits nothing. What `TransferModal`
  *  calls before the requester commits to asking, so it can say "applies immediately"
  *  or "needs approval from X, then Y" up front. */
@@ -226,9 +261,7 @@ async function normalizeTransfer(input: TransferInput): Promise<TransferInput> {
 }
 
 export async function previewTransfer(actorId: string, rawInput: TransferInput): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] }> {
-  const input = await normalizeTransfer(rawInput);
-  await scope.assertCanMutate(actorId, input.itemIds);
-  await assertMayTransferOwnership(actorId, input);
+  const input = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
   const ctx = await loadTransferContext(input);
   const resolution = await resolveTransfer(actorId, input, ctx);
   if (resolution.outcome !== "ROUTED") return resolution;
@@ -247,12 +280,7 @@ export async function previewTransfer(actorId: string, rawInput: TransferInput):
 }
 
 export async function requestTransfer(actorId: string, rawInput: TransferInput): Promise<RequestTransferResultDto> {
-  const input = await normalizeTransfer(rawInput);
-  // Custody-checks the SOURCE only — never the destination. See §6.2: asking for a
-  // transfer must not require already custodying where it's going, or there would be
-  // nothing left for OWNER_HEAD/TARGET_HEAD to actually decide.
-  await scope.assertCanMutate(actorId, input.itemIds);
-  await assertMayTransferOwnership(actorId, input);
+  const input = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
 
   const ctx = await loadTransferContext(input);
   const resolution = await resolveTransfer(actorId, input, ctx);

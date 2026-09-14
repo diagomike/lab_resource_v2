@@ -3,22 +3,21 @@
 import { useEffect, useState } from "react";
 import type { ChainStepDto, RequestTransferResultDto, TransferDestinationDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 
 type Preview = { outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] };
 
 /**
- * Track 3 — request a cross-lab transfer of one or more resources. An ordinary
- * transfer is a BORROW: it keeps the current custodian (`targetCustodianId: null`) and
- * the owning unit — see ~/.claude/plans/lets-merge-the-work-memoized-journal.md §6.6.
+ * The main store handing stock over to a department — the one transfer that is still
+ * PUSHED. Every other transfer is pulled from University resources
+ * (`PullTransferModal`, Track 5 of
+ * ~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md), so this modal
+ * is offered to store keepers and SYS_ADMIN only.
  *
- * The one exception is the main store handing stock over to a department: a store
- * keeper gets a "Hand over" choice (on by default for them) that names the
- * destination's own custodian as the new custodian AND moves ownership to the
- * receiving unit. The seeded policy routes that through the receiving head, then the
- * receiving custodian's acceptance; approvals.ts refuses the ownership move for anyone
- * but a store keeper or SYS_ADMIN, whatever this modal offers.
+ * A handover names the destination's own custodian as the new custodian AND moves
+ * ownership to the receiving unit. The seeded policy routes it through the receiving
+ * head, then the receiving custodian's acceptance; approvals.ts refuses the ownership
+ * move for anyone but a store keeper or SYS_ADMIN, whatever this modal offers.
  */
 export function TransferModal({
   itemIds,
@@ -32,12 +31,9 @@ export function TransferModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const { user } = useAuth();
-  const isStoreKeeper = Boolean(user?.roles.includes("STORE_KEEPER"));
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<TransferDestinationDto[]>([]);
   const [selected, setSelected] = useState<TransferDestinationDto | null>(null);
-  const [handover, setHandover] = useState(isStoreKeeper);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,15 +71,13 @@ export function TransferModal({
       .then(setPreview)
       .catch((e) => setPreviewError(e instanceof ApiError ? e.message : "Could not resolve this transfer"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, handover]);
+  }, [selected]);
 
   function transferInput(destination: TransferDestinationDto) {
     return {
       kind: "transferItem" as const,
       itemIds,
-      transfer: handover
-        ? { targetParentId: destination.id, targetOrgNodeId: destination.orgNodeId, targetCustodianId: destination.custodianId, transferOwnership: true }
-        : { targetParentId: destination.id, targetOrgNodeId: destination.orgNodeId, targetCustodianId: null },
+      transfer: { targetParentId: destination.id, targetOrgNodeId: destination.orgNodeId, targetCustodianId: destination.custodianId, transferOwnership: true },
     };
   }
 
@@ -103,7 +97,7 @@ export function TransferModal({
 
   if (done) {
     return (
-      <Modal title="Transfer" onClose={onDone} width="440px">
+      <Modal title="Hand over" onClose={onDone} width="440px">
         <div className="text-11.5 text-dim">
           {done.outcome === "APPLIED"
             ? "Applied — the register is already updated."
@@ -117,7 +111,7 @@ export function TransferModal({
   }
 
   return (
-    <Modal title={`Transfer ${label}`} onClose={onClose} width="460px">
+    <Modal title={`Hand over ${label}`} onClose={onClose} width="460px">
       <div className="flex flex-col gap-8">
         <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Destination</label>
         <input
@@ -126,7 +120,7 @@ export function TransferModal({
             setQuery(e.target.value);
             setSelected(null);
           }}
-          placeholder="Search another department's lab or store…"
+          placeholder="Search the lab to hand this over to…"
           className="h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
         />
         {!selected && options.length > 0 && (
@@ -156,15 +150,10 @@ export function TransferModal({
         )}
       </div>
 
-      {isStoreKeeper && (
-        <label className="flex items-start gap-6 text-10.5">
-          <input type="checkbox" checked={handover} onChange={(e) => setHandover(e.target.checked)} className="mt-2" />
-          <span>
-            Hand over{selected ? ` to ${selected.custodianName} and ${selected.orgNodeName}` : ""} — custody and ownership move to the receiving lab once its head approves
-            and its custodian accepts.
-          </span>
-        </label>
-      )}
+      <div className="text-10.5 text-dim">
+        Custody and ownership move{selected ? ` to ${selected.custodianName} and ${selected.orgNodeName}` : " to the receiving lab"} once its head approves and its
+        custodian accepts.
+      </div>
 
       {selected && (
         <div className="text-10.5 border border-border2 rounded-2 px-8 py-6">
@@ -188,7 +177,7 @@ export function TransferModal({
 
       <div className="flex items-center gap-8">
         <Button variant="primary" onClick={submit} disabled={!selected || !preview || preview.outcome === "DENIED" || busy}>
-          {busy ? "Working…" : "Request transfer"}
+          {busy ? "Working…" : "Request handover"}
         </Button>
         <Button onClick={onClose} disabled={busy}>
           Cancel

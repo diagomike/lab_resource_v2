@@ -257,7 +257,10 @@ export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeI
 // nothing beyond READ — the write door stays `assertCanMutate`'s custody-only policy,
 // entirely unaffected by seeing further.
 
-const UNIVERSITY_BROWSE_ROLES: RoleKind[] = ["MANAGER", "STORE_KEEPER"];
+// CUSTODIAN added by Track 5 (~/.claude/plans/understand-where-we-are-crystalline-
+// marshmallow.md): transfers are pulled, so a lab's custodian has to be able to find
+// what another unit holds before asking for it. Still read-only.
+const UNIVERSITY_BROWSE_ROLES: RoleKind[] = ["MANAGER", "STORE_KEEPER", "CUSTODIAN"];
 
 /** Throws 403 for anyone not on the list above — a STAFF or plain CUSTODIAN account
  *  hitting `scope=UNIVERSITY` directly, bypassing the UI's own nav gate, must be

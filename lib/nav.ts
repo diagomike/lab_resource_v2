@@ -43,7 +43,9 @@ export const NAV: NavGroup[] = [
       // scope.ts): global roles are unrestricted already; MANAGER and STORE_KEEPER are
       // the deliberate widening (10b of
       // ~/.claude/plans/three-product-changes-dynamic-thompson.md).
-      { key: "university", label: "University resources", icon: "◫", path: "/university", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER"] },
+      // CUSTODIAN since Track 5: transfers are pulled, so a lab has to be able to find
+      // what another unit holds before asking for it.
+      { key: "university", label: "University resources", icon: "◫", path: "/university", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER", "CUSTODIAN"] },
       { key: "approvals", label: "Approvals", icon: "✓", path: "/approvals" },
       {
         key: "purchasing",
@@ -80,7 +82,7 @@ const YOU_GROUP: NavGroup = { label: "You", items: [{ key: "profile", label: "Pr
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["", "Dashboard", "What the register looks like from where you stand"],
   register: ["", "Register", "Hierarchy, rollup and search views over the resources you can see"],
-  university: ["", "University resources", "Every department's resources, read-only — what to check before approving a purchase"],
+  university: ["", "University resources", "Every unit's resources — find what you need and request it into your lab"],
   approvals: ["", "Approvals", "Requests routed to you, and what you have asked for yourself"],
   purchasing: ["", "Purchasing", "Needs raised, purchase requests, and what has arrived"],
   "change-log": ["", "Change log", "Every applied change, who made it, and when"],

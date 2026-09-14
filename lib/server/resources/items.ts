@@ -479,6 +479,12 @@ export async function transferDestinations(userId: string, itemIds: string[], q:
   const query = q.trim();
   if (query.length < 2) throw new HttpError(400, "Type at least 2 characters to search.");
   if (!itemIds.length) throw new HttpError(400, "Choose at least one resource to transfer.");
+  // Track 5 — transfers are pulled from University resources now; searching for a
+  // place to SEND something is only the store keeper's handover.
+  const roles = await scope.rolesOf(userId);
+  if (!roles.includes("STORE_KEEPER") && !roles.includes("SYS_ADMIN")) {
+    throw new HttpError(403, "Only the store keeper hands resources over to another unit — request what you need from University resources instead.");
+  }
   await scope.assertCanMutate(userId, itemIds);
 
   const forest = await loadForest();

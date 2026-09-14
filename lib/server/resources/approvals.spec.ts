@@ -169,13 +169,14 @@ describe("the closed loophole — direct transferItem is refused, even custodyin
   });
 });
 
-describe("requestTransfer — policy resolution", () => {
+describe("requestTransfer — policy resolution (pull: the requester holds the destination)", () => {
   it("AUTO applies immediately; no ChangeRequest row is created", async () => {
     const propAdminId = await makeUser("auto-propadmin", ["PROPERTY_ADMIN"]);
+    const lenderId = await makeUser("auto-lender", ["CUSTODIAN"]);
     const ownerNodeId = await makeNode("auto-owner", null);
     const targetNodeId = await makeNode("auto-target", null);
     const destLabId = await makeItem(targetNodeId, propAdminId, "Auto Dest Lab");
-    const sourceId = await makeItem(ownerNodeId, propAdminId, "Auto Source Item");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "Auto Source Item");
 
     const before = await prisma.changeRequest.count();
     const result = await approvals.requestTransfer(propAdminId, transferInput([sourceId], destLabId, targetNodeId));
@@ -186,70 +187,88 @@ describe("requestTransfer — policy resolution", () => {
 
     const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
     expect(item.currentOrgNodeId).toBe(targetNodeId);
+    expect(item.parentId).toBe(destLabId);
+    expect(item.custodianId).toBe(lenderId); // a borrow — custody stays with the lender
   });
 
-  it("a custodian with no matching policy is DENIED (no matching rule means DENY)", async () => {
+  it("an actor with no matching policy is DENIED (no matching rule means DENY)", async () => {
     const staffId = await makeUser("deny-staff", ["STAFF"]);
+    const lenderId = await makeUser("deny-lender", ["CUSTODIAN"]);
     const ownerNodeId = await makeNode("deny-owner", null);
     const targetNodeId = await makeNode("deny-target", null);
     const destLabId = await makeItem(targetNodeId, staffId, "Deny Dest Lab");
-    const sourceId = await makeItem(ownerNodeId, staffId, "Deny Source Item");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "Deny Source Item");
 
     await expect(approvals.requestTransfer(staffId, transferInput([sourceId], destLabId, targetNodeId))).rejects.toMatchObject({ status: 403 });
   });
 
-  it("CHAIN creates one ChangeRequest with the right steps in order; nothing on Item moves yet — and the requester's own custodian step is SKIPPED, not PENDING", async () => {
-    const custodianId = await makeUser("chain-custodian", ["CUSTODIAN"]);
+  it("CHAIN creates one ChangeRequest; the lender's custodian step is the first armed step, and nothing on Item moves yet", async () => {
+    const requesterId = await makeUser("chain-requester", ["CUSTODIAN"]);
+    const lenderId = await makeUser("chain-lender", ["CUSTODIAN"]);
     const ownerHeadId = await makeUser("chain-owner-head");
     const targetHeadId = await makeUser("chain-target-head");
     const ownerNodeId = await makeNode("chain-owner", ownerHeadId);
     const targetNodeId = await makeNode("chain-target", targetHeadId);
-    const destLabId = await makeItem(targetNodeId, targetHeadId, "Chain Dest Lab");
-    const sourceId = await makeItem(ownerNodeId, custodianId, "Chain Source Item");
+    const destLabId = await makeItem(targetNodeId, requesterId, "Chain Dest Lab");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "Chain Source Item");
 
-    const result = await approvals.requestTransfer(custodianId, transferInput([sourceId], destLabId, targetNodeId));
+    const result = await approvals.requestTransfer(requesterId, transferInput([sourceId], destLabId, targetNodeId));
     expect(result.outcome).toBe("ROUTED");
     if (result.outcome !== "ROUTED") throw new Error("unreachable");
     createdRequestIds.push(result.request.id);
 
-    const selectors = result.request.steps.map((s) => s.selector);
-    expect(selectors).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
-
-    const custodianStep = result.request.steps[0];
-    expect(custodianStep.status).toBe("SKIPPED"); // requester holds this post
-    expect(result.request.steps[1].status).toBe("PENDING"); // OWNER_HEAD is next armed step
-    expect(result.request.steps[1].approverId).toBe(ownerHeadId);
-    expect(result.request.steps[2].status).toBe("WAITING");
+    expect(result.request.steps.map((s) => s.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
+    expect([result.request.steps[0].status, result.request.steps[0].approverId]).toEqual(["PENDING", lenderId]);
+    expect([result.request.steps[1].status, result.request.steps[1].approverId]).toEqual(["WAITING", ownerHeadId]);
     expect(result.request.steps[2].approverId).toBe(targetHeadId);
+    expect(result.request.steps[3].approverId).toBe(requesterId);
 
     const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
     expect(item.currentOrgNodeId).toBe(ownerNodeId); // unchanged
+  });
+
+  it("the receiving unit is read off the destination, never trusted from the client", async () => {
+    const requesterId = await makeUser("derive-requester", ["CUSTODIAN"]);
+    const lenderId = await makeUser("derive-lender", ["CUSTODIAN"]);
+    const ownerNodeId = await makeNode("derive-owner", await makeUser("derive-owner-head"));
+    const targetNodeId = await makeNode("derive-target", await makeUser("derive-target-head"));
+    const decoyNodeId = await makeNode("derive-decoy", null);
+    const destLabId = await makeItem(targetNodeId, requesterId, "Derive Dest Lab");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "Derive Source Item");
+
+    const result = await approvals.requestTransfer(requesterId, transferInput([sourceId], destLabId, decoyNodeId, requesterId));
+    if (result.outcome !== "ROUTED") throw new Error("expected ROUTED");
+    createdRequestIds.push(result.request.id);
+    const stored = await prisma.changeRequest.findUniqueOrThrow({ where: { id: result.request.id } });
+    expect((stored.payload as { transfer: unknown }).transfer).toEqual({ targetParentId: destLabId, targetOrgNodeId: targetNodeId, targetCustodianId: null });
   });
 });
 
 describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
   async function setUpChain() {
-    const custodianId = await makeUser("flow-custodian", ["CUSTODIAN"]);
+    const requesterId = await makeUser("flow-requester", ["CUSTODIAN"]);
+    const lenderId = await makeUser("flow-lender", ["CUSTODIAN"]);
     const ownerHeadId = await makeUser("flow-owner-head");
     const targetHeadId = await makeUser("flow-target-head");
     const ownerNodeId = await makeNode("flow-owner", ownerHeadId);
     const targetNodeId = await makeNode("flow-target", targetHeadId);
-    const destLabId = await makeItem(targetNodeId, targetHeadId, "Flow Dest Lab");
-    const sourceId = await makeItem(ownerNodeId, custodianId, "Flow Source Item");
+    const destLabId = await makeItem(targetNodeId, requesterId, "Flow Dest Lab");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "Flow Source Item");
 
-    const result = await approvals.requestTransfer(custodianId, transferInput([sourceId], destLabId, targetNodeId));
+    const result = await approvals.requestTransfer(requesterId, transferInput([sourceId], destLabId, targetNodeId));
     if (result.outcome !== "ROUTED") throw new Error("expected ROUTED");
     createdRequestIds.push(result.request.id);
-    return { requestId: result.request.id, custodianId, ownerHeadId, targetHeadId, ownerNodeId, targetNodeId, sourceId, destLabId };
+    return { requestId: result.request.id, requesterId, lenderId, ownerHeadId, targetHeadId, ownerNodeId, targetNodeId, sourceId, destLabId };
   }
 
   it("a vacant OWNER_HEAD blocks — undecidable by anyone — and appointing someone unblocks it immediately", async () => {
-    const { requestId, ownerNodeId, custodianId } = await setUpChain();
+    const { requestId, ownerNodeId, requesterId, lenderId } = await setUpChain();
+    await approvals.decideStep(lenderId, requestId, "APPROVE");
     await setHead(ownerNodeId, null);
 
-    await expect(approvals.decideStep(custodianId, requestId, "APPROVE")).rejects.toMatchObject({ status: 403 });
+    await expect(approvals.decideStep(requesterId, requestId, "APPROVE")).rejects.toMatchObject({ status: 403 });
 
-    const req = await approvals.getRequest(custodianId, requestId);
+    const req = await approvals.getRequest(requesterId, requestId);
     expect(req.steps.find((s) => s.selector === "OWNER_HEAD")?.approverId).toBeNull();
 
     const newHeadId = await makeUser("flow-new-owner-head");
@@ -259,7 +278,8 @@ describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
   });
 
   it("a headship change mid-flight redirects the decision to the NEW head", async () => {
-    const { requestId, ownerHeadId, targetNodeId, targetHeadId } = await setUpChain();
+    const { requestId, lenderId, ownerHeadId, targetNodeId, targetHeadId } = await setUpChain();
+    await approvals.decideStep(lenderId, requestId, "APPROVE");
     await approvals.decideStep(ownerHeadId, requestId, "APPROVE");
 
     const newTargetHeadId = await makeUser("flow-new-target-head");
@@ -270,50 +290,63 @@ describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
     expect(decided.steps.find((s) => s.selector === "TARGET_HEAD")?.decidedById).toBe(newTargetHeadId);
   });
 
-  it("full happy path: the Item is untouched until REQUESTER_RECEIPT is confirmed, then updates atomically, attributed to the requester", async () => {
-    const { requestId, custodianId, ownerHeadId, targetHeadId, sourceId, targetNodeId } = await setUpChain();
+  it("full happy path: the Item is untouched until REQUESTER_RECEIPT is confirmed, then lands in the requester's lab, attributed to the requester", async () => {
+    const { requestId, requesterId, lenderId, ownerHeadId, targetHeadId, sourceId, targetNodeId, ownerNodeId, destLabId } = await setUpChain();
 
+    await approvals.decideStep(lenderId, requestId, "APPROVE");
     await approvals.decideStep(ownerHeadId, requestId, "APPROVE");
-    let item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
-    expect(item.currentOrgNodeId).not.toBe(targetNodeId);
-
     await approvals.decideStep(targetHeadId, requestId, "APPROVE");
-    item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
+    let item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
     expect(item.currentOrgNodeId).not.toBe(targetNodeId); // still not applied — receipt is the last step
 
-    const final = await approvals.decideStep(custodianId, requestId, "APPROVE"); // confirm receipt
+    const final = await approvals.decideStep(requesterId, requestId, "APPROVE"); // confirm receipt
     expect(final.status).toBe("APPLIED");
 
     item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
-    expect(item.currentOrgNodeId).toBe(targetNodeId);
+    expect([item.parentId, item.currentOrgNodeId, item.ownerOrgNodeId, item.custodianId]).toEqual([destLabId, targetNodeId, ownerNodeId, lenderId]);
 
     const change = await prisma.itemChange.findFirstOrThrow({ where: { itemId: sourceId, kind: "transferItem" } });
-    expect(change.actorId).toBe(custodianId); // attributed to the requester, not the last approver
+    expect(change.actorId).toBe(requesterId); // attributed to the requester, not the last approver
   });
 
   it("REJECT ends the whole request outright; the Item is never touched", async () => {
-    const { requestId, ownerHeadId, sourceId, ownerNodeId } = await setUpChain();
-    const decided = await approvals.decideStep(ownerHeadId, requestId, "REJECT", "not right now");
+    const { requestId, lenderId, sourceId, ownerNodeId } = await setUpChain();
+    const decided = await approvals.decideStep(lenderId, requestId, "REJECT", "not right now");
     expect(decided.status).toBe("REJECTED");
     expect(decided.resolution).toBe("not right now");
 
     const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
     expect(item.currentOrgNodeId).toBe(ownerNodeId);
 
-    await expect(approvals.decideStep(ownerHeadId, requestId, "APPROVE")).rejects.toMatchObject({ status: 409 });
+    await expect(approvals.decideStep(lenderId, requestId, "APPROVE")).rejects.toMatchObject({ status: 409 });
   });
 
   it("a version conflict at final settle time marks the request STALE and applies nothing", async () => {
-    const { requestId, custodianId, ownerHeadId, targetHeadId, sourceId, targetNodeId } = await setUpChain();
+    const { requestId, requesterId, lenderId, ownerHeadId, targetHeadId, sourceId, targetNodeId } = await setUpChain();
+    await approvals.decideStep(lenderId, requestId, "APPROVE");
     await approvals.decideStep(ownerHeadId, requestId, "APPROVE");
     await approvals.decideStep(targetHeadId, requestId, "APPROVE");
 
     // Something else touches the item while the request waits on receipt.
     await mutate.applyChange(sysAdminId, { kind: "setName", itemIds: [sourceId], value: "Changed underneath" });
 
-    const final = await approvals.decideStep(custodianId, requestId, "APPROVE");
+    const final = await approvals.decideStep(requesterId, requestId, "APPROVE");
     expect(final.status).toBe("STALE");
 
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
+    expect(item.currentOrgNodeId).not.toBe(targetNodeId);
+  });
+
+  it("losing custody of the destination while the request waits marks it STALE instead of landing somewhere they no longer hold", async () => {
+    const { requestId, requesterId, lenderId, ownerHeadId, targetHeadId, sourceId, destLabId, targetNodeId } = await setUpChain();
+    await approvals.decideStep(lenderId, requestId, "APPROVE");
+    await approvals.decideStep(ownerHeadId, requestId, "APPROVE");
+    await approvals.decideStep(targetHeadId, requestId, "APPROVE");
+
+    await prisma.item.update({ where: { id: destLabId }, data: { custodianId: targetHeadId } });
+
+    const final = await approvals.decideStep(requesterId, requestId, "APPROVE");
+    expect(final.status).toBe("STALE");
     const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
     expect(item.currentOrgNodeId).not.toBe(targetNodeId);
   });
@@ -321,27 +354,28 @@ describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
 
 describe("cancelRequest", () => {
   it("the requester may cancel their own PENDING request; a non-requester may not", async () => {
-    const custodianId = await makeUser("cancel-custodian", ["CUSTODIAN"]);
+    const requesterId = await makeUser("cancel-requester", ["CUSTODIAN"]);
+    const lenderId = await makeUser("cancel-lender", ["CUSTODIAN"]);
     const ownerHeadId = await makeUser("cancel-owner-head");
     const targetHeadId = await makeUser("cancel-target-head");
     const ownerNodeId = await makeNode("cancel-owner", ownerHeadId);
     const targetNodeId = await makeNode("cancel-target", targetHeadId);
-    const destLabId = await makeItem(targetNodeId, targetHeadId, "Cancel Dest Lab");
-    const sourceId = await makeItem(ownerNodeId, custodianId, "Cancel Source Item");
+    const destLabId = await makeItem(targetNodeId, requesterId, "Cancel Dest Lab");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "Cancel Source Item");
 
-    const result = await approvals.requestTransfer(custodianId, transferInput([sourceId], destLabId, targetNodeId));
+    const result = await approvals.requestTransfer(requesterId, transferInput([sourceId], destLabId, targetNodeId));
     if (result.outcome !== "ROUTED") throw new Error("expected ROUTED");
     createdRequestIds.push(result.request.id);
 
     await expect(approvals.cancelRequest(ownerHeadId, result.request.id)).rejects.toMatchObject({ status: 403 });
-    await approvals.cancelRequest(custodianId, result.request.id);
-    const req = await approvals.getRequest(custodianId, result.request.id);
+    await approvals.cancelRequest(requesterId, result.request.id);
+    const req = await approvals.getRequest(requesterId, result.request.id);
     expect(req.status).toBe("CANCELLED");
   });
 });
 
-describe("custody floor — requesting a transfer of something you don't custody", () => {
-  it("is refused (404), the existing assertCanMutate floor, unchanged", async () => {
+describe("pull floors — who may ask for what, into where", () => {
+  it("pulling into a destination you don't hold is refused (404), like any out-of-custody write", async () => {
     const outsiderId = await makeUser("outsider", ["CUSTODIAN"]);
     const ownerId = await makeUser("floor-owner", ["CUSTODIAN"]);
     const ownerNodeId = await makeNode("floor-owner-node", null);
@@ -350,6 +384,16 @@ describe("custody floor — requesting a transfer of something you don't custody
     const sourceId = await makeItem(ownerNodeId, ownerId, "Floor Source Item");
 
     await expect(approvals.requestTransfer(outsiderId, transferInput([sourceId], destLabId, targetNodeId))).rejects.toMatchObject({ status: 404 });
+    await expect(approvals.previewTransfer(outsiderId, transferInput([sourceId], destLabId, targetNodeId))).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("pulling something you already hold is refused (400) — that is a Move", async () => {
+    const custodianId = await makeUser("own-item", ["CUSTODIAN"]);
+    const nodeId = await makeNode("own-item-node", null);
+    const labA = await makeItem(nodeId, custodianId, "Own Lab A");
+    const sourceId = await makeItem(nodeId, custodianId, "Own Source Item");
+
+    await expect(approvals.requestTransfer(custodianId, transferInput([sourceId], labA, nodeId))).rejects.toMatchObject({ status: 400 });
   });
 });
 

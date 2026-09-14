@@ -40,6 +40,9 @@ function RegisterPageInner() {
   const activeViewId = useActiveViewId();
   const views = me?.views ?? [];
   const canEdit = views.length === 0 || (views.find((v) => v.id === activeViewId) ?? views[0])?.canEdit !== false;
+  // Transfers are pulled from University resources (Track 5); pushing stock out is the
+  // store keeper's handover only.
+  const canHandOver = Boolean(me?.user.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));
 
   useEffect(() => {
     api
@@ -302,7 +305,7 @@ function RegisterPageInner() {
                 ))}
               </select>
             )}
-            <Button onClick={() => setTransferOpen(true)}>Transfer…</Button>
+            {canHandOver && <Button onClick={() => setTransferOpen(true)}>Hand over…</Button>}
             <button onClick={bulkDelete} className="text-10.5 text-bad ml-auto">
               Delete selected
             </button>

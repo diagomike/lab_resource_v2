@@ -129,6 +129,15 @@ async function assertAuthorized(
     throw new HttpError(403, "Transfers must be requested through the approvals flow — see Approvals.");
   }
 
+  if (input.kind === "transferItem" && !input.transfer.transferOwnership) {
+    // Track 5 — a pull transfer's settled chain IS the source side's consent (its
+    // custodian and owning head both signed). What the requester must still hold at
+    // apply time is the place it lands in; checked again here, against committed
+    // state, in case custody of the destination changed while the request waited.
+    await scope.assertCanMutate(actorId, [input.transfer.targetParentId]);
+    return;
+  }
+
   if (!bypassDraftWorkflowBlock) await assertDraftWorkflowNotBlocking(input);
 
   if (input.kind === "createItem") {
@@ -591,7 +600,10 @@ async function applyTransferItem(
       continue; // a resource cannot be moved inside itself — skipped, not an abort
     }
     const subtree = await subtreeDeepestFirst(tx, [root.id]);
-    await assertSubtreeInScope(actorId, subtree);
+    // A pull is authorized by its approved chain, not the requester's custody of what
+    // they asked for (see assertAuthorized); a store handover still moves only what
+    // the store keeper actually holds.
+    if (transferOwnership) await assertSubtreeInScope(actorId, subtree);
     for (const node of subtree) {
       await tx.item.update({
         where: { id: node.id },
