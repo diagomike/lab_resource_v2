@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ChainStepDto, ChangeRequestDto, ItemChangeInput, LabCommitRequestDto, PurchaseRequestDto, ResourceCategoryDto } from "@/lib/shared";
+import type { ChainStepDto, ChangeRequestDto, ClashDto, ItemChangeInput, LabCommitRequestDto, PurchaseRequestDto, ReservationDto, ResourceCategoryDto } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { HistoryTimeline } from "./PurchasingPage";
+import { ClashList } from "@/components/scheduling/SchedulePage";
+import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
 
 const STATUS_TONE: Record<string, "warn" | "good" | "bad" | "neutral"> = {
   PENDING: "warn",
@@ -348,6 +350,109 @@ function TransfersPanel({ viewerId }: { viewerId: string }) {
   );
 }
 
+// ── Track 6 — lab bookings (one decider: the room's custodian) ─────────────────
+
+function BookingCard({ booking, onDecided }: { booking: ReservationDto; onDecided: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [clashes, setClashes] = useState<ClashDto[]>([]);
+  const [note, setNote] = useState("");
+
+  async function act(path: string, body: unknown) {
+    setBusy(true);
+    setError(null);
+    setClashes([]);
+    try {
+      await api.post(path, body);
+      setNote("");
+      onDecided();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not update this booking");
+      setClashes(((e instanceof ApiError ? e.body : undefined) as { clashes?: ClashDto[] } | undefined)?.clashes ?? []);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="border border-border rounded-3 p-12 flex flex-col gap-8">
+      <div className="flex items-center justify-between gap-8">
+        <div>
+          <div className="text-11.5 font-medium">{booking.title}</div>
+          <div className="text-10.5 text-dim">
+            <span className="font-mono">
+              {booking.date} {booking.start}–{booking.end}
+            </span>{" "}
+            · {booking.labName} · {booking.resources.map((r) => r.name).join(", ")}
+            {booking.requestedByName ? ` · by ${booking.requestedByName}` : ""}
+          </div>
+          {booking.onBehalfOfNote && <div className="text-10.5 text-dim">On behalf of: {booking.onBehalfOfNote}</div>}
+        </div>
+        <Tag tone={booking.state === "CONFIRMED" ? "good" : booking.state === "REQUESTED" ? "warn" : booking.state === "DECLINED" ? "bad" : "neutral"}>{STATE_LABEL[booking.state]}</Tag>
+      </div>
+      {booking.note && <div className="text-10.5 text-dim italic">"{booking.note}"</div>}
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <ClashList clashes={clashes} heading="In the way" />
+      {(booking.canDecide || booking.canCancel) && (
+        <div className="flex flex-wrap items-center gap-8 pt-4">
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent" />
+          {booking.canDecide && (
+            <>
+              <Button variant="primary" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/decide`, { decision: "APPROVE", note: note || undefined })}>
+                Approve
+              </Button>
+              <Button variant="danger" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/decide`, { decision: "DECLINE", note: note || undefined })}>
+                Decline
+              </Button>
+            </>
+          )}
+          {!booking.canDecide && booking.canCancel && (
+            <Button variant="danger" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/cancel`, { note: note || undefined })}>
+              Cancel booking
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BookingsPanel() {
+  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
+  const [rows, setRows] = useState<ReservationDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    setRows(null);
+    setError(null);
+    api
+      .get<ReservationDto[]>(`/scheduling/bookings?box=${tab}`)
+      .then(setRows)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load bookings"));
+  }
+
+  useEffect(load, [tab]);
+
+  return (
+    <>
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <Panel title="Lab bookings" actions={<TabBar tab={tab} onChange={setTab} />}>
+        {rows === null ? (
+          <PanelLoading rows={2} />
+        ) : rows.length === 0 ? (
+          <div className="px-14 py-14 text-11.5 text-dim">{tab === "inbox" ? "Nothing waiting on your decision." : "You haven't booked anything."}</div>
+        ) : (
+          <div className="p-12 flex flex-col gap-10">
+            {rows.map((r) => (
+              <BookingCard key={r.id} booking={r} onDecided={load} />
+            ))}
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
 // ── Track 4 — purchase requests (the org chart as the ladder: head → every ancestor
 // up to the university root → Procurement). Decide gains a third option, REVISE,
 // that transfers/lab-commits don't have — sends it back to the raiser to edit and
@@ -508,6 +613,7 @@ export default function ApprovalsPage() {
       <TransfersPanel viewerId={user.id} />
       <LabCommitsPanel />
       <PurchasingPanel viewerId={user.id} />
+      {user.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN" || r === "STAFF") && <BookingsPanel />}
     </Screen>
   );
 }

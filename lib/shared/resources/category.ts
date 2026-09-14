@@ -5,7 +5,7 @@
  * "category" a later module might want.
  */
 import { z } from "zod";
-import { CategoryFieldTypeSchema, CategoryPlacementSchema, CountingModeSchema, ImpairRuleSchema } from "./enums";
+import { BookingModeSchema, CategoryFieldTypeSchema, CategoryPlacementSchema, CountingModeSchema, ImpairRuleSchema } from "./enums";
 
 export const CategoryGroupDto = z.object({
   id: z.string(),
@@ -81,6 +81,10 @@ export const ResourceCategoryDto = z.object({
   placement: CategoryPlacementSchema,
   /** This category's own allow-list — only consulted when placement is ONLY_LISTED. */
   allowedParents: z.array(CategoryPlacementRuleDto),
+  /** Scheduling (Track 6): may items of this category be booked, and as what. */
+  bookingMode: BookingModeSchema,
+  /** Public portal (Track 7): does its working count appear on the public catalog. */
+  publicListed: z.boolean(),
   fields: z.array(CategoryFieldDto),
   templateChildren: z.array(CategoryTemplateChildDto),
 });
@@ -115,6 +119,10 @@ export const CreateCategoryInput = z.object({
   canBeRoot: z.boolean().default(false),
   placement: CategoryPlacementSchema.default("ANYWHERE"),
   allowedParentCategoryIds: z.array(z.string()).default([]),
+  /** Optional rather than defaulted, so existing callers composing this type need not
+   *  name them — categories.ts applies NOT_BOOKABLE / false. */
+  bookingMode: BookingModeSchema.optional(),
+  publicListed: z.boolean().optional(),
   fields: z.array(CategoryFieldInput).default([]),
   templateChildren: z.array(CategoryTemplateChildInput).default([]),
 });
@@ -142,6 +150,8 @@ export const UpdateCategoryInput = z.object({
   canBeRoot: z.boolean().optional(),
   placement: CategoryPlacementSchema.optional(),
   allowedParentCategoryIds: z.array(z.string()).optional(),
+  bookingMode: BookingModeSchema.optional(),
+  publicListed: z.boolean().optional(),
   fields: z.array(CategoryFieldInput).optional(),
   templateChildren: z.array(CategoryTemplateChildInput).optional(),
   active: z.boolean().optional(),

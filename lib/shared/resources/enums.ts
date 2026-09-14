@@ -49,6 +49,13 @@ export const categoryPlacements = ["ANYWHERE", "ONLY_LISTED"] as const;
 export const CategoryPlacementSchema = z.enum(categoryPlacements);
 export type CategoryPlacement = (typeof categoryPlacements)[number];
 
+/** Scheduling (Track 6) — whether items of a category may be booked, and as what. A
+ *  ROOM claims everything inside it; EQUIPMENT is one machine within a room. Only a
+ *  SERIALIZED category may be anything but NOT_BOOKABLE. */
+export const bookingModes = ["NOT_BOOKABLE", "ROOM", "EQUIPMENT"] as const;
+export const BookingModeSchema = z.enum(bookingModes);
+export type BookingMode = (typeof bookingModes)[number];
+
 // ── Items ────────────────────────────────────────────────────────────────
 /** STORED status only. IMPAIRED is DERIVED (lib/domain/status.ts) and never appears here. */
 export const itemStatuses = ["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const;

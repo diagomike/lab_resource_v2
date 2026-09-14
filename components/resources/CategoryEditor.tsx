@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type {
+  BookingMode,
   CategoryFieldDto,
   CategoryFieldType,
   CategoryGroupDto,
@@ -22,6 +23,12 @@ const RULE_HELP: Record<ImpairRule, string> = {
   ANY_CRITICAL: "One critical child down impairs this item. Right for a computer: a dead motherboard or monitor stops the machine.",
   ALL_CRITICAL: "Only impaired when EVERY critical child is down. Right for redundancy: two switches in a rack, either one keeps the network alive.",
   NEVER: "Children never impair this item, unconditionally. Right for a place: a lab is not broken because one PC is.",
+};
+const BOOKING_LABEL: Record<BookingMode, string> = { NOT_BOOKABLE: "Not bookable", ROOM: "Bookable room", EQUIPMENT: "Bookable equipment" };
+const BOOKING_HELP: Record<BookingMode, string> = {
+  NOT_BOOKABLE: "Never appears on a schedule. Right for parts, furniture and stock.",
+  ROOM: "A space that can be booked or timetabled. Booking it claims everything inside.",
+  EQUIPMENT: "A machine staff can book on its own, inside a room.",
 };
 const SEVERITY_CLASS: Record<CategoryImpactNote["severity"], string> = {
   destructive: "bg-badbg text-bad border-bad",
@@ -56,6 +63,8 @@ interface Draft {
   canBeRoot: boolean;
   placement: CategoryPlacement;
   allowedParentCategoryIds: string[];
+  bookingMode: BookingMode;
+  publicListed: boolean;
   fields: FieldDraft[];
   templateChildren: ChildDraft[];
 }
@@ -74,6 +83,8 @@ function draftFrom(c: ResourceCategoryDto | null, defaultGroupId: string): Draft
       canBeRoot: false,
       placement: "ANYWHERE",
       allowedParentCategoryIds: [],
+      bookingMode: "NOT_BOOKABLE",
+      publicListed: false,
       fields: [],
       templateChildren: [],
     };
@@ -90,6 +101,8 @@ function draftFrom(c: ResourceCategoryDto | null, defaultGroupId: string): Draft
     canBeRoot: c.canBeRoot,
     placement: c.placement,
     allowedParentCategoryIds: c.allowedParents.map((p) => p.parentCategoryId),
+    bookingMode: c.bookingMode,
+    publicListed: c.publicListed,
     fields: c.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, options: f.options, unit: f.unit ?? "", summary: f.summary, longText: f.longText, required: f.required })),
     templateChildren: c.templateChildren.map((t) => ({ childCategoryId: t.childCategoryId, qty: t.qty, critical: t.critical })),
   };
@@ -107,6 +120,8 @@ function toInput(draft: Draft): CreateCategoryInput {
     canBeRoot: draft.canBeRoot,
     placement: draft.placement,
     allowedParentCategoryIds: draft.placement === "ONLY_LISTED" ? draft.allowedParentCategoryIds : [],
+    bookingMode: draft.countingMode === "SERIALIZED" ? draft.bookingMode : "NOT_BOOKABLE",
+    publicListed: draft.publicListed,
     fields: draft.fields.map((f, i) => ({
       key: f.key.trim(),
       label: f.label.trim(),
@@ -457,6 +472,32 @@ export function CategoryEditor({
           </section>
 
           <section className="flex flex-col gap-6">
+            <SectionTitle>Scheduling and the public portal</SectionTitle>
+            <div className="flex flex-wrap gap-8">
+              {(["NOT_BOOKABLE", "ROOM", "EQUIPMENT"] as BookingMode[]).map((mode) => {
+                const disabled = mode !== "NOT_BOOKABLE" && draft.countingMode !== "SERIALIZED";
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => patch({ bookingMode: mode })}
+                    className={`max-w-[240px] flex-1 text-left rounded-2 border px-10 py-8 text-11 disabled:opacity-40 ${draft.bookingMode === mode ? "border-accent bg-soft" : "border-border2 hover:bg-panel2"}`}
+                  >
+                    <div className="font-semibold">{BOOKING_LABEL[mode]}</div>
+                    <div className="text-10 text-dim mt-2">{BOOKING_HELP[mode]}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {draft.countingMode !== "SERIALIZED" && <p className="text-10.5 text-dim">Bulk stock is never booked by time — only individual units can be.</p>}
+            <label className="flex items-center gap-6 text-10.5">
+              <input type="checkbox" checked={draft.publicListed} onChange={(e) => patch({ publicListed: e.target.checked })} />
+              Show the university-wide count of working items on the public portal (counts only — never where they are)
+            </label>
+          </section>
+
+          <section className="flex flex-col gap-6">
             <SectionTitle>Fields — the defined metrics</SectionTitle>
             {duplicateFieldKey && <ErrorNote>The field key "{duplicateFieldKey}" is used more than once.</ErrorNote>}
             <FieldsEditor fields={draft.fields} usage={fieldUsage} onUpdate={updateField} onAdd={addField} onRemove={removeField} />
@@ -571,6 +612,8 @@ function CategoryReadOnly({ category, usageCount }: { category: ResourceCategory
         <Tag>{category.countingMode === "SERIALIZED" ? "Individual units" : `Bulk${category.unit ? ` · ${category.unit}` : ""}`}</Tag>
         <Tag>{RULE_LABEL[category.impairRule]}</Tag>
         {category.canBeRoot && <Tag>Can be a root</Tag>}
+        {category.bookingMode !== "NOT_BOOKABLE" && <Tag>{BOOKING_LABEL[category.bookingMode]}</Tag>}
+        {category.publicListed && <Tag>On public portal</Tag>}
         <Tag>{category.placement === "ANYWHERE" ? "Placeable anywhere" : "Placement restricted"}</Tag>
         <Tag>{usageCount} item{usageCount === 1 ? "" : "s"}</Tag>
       </div>

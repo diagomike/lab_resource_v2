@@ -3369,6 +3369,146 @@ its model that make porting it as-is the wrong move.
   **Still open (pre-existing)**: the "Into" picker lists every nested container (e.g. a
   whiteboard "inside Acetone"). It's now sorted shallow-first, but not filtered.
 
+- **2026-09-14 (later)** — Track 6: the scheduling core. Weekly class slots, staff
+  bookings approved by the room's custodian, and a real double-booking guard. Plan:
+  `~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md`. Same branch
+  (`track-5-scheduling`).
+
+  **Bookability is configured, not inferred.**
+
+  - `ResourceCategory` gains `bookingMode` (`NOT_BOOKABLE` default | `ROOM` |
+    `EQUIPMENT`) and `publicListed` (for Track 7).
+  - Category Studio has a "Scheduling and the public portal" section, and category tags
+    show both.
+  - `categories.ts` refuses a bookable BULK category with a 400, and audits each flag
+    change ("booking mode", "public portal").
+  - `CreateCategoryInput` takes both as optional, not defaulted, so the 15 existing
+    `categories.create` callers didn't need changing.
+
+  **Schema** (migration `20260914090000_scheduling_core`):
+
+  - Models: `ScheduleSeries`, `ScheduleSeriesResource`, `ScheduleSeriesException` (keyed
+    by civil date), `Reservation` and `ReservationResource`.
+  - `Reservation` is one calendar table. Sources are CLASS/STAFF/EXTERNAL/MAINTENANCE;
+    states are REQUESTED/HELD/CONFIRMED/DECLINED/CANCELLED/EXPIRED. Instants are
+    `timestamptz`; `occursOnLocal` is a DATE.
+  - `ReservationResource` denormalises the window, plus a `blocking` flag that tracks
+    "parent HELD or CONFIRMED".
+  - Raw SQL in the same migration:
+    - `btree_gist`;
+    - a generated `period tstzrange` (half-open);
+    - `EXCLUDE USING gist ("itemId" WITH =, period WITH &&) WHERE (blocking)`;
+    - time-order CHECKs on both tables.
+  - `period` is declared as `Unsupported("tstzrange")` with the exact `dbgenerated(...)`
+    default introspection reports. `migrate diff` now shows no drift. The first attempt
+    without it would have made a future migration drop the generated column.
+
+  **Pure domain**:
+
+  - `lib/domain/civil-time.ts`: civil↔instant via `Intl` with two-pass DST handling,
+    ISO weekdays, `expandSeries` with exceptions and `fromDate`.
+  - `lib/domain/availability.ts`: the hierarchical clash rule. Same item, or a room and
+    anything inside it; sibling machines never clash; windows are half-open;
+    blocking vs contending.
+  - Specs cover both, including the sandbox's 3-hour Addis shift as a regression case
+    (08:00 local = 05:00Z).
+
+  **Server** (`lib/server/scheduling/**`):
+
+  - `context.ts`:
+    - lineage and subtree recursive CTEs;
+    - `resolveBookingTarget` (bookable, WORKING, one room);
+    - `lockTree` (`pg_advisory_xact_lock(hashtext(root))`);
+    - `expireHolds`, swept inside every write's lock and in preview;
+    - `loadClaims`, clash DTOs, 23P01 → 409, DTO mapping with `canDecide`/`canCancel`.
+  - `reservations.ts`:
+    - `previewBooking`;
+    - `createStaffBooking`: REQUESTED, or CONFIRMED when the actor custodies the room;
+    - `decideBooking`: the room's custodian re-checks under the lock;
+    - `cancelBooking`: requester or custodian; cancelling a CLASS occurrence also writes
+      a series exception;
+    - `listCalendar`, `listBookings` (mine/inbox), `searchBookables` (≥2 chars, 25 max),
+      `myLabs`, `getLab`.
+  - `series.ts`:
+    - create/update/remove;
+    - generation replaces only future occurrences and bumps `generation`;
+    - it refuses with a 409 carrying `clashes` and writes nothing, never evicting a
+      confirmed booking;
+    - add/remove exception.
+  - Booking roles: SYS_ADMIN, MANAGER, CUSTODIAN, STAFF. Students are booked through the
+    "on behalf of" note.
+  - 11 routes under `/api/scheduling/**`.
+
+  **UI**:
+
+  - New sidebar entry "Schedule" (`/schedule`).
+  - `components/scheduling/WeekCalendar.tsx`: CSS-grid week, 07:00–21:00, greedy lanes
+    for overlaps, colour by source, dashed when not settled, click an empty hour to book.
+  - `SchedulePage.tsx` tabs:
+    - **My labs** (only if you keep a room): calendar, "Book this room…", "Add weekly
+      class…", requests waiting on you, weekly classes with Remove.
+    - **Book**: search → the room's week → form with room vs specific machines,
+      date/times, purpose, people, on-behalf-of, and a live preview (free / already
+      taken / others also asked).
+    - **My bookings**.
+  - `ApprovalsPage.tsx` gains a "Lab bookings" panel.
+
+  **Tests**: `scheduling.spec.ts` (11, DB-backed, orphan node/categories/items) plus 18
+  pure cases. The DB cases:
+
+  - the constraint refuses overlapping blocking claims, but allows non-blocking and
+    back-to-back ones;
+  - inverted range refused;
+  - staff REQUESTED vs custodian CONFIRMED;
+  - room↔machine clashes both ways;
+  - contending requests, with approving the second refused;
+  - cancel permissions;
+  - student, non-bookable, past and inverted bookings refused;
+  - a lapsed hold stops blocking;
+  - series generation, exception, regeneration keeping the exception, removal;
+  - series refused on a clash with nothing written;
+  - custodian-only timetable.
+
+  One fixture collision surfaced on the first run: two tests used the same future day.
+  It was the product correctly reporting a real clash, and the fix was in the fixture.
+
+  **Verified**: `tsc` clean, `npm test` **385/385**, `npm run build` clean (all 11
+  scheduling routes plus `/schedule`), `prisma migrate status` up to date. The
+  `migrate diff` against the live DB is empty.
+
+  **Live walkthrough on the real dev DB** (dev sessions minted, as in Track 5):
+
+  - As SYS_ADMIN in Category Studio, set Lab → "Bookable room" through Review → Apply.
+    The change log shows "booking mode NOT_BOOKABLE → ROOM".
+  - Set Computer → EQUIPMENT via the same PATCH. A bulk category (Chemical) set to ROOM
+    → 400.
+  - As Girma (SE custodian), Schedule opened on My labs → SE Lab X. Added "SE3102
+    Operating Systems Lab · A", Mon+Wed 08:00–10:00, 2026-09-21 → 10-14, through the real
+    form → 8 upcoming sessions. The next week's calendar drew both blocks in the 08:00
+    band, and the API reads `startsAt 2026-09-21T05:00:00.000Z`.
+  - As the SE head (no rooms, so the page opened on Book), searched "Computer 0" and
+    picked Computer 01. For 2026-09-21 09:00–10:00 the preview said "Already taken … SE3102
+    (Class, confirmed) · Computer 01 vs SE Lab X". Moved to 10:00–12:00 → "Free. Waits
+    for Girma Wolde", with on-behalf-of "Sara Tesfaye (UGR/1234/13)" → requested.
+  - As Girma, Approvals → Lab bookings showed it with the advisee note. Approved →
+    CONFIRMED, back-to-back with the class.
+  - Race check: three simultaneous identical booking POSTs → exactly one 201, two 409.
+  - No server errors.
+
+  **Cleanup**: the 10 test reservations, the series and 3 minted sessions were deleted
+  (0 reservations/series left, 750 items). **Deliberately left in place**: Lab = ROOM
+  and Computer = EQUIPMENT. That's the configuration the feature needs to be usable
+  locally, and it matches the precedent of Track 3's seeded policies. It's audited in the
+  change log; unset it in Category Studio if unwanted.
+
+  **Disclosed trims**:
+
+  - No academic-term model (by decision).
+  - Bookability is category-level only.
+  - `participantCount` is recorded, not validated against seats.
+  - The calendar shows one room at a time.
+  - Cron-based hold expiry arrives with Track 7; writes already sweep their own lab.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

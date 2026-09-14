@@ -40,6 +40,8 @@ function toDto(row: NonNullable<CategoryRow>): ResourceCategoryDto {
     active: row.active,
     canBeRoot: row.canBeRoot,
     placement: row.placement,
+    bookingMode: row.bookingMode,
+    publicListed: row.publicListed,
     allowedParents: row.placementRulesAsChild.map((r) => ({ id: r.id, parentCategoryId: r.parentCategoryId, parentCategoryName: r.parentCategory.name })),
     fields: row.fields.map((f) => ({
       id: f.id,
@@ -174,7 +176,16 @@ async function assertPlacementRulesValid(client: Tx, parentCategoryIds: string[]
   }
 }
 
+/** Scheduling reserves individual units by time window; stock is never reserved that
+ *  way (see prisma/schema.prisma's BookingMode note). */
+function assertBookableCountingMode(bookingMode: string | undefined, countingMode: string): void {
+  if (bookingMode && bookingMode !== "NOT_BOOKABLE" && countingMode !== "SERIALIZED") {
+    throw new HttpError(400, "Only a category of individual units can be booked — bulk stock is never reserved by time.");
+  }
+}
+
 export async function create(actorId: string, input: CreateCategoryInput): Promise<ResourceCategoryDto> {
+  assertBookableCountingMode(input.bookingMode, input.countingMode);
   assertEnumFieldsHaveOptions(input.fields);
   assertNoDuplicateFieldKeys(input.fields);
   assertNoDuplicateTemplateChildren(input.templateChildren);
@@ -199,6 +210,8 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
           impairRule: input.impairRule,
           canBeRoot: input.canBeRoot,
           placement: input.placement,
+          bookingMode: input.bookingMode ?? "NOT_BOOKABLE",
+          publicListed: input.publicListed ?? false,
         },
       });
       if (input.allowedParentCategoryIds.length) {
@@ -293,6 +306,8 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
     const before = await tx.resourceCategory.findUnique({ where: { id }, include: CATEGORY_INCLUDE });
     if (!before) throw new HttpError(404, "Category not found");
 
+    assertBookableCountingMode(input.bookingMode ?? before.bookingMode, input.countingMode ?? before.countingMode);
+
     const nextFields = input.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
     assertEnumFieldsHaveOptions(nextFields);
     if (input.fields) assertNoDuplicateFieldKeys(input.fields);
@@ -351,6 +366,13 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
     if (input.key !== undefined && input.key !== before.key) {
       diff.push({ field: "key", before: before.key, after: input.key });
     }
+    // Scheduling/portal flags live on the Prisma row only, same as "key" above.
+    if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode) {
+      diff.push({ field: "booking mode", before: before.bookingMode, after: input.bookingMode });
+    }
+    if (input.publicListed !== undefined && input.publicListed !== before.publicListed) {
+      diff.push({ field: "public portal", before: before.publicListed, after: input.publicListed });
+    }
 
     const countingModeChanged = input.countingMode !== undefined && input.countingMode !== before.countingMode;
     const purgeKeys = input.purgeKeys ?? [];
@@ -369,6 +391,8 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
         ...(input.active !== undefined ? { active: input.active } : {}),
         ...(input.canBeRoot !== undefined ? { canBeRoot: input.canBeRoot } : {}),
         ...(input.placement !== undefined ? { placement: input.placement } : {}),
+        ...(input.bookingMode !== undefined ? { bookingMode: input.bookingMode } : {}),
+        ...(input.publicListed !== undefined ? { publicListed: input.publicListed } : {}),
       },
     });
 

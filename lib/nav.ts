@@ -46,6 +46,9 @@ export const NAV: NavGroup[] = [
       // CUSTODIAN since Track 5: transfers are pulled, so a lab has to be able to find
       // what another unit holds before asking for it.
       { key: "university", label: "University resources", icon: "◫", path: "/university", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER", "CUSTODIAN"] },
+      // Track 6 — lab calendars. Students are booked for by their advisor, so the
+      // screen is for the roles the booking service itself accepts.
+      { key: "schedule", label: "Schedule", icon: "◴", path: "/schedule", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN", "STAFF"] },
       { key: "approvals", label: "Approvals", icon: "✓", path: "/approvals" },
       {
         key: "purchasing",
@@ -83,6 +86,7 @@ export const META: Record<string, [string, string, string]> = {
   dashboard: ["", "Dashboard", "What the register looks like from where you stand"],
   register: ["", "Register", "Hierarchy, rollup and search views over the resources you can see"],
   university: ["", "University resources", "Every unit's resources — find what you need and request it into your lab"],
+  schedule: ["", "Schedule", "Lab calendars — weekly classes, and booking a room or machine"],
   approvals: ["", "Approvals", "Requests routed to you, and what you have asked for yourself"],
   purchasing: ["", "Purchasing", "Needs raised, purchase requests, and what has arrived"],
   "change-log": ["", "Change log", "Every applied change, who made it, and when"],
