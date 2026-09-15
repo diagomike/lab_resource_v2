@@ -23,6 +23,8 @@ import { DEFAULT_TIME_ZONE, addDays, civilToInstant, instantToCivil, isCivilDate
 import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookingTarget, toReservationDto, viewerOf } from "../scheduling/context";
 import { writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, trackingUrl } from "./mail";
+import { PROVIDER_INPUT } from "@/lib/domain/payment-receipt";
+import { enabledProviders } from "../payments/config";
 
 /**
  * Track 7 — external booking requests
@@ -42,7 +44,11 @@ export const MAX_LETTER_BYTES = 4 * 1024 * 1024;
 const HOLD_DAYS_BEFORE_QUOTE = 14;
 const PER_EMAIL_PER_DAY = 3;
 const PER_IP_PER_DAY = 10;
-const OPEN_STATUSES: ExternalRequestStatus[] = ["SUBMITTED", "UNDER_REVIEW", "QUOTED", "PAYMENT_SUBMITTED"];
+const OPEN_STATUSES: ExternalRequestStatus[] = ["SUBMITTED", "UNDER_REVIEW", "QUOTED", "PAYMENT_SUBMITTED", "PAID"];
+/** A custodian may (re)hold slots while the request is live and not yet on the calendar. */
+const HOLDABLE: ExternalRequestStatus[] = ["UNDER_REVIEW", "QUOTED", "PAYMENT_SUBMITTED", "PAID"];
+export const PAYABLE: ExternalRequestStatus[] = ["QUOTED", "PAYMENT_SUBMITTED"];
+export const COUNTED_PAYMENTS = ["VERIFIED", "MANUAL_VERIFIED"] as const;
 
 type Line = { description: string; quantity: number; categoryName: string | null };
 
@@ -53,18 +59,23 @@ function bankDetails() {
   return bankName && accountName && accountNumber ? { bankName, accountName, accountNumber } : null;
 }
 
+/** The year's highest number plus one — not a row count, which a deleted request would
+ *  push back onto a number already taken. */
 async function nextReference(tx: Prisma.TransactionClient): Promise<string> {
-  const year = new Date().getFullYear();
-  const count = await tx.externalRequest.count({ where: { reference: { startsWith: `EXT-${year}-` } } });
-  return `EXT-${year}-${String(count + 1).padStart(3, "0")}`;
+  const prefix = `EXT-${new Date().getFullYear()}-`;
+  const [{ max }] = await tx.$queryRaw<[{ max: number | null }]>`
+    SELECT MAX(CAST(substring(reference FROM ${prefix.length + 1}::int) AS integer)) AS max
+    FROM "ExternalRequest" WHERE reference LIKE ${prefix + "%"} AND substring(reference FROM ${prefix.length + 1}::int) ~ '^[0-9]+$'
+  `;
+  return `${prefix}${String((max ?? 0) + 1).padStart(3, "0")}`;
 }
 
-async function event(tx: Prisma.TransactionClient | typeof prisma, requestId: string, actor: { id: string | null; label: string }, kind: string, note?: string | null, data?: Prisma.InputJsonValue) {
+export async function event(tx: Prisma.TransactionClient | typeof prisma, requestId: string, actor: { id: string | null; label: string }, kind: string, note?: string | null, data?: Prisma.InputJsonValue) {
   await tx.externalRequest.update({ where: { id: requestId }, data: { updatedAt: new Date() } });
   await tx.externalRequestEvent.create({ data: { requestId, actorId: actor.id, actorLabel: actor.label, kind, note: note || null, data } });
 }
 
-async function actorOf(userId: string): Promise<{ id: string; label: string }> {
+export async function actorOf(userId: string): Promise<{ id: string; label: string }> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
   return { id: userId, label: user?.name ?? "Staff" };
 }
@@ -76,12 +87,12 @@ export function isPdf(bytes: Buffer): boolean {
 
 // ── Who is who ────────────────────────────────────────────────────────────────
 
-async function avpUserId(): Promise<string | null> {
+export async function avpUserId(): Promise<string | null> {
   const root = await prisma.orgNode.findFirst({ where: { kind: "UNIVERSITY", active: true, userId: { not: null } }, select: { userId: true } });
   return root?.userId ?? null;
 }
 
-async function isAvp(userId: string): Promise<boolean> {
+export async function isAvp(userId: string): Promise<boolean> {
   if (await scope.isSysAdmin(userId)) return true;
   const occupied = await prisma.orgNode.findFirst({ where: { kind: "UNIVERSITY", active: true, userId } });
   return occupied !== null;
@@ -215,11 +226,11 @@ export async function submitRequest(
   return { reference, trackingToken: token };
 }
 
-async function loadByToken(token: string) {
+export async function loadByToken(token: string) {
   if (!token || token.length < 20) throw new HttpError(404, "Request not found");
   const row = await prisma.externalRequest.findUnique({
     where: { trackingTokenHash: hashToken(token) },
-    include: { windows: { orderBy: { sortOrder: "asc" } }, events: { orderBy: { at: "asc" } }, assignments: true },
+    include: { windows: { orderBy: { sortOrder: "asc" } }, events: { orderBy: { at: "asc" } }, assignments: true, payments: { orderBy: { createdAt: "asc" } } },
   });
   if (!row) throw new HttpError(404, "Request not found");
   return row;
@@ -263,10 +274,28 @@ export async function trackByToken(token: string): Promise<PublicTrackingDto> {
           bank: bankDetails(),
         }
       : null,
-    timeline: row.events.filter((e) => PUBLIC_EVENT_LABEL[e.kind]).map((e) => ({ at: e.at.toISOString(), label: PUBLIC_EVENT_LABEL[e.kind], note: ["DECLINED", "PAYMENT_REJECTED", "QUOTED"].includes(e.kind) ? e.note : null })),
+    timeline: row.events.filter((e) => PUBLIC_EVENT_LABEL[e.kind]).map((e) => ({ at: e.at.toISOString(), label: PUBLIC_EVENT_LABEL[e.kind], note: ["DECLINED", "PAYMENT_REJECTED", "PAYMENT_VERIFIED", "PAYMENT_SUBMITTED", "QUOTED"].includes(e.kind) ? e.note : null })),
     closingNote: row.closingNote,
-    canCancel: ["SUBMITTED", "UNDER_REVIEW", "QUOTED"].includes(row.status),
+    canCancel: cancellable(row),
+    payment: quoted
+      ? {
+          providers: enabledProviders().map((id) => ({ id, ...PROVIDER_INPUT[id] })),
+          paidSantim: paidSantimOf(row.payments),
+          pendingCount: row.payments.filter((p) => p.status === "PENDING_REVIEW").length,
+          canSubmit: PAYABLE.includes(row.status) && (!row.paymentDeadline || row.paymentDeadline.getTime() > Date.now()),
+          attempts: row.payments.map((p) => ({ provider: p.provider, reference: p.reference, status: p.status, amountSantim: p.amountSantim, reason: p.reason, createdAt: p.createdAt.toISOString() })),
+        }
+      : null,
   };
+}
+
+/** Before any money has been accepted — after that, withdrawing is a conversation with the office. */
+function cancellable(row: { status: ExternalRequestStatus; payments: Array<{ status: string; amountSantim: number | null }> }): boolean {
+  return ["SUBMITTED", "UNDER_REVIEW", "QUOTED"].includes(row.status) && !row.payments.some((p) => (COUNTED_PAYMENTS as readonly string[]).includes(p.status));
+}
+
+export function paidSantimOf(payments: Array<{ status: string; amountSantim: number | null }>): number {
+  return payments.filter((p) => (COUNTED_PAYMENTS as readonly string[]).includes(p.status)).reduce((sum, p) => sum + (p.amountSantim ?? 0), 0);
 }
 
 async function releaseHolds(tx: Prisma.TransactionClient, requestId: string, state: "CANCELLED" | "EXPIRED", onlyNodeIds?: string[]) {
@@ -287,7 +316,7 @@ async function releaseHolds(tx: Prisma.TransactionClient, requestId: string, sta
 
 export async function cancelByToken(token: string): Promise<PublicTrackingDto> {
   const row = await loadByToken(token);
-  if (!["SUBMITTED", "UNDER_REVIEW", "QUOTED"].includes(row.status)) throw new HttpError(409, "This request can no longer be cancelled here — contact the university.");
+  if (!cancellable(row)) throw new HttpError(409, "This request can no longer be cancelled here — contact the university.");
   await prisma.$transaction(async (tx) => {
     await releaseHolds(tx, row.id, "CANCELLED");
     await tx.externalRequest.update({ where: { id: row.id }, data: { status: "CANCELLED", closingNote: "Cancelled by the requester." } });
@@ -329,6 +358,7 @@ async function loadForActor(userId: string, id: string) {
       windows: { orderBy: { sortOrder: "asc" } },
       events: { orderBy: { at: "asc" } },
       assignments: { include: { orgNode: { select: { name: true, userId: true, user: { select: { name: true } } } }, decidedBy: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+      payments: { include: { reviewedBy: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
     },
   });
   if (!row) throw new HttpError(404, "Request not found");
@@ -404,6 +434,26 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
       canDecide: row.status === "UNDER_REVIEW" && a.status === "PENDING" && (access.headOf.has(a.orgNodeId) || viewer.sysAdmin),
     })),
     holds,
+    // Payment receipts are the AVP's business; heads and custodians see the total only.
+    payments: access.avp
+      ? row.payments.map((p) => ({
+          id: p.id,
+          provider: p.provider,
+          reference: p.reference,
+          status: p.status,
+          amountSantim: p.amountSantim,
+          payerName: p.payerName,
+          receiverName: p.receiverName,
+          receiverAccount: p.receiverAccount,
+          paidAt: p.paidAt?.toISOString() ?? null,
+          reason: p.reason,
+          requesterNote: p.requesterNote,
+          reviewedByName: p.reviewedBy?.name ?? null,
+          createdAt: p.createdAt.toISOString(),
+          canReview: p.status === "PENDING_REVIEW" && PAYABLE.includes(row.status),
+        }))
+      : [],
+    paidSantim: paidSantimOf(row.payments),
     events: row.events.map((e) => ({ at: e.at.toISOString(), actorLabel: e.actorLabel, kind: e.kind, note: e.note })),
     departments: departments.map((d) => ({ id: d.id, name: d.name, headName: d.user?.name ?? null })),
     holdRooms,
@@ -411,8 +461,9 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
       forward: access.avp && ["SUBMITTED", "UNDER_REVIEW"].includes(row.status),
       quote: access.avp && row.status === "UNDER_REVIEW" && row.assignments.length > 0 && row.assignments.every((a) => a.status !== "PENDING") && row.assignments.some((a) => a.status === "ACCEPTED"),
       close: access.avp && open,
-      placeHold: holdRooms.length > 0 && ["UNDER_REVIEW", "QUOTED"].includes(row.status),
-      extendHolds: (access.avp || row.assignments.some((a) => access.headOf.has(a.orgNodeId))) && ["UNDER_REVIEW", "QUOTED"].includes(row.status),
+      placeHold: holdRooms.length > 0 && HOLDABLE.includes(row.status),
+      extendHolds: (access.avp || row.assignments.some((a) => access.headOf.has(a.orgNodeId))) && HOLDABLE.includes(row.status),
+      confirm: access.avp && row.status === "PAID",
     },
   };
 }
@@ -458,7 +509,7 @@ export async function forward(userId: string, id: string, input: ForwardExternal
 export async function placeHold(userId: string, id: string, input: PlaceHoldInput): Promise<ExternalRequestDto> {
   const row = await prisma.externalRequest.findUnique({ where: { id }, include: { assignments: true } });
   if (!row) throw new HttpError(404, "Request not found");
-  if (!["UNDER_REVIEW", "QUOTED"].includes(row.status)) throw new HttpError(409, "Slots can only be held while a request is under review or quoted.");
+  if (!HOLDABLE.includes(row.status)) throw new HttpError(409, "Slots can only be held while a request is under review, quoted or paid but not yet confirmed.");
   const target = await resolveBookingTarget(prisma, input.itemIds);
   const viewer = await viewerOf(userId);
   if (!decidesFor(viewer, target.lab.id)) throw new HttpError(403, "Only the room's custodian holds slots on its calendar.");
@@ -467,8 +518,10 @@ export async function placeHold(userId: string, id: string, input: PlaceHoldInpu
   if (!assigned.includes(lab.ownerOrgNodeId) && !assigned.includes(lab.currentOrgNodeId)) throw new HttpError(403, "This room's department was not asked to handle this request.");
 
   // Before a quote, a hold lasts two weeks (the head or AVP can extend it); once quoted,
-  // it lasts exactly as long as the payment deadline.
-  const holdExpiresAt = row.status === "QUOTED" && row.paymentDeadline ? row.paymentDeadline : civilToInstant(addDays(todayCivil(), HOLD_DAYS_BEFORE_QUOTE), "23:59");
+  // it lasts exactly as long as the payment deadline. A replacement hold on a paid
+  // request (its first slot was lost) gets the two weeks the AVP needs to confirm it.
+  const twoWeeks = civilToInstant(addDays(todayCivil(), HOLD_DAYS_BEFORE_QUOTE), "23:59");
+  const holdExpiresAt = PAYABLE.includes(row.status) && row.paymentDeadline && row.paymentDeadline > new Date() ? row.paymentDeadline : twoWeeks;
   await writeReservation(target, input, {
     source: "EXTERNAL",
     state: "HELD",
@@ -489,7 +542,7 @@ function todayCivil(): string {
 export async function extendHolds(userId: string, id: string, until: string): Promise<ExternalRequestDto> {
   const { row, access } = await loadForActor(userId, id);
   if (!access.avp && !row.assignments.some((a) => access.headOf.has(a.orgNodeId))) throw new HttpError(403, "Only the AVP's office or an assigned head may extend holds.");
-  if (!["UNDER_REVIEW", "QUOTED"].includes(row.status)) throw new HttpError(409, "This request has no holds to extend.");
+  if (!HOLDABLE.includes(row.status)) throw new HttpError(409, "This request has no holds to extend.");
   if (!isCivilDate(until) || until <= todayCivil()) throw new HttpError(400, "Choose a future date.");
   const at = civilToInstant(until, "23:59");
   const updated = await prisma.reservation.updateMany({ where: { externalRequestId: id, state: "HELD" }, data: { holdExpiresAt: at } });
@@ -591,21 +644,26 @@ export async function closeRequest(userId: string, id: string, input: CloseExter
     await tx.externalRequest.update({ where: { id }, data: { status: "DECLINED", closingNote: input.note } });
     await event(tx, id, actor, "DECLINED", input.note);
   });
-  await mailRequester(row.contactEmail, `Request ${row.reference}`, [`Dear ${esc(row.contactName)},`, `We are unable to provide what ${esc(row.organizationName)} asked for.`, esc(input.note)]);
+  const refundNote = row.status === "PAID" || row.status === "PAYMENT_SUBMITTED" ? "The university's office will contact you about returning your payment." : "";
+  await mailRequester(row.contactEmail, `Request ${row.reference}`, [`Dear ${esc(row.contactName)},`, `We are unable to provide what ${esc(row.organizationName)} asked for.`, esc(input.note), refundNote].filter(Boolean));
   return getForActor(userId, id);
 }
 
 /** Quotes past their payment deadline expire, releasing their holds. Run by the cron
  *  route; idempotent. Returns how many requests it closed. */
 export async function expireOverdueQuotes(): Promise<number> {
-  const overdue = await prisma.externalRequest.findMany({ where: { status: "QUOTED", paymentDeadline: { lt: new Date() } }, select: { id: true, reference: true, contactEmail: true, contactName: true } });
+  // PAYMENT_SUBMITTED is left alone: a person still owes the requester a decision.
+  const overdue = await prisma.externalRequest.findMany({
+    where: { status: "QUOTED", paymentDeadline: { lt: new Date() } },
+    select: { id: true, reference: true, contactEmail: true, contactName: true, payments: { select: { status: true, amountSantim: true } } },
+  });
   for (const r of overdue) {
     await prisma.$transaction(async (tx) => {
       await releaseHolds(tx, r.id, "EXPIRED");
       await tx.externalRequest.update({ where: { id: r.id }, data: { status: "EXPIRED", closingNote: "The quote expired unpaid." } });
       await event(tx, r.id, { id: null, label: "System" }, "EXPIRED");
     });
-    await mailRequester(r.contactEmail, `Request ${r.reference} expired`, [`Dear ${esc(r.contactName)},`, "The payment deadline for this quote has passed, so the held slots have been released. You are welcome to submit a new request."]);
+    await mailRequester(r.contactEmail, `Request ${r.reference} expired`, [`Dear ${esc(r.contactName)},`, "The payment deadline for this quote has passed, so the held slots have been released. You are welcome to submit a new request.", paidSantimOf(r.payments) > 0 ? `We received ${esc(etb(paidSantimOf(r.payments)))} towards it; the university's office will contact you about returning it.` : ""].filter(Boolean));
   }
   return overdue.length;
 }

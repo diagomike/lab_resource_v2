@@ -7,6 +7,7 @@ import PortalChrome from "@/components/portal/PortalChrome";
 import { Panel, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { EXTERNAL_STATUS_LABEL, externalStatusTone, formatEtb } from "@/components/external/labels";
+import PaymentPanel from "@/components/portal/PaymentPanel";
 
 /** Public — the requester's own request, reached by the token in their emailed link. */
 export default function PortalTrackPage({ params }: { params: Promise<{ token: string }> }) {
@@ -80,6 +81,8 @@ export default function PortalTrackPage({ params }: { params: Promise<{ token: s
               </div>
             </Panel>
           )}
+
+          {data.quote && data.payment && <PaymentPanel token={token} data={data} onUpdated={setData} />}
 
           {data.closingNote && <ErrorNote>{data.closingNote}</ErrorNote>}
 

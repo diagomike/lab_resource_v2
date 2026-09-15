@@ -9,6 +9,7 @@ import { PanelLoading } from "@/components/states";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
 import { EXTERNAL_STATUS_LABEL, externalStatusTone, formatEtb, parseEtb } from "./labels";
+import { PAYMENT_STATUS_LABEL, paymentTone } from "@/components/portal/PaymentPanel";
 
 /**
  * Track 7 — the staff side of an outside institution's request
@@ -18,6 +19,9 @@ import { EXTERNAL_STATUS_LABEL, externalStatusTone, formatEtb, parseEtb } from "
  *  - the AVP's office forwards to departments, sends the quote, or declines;
  *  - a custodian of an assigned department holds slots on their room's calendar;
  *  - a department head accepts with a pricing sheet link and amount, or declines.
+ *
+ * Track 8 adds the money: the AVP sees every payment receipt, checks by hand the ones the
+ * requester sent for manual review, and re-confirms a paid request that lost a slot.
  */
 
 const inputClass = "h-26 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent";
@@ -316,12 +320,84 @@ function AssignmentRow({ assignment, onDone }: { assignment: ExternalAssignmentD
   );
 }
 
+// ── AVP: payments ────────────────────────────────────────────────────────────
+
+type PaymentRow = ExternalRequestDto["payments"][number];
+
+function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: ExternalRequestDto) => void }) {
+  const [open, setOpen] = useState<"APPROVE" | "REJECT" | null>(null);
+  const [amount, setAmount] = useState(payment.amountSantim !== null ? (payment.amountSantim / 100).toFixed(2) : "");
+  const [note, setNote] = useState("");
+  const action = useAction((r) => {
+    setOpen(null);
+    onDone(r);
+  });
+  const p = payment;
+  const santim = parseEtb(amount);
+  return (
+    <div className="px-14 py-8 border-b border-border last:border-0 flex flex-col gap-6">
+      <div className="flex flex-wrap items-center gap-8 text-11">
+        <span className="font-mono">{p.reference}</span>
+        <span className="text-dim">{p.provider}</span>
+        {p.amountSantim !== null && <span className="font-mono">{formatEtb(p.amountSantim)}</span>}
+        <Tag tone={paymentTone(p.status)}>{PAYMENT_STATUS_LABEL[p.status]}</Tag>
+        <span className="text-faint text-10">{new Date(p.createdAt).toLocaleString()}</span>
+        <div className="flex-1" />
+        {p.canReview && !open && (
+          <>
+            <Button variant="primary" onClick={() => setOpen("APPROVE")}>
+              Accept…
+            </Button>
+            <Button variant="danger" onClick={() => setOpen("REJECT")}>
+              Reject…
+            </Button>
+          </>
+        )}
+      </div>
+      <div className="text-10.5 text-dim flex flex-col gap-2">
+        {(p.payerName || p.receiverName || p.receiverAccount) && (
+          <span>
+            {p.payerName ? `From ${p.payerName}` : ""}
+            {p.receiverName || p.receiverAccount ? ` → ${[p.receiverName, p.receiverAccount].filter(Boolean).join(" · ")}` : ""}
+            {p.paidAt ? ` · paid ${new Date(p.paidAt).toLocaleString()}` : ""}
+          </span>
+        )}
+        {p.requesterNote && <span className="italic">Requester: "{p.requesterNote}"</span>}
+        {p.reason && <span>{p.reviewedByName ? `${p.reviewedByName}: ` : ""}{p.reason}</span>}
+      </div>
+      {open && (
+        <div className="flex flex-col gap-6 border border-border2 rounded-2 p-8">
+          {open === "APPROVE" ? (
+            <div className="text-10.5 text-dim">Check the bank statement for this reference. Accept the amount actually received — it counts towards the quote, and the booking confirms once the total is reached.</div>
+          ) : (
+            <div className="text-10.5 text-dim">The requester is emailed this reason and may submit another reference.</div>
+          )}
+          {open === "APPROVE" && <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount received, ETB" className={inputClass} />}
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={open === "APPROVE" ? "Note (optional)" : "Reason"} className={inputClass} />
+          {action.error && <ErrorNote>{action.error}</ErrorNote>}
+          <div className="flex gap-8">
+            <Button
+              variant={open === "APPROVE" ? "primary" : "danger"}
+              disabled={action.busy || (open === "APPROVE" ? santim === null : note.trim().length < 3)}
+              onClick={() => action.run(`/external-requests/payments/${p.id}/review`, { decision: open, amountSantim: open === "APPROVE" ? santim : undefined, note: note.trim() || undefined })}
+            >
+              {open === "APPROVE" ? "Accept payment" : "Reject payment"}
+            </Button>
+            <Button onClick={() => setOpen(null)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail ───────────────────────────────────────────────────────────────────
 
 function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [request, setRequest] = useState<ExternalRequestDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<"forward" | "quote" | "decline" | "hold" | null>(null);
+  const confirm = useAction((next) => updated(next));
 
   const load = useCallback(() => {
     setError(null);
@@ -350,6 +426,11 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
             <Tag tone={externalStatusTone(r.status)}>{EXTERNAL_STATUS_LABEL[r.status]}</Tag>
             {r.can.forward && <Button onClick={() => setModal("forward")}>Forward…</Button>}
             {r.can.placeHold && <Button onClick={() => setModal("hold")}>Hold a slot…</Button>}
+            {r.can.confirm && (
+              <Button variant="primary" disabled={confirm.busy} onClick={() => confirm.run(`/external-requests/${r.id}/confirm`, {})}>
+                Confirm booking
+              </Button>
+            )}
             {r.can.quote && (
               <Button variant="primary" onClick={() => setModal("quote")}>
                 Send quote…
@@ -408,6 +489,11 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
         </div>
       </Panel>
 
+      {confirm.error && <ErrorNote>{confirm.error}</ErrorNote>}
+      {r.status === "PAID" && r.can.confirm && (
+        <ErrorNote>Paid, but not every slot could be confirmed — see History. Have a custodian hold a replacement slot, then Confirm booking; or decline and arrange a refund.</ErrorNote>
+      )}
+
       <Panel title={`Departments (${r.assignments.length})`}>
         {r.assignments.length === 0 ? (
           <div className="px-14 py-10 text-11 text-dim">Not forwarded to any department yet.</div>
@@ -433,6 +519,16 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
           ))
         )}
       </Panel>
+
+      {r.quoteAmountSantim !== null && (
+        <Panel title={`Payments · ${formatEtb(r.paidSantim)} of ${formatEtb(r.quoteAmountSantim)}`}>
+          {r.payments.length === 0 ? (
+            <div className="px-14 py-10 text-11 text-dim">{r.paidSantim > 0 ? "Receipts are visible to the AVP's office." : "No payment submitted yet."}</div>
+          ) : (
+            r.payments.map((p) => <PaymentRowView key={p.id} payment={p} onDone={updated} />)
+          )}
+        </Panel>
+      )}
 
       <Panel title="History">
         <div className="px-14 py-8 flex flex-col gap-4">

@@ -4,17 +4,35 @@
     {
       "name": "dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000,
       "autoPort": true
     },
     {
       "name": "dev-nomail",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000,
       "autoPort": true,
-      "env": { "SMTP_HOST": "127.0.0.1", "SMTP_PORT": "1", "SMTP_USER": "", "SMTP_PASS": "", "UNIVERSITY_BANK_NAME": "Commercial Bank of Ethiopia", "UNIVERSITY_BANK_ACCOUNT_NAME": "Adama Science and Technology University (TEST)", "UNIVERSITY_BANK_ACCOUNT_NUMBER": "1000000000000" }
+      "env": {
+        "SMTP_HOST": "127.0.0.1",
+        "SMTP_PORT": "1",
+        "SMTP_USER": "",
+        "SMTP_PASS": "",
+        "UNIVERSITY_BANK_NAME": "Commercial Bank of Ethiopia",
+        "UNIVERSITY_BANK_ACCOUNT_NAME": "Adama Science and Technology University (TEST)",
+        "UNIVERSITY_BANK_ACCOUNT_NUMBER": "1000000000000",
+        "VERIFIER_DRIVER": "fake",
+        "PAYMENT_PROVIDERS": "CBE,TELEBIRR",
+        "PAYMENT_CBE_RECEIVER_ACCOUNT": "1000000000000",
+        "PAYMENT_TELEBIRR_RECEIVER_NAME": "Adama Science and Technology University"
+      }
     }
   ]
 }

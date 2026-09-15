@@ -87,6 +87,54 @@ const LineDto = z.object({ description: z.string(), quantity: z.number(), catego
 export const BankDetailsDto = z.object({ bankName: z.string(), accountName: z.string(), accountNumber: z.string() });
 export type BankDetailsDto = z.infer<typeof BankDetailsDto>;
 
+// ── Payments (Track 8) ───────────────────────────────────────────────────
+
+export const paymentProviders = ["CBE", "TELEBIRR", "DASHEN", "ABYSSINIA", "CBEBIRR"] as const;
+export const PaymentProviderSchema = z.enum(paymentProviders);
+export type PaymentProvider = (typeof paymentProviders)[number];
+
+export const paymentVerificationStatuses = ["VERIFIED", "REJECTED", "PENDING_REVIEW", "MANUAL_VERIFIED", "MANUAL_REJECTED"] as const;
+export const PaymentVerificationStatusSchema = z.enum(paymentVerificationStatuses);
+export type PaymentVerificationStatus = (typeof paymentVerificationStatuses)[number];
+
+/** The requester confirming a payment from their tracking page. `manualReview` skips the
+ *  automatic check and asks a person, stating the amount paid. */
+export const SubmitPaymentInput = z.object({
+  provider: PaymentProviderSchema,
+  reference: z.string().trim().min(4, "Give the transaction reference from your receipt.").max(60),
+  accountSuffix: z.string().trim().regex(/^\d{5,8}$/, "Give the last digits of the account you paid from.").optional(),
+  phoneNumber: z.string().trim().regex(/^2519\d{8}$/, "Give the phone number as 2519XXXXXXXX.").optional(),
+  manualReview: z.boolean().optional(),
+  amountSantim: z.number().int().min(1).optional(),
+  note: z.string().trim().max(1000).optional(),
+});
+export type SubmitPaymentInput = z.infer<typeof SubmitPaymentInput>;
+
+export const ReviewPaymentInput = z.object({
+  decision: z.enum(["APPROVE", "REJECT"]),
+  /** Approving: the amount actually received, when it differs from what was claimed. */
+  amountSantim: z.number().int().min(1).optional(),
+  note: z.string().trim().max(1000).optional(),
+});
+export type ReviewPaymentInput = z.infer<typeof ReviewPaymentInput>;
+
+const ProviderOptionDto = z.object({
+  id: PaymentProviderSchema,
+  label: z.string(),
+  referenceLabel: z.string(),
+  extra: z.union([z.null(), z.object({ kind: z.literal("SUFFIX"), digits: z.number().int(), label: z.string() }), z.object({ kind: z.literal("PHONE"), label: z.string() })]),
+});
+
+export const PublicPaymentDto = z.object({
+  provider: PaymentProviderSchema,
+  reference: z.string(),
+  status: PaymentVerificationStatusSchema,
+  amountSantim: z.number().int().nullable(),
+  reason: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type PublicPaymentDto = z.infer<typeof PublicPaymentDto>;
+
 /** What the requester sees on their tracking page. */
 export const PublicTrackingDto = z.object({
   reference: z.string(),
@@ -109,8 +157,27 @@ export const PublicTrackingDto = z.object({
   timeline: z.array(z.object({ at: z.string(), label: z.string(), note: z.string().nullable() })),
   closingNote: z.string().nullable(),
   canCancel: z.boolean(),
+  /** Present once quoted. `canSubmit` — still payable, before the deadline. */
+  payment: z
+    .object({
+      providers: z.array(ProviderOptionDto),
+      paidSantim: z.number().int(),
+      pendingCount: z.number().int(),
+      canSubmit: z.boolean(),
+      attempts: z.array(PublicPaymentDto),
+    })
+    .nullable(),
 });
 export type PublicTrackingDto = z.infer<typeof PublicTrackingDto>;
+
+export const SubmitPaymentResultDto = z.object({
+  outcome: z.enum(["VERIFIED", "REJECTED", "PENDING_REVIEW"]),
+  reason: z.string().nullable(),
+  /** The verifier couldn't be reached — nothing was decided about the receipt itself. */
+  unavailable: z.boolean(),
+  tracking: PublicTrackingDto,
+});
+export type SubmitPaymentResultDto = z.infer<typeof SubmitPaymentResultDto>;
 
 // ── Staff workflow ───────────────────────────────────────────────────────
 
@@ -207,6 +274,26 @@ export const ExternalRequestDto = z.object({
   departments: z.array(z.object({ id: z.string(), name: z.string(), headName: z.string().nullable() })),
   /** Rooms the viewer keeps that belong to an assigned department — where they may place holds. */
   holdRooms: z.array(z.object({ id: z.string(), name: z.string(), equipment: z.array(z.object({ id: z.string(), name: z.string() })) })),
-  can: z.object({ forward: z.boolean(), quote: z.boolean(), close: z.boolean(), placeHold: z.boolean(), extendHolds: z.boolean() }),
+  payments: z.array(
+    z.object({
+      id: z.string(),
+      provider: PaymentProviderSchema,
+      reference: z.string(),
+      status: PaymentVerificationStatusSchema,
+      amountSantim: z.number().int().nullable(),
+      payerName: z.string().nullable(),
+      receiverName: z.string().nullable(),
+      receiverAccount: z.string().nullable(),
+      paidAt: z.string().nullable(),
+      reason: z.string().nullable(),
+      requesterNote: z.string().nullable(),
+      reviewedByName: z.string().nullable(),
+      createdAt: z.string(),
+      canReview: z.boolean(),
+    }),
+  ),
+  /** Verified (automatically or by hand) so far. */
+  paidSantim: z.number().int(),
+  can: z.object({ forward: z.boolean(), quote: z.boolean(), close: z.boolean(), placeHold: z.boolean(), extendHolds: z.boolean(), confirm: z.boolean() }),
 });
 export type ExternalRequestDto = z.infer<typeof ExternalRequestDto>;

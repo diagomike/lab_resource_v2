@@ -4,6 +4,7 @@ import { parseBody } from "@/lib/server/validate";
 import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
 import { closeRequest, extendHolds, forward, placeHold, sendQuote } from "@/lib/server/external/requests";
+import { confirmBooking } from "@/lib/server/payments/verify";
 
 type Params = { params: Promise<{ id: string; action: string }> };
 
@@ -13,7 +14,8 @@ type Params = { params: Promise<{ id: string; action: string }> };
  *  - hold — a custodian holds a slot on a room of an assigned department;
  *  - extend-holds — the AVP or an assigned head keeps holds alive longer;
  *  - quote — the AVP sends the single quote once every department has answered;
- *  - decline — the AVP closes it.
+ *  - decline — the AVP closes it;
+ *  - confirm — the AVP retries turning a paid request's holds into bookings (Track 8).
  */
 export async function POST(request: NextRequest, { params }: Params) {
   try {
@@ -35,6 +37,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         break;
       case "decline":
         result = await closeRequest(user.id, id, await parseBody(CloseExternalRequestInput, request));
+        break;
+      case "confirm":
+        result = await confirmBooking(user.id, id);
         break;
       default:
         throw new HttpError(404, "Not found");

@@ -3619,6 +3619,139 @@ its model that make porting it as-is the wrong move.
   on SE Lab X) and `publicListed` on Lab/Computer/Workstation Setup. To be cleaned up
   after Track 8.
 
+- **2026-09-15** — Track 8: payment verification and booking confirmation. This completes
+  the external booking flow (plan: `~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md`).
+
+  **Schema** (migration `20260914150000_payment_verification`):
+  - enums `PaymentProvider` (CBE, TELEBIRR, DASHEN, ABYSSINIA, CBEBIRR) and
+    `PaymentVerificationStatus` (VERIFIED, REJECTED, PENDING_REVIEW, MANUAL_VERIFIED,
+    MANUAL_REJECTED);
+  - model `PaymentVerification`: normalised `reference`, receipt fields, `raw` JSON,
+    `reason`, `requesterNote`, reviewer.
+  - **`claimKey`** ("PROVIDER:REFERENCE") is unique but set only while a receipt counts or
+    awaits review. So one receipt can never pay twice or for two requests, while a refused
+    or mistyped attempt doesn't lock its reference out. (Deviation from the plan's
+    `@@unique([provider, reference])`, which would have done exactly that.)
+
+  **Pure domain** `lib/domain/payment-receipt.ts` (spec, 9 cases):
+  - `parseAmountToSantim` (numbers or "ETB 1,500.50", integer maths);
+  - `parseReceiptTime`: receipt times as Addis civil time; explicit zones honoured;
+    d/m/y vs m/d/y (a part > 12 decides, else "/" + AM/PM is American, else day-first);
+    remembers date-only receipts;
+  - `paidAfter` (one-minute slack; civil-date comparison for date-only receipts);
+  - `receiverMatches`: every digit run of a masked account must sit at the right end of
+    the configured number (≥ 4 trailing digits); the holder's name decides only when no
+    digits are shown;
+  - `statusSaysPaid`; `PROVIDER_INPUT` (what each provider needs besides the reference).
+
+  **Verifier drivers** `lib/server/payments/verifier/**` (same selector shape as storage):
+  - `http-driver.ts`: the self-hosted verifier-api, `x-api-key`, 20 s timeout, lenient Zod
+    per endpoint mapped to one `Receipt` (telebirr uses `settledAmount`). Unreachable,
+    5xx, 401/403/429 and unreadable bodies are `unavailable` (manual review is the honest
+    next step); `success:false` is a real refusal.
+  - `fake-driver.ts` (`VERIFIER_DRIVER=fake`): tests register receipts or outages; by hand,
+    `FAKE-18750` pays ETB 18,750 to us, `FAKE-18750-WRONG` paid someone else, `FAKE-DOWN`
+    is an outage.
+  - Missing `VERIFIER_BASE_URL`/`VERIFIER_API_KEY` doesn't break start-up; attempts just
+    report "not set up".
+  - `payments/config.ts`: `PAYMENT_PROVIDERS` plus `PAYMENT_<P>_RECEIVER_ACCOUNT/NAME`. A
+    provider is offered only when listed **and** it has a receiver detail to check against.
+
+  **Service** `lib/server/payments/verify.ts`:
+  - `submitPayment(token, input)`:
+    - QUOTED/PAYMENT_SUBMITTED only, before the deadline; the provider must be enabled
+      with its extra input;
+    - reused claim → 409; ≤ 10 rejections per day per request;
+    - calls the driver **outside** any transaction, then checks status, amount, receiver
+      and paid-after-quote;
+    - a refusal is recorded (REJECTED, reason, raw) and returned as 200
+      `outcome: REJECTED` so the page can offer manual review;
+    - success is recorded under a `SELECT … FOR UPDATE` on the request, then `settle`
+      (PAID once verified sums reach the quote, PAYMENT_SUBMITTED while a review is
+      pending, else QUOTED). Split payments add up.
+  - Manual review: `manualReview: true` plus the stated amount → PENDING_REVIEW (claims the
+    reference, emails the AVP). `reviewPayment` is AVP-only: APPROVE (optionally with the
+    amount actually received) or REJECT (reason required, frees the reference, emails the
+    requester).
+  - `confirmPaidRequest`:
+    - locks the request, then every touched lab tree in sorted order;
+    - HELD → CONFIRMED (blocking, `holdExpiresAt` cleared);
+    - a lapsed (EXPIRED) hold is re-checked: free → revived as CONFIRMED; taken by someone
+      else or already past → CANCELLED and named in a `CONFIRMATION_CONFLICT` event, and
+      the request stays PAID; only clashing with this request's own re-hold → left alone;
+    - otherwise the request becomes SCHEDULED;
+    - after commit, mails go out one at a time: the requester, each lab's nearest
+      custodian (their slots), and the accepting heads. On conflict, the requester is told
+      it will be re-arranged and the AVP is emailed.
+  - `confirmBooking`: the AVP retries after a custodian holds a replacement slot (holds are
+    now allowed on PAID requests, lasting two weeks).
+
+  **Changes to Track 7 code**:
+  - PAID counts as open;
+  - the requester can't self-cancel once any money is accepted;
+  - declining a paid request and expiring a part-paid quote mention the refund;
+  - PAYMENT_SUBMITTED is never auto-expired (a person still owes a decision);
+  - public timeline notes shown for payment events;
+  - **fixed `nextReference`**: it used a row count, so a deleted request made the next
+    reference collide with an existing one (found when the payment spec ran after the
+    external spec). It is now MAX(number)+1 for the year. Purchasing's `PR-` numbering has
+    the same flaw; a separate task was offered for it.
+
+  **Routes**:
+  - `POST /api/public/track/[token]/payments` (no session);
+  - `POST /api/external-requests/payments/[id]/review`;
+  - `confirm` action on `/api/external-requests/[id]/[action]`.
+
+  **UI**:
+  - `components/portal/PaymentPanel.tsx` on the tracking page: confirmed-so-far, every
+    attempt with status and reason, provider picker with its extra field, "Verify
+    payment". A refusal offers "ask the university's office to check it by hand" (amount
+    prefilled with the remainder, plus a note).
+  - Staff page: Payments panel (AVP sees receipts with payer, receiver, paid-at, requester
+    note and Accept…/Reject… for pending reviews; heads and custodians see the total only),
+    a Confirm booking button, and a notice when paid but a slot was lost.
+
+  **Docs/config**: `docs/payment-verifier.md` (the checks, env, per-provider inputs,
+  Ethiopian hosting for telebirr/CBE Birr, fake-driver references); `.env.example`;
+  `dev-nomail` profile sets the fake driver and test receivers.
+
+  **Tests**: `lib/server/payments/verify.spec.ts` (8, DB-backed, fake driver, mail mocked):
+  - full receipt → SCHEDULED, holds CONFIRMED and blocking, the 3 mails, reference reuse
+    409 across requests, no payments or re-confirm after booking;
+  - wrong receiver, before the quote, pending status, unknown receipt, disabled provider,
+    missing suffix; a refused reference later counts;
+  - split CBE (account) + telebirr (name) to the santim;
+  - two full receipts concurrently → exactly one taken, one SCHEDULED event;
+  - after the deadline and before a quote → 409;
+  - outage → manual review, head can't review, reason required, approve → SCHEDULED,
+    no double review;
+  - rejected review frees the reference;
+  - two lapsed holds, one slot taken by a staff booking → [CANCELLED, CONFIRMED], PAID
+    with a conflict event and mails; a re-hold plus AVP confirm → SCHEDULED.
+
+  **Verified**: `tsc` clean; `npm test` **408/408**; `npm run build` clean.
+
+  **Live pass** (`dev-nomail`, fake driver):
+  - EXT-2026-001 tracking page: `FAKE-18750-WRONG` → "not made to the university's
+    account" with the manual-review offer; `FAKE-10000` (CBE) → ETB 10,000 of 18,750
+    confirmed, "Paid the remaining ETB 8,750.00?"; `FAKE-8750` (telebirr) → **Confirmed**.
+    In the DB the SE Lab X hold is CONFIRMED and blocking; mails to the requester, SE
+    custodian and SE head were attempted and blocked.
+  - EXT-2026-002 (created through the API as AVP, no-calendar ChemE acceptance, quoted
+    ETB 2,500): telebirr `FAKE-DOWN` → "verifier could not be reached"; sent for manual
+    check with a note → "Being checked", PAYMENT_SUBMITTED.
+  - As the ChemE head, review → 403; as AVP, reject without a reason → 400, approve →
+    SCHEDULED with MANUAL_VERIFIED. The staff page's Payments panel rendered both
+    attempts, the requester note and the reviewer's note.
+
+  **Cleaned up**: EXT-2026-001/002 with their reservations, payments and letter files;
+  `publicListed` back off on Lab/Computer/Workstation Setup (Lab=ROOM and
+  Computer=EQUIPMENT stay as configuration); all `claude-dev-verification` sessions.
+
+  **Still outside the repo**: deploying verifier-api (an Ethiopian host for telebirr/CBE
+  Birr) and one real verification per provider before go-live; the real receiving account
+  and holder names in env.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

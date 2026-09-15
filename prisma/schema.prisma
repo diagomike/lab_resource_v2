@@ -88,30 +88,31 @@ model User {
   invitationsSent        Invitation[]        @relation("InvitationInvitedBy")
 
   // ── Resource management back-relations (replatforming onto temp_works) ──────────
-  custodyOf              Item[]               @relation("ItemCustodian")
-  uploadedImages         ItemImage[]          @relation("ItemImageUploadedBy")
-  imageUploadsRequested  ImageUpload[]        @relation("ImageUploadRequestedBy")
-  itemChangesActed       ItemChange[]         @relation("ItemChangeActor")
-  accessViewAudienceOf   AccessViewAudience[] @relation("AccessViewAudiencePerson")
-  changeRequestsRaised   ChangeRequest[]      @relation("ChangeRequestRequester")
-  chainStepsToApprove    ChainStep[]          @relation("ChainStepApprover")
-  chainStepsDecided      ChainStep[]          @relation("ChainStepDecidedBy")
-  needsRaised            NeedLine[]           @relation("NeedLineRaisedBy")
-  needsHandled           NeedLine[]           @relation("NeedLineHandledBy")
-  purchaseRequestsRaised PurchaseRequest[]    @relation("PurchaseRequestRaisedBy")
-  purchaseLinesReceived  PurchaseLine[]       @relation("PurchaseLineReceivedBy")
-  purchaseEventsLogged   PurchaseEvent[]      @relation("PurchaseEventBy")
-  purchaseStepsToApprove PurchaseStep[]       @relation("PurchaseStepApprover")
-  purchaseStepsDecided   PurchaseStep[]       @relation("PurchaseStepDecidedBy")
-  labCommitsRequested LabCommitRequest[] @relation("LabCommitRequester")
-  labCommitsDecided   LabCommitRequest[] @relation("LabCommitDecidedBy")
-  labDraftItemsStaged ItemDraftChange[]  @relation("DraftChangeAuthor")
-  scheduleSeriesCreated     ScheduleSeries[]          @relation("ScheduleSeriesCreatedBy")
-  scheduleExceptionsCreated ScheduleSeriesException[] @relation("ScheduleSeriesExceptionCreatedBy")
-  reservationsRequested     Reservation[]             @relation("ReservationRequestedBy")
-  reservationsDecided       Reservation[]             @relation("ReservationDecidedBy")
+  custodyOf                  Item[]                      @relation("ItemCustodian")
+  uploadedImages             ItemImage[]                 @relation("ItemImageUploadedBy")
+  imageUploadsRequested      ImageUpload[]               @relation("ImageUploadRequestedBy")
+  itemChangesActed           ItemChange[]                @relation("ItemChangeActor")
+  accessViewAudienceOf       AccessViewAudience[]        @relation("AccessViewAudiencePerson")
+  changeRequestsRaised       ChangeRequest[]             @relation("ChangeRequestRequester")
+  chainStepsToApprove        ChainStep[]                 @relation("ChainStepApprover")
+  chainStepsDecided          ChainStep[]                 @relation("ChainStepDecidedBy")
+  needsRaised                NeedLine[]                  @relation("NeedLineRaisedBy")
+  needsHandled               NeedLine[]                  @relation("NeedLineHandledBy")
+  purchaseRequestsRaised     PurchaseRequest[]           @relation("PurchaseRequestRaisedBy")
+  purchaseLinesReceived      PurchaseLine[]              @relation("PurchaseLineReceivedBy")
+  purchaseEventsLogged       PurchaseEvent[]             @relation("PurchaseEventBy")
+  purchaseStepsToApprove     PurchaseStep[]              @relation("PurchaseStepApprover")
+  purchaseStepsDecided       PurchaseStep[]              @relation("PurchaseStepDecidedBy")
+  labCommitsRequested        LabCommitRequest[]          @relation("LabCommitRequester")
+  labCommitsDecided          LabCommitRequest[]          @relation("LabCommitDecidedBy")
+  labDraftItemsStaged        ItemDraftChange[]           @relation("DraftChangeAuthor")
+  scheduleSeriesCreated      ScheduleSeries[]            @relation("ScheduleSeriesCreatedBy")
+  scheduleExceptionsCreated  ScheduleSeriesException[]   @relation("ScheduleSeriesExceptionCreatedBy")
+  reservationsRequested      Reservation[]               @relation("ReservationRequestedBy")
+  reservationsDecided        Reservation[]               @relation("ReservationDecidedBy")
   externalAssignmentsDecided ExternalRequestAssignment[] @relation("ExternalAssignmentDecidedBy")
   externalRequestEvents      ExternalRequestEvent[]      @relation("ExternalRequestEventActor")
+  paymentsReviewed           PaymentVerification[]       @relation("PaymentVerificationReviewedBy")
 
   @@index([emailLower])
   @@index([homeNodeId])
@@ -184,23 +185,23 @@ enum OrgNodeKind {
 }
 
 model OrgNode {
-  id        String      @id @default(cuid())
-  name      String
-  level     Int // 0 = university root
-  kind      OrgNodeKind
-  userId    String?     @unique // occupant, null until they register
-  active    Boolean     @default(true)
+  id                   String      @id @default(cuid())
+  name                 String
+  level                Int // 0 = university root
+  kind                 OrgNodeKind
+  userId               String?     @unique // occupant, null until they register
+  active               Boolean     @default(true)
   /// Stable short key ("SE", "CHEM") — dense-table display AND the key a data importer
   /// resolves against instead of a live-database cuid. Optional: not every node needs one.
-  code      String?     @unique
+  code                 String?     @unique
   /// Track 2 — per-department activation for the lab draft/visible/ideal workflow.
   /// Default false: a department's custodians keep editing directly (today's
   /// behaviour, unchanged) until an administrator opts THIS department in. Read by
   /// lab-drafts.ts before staging/submitting anything for a lab owned here — never
   /// inferred from row counts elsewhere.
-  draftWorkflowEnabled Boolean @default(false)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  draftWorkflowEnabled Boolean     @default(false)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -214,12 +215,12 @@ model OrgNode {
   occupancyHistory OrgNodeAssignment[]
 
   // ── Resource management back-relations (replatforming onto temp_works) ──────────
-  ownedItems       Item[]            @relation("ItemOwner")
-  heldItems        Item[]            @relation("ItemHolder")
-  chainStepsAt     ChainStep[]       @relation("ChainStepNode")
-  needLines        NeedLine[]
-  purchaseRequests PurchaseRequest[]
-  purchaseStepsAt  PurchaseStep[]    @relation("PurchaseStepNode")
+  ownedItems          Item[]                      @relation("ItemOwner")
+  heldItems           Item[]                      @relation("ItemHolder")
+  chainStepsAt        ChainStep[]                 @relation("ChainStepNode")
+  needLines           NeedLine[]
+  purchaseRequests    PurchaseRequest[]
+  purchaseStepsAt     PurchaseStep[]              @relation("PurchaseStepNode")
   externalAssignments ExternalRequestAssignment[]
 
   @@index([level])
@@ -1105,15 +1106,15 @@ enum DraftChangeStatus {
 /// unioned into ItemChangeInput itself — an ideal-target proposal never reaches
 /// applyChange, so it has no business in that door's own vocabulary.
 model ItemDraftChange {
-  id        String            @id @default(cuid())
-  labItemId String
-  authorId  String
+  id         String            @id @default(cuid())
+  labItemId  String
+  authorId   String
   targetKind DraftTargetKind
-  payload   Json
-  status    DraftChangeStatus @default(OPEN)
+  payload    Json
+  status     DraftChangeStatus @default(OPEN)
   /// Set when submitted — groups every row one submission covers. Null while OPEN.
-  batchId   String?
-  createdAt DateTime          @default(now())
+  batchId    String?
+  createdAt  DateTime          @default(now())
 
   lab    Item @relation("LabDraftChanges", fields: [labItemId], references: [id], onDelete: Cascade)
   author User @relation("DraftChangeAuthor", fields: [authorId], references: [id], onDelete: Restrict)
@@ -1127,13 +1128,13 @@ model ItemDraftChange {
 /// exactly like the generic chain engine's own already-proven invariant, just applied
 /// to a single step here instead of a walked one).
 model LabCommitRequest {
-  id           String        @id @default(cuid())
+  id           String          @id @default(cuid())
   labItemId    String
   targetKind   DraftTargetKind
   requesterId  String
   /// The ItemDraftChange rows this request covers (their shared batchId).
   batchId      String
-  status       RequestStatus @default(PENDING)
+  status       RequestStatus   @default(PENDING)
   /// Reuses mutate.ts's own expectedVersions shape verbatim — keyed by item id,
   /// re-checked at approval time by the SAME assertVersionsMatch a direct edit uses.
   baseVersions Json
@@ -1141,7 +1142,7 @@ model LabCommitRequest {
   decidedById  String?
   decidedAt    DateTime?
   resolution   String?
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime        @default(now())
 
   lab       Item  @relation("LabCommitRequestLab", fields: [labItemId], references: [id], onDelete: Cascade)
   requester User  @relation("LabCommitRequester", fields: [requesterId], references: [id], onDelete: Restrict)
@@ -1264,40 +1265,40 @@ model ScheduleSeriesException {
 }
 
 model Reservation {
-  id               String            @id @default(cuid())
-  source           ReservationSource
-  state            ReservationState
-  title            String
+  id                String            @id @default(cuid())
+  source            ReservationSource
+  state             ReservationState
+  title             String
   /// The ROOM whose custodian decides (the booked room, or the room holding the
   /// booked equipment).
-  labItemId        String
-  startsAt         DateTime          @db.Timestamptz(3)
-  endsAt           DateTime          @db.Timestamptz(3)
+  labItemId         String
+  startsAt          DateTime          @db.Timestamptz(3)
+  endsAt            DateTime          @db.Timestamptz(3)
   /// The civil date in the venue's zone, for series occurrences — never recomputed
   /// from the UTC instant.
-  occursOnLocal    DateTime?         @db.Date
-  seriesId         String?
-  seriesGeneration Int?
-  requestedById    String?
+  occursOnLocal     DateTime?         @db.Date
+  seriesId          String?
+  seriesGeneration  Int?
+  requestedById     String?
   /// A staff booking for advisees: who the students are, as free text.
-  onBehalfOfNote   String?
-  participantCount Int?
+  onBehalfOfNote    String?
+  participantCount  Int?
   /// Track 7 — the outside request a HELD/EXTERNAL reservation is holding a slot for.
   externalRequestId String?
   /// A HELD reservation stops blocking once this passes.
-  holdExpiresAt    DateTime?         @db.Timestamptz(3)
-  decidedById      String?
-  decidedAt        DateTime?         @db.Timestamptz(3)
-  note             String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  holdExpiresAt     DateTime?         @db.Timestamptz(3)
+  decidedById       String?
+  decidedAt         DateTime?         @db.Timestamptz(3)
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  lab         Item                  @relation("ReservationLab", fields: [labItemId], references: [id], onDelete: Cascade)
-  series      ScheduleSeries?       @relation(fields: [seriesId], references: [id], onDelete: SetNull)
-  requestedBy User?                 @relation("ReservationRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
-  decidedBy   User?                 @relation("ReservationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
-  externalRequest ExternalRequest?  @relation(fields: [externalRequestId], references: [id], onDelete: SetNull)
-  resources   ReservationResource[]
+  lab             Item                  @relation("ReservationLab", fields: [labItemId], references: [id], onDelete: Cascade)
+  series          ScheduleSeries?       @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  requestedBy     User?                 @relation("ReservationRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedBy       User?                 @relation("ReservationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  externalRequest ExternalRequest?      @relation(fields: [externalRequestId], references: [id], onDelete: SetNull)
+  resources       ReservationResource[]
 
   @@index([externalRequestId])
   @@index([labItemId, startsAt])
@@ -1388,6 +1389,7 @@ model ExternalRequest {
   assignments  ExternalRequestAssignment[]
   events       ExternalRequestEvent[]
   reservations Reservation[]
+  payments     PaymentVerification[]
 
   @@index([status])
   @@index([contactEmail, createdAt])
@@ -1436,18 +1438,78 @@ model ExternalRequestAssignment {
 
 /// Append-only history, shown to staff in full and to the requester in public terms.
 model ExternalRequestEvent {
-  id        String   @id @default(cuid())
-  requestId String
-  at        DateTime @default(now()) @db.Timestamptz(3)
-  actorId   String?
+  id         String   @id @default(cuid())
+  requestId  String
+  at         DateTime @default(now()) @db.Timestamptz(3)
+  actorId    String?
   /// "Requester", or the staff member's name at the time.
   actorLabel String
-  kind      String
-  note      String?
-  data      Json?
+  kind       String
+  note       String?
+  data       Json?
 
   request ExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   actor   User?           @relation("ExternalRequestEventActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([requestId, at])
+}
+
+// ── Payment verification (Track 8) ──────────────────────────────────────────
+//
+// The requester pays the quote into the university's account, then gives us the
+// transaction reference. A self-hosted verifier-api reads the bank's own receipt; we
+// check it paid the university, at least the amount, after the quote went out. When the
+// verifier can't help (bank down, unsupported), the requester asks for manual review and
+// the AVP's office decides. Split payments add up.
+
+enum PaymentProvider {
+  CBE
+  TELEBIRR
+  DASHEN
+  ABYSSINIA
+  CBEBIRR
+}
+
+enum PaymentVerificationStatus {
+  /// The verifier read a receipt that passed every check.
+  VERIFIED
+  /// The verifier refused it, or the receipt failed a check. Kept as history only.
+  REJECTED
+  /// The requester asked a person to check it.
+  PENDING_REVIEW
+  MANUAL_VERIFIED
+  MANUAL_REJECTED
+}
+
+model PaymentVerification {
+  id              String                    @id @default(cuid())
+  requestId       String
+  provider        PaymentProvider
+  /// Normalised (trimmed, upper-case) transaction reference or receipt number.
+  reference       String
+  /// "PROVIDER:REFERENCE" while this receipt counts or awaits review; null once rejected.
+  /// Unique, so one bank receipt can never pay for two requests (or twice for one),
+  /// while a mistyped attempt doesn't lock its reference out forever.
+  claimKey        String?                   @unique
+  status          PaymentVerificationStatus
+  /// What the receipt (or, for manual review, the requester) says was paid.
+  amountSantim    Int?
+  payerName       String?
+  receiverName    String?
+  receiverAccount String?
+  paidAt          DateTime?                 @db.Timestamptz(3)
+  /// The verifier's response as received, for audit.
+  raw             Json?
+  reason          String?
+  /// The requester's note when asking for manual review.
+  requesterNote   String?
+  reviewedById    String?
+  reviewedAt      DateTime?                 @db.Timestamptz(3)
+  createdAt       DateTime                  @default(now())
+
+  request    ExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  reviewedBy User?           @relation("PaymentVerificationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([requestId, createdAt])
+  @@index([status])
 }

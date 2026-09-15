@@ -47,7 +47,7 @@ function windowOf(input: Pick<BookingInput, "date" | "start" | "end">, timeZone 
   return { startsAt: civilToInstant(input.date, input.start, timeZone), endsAt: civilToInstant(input.date, input.end, timeZone) };
 }
 
-function parentLookup(rows: TreeRow[]): (id: string) => string | null {
+export function parentLookup(rows: TreeRow[]): (id: string) => string | null {
   const parents = new Map(rows.map((r) => [r.id, r.parentId]));
   return (id) => parents.get(id) ?? null;
 }
