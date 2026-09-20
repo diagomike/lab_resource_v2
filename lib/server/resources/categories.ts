@@ -607,6 +607,22 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
   const placementWarning = await placementContradictionWarning(id, afterDomain);
   if (placementWarning) notes.push(placementWarning);
 
+  // F-051: the preview used to say only "Reaches N existing items" while every future
+  // booking and class on those rooms stayed live — the same count update() now refuses on.
+  if (draft.bookingMode !== undefined && draft.bookingMode !== before.bookingMode && before.bookingMode !== "NOT_BOOKABLE") {
+    const future = await prisma.reservation.count({
+      where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
+    });
+    if (future > 0) {
+      notes.push({
+        id: "future-reservations",
+        severity: "destructive",
+        title: `${future} future booking${future === 1 ? "" : "s"} and class session${future === 1 ? "" : "s"} depend on this`,
+        detail: "This change will be refused until they are cancelled (which notifies the people booked) or have passed.",
+      });
+    }
+  }
+
   return {
     affectedItemCount: domainItems.length,
     notes: notes.map((n) => ({ id: n.id, severity: n.severity, title: n.title, detail: n.detail, orphanKeys: n.orphanKeys ?? [] })),

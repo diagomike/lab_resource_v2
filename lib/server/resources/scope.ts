@@ -225,14 +225,14 @@ export async function writableItemIdsOf(userId: string): Promise<string[]> {
 }
 
 /** Custody may only ever be handed to someone who can actually answer for what they'd
- *  hold: an ACTIVE account carrying CUSTODIAN, STORE_KEEPER or MANAGER — the identical
+ *  hold: an ACTIVE account carrying CUSTODIAN, STORE_KEEPER, MANAGER or SYS_ADMIN (the seeded administrator itself custodies real resources) — the identical
  *  set `people.custodians()` already offers as candidates. A student or a disabled
  *  account failing this floor is F-024 from the same campaign; every write path that
  *  assigns custody (direct setCustodian, createItem, transfer/handover settlement)
  *  must call this before writing `custodianId`. */
 export async function assertEligibleCustodian(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { roles: true } });
-  const eligibleRole = user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "MANAGER");
+  const eligibleRole = user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "MANAGER" || r.kind === "SYS_ADMIN");
   if (!user || user.status !== "ACTIVE" || !eligibleRole) {
     throw new HttpError(400, "Choose an active custodian, store keeper or department head.");
   }

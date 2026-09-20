@@ -152,6 +152,10 @@ async function assertAuthorized(
   // stuck (they can never sign in to act on it, or shouldn't hold assets at all)
   // regardless of who handed it to them.
   if (input.kind === "setCustodian") await scope.assertEligibleCustodian(input.value);
+  // Same floor for a NEW item's named custodian — assertCanCreateRoot below is
+  // never reached for SYS_ADMIN (they return before it), which the E2E re-run (R-07)
+  // caught: an admin could still create a root with a DISABLED custodian.
+  if (input.kind === "createItem" && input.custodianId) await scope.assertEligibleCustodian(input.custodianId);
 
   if (await scope.isSysAdmin(actorId)) return;
 

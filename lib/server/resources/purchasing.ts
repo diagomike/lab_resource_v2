@@ -518,58 +518,61 @@ async function reopenCarriedNeeds(tx: Prisma.TransactionClient, requestId: strin
 }
 
 export async function decideStep(actorId: string, requestId: string, decision: "APPROVE" | "REJECT" | "REVISE", note?: string): Promise<PurchaseRequestDto> {
-  const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, include: { steps: { orderBy: { order: "asc" } } } });
-  if (!request) throw new HttpError(404, "Request not found");
-  if (request.stage !== "APPROVING") throw new HttpError(409, "This request is not awaiting a decision.");
+  // Serialised per request (F-040's own closing note: "apply the same pattern to
+  // purchasing decideStep"): before this, an APPROVE and a REVISE by the same
+  // approver on the same step, fired together, both passed the stage/step check and
+  // both wrote — the request ended ORDER_PLACED with a REVISING event in its history.
+  // The lock is transaction-scoped, so everything below runs in ONE transaction and
+  // the second caller re-reads a request that has already moved on.
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${requestId}))`;
+    const request = await tx.purchaseRequest.findUnique({ where: { id: requestId }, include: { steps: { orderBy: { order: "asc" } } } });
+    if (!request) throw new HttpError(404, "Request not found");
+    if (request.stage !== "APPROVING") throw new HttpError(409, "This request is not awaiting a decision.");
 
-  const nodes = await loadDomainOrgNodes();
-  const domainSteps = request.steps.map(toDomainStep);
-  const step = currentStep(domainSteps);
-  const person = await loadPerson(actorId);
-  if (!canDecide(step, person, nodes)) throw new HttpError(403, "This decision is not yours to make.");
+    const nodes = await loadDomainOrgNodes();
+    const domainSteps = request.steps.map(toDomainStep);
+    const step = currentStep(domainSteps);
+    const person = await loadPerson(actorId);
+    if (!canDecide(step, person, nodes)) throw new HttpError(403, "This decision is not yours to make.");
 
-  const at = new Date();
-  // Every decision is also written to the request's permanent history — the steps
-  // themselves are working state (REVISE deletes them), so without this a request
-  // that went round several send-backs would show nothing of who sent it back or why.
-  // The event's own stage already says what happened ("Sent back for revision",
-  // "Rejected") — the note carries WHO decided at which step, and why.
-  const eventNote = (verb?: string) => `${verb ? `${verb} — ` : ""}${step!.label}${note ? `: ${note}` : ""}`;
+    const at = new Date();
+    // Every decision is also written to the request's permanent history — the steps
+    // themselves are working state (REVISE deletes them), so without this a request
+    // that went round several send-backs would show nothing of who sent it back or why.
+    // The event's own stage already says what happened ("Sent back for revision",
+    // "Rejected") — the note carries WHO decided at which step, and why.
+    const eventNote = (verb?: string) => `${verb ? `${verb} — ` : ""}${step!.label}${note ? `: ${note}` : ""}`;
 
-  if (decision === "REJECT") {
-    await prisma.$transaction(async (tx) => {
+    if (decision === "REJECT") {
       await tx.purchaseStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } });
       await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REJECTED", feedback: note ?? null } });
       await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote() } });
       await reopenCarriedNeeds(tx, requestId, request.reference, `rejected${note ? `: ${note}` : ""}`);
-    });
-    return loadDto(requestId);
-  }
+      return;
+    }
 
-  if (decision === "REVISE") {
-    await prisma.$transaction([
-      prisma.purchaseStep.deleteMany({ where: { requestId } }),
-      prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REVISING", feedback: note ?? "Sent back for revision." } }),
-      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REVISING", note: eventNote() } }),
-    ]);
-    return loadDto(requestId);
-  }
+    if (decision === "REVISE") {
+      await tx.purchaseStep.deleteMany({ where: { requestId } });
+      await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REVISING", feedback: note ?? "Sent back for revision." } });
+      await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REVISING", note: eventNote() } });
+      return;
+    }
 
-  await prisma.$transaction([
-    prisma.purchaseStep.update({ where: { id: step!.id }, data: { status: "APPROVED", decidedById: actorId, decidedAt: at, note: note ?? null } }),
-    prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "APPROVING", note: eventNote("Approved") } }),
-  ]);
+    await tx.purchaseStep.update({ where: { id: step!.id }, data: { status: "APPROVED", decidedById: actorId, decidedAt: at, note: note ?? null } });
+    await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "APPROVING", note: eventNote("Approved") } });
 
-  const refreshedRows = await prisma.purchaseStep.findMany({ where: { requestId }, orderBy: { order: "asc" } });
-  const advanced = activate(refreshedRows.map(toDomainStep));
-  await Promise.all(advanced.map((s, i) => (refreshedRows[i].status === s.status ? null : prisma.purchaseStep.update({ where: { id: refreshedRows[i].id }, data: { status: s.status } }))));
+    const refreshedRows = await tx.purchaseStep.findMany({ where: { requestId }, orderBy: { order: "asc" } });
+    const advanced = activate(refreshedRows.map(toDomainStep));
+    for (let i = 0; i < advanced.length; i++) {
+      if (refreshedRows[i].status !== advanced[i].status) await tx.purchaseStep.update({ where: { id: refreshedRows[i].id }, data: { status: advanced[i].status } });
+    }
 
-  if (chainSettled(advanced)) {
-    await prisma.$transaction([
-      prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: FIRST_PIPELINE_STAGE } }),
-      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: FIRST_PIPELINE_STAGE, note: "Every approval step settled — handed to procurement." } }),
-    ]);
-  }
+    if (chainSettled(advanced)) {
+      await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: FIRST_PIPELINE_STAGE } });
+      await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: FIRST_PIPELINE_STAGE, note: "Every approval step settled — handed to procurement." } });
+    }
+  });
 
   return loadDto(requestId);
 }
