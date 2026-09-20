@@ -72,8 +72,10 @@ export type ChangeNodeLevelInput = z.infer<typeof ChangeNodeLevelInput>;
 
 export const DeactivateNodeResultDto = z.object({
   ok: z.literal(true),
-  /** Set when this node had a current occupant — deactivating a node revokes them too,
-   *  same reasoning as deactivating a person vacating whatever node they held. */
-  revokedOccupantName: z.string().nullable(),
+  /** Set when this node had a current occupant — deactivating a node VACATES the
+   *  post (2026-09-20, F-001 of the 2026-09-15 campaign) but never disables the
+   *  occupant's own account; that stays a Personnel action with its own custody
+   *  blocker. */
+  vacatedOccupantName: z.string().nullable(),
 });
 export type DeactivateNodeResultDto = z.infer<typeof DeactivateNodeResultDto>;

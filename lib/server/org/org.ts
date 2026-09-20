@@ -1,5 +1,5 @@
 import "server-only";
-import type { CreateOrgNodeInput, DeactivateNodeResultDto, OrgNodeDto, UpdateOrgNodeInput } from "@/lib/shared";
+import type { CreateOrgNodeInput, DeactivateNodeResultDto, OrgNodeDto, OrgNodeKind, UpdateOrgNodeInput } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { computeClosureRows, wouldCreateCycle } from "./closure-algorithm";
@@ -27,6 +27,7 @@ export async function list(activeOnly: boolean): Promise<OrgNodeDto[]> {
 
 export async function create(input: CreateOrgNodeInput): Promise<OrgNodeDto> {
   await assertAdjacentParents(input.level, input.parentIds);
+  await assertUniversityInvariant(null, input.level, input.kind);
   const node = await prisma.orgNode.create({
     data: { name: input.name, level: input.level, kind: input.kind },
   });
@@ -44,6 +45,7 @@ export async function create(input: CreateOrgNodeInput): Promise<OrgNodeDto> {
 export async function update(id: string, input: UpdateOrgNodeInput): Promise<OrgNodeDto> {
   const node = await prisma.orgNode.findUnique({ where: { id } });
   if (!node) throw new HttpError(404, "Org node not found");
+  if (input.kind !== undefined) await assertUniversityInvariant(id, node.level, input.kind);
   await prisma.orgNode.update({
     where: { id },
     data: {
@@ -62,6 +64,17 @@ export async function update(id: string, input: UpdateOrgNodeInput): Promise<Org
  * query routed through it. History (who held it, what it owns) is untouched — only
  * access and the active flag change.
  */
+/**
+ * Deactivating a node VACATES its post — it ends the occupancy and clears
+ * `OrgNode.userId` — but never touches the occupant's own account (F-001 of the
+ * 2026-09-15 campaign). Disabling a person is Personnel's own act
+ * (`people.deactivate`), with its own custody blocker; holding a post that no
+ * longer exists is not the same fact as being employed, and the previous behaviour
+ * here disabled the account (and killed its sessions) unconditionally, with no
+ * custody check at all — a head vacated this way could still be custodian of real
+ * resources with no way left to sign in and hand them off. History (who held it,
+ * what it owns) is untouched — only occupancy and the active flag change.
+ */
 export async function deactivateNode(id: string): Promise<DeactivateNodeResultDto> {
   const node = await prisma.orgNode.findUnique({
     where: { id },
@@ -73,8 +86,6 @@ export async function deactivateNode(id: string): Promise<DeactivateNodeResultDt
   await prisma.$transaction([
     ...(node.userId
       ? [
-          prisma.user.update({ where: { id: node.userId }, data: { status: "DISABLED" as const } }),
-          prisma.session.deleteMany({ where: { userId: node.userId } }),
           prisma.orgNodeAssignment.updateMany({
             where: { nodeId: id, userId: node.userId, endedAt: null },
             data: { endedAt: new Date(), reason: "Node deactivated" },
@@ -83,7 +94,7 @@ export async function deactivateNode(id: string): Promise<DeactivateNodeResultDt
       : []),
     prisma.orgNode.update({ where: { id }, data: { active: false, userId: null } }),
   ]);
-  return { ok: true, revokedOccupantName: node.user?.name ?? null };
+  return { ok: true, vacatedOccupantName: node.user?.name ?? null };
 }
 
 /** Does not restore the previous occupant — same as people.ts's reactivate(), there is
@@ -124,6 +135,7 @@ export async function changeLevel(id: string, newLevel: number): Promise<OrgNode
   const node = await prisma.orgNode.findUnique({ where: { id } });
   if (!node) throw new HttpError(404, "Org node not found");
   if (node.level === newLevel) return (await list(false)).find((n) => n.id === id)!;
+  await assertUniversityInvariant(id, newLevel, node.kind);
 
   await prisma.$transaction([
     prisma.orgEdge.deleteMany({ where: { OR: [{ parentId: id }, { childId: id }] } }),
@@ -131,6 +143,32 @@ export async function changeLevel(id: string, newLevel: number): Promise<OrgNode
   ]);
   await recomputeClosure();
   return (await list(false)).find((n) => n.id === id)!;
+}
+
+/**
+ * The UNIVERSITY kind and level 0 are the same concept, always — the one root the
+ * whole org chart hangs from. Any occupant of a UNIVERSITY-kind node is treated as
+ * the institution's own top office (`lib/server/external/requests.ts`'s `isAvp`),
+ * so letting a second one exist, or letting the kind and the level drift apart,
+ * silently hands out the most sensitive role in the system — F-002 of the
+ * 2026-09-15 campaign, which found exactly this: a second level-0 UNIVERSITY node
+ * could be created and its occupant treated as a second AVP. `excludeId` is the
+ * node being edited, so an update/changeLevel call on the one existing root does
+ * not collide with itself.
+ */
+async function assertUniversityInvariant(excludeId: string | null, level: number, kind: OrgNodeKind): Promise<void> {
+  if ((level === 0) !== (kind === "UNIVERSITY")) {
+    throw new HttpError(
+      400,
+      'Level 0 is reserved for the single "University" root — a node at level 0 must be kind University, and a University-kind node must be at level 0.',
+    );
+  }
+  if (level === 0) {
+    const existing = await prisma.orgNode.findFirst({ where: { level: 0, ...(excludeId ? { id: { not: excludeId } } : {}) } });
+    if (existing) {
+      throw new HttpError(400, `"${existing.name}" is already the university root — there can be only one level-0 node.`);
+    }
+  }
 }
 
 /**

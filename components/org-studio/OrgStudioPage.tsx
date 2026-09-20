@@ -515,8 +515,8 @@ export default function OrgStudioPage() {
               </>
             ) : pending.kind === "deactivate" ? (
               <>
-                Deactivate <b className="text-text">"{selected.name}"</b>? Its occupant, if any, will be revoked and
-                unable to sign in. You can reactivate it again later.
+                Deactivate <b className="text-text">"{selected.name}"</b>? Its occupant, if any, will be vacated from
+                this post — their account itself is unaffected. You can reactivate it again later.
               </>
             ) : (
               <>
