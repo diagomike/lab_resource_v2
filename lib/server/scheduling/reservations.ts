@@ -222,6 +222,11 @@ export async function cancelBooking(userId: string, id: string, note?: string): 
   const ownStaffBooking = row.requestedById === userId && row.source === "STAFF";
   if (!decides && !ownStaffBooking) throw new HttpError(403, "Only the person who booked this, or the room's custodian, may cancel it.");
   if (!["REQUESTED", "HELD", "CONFIRMED"].includes(row.state)) throw new HttpError(409, "This booking is no longer active.");
+  // F-050 of the 2026-09-15 campaign: a CONFIRMED booking that already took place
+  // could still be cancelled, rewriting what the room was actually used for —
+  // the DTO's own canCancel was already false for it, but only the UI respected
+  // that.
+  if (row.endsAt <= new Date()) throw new HttpError(409, "This booking has already taken place.");
 
   await prisma.$transaction(async (tx) => {
     if (row.source === "CLASS" && row.seriesId && row.occursOnLocal) {
@@ -273,7 +278,11 @@ export async function listBookings(userId: string, box: "mine" | "inbox"): Promi
     box === "mine"
       ? await prisma.reservation.findMany({ where: { requestedById: userId, source: "STAFF" }, include: RESERVATION_INCLUDE, orderBy: { startsAt: "desc" }, take: 100 })
       : await prisma.reservation.findMany({
-          where: { state: "REQUESTED", ...(viewer.sysAdmin ? {} : { labItemId: { in: [...viewer.custody] } }) },
+          // F-050 of the 2026-09-15 campaign: an undecided request whose own start
+          // time has already passed is lapsed, not actionable — the inbox filters
+          // it out directly rather than depending on the cron sweep
+          // (expireLapsedRequests) having already turned it into EXPIRED.
+          where: { state: "REQUESTED", startsAt: { gt: new Date() }, ...(viewer.sysAdmin ? {} : { labItemId: { in: [...viewer.custody] } }) },
           include: RESERVATION_INCLUDE,
           orderBy: { startsAt: "asc" },
           take: 200,

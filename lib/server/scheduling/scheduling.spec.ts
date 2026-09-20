@@ -173,6 +173,41 @@ describe("staff bookings", () => {
     await expect(reservations.createStaffBooking(custodianId, booking([pc2], date, "08:00", "10:00"))).resolves.toMatchObject({ state: "CONFIRMED" });
   });
 
+  it("F-050: a finished booking cannot be cancelled, and a lapsed request drops out of the inbox", async () => {
+    const past = dayAhead(-1);
+    const s = new Date(`${past}T05:00:00.000Z`);
+    const e = new Date(`${past}T06:00:00.000Z`);
+    const finished = await prisma.reservation.create({
+      data: {
+        source: "STAFF",
+        state: "CONFIRMED",
+        title: "Finished Booking",
+        labItemId: labId,
+        startsAt: s,
+        endsAt: e,
+        requestedById: staffId,
+        decidedById: custodianId,
+        resources: { create: [{ itemId: pc1, startsAt: s, endsAt: e, blocking: true }] },
+      },
+    });
+    await expect(reservations.cancelBooking(custodianId, finished.id)).rejects.toMatchObject({ status: 409 });
+
+    const lapsed = await prisma.reservation.create({
+      data: {
+        source: "STAFF",
+        state: "REQUESTED",
+        title: "Lapsed Request",
+        labItemId: labId,
+        startsAt: s,
+        endsAt: e,
+        requestedById: staffId,
+        resources: { create: [{ itemId: pc2, startsAt: s, endsAt: e, blocking: false }] },
+      },
+    });
+    const inbox = await reservations.listBookings(custodianId, "inbox");
+    expect(inbox.map((r) => r.id)).not.toContain(lapsed.id);
+  });
+
   it("refuses students, non-bookable items, the past, and an inverted window", async () => {
     const date = dayAhead(14);
     await expect(reservations.createStaffBooking(studentId, booking([pc1], date, "08:00", "09:00"))).rejects.toMatchObject({ status: 403 });

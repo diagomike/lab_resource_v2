@@ -277,7 +277,53 @@ describe("F-027 — BULK to SERIALIZED is refused (409), never a raw 500, while 
 
     await prisma.item.delete({ where: { id: item.id } });
   });
+});
 
+describe("F-051 — bookingMode cannot be removed while future reservations exist", () => {
+  it("refuses changing bookingMode away from ROOM while a future reservation depends on it", async () => {
+    const cat = await categories.create(sysAdminId, {
+      key: key("room-bookable"),
+      name: "F051 Room Category",
+      iconKey: "Package",
+      groupId,
+      countingMode: "SERIALIZED",
+      impairRule: "NEVER",
+      canBeRoot: true,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
+      bookingMode: "ROOM",
+      fields: [],
+      templateChildren: [],
+    });
+    const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
+    const room = await prisma.item.create({
+      data: { categoryId: cat.id, name: "F051 Room", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNode.id, currentOrgNodeId: orgNode.id, custodianId: sysAdminId },
+    });
+    const future = new Date(Date.now() + 86_400_000);
+    const reservation = await prisma.reservation.create({
+      data: {
+        source: "STAFF",
+        state: "CONFIRMED",
+        title: "F051 Future Booking",
+        labItemId: room.id,
+        startsAt: future,
+        endsAt: new Date(future.getTime() + 3_600_000),
+        resources: { create: [{ itemId: room.id, startsAt: future, endsAt: new Date(future.getTime() + 3_600_000), blocking: true }] },
+      },
+    });
+
+    await expect(categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, bookingMode: "NOT_BOOKABLE", fields: [], purgeKeys: [] })).rejects.toMatchObject({
+      status: 409,
+    });
+
+    await prisma.reservation.delete({ where: { id: reservation.id } });
+    const updated = await categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, bookingMode: "NOT_BOOKABLE", fields: [], purgeKeys: [] });
+    expect(updated.bookingMode).toBe("NOT_BOOKABLE");
+    await prisma.item.delete({ where: { id: room.id } });
+  });
+});
+
+describe("F-027 — BULK to SERIALIZED, the safe case", () => {
   it("allows the switch once every item already holds qty 1", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("bulk-to-serialized-ok"),

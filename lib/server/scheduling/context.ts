@@ -150,6 +150,28 @@ export async function expireHolds(client: Client, itemIds?: string[]): Promise<n
   return ids.length;
 }
 
+/**
+ * F-050 of the 2026-09-15 campaign — a REQUESTED booking nobody decided in time
+ * (the custodian never responded before the slot itself passed) used to sit in
+ * the inbox forever, decidable only as a decline; there was no way for it to
+ * simply lapse. Swept by the cron route only (unlike `expireHolds`, this isn't
+ * on the hot path of an ordinary write — nothing here BLOCKS a future booking
+ * the way a live HELD hold does, so correctness doesn't need it inline); the
+ * inbox query itself also filters to future bookings directly, so this sweep is
+ * belt-and-braces rather than the only thing keeping it accurate.
+ */
+export async function expireLapsedRequests(client: Client): Promise<number> {
+  const lapsed = await client.reservation.findMany({
+    where: { state: "REQUESTED", startsAt: { lt: new Date() } },
+    select: { id: true },
+  });
+  if (!lapsed.length) return 0;
+  const ids = lapsed.map((r) => r.id);
+  await client.reservation.updateMany({ where: { id: { in: ids } }, data: { state: "EXPIRED" } });
+  await client.reservationResource.updateMany({ where: { reservationId: { in: ids } }, data: { blocking: false } });
+  return ids.length;
+}
+
 export interface ClaimMeta {
   title: string;
   source: ReservationSource;

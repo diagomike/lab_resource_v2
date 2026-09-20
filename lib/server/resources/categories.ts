@@ -8,6 +8,7 @@ import { canPlace } from "@/lib/domain/placement";
 import type { Category } from "@/lib/domain/types";
 import { toDomainCategory, toDomainCategoryMap, toDomainItem } from "./adapt";
 import { wouldCreateTemplateCycle } from "./template-cycle";
+import { LIVE_STATES } from "../scheduling/context";
 
 type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
@@ -307,6 +308,21 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
     if (!before) throw new HttpError(404, "Category not found");
 
     assertBookableCountingMode(input.bookingMode ?? before.bookingMode, input.countingMode ?? before.countingMode);
+
+    // F-051 of the 2026-09-15 campaign: turning a category away from ROOM/EQUIPMENT
+    // used to leave every future reservation and class session against its items
+    // live but orphaned — the room simply vanished from Schedule (getLab/
+    // listCalendar 404 for a non-ROOM category), with nobody told and nothing left
+    // to manage it from. Refused while any future live reservation exists; the
+    // custodian cancels them first (which notifies people) or waits them out.
+    if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode && before.bookingMode !== "NOT_BOOKABLE") {
+      const futureReservations = await tx.reservation.count({
+        where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
+      });
+      if (futureReservations > 0) {
+        throw new HttpError(409, `Cannot change booking mode — ${futureReservations} future reservation(s) still depend on it.`);
+      }
+    }
 
     const nextFields = input.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
     assertEnumFieldsHaveOptions(nextFields);
