@@ -208,6 +208,36 @@ describe("the staff workflow", () => {
     await expect(requests.placeHold(staffId, r.id, { itemIds: [labId], date: dayAhead(33), start: "09:00", end: "12:00" })).rejects.toMatchObject({ status: 403 });
   });
 
+  it("F-055: refuses a hold on a date the request never asked for", async () => {
+    const r = await submit({ windows: [{ date: dayAhead(40), start: "09:00", end: "10:00" }] });
+    await requests.forward(avpId, r.id, { orgNodeIds: [nodeA] });
+
+    // Wrong date entirely — the campaign's own example (months away from anything asked for).
+    await expect(
+      requests.placeHold(custodianId, r.id, { itemIds: [labId], date: dayAhead(41), start: "09:00", end: "10:00" }),
+    ).rejects.toMatchObject({ status: 400 });
+    // The right date, even at a different hour than the window itself named, still
+    // succeeds — a same-day replacement hold (its own regression test lives in
+    // verify.spec.ts) legitimately needs that flexibility.
+    await expect(
+      requests.placeHold(custodianId, r.id, { itemIds: [labId], date: dayAhead(40), start: "11:00", end: "12:00" }),
+    ).resolves.toMatchObject({ status: "UNDER_REVIEW" });
+  });
+
+  it("F-056: extendHolds cannot push a hold past the payment deadline", async () => {
+    const r = await submit({ windows: [{ date: dayAhead(42), start: "09:00", end: "12:00" }] });
+    await requests.forward(avpId, r.id, { orgNodeIds: [nodeA] });
+    await requests.placeHold(custodianId, r.id, { itemIds: [labId], date: dayAhead(42), start: "09:00", end: "12:00" });
+    const assignment = await prisma.externalRequestAssignment.findFirstOrThrow({ where: { requestId: r.id } });
+    await requests.decideAssignment(headAId, assignment.id, { decision: "ACCEPT", sheetUrl: "https://docs.google.com/s", amountSantim: 500 });
+    await requests.sendQuote(avpId, r.id, { amountSantim: 500, paymentDeadline: dayAhead(5) });
+
+    // Nowhere near a payment deadline this soon.
+    await expect(requests.extendHolds(avpId, r.id, dayAhead(365 * 4))).rejects.toMatchObject({ status: 400 });
+    const dto = await requests.extendHolds(avpId, r.id, dayAhead(4));
+    expect(new Date(dto.holds[0].holdExpiresAt!).getTime()).toBeLessThanOrEqual(new Date(dto.paymentDeadline!).getTime());
+  });
+
   it("a quote past its payment deadline expires and releases its holds; the requester may cancel before paying", async () => {
     const r = await submit({ windows: [{ date: dayAhead(34), start: "09:00", end: "12:00" }] });
     await requests.forward(avpId, r.id, { orgNodeIds: [nodeA] });

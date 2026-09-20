@@ -507,9 +507,21 @@ export async function forward(userId: string, id: string, input: ForwardExternal
 /** A custodian holding a slot for this request on a room they keep. The room must
  *  belong to a department the request was sent to (and didn't decline). */
 export async function placeHold(userId: string, id: string, input: PlaceHoldInput): Promise<ExternalRequestDto> {
-  const row = await prisma.externalRequest.findUnique({ where: { id }, include: { assignments: true } });
+  const row = await prisma.externalRequest.findUnique({ where: { id }, include: { assignments: true, windows: true } });
   if (!row) throw new HttpError(404, "Request not found");
   if (!HOLDABLE.includes(row.status)) throw new HttpError(409, "Slots can only be held while a request is under review, quoted or paid but not yet confirmed.");
+  // F-055 of the 2026-09-15 campaign: placeHold never checked the slot against the
+  // request's own ExternalRequestWindow rows — a custodian could hold any date at
+  // all, unrelated to anything the requester actually asked for (the campaign's own
+  // example: a hold on a date four months later, for a request whose only window
+  // was a single hour on a specific day). Checked by DATE, not by exact time range:
+  // a REPLACEMENT hold (this request's original slot was lost to a conflict, see
+  // the PAYABLE branch just below) legitimately needs a different hour on the same
+  // day the request actually asked about, which this must keep allowing.
+  const onARequestedDate = row.windows.some((w) => civilDateOf(w.date) === input.date);
+  if (!onARequestedDate) {
+    throw new HttpError(400, "That date isn't one this request asked for.");
+  }
   const target = await resolveBookingTarget(prisma, input.itemIds);
   const viewer = await viewerOf(userId);
   if (!decidesFor(viewer, target.lab.id)) throw new HttpError(403, "Only the room's custodian holds slots on its calendar.");
@@ -545,6 +557,17 @@ export async function extendHolds(userId: string, id: string, until: string): Pr
   if (!HOLDABLE.includes(row.status)) throw new HttpError(409, "This request has no holds to extend.");
   if (!isCivilDate(until) || until <= todayCivil()) throw new HttpError(400, "Choose a future date.");
   const at = civilToInstant(until, "23:59");
+
+  // F-056 of the 2026-09-15 campaign: extendHolds only checked the date was in the
+  // future, not that it was bounded by anything — a slot could be tied up
+  // indefinitely against a quote that will expire. The ceiling mirrors placeHold's
+  // own (the same rule, not a second one): a payment deadline still ahead of us
+  // caps it there; otherwise the same two-week horizon a fresh hold gets.
+  const twoWeeks = civilToInstant(addDays(todayCivil(), HOLD_DAYS_BEFORE_QUOTE), "23:59");
+  const ceiling = PAYABLE.includes(row.status) && row.paymentDeadline && row.paymentDeadline > new Date() ? row.paymentDeadline : twoWeeks;
+  if (at.getTime() > ceiling.getTime()) {
+    throw new HttpError(400, `Holds cannot be extended past ${instantToCivil(ceiling, DEFAULT_TIME_ZONE).date} for this request.`);
+  }
   const updated = await prisma.reservation.updateMany({ where: { externalRequestId: id, state: "HELD" }, data: { holdExpiresAt: at } });
   await event(prisma, id, await actorOf(userId), "HOLDS_EXTENDED", `${updated.count} hold${updated.count === 1 ? "" : "s"} until ${until}`);
   return getForActor(userId, id);
