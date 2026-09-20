@@ -242,3 +242,65 @@ describe("categories — atomic version-conflict handling", () => {
     expect(["Race Test — writer 1", "Race Test — writer 2"]).toContain(after.name);
   });
 });
+
+describe("F-027 — BULK to SERIALIZED is refused (409), never a raw 500, while real stock exists", () => {
+  it("refuses the switch while an item holds a quantity other than 1, and leaves the category untouched", async () => {
+    const cat = await categories.create(sysAdminId, {
+      key: key("bulk-to-serialized"),
+      name: "F027 Ethanol",
+      iconKey: "Package",
+      groupId,
+      countingMode: "BULK",
+      unit: "L",
+      impairRule: "NEVER",
+      canBeRoot: true,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
+      fields: [],
+      templateChildren: [],
+    });
+    const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
+    const item = await prisma.item.create({
+      data: { categoryId: cat.id, name: "F027 Ethanol Stock", countingMode: "BULK", qty: 25, status: "WORKING", ownerOrgNodeId: orgNode.id, currentOrgNodeId: orgNode.id, custodianId: sysAdminId },
+    });
+
+    await expect(
+      categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, countingMode: "SERIALIZED", fields: [], purgeKeys: [] }),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const untouched = await categories.getOne(cat.id);
+    expect(untouched.countingMode).toBe("BULK");
+    expect(untouched.version).toBe(cat.version); // nothing applied, not even a version bump
+    const itemAfter = await prisma.item.findUniqueOrThrow({ where: { id: item.id } });
+    expect(itemAfter.countingMode).toBe("BULK");
+    expect(Number(itemAfter.qty)).toBe(25);
+
+    await prisma.item.delete({ where: { id: item.id } });
+  });
+
+  it("allows the switch once every item already holds qty 1", async () => {
+    const cat = await categories.create(sysAdminId, {
+      key: key("bulk-to-serialized-ok"),
+      name: "F027 Widget",
+      iconKey: "Package",
+      groupId,
+      countingMode: "BULK",
+      unit: "Unit",
+      impairRule: "NEVER",
+      canBeRoot: true,
+      placement: "ANYWHERE",
+      allowedParentCategoryIds: [],
+      fields: [],
+      templateChildren: [],
+    });
+    const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
+    const item = await prisma.item.create({
+      data: { categoryId: cat.id, name: "F027 Widget Stock", countingMode: "BULK", qty: 1, status: "WORKING", ownerOrgNodeId: orgNode.id, currentOrgNodeId: orgNode.id, custodianId: sysAdminId },
+    });
+
+    const updated = await categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, countingMode: "SERIALIZED", fields: [], purgeKeys: [] });
+    expect(updated.countingMode).toBe("SERIALIZED");
+
+    await prisma.item.delete({ where: { id: item.id } });
+  });
+});

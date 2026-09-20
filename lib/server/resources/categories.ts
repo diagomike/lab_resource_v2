@@ -377,6 +377,23 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
     const countingModeChanged = input.countingMode !== undefined && input.countingMode !== before.countingMode;
     const purgeKeys = input.purgeKeys ?? [];
 
+    // F-027 of the 2026-09-15 campaign: BULK -> SERIALIZED used to fail with a raw
+    // 500 (the code set countingMode first, then qty = 1 in a second statement,
+    // and the CHECK constraint fired on the first) — and even fixed to run
+    // atomically, the switch silently turns "25 L of ethanol" into "1", with no
+    // warning beyond a generic preview line. Refused outright while any item of
+    // the category still holds a quantity other than 1; splitting into individual
+    // units is a distinct, explicit action this does not attempt.
+    if (countingModeChanged && input.countingMode === "SERIALIZED") {
+      const withRealQty = items.filter((i) => Number(i.qty) !== 1);
+      if (withRealQty.length) {
+        throw new HttpError(409, "Cannot switch to serialized counting", {
+          message: `${withRealQty.length} item(s) of this category hold a quantity other than 1 (e.g. "${withRealQty[0].name}" at ${Number(withRealQty[0].qty)}) — switching to serialized counting would silently reset them to 1. Split them into individual units first.`,
+          itemIds: withRealQty.map((i) => i.id),
+        });
+      }
+    }
+
     await tx.resourceCategory.update({
       where: { id },
       data: {

@@ -185,7 +185,13 @@ export const CreateItemChange = Base.extend({
   kind: z.literal("createItem"),
   parentId: z.string().nullable(),
   categoryId: z.string(),
-  count: z.number().int().min(1),
+  // F-026 of the 2026-09-15 campaign: unbounded, a template-carrying category
+  // multiplies this into tens of thousands of rows in one transaction (2,000
+  // computers is about 26,000 rows), risking the interactive-transaction timeout
+  // or exhausting memory on a serverless function. 500 is comfortably past any
+  // real one-off order; BULK counting (a category's own quantity field, not this)
+  // is the right tool past that.
+  count: z.number().int().min(1).max(500),
   ownerOrgNodeId: z.string().optional(),
   currentOrgNodeId: z.string().optional(),
   custodianId: z.string().optional(),
