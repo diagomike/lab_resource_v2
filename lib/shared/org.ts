@@ -19,7 +19,9 @@ export const OrgNodeDto = z.object({
   active: z.boolean(),
   parentIds: z.array(z.string()),
   occupant: z
-    .object({ id: z.string(), name: z.string(), email: z.string() })
+    // F-011: null unless the caller is an admin or a manager — a student can see who holds a
+    // post, not their mailbox.
+    .object({ id: z.string(), name: z.string(), email: z.string().nullable() })
     .nullable(),
   /** Whether this node can be deleted without a blocker — currently just "does anyone
    *  call it home". Grows a term for each lab-management module as it ships (owned

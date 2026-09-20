@@ -265,3 +265,17 @@ describe("F-008 — org node names are trimmed, bounded and unique among active 
     expect(fresh.name).toBe(name);
   });
 });
+
+describe("F-011 — occupant emails are withheld unless the caller may see them", () => {
+  it("list() with includeEmail:false returns the occupant's name but a null email", async () => {
+    const nodeId = await makeNode("f11-office", "OFFICE", 1);
+    const userId = await makeUser("f11-occupant");
+    await prisma.orgNode.update({ where: { id: nodeId }, data: { userId } });
+
+    const hidden = (await org.list(false, { includeEmail: false })).find((n) => n.id === nodeId)!;
+    expect(hidden.occupant).toMatchObject({ id: userId, email: null });
+    expect(hidden.occupant?.name).toBeTruthy();
+    const shown = (await org.list(false)).find((n) => n.id === nodeId)!;
+    expect(shown.occupant?.email).toContain("@");
+  });
+});

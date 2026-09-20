@@ -40,7 +40,10 @@ async function withOrgLock<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   throw new Error("unreachable");
 }
 
-export async function list(activeOnly: boolean): Promise<OrgNodeDto[]> {
+/** `includeEmail` defaults to true — every writer of the chart is admin-only and gets the
+ *  fuller record back; the read route passes the caller's own entitlement (F-011). */
+export async function list(activeOnly: boolean, opts: { includeEmail?: boolean } = {}): Promise<OrgNodeDto[]> {
+  const includeEmail = opts.includeEmail ?? true;
   const nodes = await prisma.orgNode.findMany({
     where: activeOnly ? { active: true } : {},
     include: { user: true, incomingEdges: true, residents: { select: { id: true } } },
@@ -54,7 +57,7 @@ export async function list(activeOnly: boolean): Promise<OrgNodeDto[]> {
     kind: n.kind,
     active: n.active,
     parentIds: n.incomingEdges.map((e) => e.parentId),
-    occupant: n.user ? { id: n.user.id, name: n.user.name, email: n.user.email } : null,
+    occupant: n.user ? { id: n.user.id, name: n.user.name, email: includeEmail ? n.user.email : null } : null,
     // TODO: fold in owned Location/Asset/StockLine/etc. counts once those modules ship.
     hasOwnedContent: n.residents.length > 0,
     draftWorkflowEnabled: n.draftWorkflowEnabled,
