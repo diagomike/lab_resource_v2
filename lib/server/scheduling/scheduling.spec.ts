@@ -286,3 +286,26 @@ describe("weekly class series", () => {
     await expect(series.createSeries(custodianId, { labItemId: pc1, title: "Not a room", ...rule(35) })).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("F-053 — a booking's private details go only to the requester, the room's custodian and the owning head", () => {
+  it("other staff see the slot but not the on-behalf-of note, head-count or decision note", async () => {
+    const date = dayAhead(30);
+    const made = await reservations.createStaffBooking(staffId, { ...booking([pc1], date, "10:00", "11:00", "Thesis defence"), onBehalfOfNote: "Sara T. (UGR/1234/13)", participantCount: 3 });
+
+    const headId = await makeUser("f53-head", ["MANAGER"]);
+    await prisma.orgNode.update({ where: { id: nodeId }, data: { userId: headId } });
+    const outsiderStaff = otherStaffId;
+
+    const detailOf = async (viewerId: string) => (await reservations.listCalendar(viewerId, labId, date, date)).find((r) => r.id === made.id)!;
+
+    for (const privileged of [staffId, custodianId, headId]) {
+      const r = await detailOf(privileged);
+      expect([r.onBehalfOfNote, r.participantCount]).toEqual(["Sara T. (UGR/1234/13)", 3]);
+    }
+    const seen = await detailOf(outsiderStaff);
+    expect(seen.title).toBe("Thesis defence"); // the slot itself stays visible for planning
+    expect([seen.onBehalfOfNote, seen.participantCount, seen.note]).toEqual([null, null, null]);
+
+    await prisma.orgNode.update({ where: { id: nodeId }, data: { userId: null } });
+  });
+});

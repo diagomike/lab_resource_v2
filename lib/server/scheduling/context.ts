@@ -237,7 +237,7 @@ export function overlapConflict(): HttpError {
 }
 
 export const RESERVATION_INCLUDE = {
-  lab: { select: { name: true } },
+  lab: { select: { name: true, ownerOrgNodeId: true } },
   requestedBy: { select: { name: true } },
   decidedBy: { select: { name: true } },
   resources: { include: { item: { select: { name: true, category: { select: { name: true } } } } } },
@@ -249,11 +249,22 @@ export interface Viewer {
   userId: string;
   sysAdmin: boolean;
   custody: Set<string>;
+  /** Every unit the viewer heads (a node they occupy) plus everything beneath it — F-053's
+   *  "heads of the owning unit". Read-only reach: it grants sight of a booking's private
+   *  details, never the authority to decide it (F-054 stays custodian-only). */
+  headUnitIds: Set<string>;
 }
 
 export async function viewerOf(userId: string): Promise<Viewer> {
-  const [sysAdmin, custody] = await Promise.all([scope.isSysAdmin(userId), scope.custodyItemIdsOf(userId)]);
-  return { userId, sysAdmin, custody: new Set(custody) };
+  const [sysAdmin, custody, occupied] = await Promise.all([
+    scope.isSysAdmin(userId),
+    scope.custodyItemIdsOf(userId),
+    prisma.orgNode.findMany({ where: { userId, active: true }, select: { id: true } }),
+  ]);
+  const below = occupied.length
+    ? await prisma.orgClosure.findMany({ where: { ancestorId: { in: occupied.map((n) => n.id) } }, select: { descendantId: true } })
+    : [];
+  return { userId, sysAdmin, custody: new Set(custody), headUnitIds: new Set([...occupied.map((n) => n.id), ...below.map((c) => c.descendantId)]) };
 }
 
 /** Who answers for a room's calendar: its custodian (custody resolves through
@@ -266,6 +277,11 @@ export function toReservationDto(row: ReservationRow, viewer: Viewer, timeZone =
   const start = instantToCivil(row.startsAt, timeZone);
   const live = LIVE_STATES.includes(row.state);
   const decides = decidesFor(viewer, row.labItemId);
+  // F-053: the calendar itself is open to staff (it's needed for planning), but a booking's
+  // private details — the "on behalf of" note (a student's name and ID), the decision note
+  // and the head-count — go only to the requester, whoever answers for the room, and the
+  // heads of its owning unit.
+  const seesDetail = decides || row.requestedById === viewer.userId || viewer.headUnitIds.has(row.lab.ownerOrgNodeId);
   return {
     id: row.id,
     source: row.source,
@@ -281,12 +297,12 @@ export function toReservationDto(row: ReservationRow, viewer: Viewer, timeZone =
     seriesId: row.seriesId,
     requestedById: row.requestedById,
     requestedByName: row.requestedBy?.name ?? null,
-    onBehalfOfNote: row.onBehalfOfNote,
-    participantCount: row.participantCount,
+    onBehalfOfNote: seesDetail ? row.onBehalfOfNote : null,
+    participantCount: seesDetail ? row.participantCount : null,
     holdExpiresAt: row.holdExpiresAt?.toISOString() ?? null,
     decidedByName: row.decidedBy?.name ?? null,
     decidedAt: row.decidedAt?.toISOString() ?? null,
-    note: row.note,
+    note: seesDetail ? row.note : null,
     resources: row.resources.map((r) => ({ itemId: r.itemId, name: r.item.name, categoryName: r.item.category.name })),
     canDecide: row.state === "REQUESTED" && decides,
     canCancel: live && row.endsAt > new Date() && (decides || (row.requestedById === viewer.userId && row.source === "STAFF")),
