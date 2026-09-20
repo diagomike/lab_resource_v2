@@ -265,7 +265,11 @@ export async function deleteNode(id: string): Promise<void> {
 
     // Item.ownerOrgNodeId/currentOrgNodeId are onDelete: Restrict — without these two
     // checks the delete below would still be refused, just as a raw, uncaught Prisma
-    // foreign-key error instead of a named blocker like every other one here.
+    // foreign-key error instead of a named blocker like every other one here. Counts
+    // every item regardless of deletedAt (F-025's soft delete): the FK this guards
+    // against still holds for a soft-deleted row exactly as it does for a live one
+    // — the row still exists — so excluding it here would promise a delete the
+    // database would then refuse anyway.
     const owned = await tx.item.count({ where: { ownerOrgNodeId: id } });
     if (owned > 0) blockers.push(`owns ${owned} resource(s)`);
     const held = await tx.item.count({ where: { currentOrgNodeId: id, ownerOrgNodeId: { not: id } } });

@@ -439,8 +439,12 @@ export async function decideCommit(actorId: string, requestId: string, decision:
 async function checkBaseVersionsCurrent(tx: Tx, baseVersions: Record<string, number> | null): Promise<string | null> {
   if (!baseVersions || !Object.keys(baseVersions).length) return null;
   const ids = Object.keys(baseVersions);
+  // "deletedAt" IS NULL — a soft-deleted item's version doesn't change when it's
+  // deleted (F-025), so a version-only comparison would miss exactly this case;
+  // treated the same as "no longer exists", same as everywhere else deletedAt is
+  // read as absence rather than a live row's own field.
   const rows = await tx.$queryRaw<{ id: string; name: string; version: number }[]>`
-    SELECT id, name, version FROM "Item" WHERE id = ANY(${ids}) FOR UPDATE
+    SELECT id, name, version FROM "Item" WHERE id = ANY(${ids}) AND "deletedAt" IS NULL FOR UPDATE
   `;
   const byId = new Map(rows.map((r) => [r.id, r]));
   const changed = ids

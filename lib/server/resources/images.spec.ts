@@ -328,9 +328,11 @@ describe("images — cleanup after a committed transaction, never before", () =>
     await storage.remove(image.storageKey);
   });
 
-  it("cleans up every photo (and any still-pending upload) in a deleted subtree", async () => {
+  it("F-025: a deleted subtree is soft-deleted — every photo and pending upload stays exactly where it is, nothing physically removed", async () => {
     // A photo on the parent, an UPLOADED-but-never-finalized session on the child —
-    // both must be gone from storage once the parent's whole subtree is deleted.
+    // deleteItem is now a soft delete (deletedAt, the row and every photo behind
+    // it kept, recoverable), not the hard delete this test used to prove wiped
+    // storage clean — see mutate.ts's own applyDeleteItem note.
     const parentSession = await images.createUploadSession(seCustodianId, seItemId);
     await images.receiveUpload(seCustodianId, parentSession.uploadSessionId, pngBytes(10, 10));
     const before = await prisma.item.findUniqueOrThrow({ where: { id: seItemId } });
@@ -346,10 +348,18 @@ describe("images — cleanup after a committed transaction, never before", () =>
 
     await applyChange(seCustodianId, { kind: "deleteItem", itemIds: [seItemId] });
 
-    expect(await storage.read(parentImage.storageKey)).toBeNull();
-    expect(await storage.read(childUpload.storageKey)).toBeNull();
-    expect(await prisma.item.findUnique({ where: { id: seItemId } })).toBeNull();
-    expect(await prisma.item.findUnique({ where: { id: childItemId } })).toBeNull();
+    expect(await storage.read(parentImage.storageKey)).not.toBeNull();
+    expect(await storage.read(childUpload.storageKey)).not.toBeNull();
+    const parentAfter = await prisma.item.findUnique({ where: { id: seItemId } });
+    const childAfter = await prisma.item.findUnique({ where: { id: childItemId } });
+    expect(parentAfter?.deletedAt).not.toBeNull();
+    expect(childAfter?.deletedAt).not.toBeNull();
+    expect(await prisma.itemImage.findUnique({ where: { id: parentImage.id } })).not.toBeNull(); // the row survives too
+
+    await prisma.itemImage.delete({ where: { id: parentImage.id } });
+    await storage.remove(parentImage.storageKey);
+    await storage.remove(childUpload.storageKey);
+    await prisma.item.deleteMany({ where: { id: { in: [seItemId, childItemId] } } });
 
     // Recreate the fixtures this describe block's own afterAll (the outer one)
     // expects to still exist, since this test deliberately deleted them.

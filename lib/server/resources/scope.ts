@@ -305,7 +305,11 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
   const roles = await rolesOf(userId);
   if (roles.includes("MANAGER")) {
     const visible = await orgScope.visibleNodeIds(userId);
-    const rows = await prisma.item.findMany({ where: { id: { in: remaining } }, select: { id: true, ownerOrgNodeId: true } });
+    // deletedAt: null (F-025 of the 2026-09-15 campaign) — a soft-deleted item's
+    // row still exists, so without this a MANAGER's reach would silently extend
+    // to editing something that's supposed to be gone; excluding it here makes
+    // it count as missing, the same "not found" a hard delete used to produce.
+    const rows = await prisma.item.findMany({ where: { id: { in: remaining }, deletedAt: null }, select: { id: true, ownerOrgNodeId: true } });
     const stillOut = rows.length !== remaining.length || rows.some((r) => !visible.includes(r.ownerOrgNodeId));
     if (!stillOut) return;
   }

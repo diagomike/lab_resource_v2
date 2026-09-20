@@ -152,6 +152,41 @@ describe("applyChange — item version-conflict atomicity", () => {
   });
 });
 
+describe("F-025 — deleteItem is a soft delete", () => {
+  it("keeps the row (deletedAt set), excludes it from reads, and refuses re-deleting it", async () => {
+    const parent = await prisma.item.create({
+      data: { categoryId, name: "F025 Parent", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+    const child = await prisma.item.create({
+      data: { categoryId, name: "F025 Child", parentId: parent.id, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+
+    const result = await applyChange(sysAdminId, { kind: "deleteItem", itemIds: [parent.id] });
+    expect(result.applied).toBe(1);
+
+    const parentAfter = await prisma.item.findUniqueOrThrow({ where: { id: parent.id } });
+    const childAfter = await prisma.item.findUniqueOrThrow({ where: { id: child.id } });
+    expect(parentAfter.deletedAt).not.toBeNull(); // the row survives
+    expect(childAfter.deletedAt).not.toBeNull(); // the whole subtree does too
+
+    // A field edit against the now-deleted item touches nothing — applyFieldChange's
+    // own item lookup already filters deletedAt: null, so the deleted item is
+    // silently excluded from the batch (applied: 0) rather than having its name
+    // actually changed.
+    const editResult = await applyChange(sysAdminId, { kind: "setName", itemIds: [parent.id], value: "Should not apply" });
+    expect(editResult.applied).toBe(0);
+    expect((await prisma.item.findUniqueOrThrow({ where: { id: parent.id } })).name).toBe("F025 Parent");
+
+    // Re-deleting an already-deleted item is a no-op (nothing left to find), not
+    // an error and not a second audit row.
+    const again = await applyChange(sysAdminId, { kind: "deleteItem", itemIds: [parent.id] });
+    expect(again.applied).toBe(0);
+
+    await prisma.itemChange.deleteMany({ where: { itemId: { in: [parent.id, child.id] } } });
+    await prisma.item.deleteMany({ where: { id: { in: [child.id, parent.id] } } });
+  });
+});
+
 describe("F-024 — custody may not land on an ineligible account", () => {
   it("refuses setCustodian to a student, and to a disabled CUSTODIAN", async () => {
     const studentId = (

@@ -710,19 +710,21 @@ async function applyDeleteItem(
     });
   }
 
-  // Every photo the doomed subtree owns — both finalized (ItemImage) and any upload
-  // that reached storage but was never finalized (ImageUpload, status UPLOADED) —
-  // must be read BEFORE the rows that name them are gone; Item→ItemImage/ImageUpload
-  // is onDelete: Cascade, so the DB rows vanish the instant the item does, but the
-  // files behind them do not go with them unless this collects the keys first.
+  // F-025 of the 2026-09-15 campaign: this used to be a hard `tx.item.delete`,
+  // which — via Prisma's own onDelete: Cascade on every child table (ItemImage,
+  // ImageUpload, CustomProperty, ItemDraftChange, LabIdealTarget, and Reservation/
+  // ScheduleSeries/ReservationResource, whose live rows liveDependentBlockers
+  // above already refuses to proceed past) — destroyed the subtree's own data
+  // with only the ItemChange audit row surviving, and no way back from a
+  // fat-fingered delete. Soft delete instead: every reader already filters
+  // `deletedAt: null` (this is exactly the column existing readers were built
+  // against), so setting it here is what actually turns that intent on. Nothing
+  // physical is removed either — a soft-deleted item's photos stay exactly where
+  // they are, recoverable along with the row itself, so `cleanupKeys` (storage
+  // removal) does not apply to this path the way it does to an explicit
+  // removeImage.
   const doomedIds = doomed.map((d) => d.id);
-  const [images, pendingUploads] = await Promise.all([
-    tx.itemImage.findMany({ where: { itemId: { in: doomedIds } }, select: { storageKey: true } }),
-    tx.imageUpload.findMany({ where: { itemId: { in: doomedIds }, status: "UPLOADED" }, select: { storageKey: true } }),
-  ]);
-  cleanupKeys.push(...images.map((i) => i.storageKey), ...pendingUploads.map((u) => u.storageKey));
-
-  for (const row of doomed) await tx.item.delete({ where: { id: row.id } });
+  await tx.item.updateMany({ where: { id: { in: doomedIds } }, data: { deletedAt: at } });
 
   const batchId = roots.length > 1 ? newId("b") : undefined;
   await tx.itemChange.createMany({
