@@ -82,6 +82,17 @@ export async function register(input: RegisterInput): Promise<{ email: string }>
 
   const user = await prisma.user.findUnique({ where: { emailLower: invitation.emailLower } });
   if (!user) throw new HttpError(400, "No account matches this invitation");
+  // F-012 of the 2026-09-15 campaign: a DISABLED account (deactivated after being
+  // invited, before ever accepting) must not be reactivated by consuming a leftover
+  // token — `people.deactivate` now also expires every open invitation for the same
+  // reason, so this is the second, independent half of the same fix, not a
+  // duplicate: whichever of the two a future code path forgets, the other still
+  // holds. status is the identity check that actually matters here; "INVITED" vs.
+  // "ACTIVE" is not (re-accepting an already-active account is refused by the
+  // invitation's own consumedAt check above in the normal case, but a person could
+  // in principle be re-invited without a status change — status ACTIVE/INVITED are
+  // both fine to proceed from, only DISABLED is not).
+  if (user.status === "DISABLED") throw new HttpError(400, "This account has been disabled — contact an administrator.");
 
   const passwordHash = await argon2.hash(input.password);
   await prisma.$transaction([

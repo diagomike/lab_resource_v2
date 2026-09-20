@@ -105,11 +105,15 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
   let nodeId = input.nodeId ?? null;
 
   if (!isAdmin) {
-    if (!actorRoles.includes("MANAGER")) {
+    // Occupancy decides who may act as a head, not the MANAGER role label (F-017 of
+    // the 2026-09-15 campaign) — `scope.ownNodeId` alone is too wide for this check
+    // (it also resolves a plain custodian's or staff member's homeNodeId, who
+    // occupy nothing); `headNodeIdsOf` is genuinely "do they hold a post".
+    const headNodeIds = await scope.headNodeIdsOf(actorUserId);
+    if (!headNodeIds.length) {
       throw new HttpError(403, "Only an admin or a department head may add personnel");
     }
-    const ownNodeId = await scope.ownNodeId(actorUserId);
-    if (!ownNodeId) throw new HttpError(400, "You do not occupy a department");
+    const ownNodeId = headNodeIds[0];
     if (roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r))) {
       throw new HttpError(403, `A department head may only add ${MANAGER_INVITABLE_ROLES.join(" or ")} personnel`);
     }
@@ -174,9 +178,41 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
   return { ...dto, inviteUrl };
 }
 
-export async function updateRoles(id: string, input: UpdatePersonRolesInput): Promise<PersonDto> {
-  const user = await prisma.user.findUnique({ where: { id } });
+/**
+ * F-014 of the 2026-09-15 campaign: a department head may deactivate, reactivate
+ * and re-role their OWN CUSTODIAN/STAFF personnel — previously SYS_ADMIN-only,
+ * which meant every routine staffing change in every department was a ticket to
+ * the system administrator, despite Personnel already scoping heads to invite
+ * exactly this pair of roles. Scoped tightly, never widened past what a head could
+ * already do by inviting fresh: the target must be in the head's own department,
+ * must not occupy a node themselves (a post is an admin-only act, unchanged), must
+ * not be the actor, and every role touched — the target's EXISTING roles and
+ * whatever the head is trying to set — must stay within CUSTODIAN/STAFF. SYS_ADMIN
+ * is unconditional, as everywhere else.
+ */
+async function assertMayManageStaff(actorUserId: string, actorRoles: RoleKind[], target: { id: string; homeNodeId: string | null; roles: { kind: RoleKind }[] }): Promise<void> {
+  if (actorRoles.includes("SYS_ADMIN")) return;
+  if (target.id === actorUserId) throw new HttpError(403, "You cannot manage your own account this way.");
+  const headNodeIds = await scope.headNodeIdsOf(actorUserId);
+  if (!headNodeIds.length) throw new HttpError(403, "Only an admin or a department head may do this.");
+  const visible = await scope.visibleNodeIds(actorUserId);
+  if (!target.homeNodeId || !visible.includes(target.homeNodeId)) {
+    throw new HttpError(403, "You may only manage people in your own department.");
+  }
+  const occupiesANode = await prisma.orgNode.findFirst({ where: { userId: target.id }, select: { id: true } });
+  if (occupiesANode) throw new HttpError(403, "You may not manage someone who occupies a post on the org chart.");
+  if (target.roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r.kind))) {
+    throw new HttpError(403, `You may only manage ${MANAGER_INVITABLE_ROLES.join(" or ")} personnel.`);
+  }
+}
+
+export async function updateRoles(actorUserId: string, actorRoles: RoleKind[], id: string, input: UpdatePersonRolesInput): Promise<PersonDto> {
+  const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");
+  await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
+  if (!actorRoles.includes("SYS_ADMIN") && input.roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r))) {
+    throw new HttpError(403, `A department head may only set ${MANAGER_INVITABLE_ROLES.join(" or ")} roles.`);
+  }
   await prisma.$transaction([
     prisma.userRole.deleteMany({ where: { userId: id } }),
     prisma.userRole.createMany({ data: input.roles.map((kind) => ({ userId: id, kind })) }),
@@ -191,9 +227,10 @@ export async function updateRoles(id: string, input: UpdatePersonRolesInput): Pr
  * occupy in the same transaction, and says so, rather than leaving that discovered later
  * as a stuck approval chain.
  */
-export async function deactivate(id: string): Promise<DeactivateResultDto> {
-  const user = await prisma.user.findUnique({ where: { id } });
+export async function deactivate(actorUserId: string, actorRoles: RoleKind[], id: string): Promise<DeactivateResultDto> {
+  const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");
+  await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
 
   // Item.custodianId is onDelete: Restrict and NEVER null — custody hands off, it
   // never lapses. A disabled custodian could never again sign in to act on what they
@@ -216,13 +253,21 @@ export async function deactivate(id: string): Promise<DeactivateResultDto> {
     }
     await tx.user.update({ where: { id }, data: { status: "DISABLED" } });
     await tx.session.deleteMany({ where: { userId: id } });
+    // Every still-usable invitation for this email dies with the account (F-012 of
+    // the 2026-09-15 campaign): without this, a deactivated INVITED person could
+    // open their original invite link and register anyway, silently re-activating
+    // themselves — `register()` in auth.ts refuses a non-INVITED account (a second,
+    // independent half of the same fix), but a link that should already be dead is
+    // the more honest place to close this, not just the door it would have opened.
+    await tx.invitation.updateMany({ where: { emailLower: user.emailLower, consumedAt: null }, data: { expiresAt: new Date() } });
     return { ok: true as const, vacatedNodeName: occupied?.name ?? null };
   });
 }
 
-export async function reactivate(id: string): Promise<PersonDto> {
-  const user = await prisma.user.findUnique({ where: { id } });
+export async function reactivate(actorUserId: string, actorRoles: RoleKind[], id: string): Promise<PersonDto> {
+  const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");
+  await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
   await prisma.user.update({ where: { id }, data: { status: user.passwordHash ? "ACTIVE" : "INVITED" } });
   return one(id);
 }
@@ -306,6 +351,14 @@ export async function assignNode(
       await tx.orgNodeAssignment.create({
         data: { nodeId, userId: targetUserId, assignedById: actorUserId, reason: reason ?? null },
       });
+      // Occupying a node is what "head" means now (F-017 of the 2026-09-15
+      // campaign) — MANAGER is auto-granted alongside so a newly appointed head
+      // sees People and can compile purchase requests immediately, without a
+      // separate manual role edit the admin could forget. It is never REMOVED on
+      // vacate (a former head may legitimately keep the role, e.g. to sit on a
+      // committee) — occupancy is checked live everywhere it actually matters, this
+      // upsert is purely a convenience so the common case needs no second step.
+      await tx.userRole.upsert({ where: { userId_kind: { userId: targetUserId, kind: "MANAGER" } }, create: { userId: targetUserId, kind: "MANAGER" }, update: {} });
       newAssignmentNodeName = targetNode.name;
     }
   });

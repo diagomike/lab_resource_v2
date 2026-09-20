@@ -35,8 +35,12 @@ const ALL_ROLE_KINDS: RoleKind[] = [
 const MANAGER_INVITABLE: RoleKind[] = ["CUSTODIAN", "STAFF"];
 
 export default function PersonnelPage() {
-  const { user } = useAuth();
+  const { user, me } = useAuth();
   const isAdmin = (user?.roles ?? []).includes("SYS_ADMIN");
+  // Occupancy, not the MANAGER role (F-017 of the 2026-09-15 campaign) — a head who
+  // occupies a node manages their own staff (F-014) even without that role label.
+  const isHead = Boolean(me?.scope?.isOccupant);
+  const canManageStaff = isAdmin || isHead;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -207,6 +211,7 @@ export default function PersonnelPage() {
               sorting={sorting}
               onSortingChange={setSorting}
               isAdmin={isAdmin}
+              canManage={canManageStaff}
               onManage={(p) => setManageId(p.id)}
               onResendInvite={resendInvite}
             />
@@ -218,6 +223,7 @@ export default function PersonnelPage() {
         <PersonManageModal
           person={managing}
           nodes={nodes}
+          isAdmin={isAdmin}
           isSelf={managing.id === user?.id}
           onClose={() => setManageId(null)}
           onSaveRoles={(roles) => updateRoles(managing.id, roles)}
@@ -323,6 +329,7 @@ function RoleChip({
 function PersonManageModal({
   person,
   nodes,
+  isAdmin,
   isSelf,
   onClose,
   onSaveRoles,
@@ -333,6 +340,7 @@ function PersonManageModal({
 }: {
   person: PersonDto;
   nodes: OrgNodeDto[];
+  isAdmin: boolean;
   isSelf: boolean;
   onClose: () => void;
   onSaveRoles: (roles: RoleKind[]) => void;
@@ -343,6 +351,10 @@ function PersonManageModal({
 }) {
   const [roleDraft, setRoleDraft] = useState<RoleKind[]>(person.roles);
   const rolesDirty = JSON.stringify([...roleDraft].sort()) !== JSON.stringify([...person.roles].sort());
+  // A head sees and may only ever set CUSTODIAN/STAFF — the server enforces the
+  // identical floor (F-014 of the 2026-09-15 campaign); this just keeps the UI from
+  // offering a control that would only 403.
+  const editableRoles = isAdmin ? ALL_ROLE_KINDS : MANAGER_INVITABLE;
 
   function toggleRole(r: RoleKind) {
     if (isSelf && r === "SYS_ADMIN") return;
@@ -364,7 +376,7 @@ function PersonManageModal({
       <div>
         <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Roles</div>
         <div className="flex flex-wrap gap-8">
-          {ALL_ROLE_KINDS.map((r) => (
+          {editableRoles.map((r) => (
             <RoleChip
               key={r}
               role={r}
@@ -385,19 +397,23 @@ function PersonManageModal({
         </div>
       </div>
 
-      <div>
-        <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Occupies node</div>
-        <div className="mb-8 text-11 text-dim">
-          {person.occupiesNodeName ? <span className="text-text">{person.occupiesNodeName}</span> : <span className="text-faint">headless — occupies nothing</span>}
+      {/* Node occupancy stays an admin-only act (F-014's own scoping note) — a head
+          manages their staff's roles and standing, never who holds a post. */}
+      {isAdmin && (
+        <div>
+          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Occupies node</div>
+          <div className="mb-8 text-11 text-dim">
+            {person.occupiesNodeName ? <span className="text-text">{person.occupiesNodeName}</span> : <span className="text-faint">headless — occupies nothing</span>}
+          </div>
+          <EntityPicker
+            options={nodes.filter((n) => n.active).map((n) => ({ id: n.id, label: n.name, sublabel: n.kind }))}
+            value={person.occupiesNodeId}
+            onSelect={(nodeId) => onAssignNode(nodeId)}
+            placeholder="Assign a node…"
+            clearLabel="Vacate this person's node"
+          />
         </div>
-        <EntityPicker
-          options={nodes.filter((n) => n.active).map((n) => ({ id: n.id, label: n.name, sublabel: n.kind }))}
-          value={person.occupiesNodeId}
-          onSelect={(nodeId) => onAssignNode(nodeId)}
-          placeholder="Assign a node…"
-          clearLabel="Vacate this person's node"
-        />
-      </div>
+      )}
 
       <div className="pt-4 border-t border-border">
         {person.status === "DISABLED" ? (
