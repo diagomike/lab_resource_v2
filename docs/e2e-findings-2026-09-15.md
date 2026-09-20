@@ -152,7 +152,7 @@ Plan: `~/.claude/plans/you-are-a-master-robust-knuth.md`. All 29 MEDIUM findings
 
 All 13 LOW findings that were still open are fixed (F-008, F-011, F-018, F-019, F-028, F-029, F-030, F-033, F-048, F-052, F-053, F-057; F-034 was closed in Phase 2), and the three DESIGN findings are recorded as decided with their reasoning (F-007, F-038, F-054) — no code. One commit per cluster, each with its regression test.
 
-**Verified:** `npx tsc --noEmit`, `npm test` (480/480, up from 458), `npm run build` all clean; a fresh-clone E2E re-run of all 14 suites finished with 187 PASS. The only ✘ left are the three DESIGN-decided cases (O-11 F-007, S-18 F-054), the deliberately deferred notification half of F-051 (S-14), and the two INFO artifacts V-01/V-03 (fixture-only, see the Phase 2 re-verification note).
+**Verified:** `npx tsc --noEmit`, `npm test` (480/480, up from 458), `npm run build` all clean; a fresh-clone E2E re-run of all 14 suites finished with 189 PASS of 194. The only ✘ left are the three DESIGN-decided cases (O-11 F-007, S-18 F-054), the deliberately deferred notification half of F-051 (S-14), and the two INFO artifacts V-01/V-03 (fixture-only, see the Phase 2 re-verification note).
 
 **Behaviour changes worth knowing about:**
 - A department head who sends a `homeNodeId` outside their own subtree now gets a 403 (it used to be silently rewritten to their own node). E2E P-06 was updated for this.

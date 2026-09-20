@@ -4062,7 +4062,7 @@ its model that make porting it as-is the wrong move.
     F-038 (vacancy freezes), F-054 (bookings stay custodian-only); reasoning is in the findings doc.
 
   **Verified**: `npx tsc --noEmit`, `npm test` (480/480), `npm run build` clean; fresh-clone E2E
-  re-run of all 14 suites: 187 PASS. Remaining ✘ are the DESIGN-decided cases (O-11, S-18), the
+  re-run of all 14 suites: 189 PASS of 194. Remaining ✘ are the DESIGN-decided cases (O-11, S-18), the
   deliberately deferred notification half of F-051 (S-14), and the fixture-only INFO artifacts
   V-01/V-03. Harness edit: P-06 now expects the new 403 for a foreign home node. F-057 was checked
   by build and code reading only (the browser tooling was unavailable this session).
