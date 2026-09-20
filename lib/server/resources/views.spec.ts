@@ -310,3 +310,30 @@ describe("assertViewAllowsEdit — the write door's half of the invariant", () =
     ).rejects.toMatchObject({ status: 404 }); // ...but still cannot write it — assertCanMutate is unaffected.
   });
 });
+
+describe("F-033 — a view's references must resolve before it is saved", () => {
+  const base = { scope: "EXPLICIT_NODES" as const, canEdit: true, active: true, audiences: [{ type: "EVERYONE" as const }] };
+
+  it("refuses EXPLICIT_NODES with no units, and with an unknown unit id", async () => {
+    await expect(views.upsert({ ...base, name: `${testKey}-f33-empty`, explicitNodeIds: [] })).rejects.toMatchObject({ status: 400 });
+    await expect(views.upsert({ ...base, name: `${testKey}-f33-ghost`, explicitNodeIds: [seNodeId, "no-such-node"] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("refuses an unknown or disabled PERSON audience with a 400, never a raw FK 500", async () => {
+    const disabledEmail = `${testKey}-f33-off@astu.edu.et`;
+    const disabled = await prisma.user.create({ data: { email: disabledEmail, emailLower: disabledEmail, name: "F33 Off", status: "DISABLED" } });
+    createdUserIds.push(disabled.id);
+    const v = { ...base, name: `${testKey}-f33-person`, explicitNodeIds: [seNodeId] };
+    await expect(views.upsert({ ...v, audiences: [{ type: "PERSON", personId: "no-such-person" }] })).rejects.toMatchObject({ status: 400 });
+    await expect(views.upsert({ ...v, audiences: [{ type: "PERSON", personId: disabled.id }] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("an update of a view id that does not exist is a 404", async () => {
+    await expect(views.upsert({ ...base, id: "no-such-view", name: `${testKey}-f33-404`, explicitNodeIds: [seNodeId] })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("still saves a valid view", async () => {
+    const id = await makeView({ ...base, name: `${testKey}-f33-ok`, explicitNodeIds: [seNodeId, chemNodeId] });
+    expect(id).toBeTruthy();
+  });
+});

@@ -186,7 +186,28 @@ export async function getOne(id: string): Promise<AccessViewDto> {
  *  `CategoryField` rows already follow on a category edit, and simplest to reason
  *  about for a vocabulary this small (an institution has a handful of views, not
  *  hundreds). */
+/** F-033: every reference a view holds must resolve before anything is written. An empty
+ *  EXPLICIT_NODES view shows nothing, an unknown node id silently matches nothing, and an
+ *  unknown PERSON audience used to surface as a raw FK-violation 500. */
+async function assertViewReferencesValid(input: UpsertAccessViewInput): Promise<void> {
+  if (input.scope === "EXPLICIT_NODES") {
+    const ids = [...new Set(input.explicitNodeIds)];
+    if (!ids.length) throw new HttpError(400, "Choose at least one unit for a view limited to specific units.");
+    const found = await prisma.orgNode.findMany({ where: { id: { in: ids }, active: true }, select: { id: true } });
+    if (found.length !== ids.length) throw new HttpError(400, "One or more of the chosen units does not exist or is inactive.");
+  }
+  const personIds = [...new Set(input.audiences.flatMap((a) => (a.type === "PERSON" ? [a.personId] : [])))];
+  if (personIds.length) {
+    const people = await prisma.user.findMany({ where: { id: { in: personIds }, status: { not: "DISABLED" } }, select: { id: true } });
+    if (people.length !== personIds.length) throw new HttpError(400, "One or more of the chosen people does not exist or is disabled.");
+  }
+  if (input.id && !(await prisma.accessView.findUnique({ where: { id: input.id }, select: { id: true } }))) {
+    throw new HttpError(404, "View not found");
+  }
+}
+
 export async function upsert(input: UpsertAccessViewInput): Promise<AccessViewDto> {
+  await assertViewReferencesValid(input);
   const data = {
     name: input.name,
     description: input.description ?? null,
