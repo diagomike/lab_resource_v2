@@ -3752,6 +3752,171 @@ its model that make porting it as-is the wrong move.
   Birr) and one real verification per provider before go-live; the real receiving account
   and holder names in env.
 
+- **2026-09-15 (whole-system E2E test campaign — findings only, no product changes)** —
+  First end-to-end campaign testing every feature as one product (org → personnel →
+  categories → register → transfers → purchasing → scheduling → external/payments), and
+  attacking the seams between modules, rather than each track's own happy path. Full
+  report: `docs/e2e-findings-2026-09-15.md`; plan:
+  `~/.claude/plans/you-are-a-master-robust-knuth.md`. Branch `track-5-scheduling`.
+
+  **How.** Ran against a throwaway CLONE database `lrms_v2_e2e` (created, migrated and
+  seeded from scratch — the real local `lrms_v2` was never touched), behind a new
+  `.claude/launch.json` `e2e` profile (`next dev -p 3100` via `e2e/with-env.mjs`, which
+  points at the clone, a local SMTP sink, the fake payment verifier, local image
+  storage and a test `CRON_SECRET`). API-level suites in `e2e/suites/*.ts` drive real
+  HTTP against the running app as 18 seeded cast members (sessions minted directly, since
+  this session may not type passwords), asserting both the HTTP result and the resulting
+  DB rows/audit. **195 cases: 124 pass, 69 fail (each mapped to a finding), 2 info.** All
+  29 code-reading hypotheses were run and confirmed/refuted, none reported unverified.
+  `e2e/` is tooling only — `git status` shows only `e2e/`, the findings doc, `.gitignore`
+  and `.claude/launch.json` changed; no product file was modified, and `next-env.d.ts`'s
+  dev-mode auto-edit was reverted.
+
+  **57 findings: 2 CRITICAL, 10 HIGH, 29 MEDIUM, 13 LOW, 3 DESIGN.** The two CRITICAL and
+  the borrowed-item HIGHs all trace to one root cause — **write custody resolves through
+  physical containment** (`scope.custodyItemIdsOf`), so a host lab controls the loans
+  sitting inside it: F-020 (a ChemE custodian's `deleteItem` on her own lab hard-deleted
+  14 SE-owned borrowed items via FK cascade, no notice, unrecoverable), F-021 (a host head
+  re-owns / a host custodian takes custody of a borrowed item), F-039 (no return path;
+  the lender yanks it back and `currentOrgNodeId` stays wrong). Other headline HIGHs:
+  F-022 (custodian setOwnerOrg/setCurrentOrg/setCustodian bypass the transfer chain
+  entirely), F-014 (heads can't manage their own staff — a stated core requirement),
+  F-043 (revise-and-resubmit is broken for any purchase request carrying a staff need),
+  F-044 (count-based `PR-YYYY-NNN` numbering: one deleted row halts ALL purchasing for
+  the year; concurrent compiles 500 — the exact flaw Track 8 already fixed for external
+  requests but left in purchasing), F-002 (any occupant of any `UNIVERSITY`-kind node
+  becomes the AVP; multiple roots allowed), F-012 (a deactivated invitee re-activates via
+  their old invite link), F-049 (deleting a room hard-cascades its confirmed and paid
+  bookings). Cross-cutting themes: **hard delete + FK cascades** (F-020/F-025/F-049)
+  destroy audited, in-use data with no recovery; **no serialize/lock** on several
+  multi-step writes (F-003 closure recompute, F-040 transfer settle, F-045 receiving);
+  **STUDENT reads the whole register/change-log** because the resource read routes never
+  call `requireRole` though `scope.ts` says they must (F-031, L-06); and **missing input
+  bounds** (name hygiene, `count`, booking horizons, series length).
+
+  **4 DESIGN questions for the product owner** (report's own section): borrowed-item
+  ownership/return semantics; what "deactivate a node" should mean; head-vs-custodian
+  authority (and whether "head" is occupancy or the MANAGER role — today inconsistently
+  both); and vacancy escalation for pending approvals.
+
+  **No fixes applied** — per the user's decision, this round only finds and documents,
+  with each finding carrying repro steps, evidence, a `file:line` root cause, ≥2 fix
+  alternatives (one recommended) and a named regression test, as input to a separate
+  review/dev step. `e2e/results.json` is the machine-readable record; the suite re-runs
+  after fixes (`node e2e/create-db.mjs --reset`, re-seed, start the `e2e` profile, run
+  `e2e/suites/*.ts` in order). The clone DB and its seed images (`.local-storage-e2e/`)
+  are gitignored and can be dropped anytime.
+
+- **2026-09-20 (fix round, Phase 1 — the 2 CRITICAL + 10 HIGH, plus F-017)** — Plan:
+  `~/.claude/plans/you-are-a-master-robust-knuth.md` (supersedes the campaign plan above).
+  Fixed and re-verified against the same 2026-09-15 campaign, on a fresh clone:
+  **F-001, F-002, F-012, F-014, F-017, F-020, F-021, F-022, F-023, F-039, F-043, F-044.**
+  Findings doc updated in place — each closed finding's Status now reads
+  `Fixed (2026-09-20, Phase 1)`, with a "Phase 1 fix round" section at the top spelling
+  out what changed per finding.
+
+  **Decisions taken first**, per user direction: borrowed items keep the lender in
+  authority (a host may report status/reposition within their own room; ownership,
+  custody, rename, delete stay with the lender), with an explicit **return flow** added,
+  not just the abuse blocked; deactivating an org node vacates the post only, never the
+  account; heads gain management of their own staff, and **"head" now means occupying
+  the node**, never the MANAGER role label (which is auto-granted on assignment as a
+  convenience, not the authority itself).
+
+  **The two CRITICALs and F-022/F-023 share one root cause**: write custody was
+  inherited through physical containment, so a host lab could act on whatever merely sat
+  inside it. `lib/server/resources/scope.ts` gained `writableItemIdsOf` — the same
+  custody walk as the existing (unchanged, still correct for READS) `custodyItemIdsOf`,
+  except it stops the instant accountability changes — and `assertCanMutate`/
+  `containers()` now use it; a MANAGER's write reach is their unit's `ownerOrgNodeId`
+  only, never `currentOrgNodeId` (F-021). `mutate.ts`'s `assertAuthorized`: `setOwnerOrg`/
+  `setCurrentOrg` became SYS_ADMIN-only, `setCustodian` now requires the RECEIVING
+  custodian's own reach to already cover the item's owning unit (F-022); `applyCreateItem`
+  now always inherits a child's owner/current/custodian from its parent for non-admins,
+  regardless of what the client sends (F-023). `applyDeleteItem` collects named blockers —
+  a foreign-accountability item, or a live booking/series/pending transfer/staged draft
+  touching the subtree — and refuses with a 409 naming them, the live-dependent half
+  applying to SYS_ADMIN too (F-020's blast radius).
+
+  **F-039 got a real return flow**, not just a block: two new `StepSelectorType` values
+  (`HOST_RELEASE`, `OWNER_RECEIPT` — additive migrations), detected structurally in
+  `approvals.ts` (the destination lands back inside the item's own owning unit) rather
+  than by a client flag, raisable by either the lender (their ordinary write reach) or
+  the host (their read-side containment custody, unchanged). `OWNER_RECEIPT` exists
+  because a host-initiated return's "confirm receipt" must go to the owning custodian,
+  never "whoever asked" (`REQUESTER_RECEIPT`'s existing meaning, wrong here). Verified
+  live both directions with a throwaway script, `e2e/probes/verify-return-flow.ts`.
+
+  **F-001**: `deactivateNode` now only ends the `OrgNodeAssignment` row and clears
+  `OrgNode.userId` — never touches `User.status` or sessions; `DeactivateNodeResultDto`'s
+  field renamed `revokedOccupantName` → `vacatedOccupantName`, Org Studio's confirm copy
+  updated to match. **F-002**: `kind === "UNIVERSITY" ⇔ level === 0` plus at most one
+  level-0 node, enforced in `create`/`update`/`changeLevel` — closes the "any UNIVERSITY
+  node's occupant becomes the AVP" hole at its structural root, so `external/requests.ts`'s
+  `isAvp` needed no change (see deviations below). **F-012**: `people.deactivate` now
+  expires every open invitation for that email; `auth.ts`'s `register` refuses a DISABLED
+  account — either half alone would have closed it, both now do.
+
+  **F-014/F-017 — one definition of "head" everywhere**: `lib/server/org/scope.ts` gained
+  `isHeadOf`/`headNodeIdsOf` (occupancy of an active node, or SYS_ADMIN), consolidating
+  purchasing's own previously-duplicated `currentHeadOf`/`assertHeadsNode` and replacing
+  the three places that ALSO required the MANAGER role as a redundant, driftable
+  pre-check (`purchasing.ts`'s `canCompile` gate on `compilePurchaseRequest`/
+  `listOpenNeeds`/`declineNeed`; `people.ts`'s invite scoping; `resources/scope.ts`'s
+  `defaultModeFor`) — this is exactly what P-13 caught: stripping MANAGER from a sitting
+  head left them occupying the node but unable to act as one. `assignNode` now
+  auto-grants MANAGER on a fresh occupancy (never removed on vacate) so the common case
+  needs no separate manual step. `people.ts` gained `assertMayManageStaff`: a head may
+  deactivate/reactivate/re-role their own CUSTODIAN/STAFF, scoped to their own subtree,
+  never a node occupant, never a privileged role, never themselves — the three routes
+  (`deactivate`/`reactivate`/`roles`) lost their route-level `requireRole(["SYS_ADMIN"])`
+  gate in favour of this scoped check. UI: `PersonnelPage.tsx`/`PeopleTable.tsx` show
+  "Manage" to a head too, with the modal hiding node-occupancy (stays admin-only) and
+  restricting role chips to CUSTODIAN/STAFF for a head; `PurchasingPage.tsx`'s compile
+  panel now gates on occupancy (`me.scope.isOccupant`) instead of the MANAGER role.
+
+  **F-043**: `reviseAndResubmit` now releases the old lines' carried needs *before*
+  re-validating them, inside the transaction (previously the check ran first, against
+  pre-release state, so a resubmission keeping its own need link always 400'd — the
+  UI's own pre-filled form could never succeed). **F-044**: `purchasing.ts`'s
+  `nextReference` is now `MAX(numeric suffix)+1` computed inside the transaction with a
+  P2002 retry loop, the identical fix `external/requests.ts` already carried — replacing
+  the row-count scheme that went permanently wrong the moment any request row was ever
+  deleted.
+
+  **Two deliberate deviations from the plan**, decided during implementation: the
+  planned `Reservation.lab`/`ScheduleSeries.lab` FK change from `Cascade` to `Restrict`
+  was dropped — a bare FK can't tell a live booking from closed-out history, so it would
+  have permanently blocked deleting any room with a booking ever recorded against it;
+  the application-layer blocker in `applyDeleteItem` (which checks liveness) is the
+  correct enforcement point and stays the only one. `external/requests.ts`'s `isAvp`
+  was left resolving by `kind: "UNIVERSITY"` rather than a hardcoded `code: "ASTU"` —
+  F-002's own schema invariant already makes that lookup structurally unique, so
+  hardcoding an institution-specific code would have been a regression in generality,
+  not a improvement.
+
+  **Two real E2E-harness bugs found and fixed along the way** (tooling, not product):
+  a leftover throwaway probe (`e2e/suites/O-17b-race.ts`) collided with the `O-*.ts`
+  glob and silently starved the real `O-org.ts` suite of ever running — moved to
+  `e2e/probes/`. `P-people.ts`'s P-10 case mutated the SHARED `staffSe` fixture
+  (deactivate → reactivate → re-role) instead of a throwaway account — harmless while
+  F-014 didn't work yet (every call 403'd), but once fixed it genuinely wiped that
+  actor's session and changed their roles, breaking every later suite that assumed
+  `staffSe` stayed a stable, logged-in, STAFF-only actor. Rewritten to use a fresh
+  account, matching the "never mutate a shared fixture" lesson the product's own
+  DB-backed specs already learned. A third correction, `X-05`'s test data, was isolated
+  from an unrelated 16-hour booking-length cap that had been masking what it actually
+  tested (a hold on a date never requested); re-run clean, it confirms F-055 is a
+  genuine finding, not a false positive from the original campaign.
+
+  **Verified**: `npx tsc --noEmit`, `npm test` (408/408), `npm run build` all clean.
+  Full campaign re-run end to end on a freshly reset, re-seeded, re-fixtured clone —
+  every targeted case flipped FAIL → PASS (O-10, O-12, P-10, P-13, P-15, R-05, R-08,
+  R-09, R-10, R-11, R-23, T-10, B-04, B-16, B-17) with nothing else regressing.
+
+  **Still open**: 45 findings (0 CRITICAL, 0 HIGH, 29 MEDIUM, 13 LOW, 3 DESIGN) —
+  Phase 2 (MEDIUM) and Phase 3 (LOW/DESIGN) of the same plan, not started.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
