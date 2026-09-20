@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { PublicCatalogDto } from "@/lib/shared";
-import { api, ApiError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { loadPublicCatalog } from "@/lib/portal-catalog";
 import PortalChrome from "@/components/portal/PortalChrome";
 import { Panel, ErrorNote } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
@@ -15,8 +16,7 @@ export default function PortalHome() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .get<PublicCatalogDto>("/public/catalog")
+    loadPublicCatalog()
       .then(setCatalog)
       .catch((e) => setError(e instanceof ApiError ? e.message : "The catalog is unavailable right now."));
   }, []);

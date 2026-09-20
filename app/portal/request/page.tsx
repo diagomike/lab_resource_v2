@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { PublicCatalogDto, SubmitExternalRequestResultDto } from "@/lib/shared";
 import { addDays, instantToCivil } from "@/lib/domain/civil-time";
 import { ApiError } from "@/lib/api";
+import { loadPublicCatalog } from "@/lib/portal-catalog";
 import PortalChrome from "@/components/portal/PortalChrome";
 import { Panel, ErrorNote, Button } from "@/components/ui";
 
@@ -37,8 +38,7 @@ export default function PortalRequestPage() {
   const [done, setDone] = useState<SubmitExternalRequestResultDto | null>(null);
 
   useEffect(() => {
-    fetch("/api/public/catalog")
-      .then((r) => (r.ok ? r.json() : null))
+    loadPublicCatalog()
       .then(setCatalog)
       .catch(() => setCatalog(null));
   }, []);
