@@ -10,6 +10,7 @@ import type {
   RoleKind,
   UpdatePersonRolesInput,
 } from "@/lib/shared";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "../org/scope";
@@ -118,9 +119,17 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
     if (roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r))) {
       throw new HttpError(403, `A department head may only add ${MANAGER_INVITABLE_ROLES.join(" or ")} personnel`);
     }
-    // A department head assigns people INTO their own department, never elsewhere, and
-    // never hands out node occupancy — that stays an admin-only act (see assignNode).
-    homeNodeId = ownNodeId;
+    // A head assigns people INTO their own reach, never elsewhere, and never hands out
+    // node occupancy — that stays an admin-only act (see assignNode). F-018: a dean
+    // (head of a unit with departments beneath) may name any department in their
+    // subtree; the default stays their own node.
+    if (input.homeNodeId && input.homeNodeId !== ownNodeId) {
+      const reach = await scope.visibleNodeIds(actorUserId);
+      if (!reach.includes(input.homeNodeId)) throw new HttpError(403, "You may only add personnel to a unit within your own department tree");
+      homeNodeId = input.homeNodeId;
+    } else {
+      homeNodeId = ownNodeId;
+    }
     nodeId = null;
   }
 
@@ -130,7 +139,9 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
 
   const raw = generateToken();
   let assignedNodeName: string | null = null;
-  const created = await prisma.$transaction(async (tx) => {
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: { email: input.email, emailLower, name: input.name, phone: input.phone ?? null, homeNodeId, status: "INVITED" },
     });
@@ -161,7 +172,15 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
     });
 
     return user;
-  });
+    });
+  } catch (err) {
+    // F-019: two submits of the same invite race past the pre-check above; the loser trips
+    // the emailLower unique index. Same answer as the pre-check, not a raw 500.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new HttpError(400, "A person with this email already exists");
+    }
+    throw err;
+  }
 
   const inviteUrl = `${APP_ORIGIN}/accept-invite?token=${raw}`;
 
@@ -313,8 +332,11 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
   if (user.passwordHash) throw new HttpError(400, "This person has already registered");
 
   if (!actorRoles.includes("SYS_ADMIN")) {
-    const ownNodeId = await scope.ownNodeId(actorUserId);
-    if (!ownNodeId || user.homeNodeId !== ownNodeId) {
+    // F-018: the list shows everyone in a head's whole subtree, so the action must reach
+    // the same set (it used to compare against the head's own node only and 403 a dean).
+    const headNodeIds = await scope.headNodeIdsOf(actorUserId);
+    const reach = headNodeIds.length ? await scope.visibleNodeIds(actorUserId) : [];
+    if (!user.homeNodeId || !reach.includes(user.homeNodeId)) {
       throw new HttpError(403, "You may only resend invitations within your own department");
     }
   }

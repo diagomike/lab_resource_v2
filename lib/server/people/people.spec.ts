@@ -146,3 +146,54 @@ describe("F-016 — the last active SYS_ADMIN cannot be demoted, deactivated, or
     await expect(people.deactivate(adminAId, ["SYS_ADMIN"], adminAId)).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("F-019 — a double-submitted invite is a 400 for the loser, never a 500", () => {
+  it("5 parallel identical invites: exactly one succeeds, the rest are 400", async () => {
+    const adminId = await makeUser("dup-admin", ["SYS_ADMIN"]);
+    const email = `${testKey}-dup-invitee@astu.edu.et`;
+    const results = await Promise.allSettled(
+      Array.from({ length: 5 }, () => people.create(adminId, ["SYS_ADMIN"], { name: "Dup Invitee", email, roles: ["STAFF"] })),
+    );
+    const ok = results.filter((r) => r.status === "fulfilled");
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(ok).toHaveLength(1);
+    for (const f of failed) expect(f.reason).toMatchObject({ status: 400 });
+    const row = await prisma.user.findUniqueOrThrow({ where: { emailLower: email } });
+    createdUserIds.push(row.id);
+  });
+});
+
+describe("F-018 — a dean's invite and resend reach the whole subtree they can see", () => {
+  async function tree() {
+    const org = await import("../org/org");
+    const college = await makeNode("f18-college", 1);
+    await prisma.orgNode.update({ where: { id: college }, data: { kind: "COLLEGE" } });
+    const dept = await org.create({ name: `${testKey}-f18-dept-${userCounter++}`, level: 2, kind: "DEPARTMENT", parentIds: [college] });
+    createdNodeIds.push(dept.id);
+    const outsideCollege = await makeNode("f18-outside", 1);
+    const deanId = await makeUser("f18-dean", ["MANAGER"]);
+    await prisma.orgNode.update({ where: { id: college }, data: { userId: deanId } });
+    return { deanId, college, dept: dept.id, outsideCollege };
+  }
+
+  it("a dean may resend an invitation for a department below them, but not for another college's", async () => {
+    const { deanId, dept, outsideCollege } = await tree();
+    const inDept = await makeUser("f18-invitee-in", ["STAFF"], "INVITED");
+    await prisma.user.update({ where: { id: inDept }, data: { homeNodeId: dept } });
+    const outside = await makeUser("f18-invitee-out", ["STAFF"], "INVITED");
+    await prisma.user.update({ where: { id: outside }, data: { homeNodeId: outsideCollege } });
+
+    await expect(people.resendInvite(deanId, ["MANAGER"], inDept)).resolves.toHaveProperty("inviteUrl");
+    await expect(people.resendInvite(deanId, ["MANAGER"], outside)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("a dean may invite into a department in their subtree, and is refused outside it", async () => {
+    const { deanId, dept, outsideCollege } = await tree();
+    const made = await people.create(deanId, ["MANAGER"], { name: "F18 Staff", email: `${testKey}-f18-new@astu.edu.et`, roles: ["STAFF"], homeNodeId: dept });
+    createdUserIds.push(made.id);
+    expect(made.homeNodeId).toBe(dept);
+    await expect(
+      people.create(deanId, ["MANAGER"], { name: "F18 Out", email: `${testKey}-f18-out@astu.edu.et`, roles: ["STAFF"], homeNodeId: outsideCollege }),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+});

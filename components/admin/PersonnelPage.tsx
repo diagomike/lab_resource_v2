@@ -89,8 +89,26 @@ export default function PersonnelPage() {
   }
   useEffect(reload, []);
   useEffect(() => {
-    if (isAdmin) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(() => setNodes([]));
-  }, [isAdmin]);
+    if (isAdmin || isHead) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(() => setNodes([]));
+  }, [isAdmin, isHead]);
+
+  /** F-018: the units a head may add people into — the nodes they occupy plus everything beneath them
+   *  (the same subtree the server checks, `scope.visibleNodeIds`). Admins pick from the whole chart. */
+  const inviteNodes = useMemo(() => {
+    if (isAdmin) return nodes;
+    const reach = new Set(nodes.filter((n) => n.active && n.occupant?.id === user?.id).map((n) => n.id));
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const n of nodes) {
+        if (!n.active || reach.has(n.id)) continue;
+        if (n.parentIds.some((p) => reach.has(p))) {
+          reach.add(n.id);
+          grew = true;
+        }
+      }
+    }
+    return nodes.filter((n) => n.active && reach.has(n.id));
+  }, [nodes, isAdmin, user?.id]);
 
   async function deactivate(p: PersonDto) {
     if (!confirm(`Deactivate ${p.name}? They will no longer be able to sign in.`)) return;
@@ -160,7 +178,7 @@ export default function PersonnelPage() {
         {showForm && (
           <PersonForm
             isAdmin={isAdmin}
-            nodes={nodes}
+            nodes={inviteNodes}
             onDone={(inviteUrl) => {
               setShowForm(false);
               setInviteLink(inviteUrl);
@@ -507,7 +525,7 @@ function PersonForm({
         email: email.trim(),
         phone: phone.trim() || undefined,
         roles,
-        homeNodeId: isAdmin && homeNodeId ? homeNodeId : undefined,
+        homeNodeId: homeNodeId || undefined,
       });
       onDone(result.inviteUrl);
     } catch (e) {
@@ -532,9 +550,9 @@ function PersonForm({
           <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Phone (optional)</span>
           <input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent" />
         </label>
-        {isAdmin && (
+        {(isAdmin || nodes.length > 1) && (
           <label className="block">
-            <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Home department (optional)</span>
+            <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Home department{isAdmin ? " (optional)" : ""}</span>
             <select value={homeNodeId} onChange={(e) => setHomeNodeId(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-6 text-11.5 outline-none focus:border-accent">
               <option value="">—</option>
               {nodes.map((n) => (
