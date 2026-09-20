@@ -51,8 +51,12 @@ const orgNodeCode = z
   ])
   .optional();
 
+/** F-008: a trimmed, bounded display name. Uniqueness among active nodes is checked
+ *  server-side (org.ts), inside the same lock as the write. */
+const orgNodeName = z.string().trim().min(2, "Name must be at least 2 characters").max(120, "Name must be at most 120 characters");
+
 export const CreateOrgNodeInput = z.object({
-  name: z.string().min(1),
+  name: orgNodeName,
   level: z.number().int().min(0),
   kind: OrgNodeKindSchema,
   parentIds: z.array(z.string()),
@@ -73,7 +77,7 @@ export type CreateOrgEdgeInput = z.infer<typeof CreateOrgEdgeInput>;
  *  touches edges or the closure table, since kind is purely descriptive (University/
  *  College/Department/Office), not a constraint anything else is validated against. */
 export const UpdateOrgNodeInput = z.object({
-  name: z.string().min(1).optional(),
+  name: orgNodeName.optional(),
   kind: OrgNodeKindSchema.optional(),
   code: orgNodeCode,
 });

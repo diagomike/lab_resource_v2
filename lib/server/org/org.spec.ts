@@ -233,3 +233,35 @@ describe("F-006 — the org node's code survives a rename (regression, via updat
     await expect(org.update(b, { code: "DUPCODE" })).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("F-008 — org node names are trimmed, bounded and unique among active nodes", () => {
+  it("the input schemas trim and bound the name", async () => {
+    const { CreateOrgNodeInput, UpdateOrgNodeInput } = await import("../../shared/org");
+    const base = { level: 1, kind: "COLLEGE" as const, parentIds: [] };
+    expect(CreateOrgNodeInput.safeParse({ ...base, name: "   " }).success).toBe(false);
+    expect(CreateOrgNodeInput.safeParse({ ...base, name: "L".repeat(5000) }).success).toBe(false);
+    expect(CreateOrgNodeInput.parse({ ...base, name: "  Physics  " }).name).toBe("Physics");
+    expect(UpdateOrgNodeInput.safeParse({ name: " x " }).success).toBe(false);
+  });
+
+  it("refuses a case-insensitive duplicate of an active node, on create and on rename", async () => {
+    const college = await makeNode("f8-college", "COLLEGE", 1);
+    const existing = await makeNode("f8-name", "DEPARTMENT", 2);
+    const name = (await prisma.orgNode.findUniqueOrThrow({ where: { id: existing } })).name;
+    await expect(org.create({ name: name.toUpperCase(), level: 2, kind: "DEPARTMENT", parentIds: [college] })).rejects.toMatchObject({ status: 400 });
+    const other = await makeNode("f8-other", "DEPARTMENT", 2);
+    await expect(org.update(other, { name: name.toLowerCase() })).rejects.toMatchObject({ status: 400 });
+    // a case-only rename of the node itself is not a clash
+    await expect(org.update(existing, { name: name.toUpperCase() })).resolves.toBeTruthy();
+  });
+
+  it("a deactivated node's name is free again", async () => {
+    const college = await makeNode("f8-college2", "COLLEGE", 1);
+    const old = await makeNode("f8-retired", "DEPARTMENT", 2);
+    const name = (await prisma.orgNode.findUniqueOrThrow({ where: { id: old } })).name;
+    await prisma.orgNode.update({ where: { id: old }, data: { active: false } });
+    const fresh = await org.create({ name, level: 2, kind: "DEPARTMENT", parentIds: [college] });
+    createdNodeIds.push(fresh.id);
+    expect(fresh.name).toBe(name);
+  });
+});

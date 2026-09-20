@@ -68,12 +68,25 @@ function isCodeConflict(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002" && (err.meta?.target as string[] | undefined)?.includes("code") === true;
 }
 
+/** F-008: two active nodes may not share a name (case-insensitive) — indistinguishable
+ *  duplicates in every node picker were the reported harm. Checked inside the org lock so
+ *  two concurrent writes can't both pass; deactivated nodes don't count. Not a DB index
+ *  on purpose: existing data may already hold duplicates, and a migration must not fail on it. */
+async function assertNameFree(tx: Tx, name: string, exceptId: string | null): Promise<void> {
+  const clash = await tx.orgNode.findFirst({
+    where: { active: true, name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    select: { name: true },
+  });
+  if (clash) throw new HttpError(400, `An active unit named "${clash.name}" already exists.`);
+}
+
 export async function create(input: CreateOrgNodeInput): Promise<OrgNodeDto> {
   let nodeId: string;
   try {
     nodeId = await withOrgLock(async (tx) => {
       await assertAdjacentParents(tx, input.level, input.parentIds);
       await assertUniversityInvariant(tx, null, input.level, input.kind);
+      await assertNameFree(tx, input.name, null);
       const node = await tx.orgNode.create({
         data: { name: input.name, level: input.level, kind: input.kind, code: input.code || null },
       });
@@ -100,6 +113,7 @@ export async function update(id: string, input: UpdateOrgNodeInput): Promise<Org
       const node = await tx.orgNode.findUnique({ where: { id } });
       if (!node) throw new HttpError(404, "Org node not found");
       if (input.kind !== undefined) await assertUniversityInvariant(tx, id, node.level, input.kind);
+      if (input.name !== undefined && node.active && input.name.toLowerCase() !== node.name.toLowerCase()) await assertNameFree(tx, input.name, id);
       await tx.orgNode.update({
         where: { id },
         data: {
