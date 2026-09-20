@@ -698,3 +698,32 @@ describe("history and visibility — every send-back is kept, everyone involved 
     expect([mine.status, mine.purchaseReference, mine.purchaseStage]).toEqual(["CARRIED", compiled.reference, "REVISING"]);
   });
 });
+
+describe("F-048 — estimated costs follow the same rule as item costs", () => {
+  it("a unit's plain custodian sees the request but not the price; the head, the raiser and the purchasing roles do", async () => {
+    const deptHeadId = await makeUser("cost-dept-head", ["MANAGER"]);
+    const { deptId } = await makeChain("cost", deptHeadId);
+    const memberId = await makeUser("cost-member", ["CUSTODIAN"]);
+    await prisma.user.update({ where: { id: memberId }, data: { homeNodeId: deptId } });
+    const storeKeeperId = await makeUser("cost-store", ["STORE_KEEPER"]);
+
+    const compiled = await purchasing.compilePurchaseRequest(
+      deptHeadId,
+      compileInput(deptId, { lines: [{ name: "Digital balance", qty: 2, unit: "Unit", estimatedUnitCost: 45000, fromNeedIds: [] }] }),
+    );
+    createdRequestIds.push(compiled.id);
+
+    const costSeenBy = async (readerId: string) => (await purchasing.getRequest(readerId, compiled.id)).lines[0].estimatedUnitCost;
+    expect(await costSeenBy(memberId)).toBeNull();
+    expect((await purchasing.listForActor(memberId, "tracking")).find((r) => r.id === compiled.id)!.lines[0].estimatedUnitCost).toBeNull();
+    for (const readerId of [deptHeadId, procurementUserId, storeKeeperId, sysAdminId]) expect(await costSeenBy(readerId)).toBe(45000);
+
+    // the raiser keeps the figure they typed, even without any cost-seeing role
+    const raiserId = await makeUser("cost-raiser", ["CUSTODIAN"]);
+    await setHead(deptId, raiserId); // occupancy makes them a head for this unit's compile
+    const own = await purchasing.compilePurchaseRequest(raiserId, compileInput(deptId, { lines: [{ name: "Fume hood", qty: 1, unit: "Unit", estimatedUnitCost: 90000, fromNeedIds: [] }] }));
+    createdRequestIds.push(own.id);
+    expect(own.lines[0].estimatedUnitCost).toBe(90000);
+    await setHead(deptId, deptHeadId);
+  });
+});

@@ -279,14 +279,14 @@ const requestInclude = {
 type RequestRow = Prisma.PurchaseRequestGetPayload<{ include: typeof requestInclude }>;
 type LineRow = RequestRow["lines"][number];
 
-function toLineDto(l: LineRow): PurchaseLineDto {
+function toLineDto(l: LineRow, showCost: boolean): PurchaseLineDto {
   return {
     id: l.id,
     name: l.name,
     qty: dec(l.qty)!,
     unit: l.unit,
     categoryId: l.categoryId,
-    estimatedUnitCost: dec(l.estimatedUnitCost),
+    estimatedUnitCost: showCost ? dec(l.estimatedUnitCost) : null,
     justification: l.justification,
     fromNeedIds: l.answeredNeeds.map((n) => n.id),
     receivedQty: dec(l.receivedQty),
@@ -295,7 +295,17 @@ function toLineDto(l: LineRow): PurchaseLineDto {
   };
 }
 
-async function toRequestDto(row: RequestRow): Promise<PurchaseRequestDto> {
+/** F-048: estimated costs follow the same rule as item costs (`scope.canSeeCost`) — the roles
+ *  that run or price purchasing, plus anyone who occupies a post (the ladder approvers who
+ *  must weigh the price) and the person who raised the request (they typed the figure; the
+ *  revise form re-reads it). A unit's plain custodians and staff can still follow the
+ *  request, just not the money. Computed once per read, not per row. */
+async function costVisibleTo(actorId: string): Promise<(raisedById: string) => boolean> {
+  const [priced, occupies] = await Promise.all([orgScope.canSeeCost(actorId), orgScope.headNodeIdsOf(actorId).then((ids) => ids.length > 0)]);
+  return (raisedById) => priced || occupies || raisedById === actorId;
+}
+
+async function toRequestDto(row: RequestRow, showCost: boolean): Promise<PurchaseRequestDto> {
   const nodes = await loadDomainOrgNodes();
   const domainSteps = row.steps.map(toDomainStep);
 
@@ -337,7 +347,7 @@ async function toRequestDto(row: RequestRow): Promise<PurchaseRequestDto> {
     raisedByName: row.raisedBy.name,
     createdAt: row.createdAt.toISOString(),
     title: row.title,
-    lines: row.lines.map(toLineDto),
+    lines: row.lines.map((l) => toLineDto(l, showCost)),
     stage: row.stage,
     history: row.events.map((e) => ({ at: e.at.toISOString(), byId: e.byId, byName: e.by.name, stage: e.stage, note: e.note })),
     feedback: row.feedback,
@@ -408,7 +418,7 @@ export async function compilePurchaseRequest(actorId: string, input: CompilePurc
   }
 
   await settleIfComplete(requestId, actorId, steps);
-  return loadDto(requestId);
+  return loadDto(requestId, actorId);
 }
 
 /** Every step self-held (the requester holds every post on the route) means nothing
@@ -491,7 +501,7 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
   });
 
   await settleIfComplete(requestId, actorId, steps);
-  return loadDto(requestId);
+  return loadDto(requestId, actorId);
 }
 
 /**
@@ -574,7 +584,7 @@ export async function decideStep(actorId: string, requestId: string, decision: "
     }
   });
 
-  return loadDto(requestId);
+  return loadDto(requestId, actorId);
 }
 
 /**
@@ -627,7 +637,7 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
     prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: next } }),
     prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: next, note: input.note ?? null } }),
   ]);
-  return loadDto(requestId);
+  return loadDto(requestId, actorId);
 }
 
 /**
@@ -737,7 +747,7 @@ export async function receivePurchaseLine(actorId: string, requestId: string, in
     ]);
   }
 
-  return loadDto(requestId);
+  return loadDto(requestId, actorId);
 }
 
 // ── Reading ──────────────────────────────────────────────────────────────────────
@@ -748,10 +758,15 @@ export async function receivePurchaseLine(actorId: string, requestId: string, in
  *  every step, and a receiving STORE_KEEPER is never a step's approver — re-running
  *  `getRequest`'s stricter "who may READ this" gate on your own action's output
  *  would incorrectly 404 both. */
-async function loadDto(requestId: string): Promise<PurchaseRequestDto> {
+async function loadDto(requestId: string, actorId: string): Promise<PurchaseRequestDto> {
   const row = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, include: requestInclude });
   if (!row) throw new HttpError(404, "Resource not found");
-  return toRequestDto(row);
+  return toRequestDto(row, (await costVisibleTo(actorId))(row.raisedById));
+}
+
+async function toRequestDtos(rows: RequestRow[], actorId: string): Promise<PurchaseRequestDto[]> {
+  const visible = await costVisibleTo(actorId);
+  return Promise.all(rows.map((r) => toRequestDto(r, visible(r.raisedById))));
 }
 
 /** Roles that run or oversee the purchasing process for every department, and so
@@ -803,7 +818,7 @@ export async function getRequest(actorId: string, requestId: string): Promise<Pu
   const where = await readableRequestWhere(actorId);
   const visible = await prisma.purchaseRequest.count({ where: where ? { AND: [{ id: requestId }, where] } : { id: requestId } });
   if (!visible) throw new HttpError(404, "Resource not found");
-  return loadDto(requestId);
+  return loadDto(requestId, actorId);
 }
 
 const PIPELINE_STAGES = ["ORDER_PLACED", "BUYER_FOUND", "ON_DELIVERY", "IN_STORE"] as const;
@@ -820,29 +835,29 @@ export async function listForActor(actorId: string, box: "inbox" | "mine" | "pip
   if (box === "tracking") {
     const where = await readableRequestWhere(actorId);
     const rows = await prisma.purchaseRequest.findMany({ where: where ?? {}, include: requestInclude, orderBy: { createdAt: "desc" } });
-    return Promise.all(rows.map(toRequestDto));
+    return toRequestDtos(rows, actorId);
   }
 
   if (box === "mine") {
     const rows = await prisma.purchaseRequest.findMany({ where: { raisedById: actorId }, include: requestInclude, orderBy: { createdAt: "desc" } });
-    return Promise.all(rows.map(toRequestDto));
+    return toRequestDtos(rows, actorId);
   }
 
   if (box === "pipeline") {
     const person = await loadPerson(actorId);
     if (!canRunPipeline(person)) throw new HttpError(403, "Only procurement may browse the pipeline.");
     const rows = await prisma.purchaseRequest.findMany({ where: { stage: { in: [...PIPELINE_STAGES] } }, include: requestInclude, orderBy: { createdAt: "asc" } });
-    return Promise.all(rows.map(toRequestDto));
+    return toRequestDtos(rows, actorId);
   }
 
   if (box === "receiving") {
     const person = await loadPerson(actorId);
     if (!canReceive(person)) throw new HttpError(403, "Only the store keeper may browse what's ready to receive.");
     const rows = await prisma.purchaseRequest.findMany({ where: { stage: "IN_STORE" }, include: requestInclude, orderBy: { createdAt: "asc" } });
-    return Promise.all(rows.map(toRequestDto));
+    return toRequestDtos(rows, actorId);
   }
 
   const rows = await prisma.purchaseRequest.findMany({ where: { stage: "APPROVING" }, include: requestInclude, orderBy: { createdAt: "asc" } });
-  const dtos = await Promise.all(rows.map(toRequestDto));
+  const dtos = await toRequestDtos(rows, actorId);
   return dtos.filter((d) => d.steps.some((s) => s.status === "PENDING" && s.approverId === actorId));
 }
