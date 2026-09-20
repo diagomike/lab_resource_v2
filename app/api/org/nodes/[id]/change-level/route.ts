@@ -15,7 +15,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     requireRole(user, ["SYS_ADMIN"]);
     const { id } = await params;
     const body = await parseBody(ChangeNodeLevelInput, request);
-    const node = await changeLevel(id, body.level);
+    const node = await changeLevel(id, body.level, body.parentIds ?? []);
     return NextResponse.json<OrgNodeDto>(node, { status: 201 });
   } catch (err) {
     return errorResponse(err);

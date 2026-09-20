@@ -627,8 +627,12 @@ function NodeHeaderEditor({
   const [name, setName] = useState(selected.name);
   const [nameSaving, setNameSaving] = useState(false);
   const nameDirty = name.trim() !== selected.name && name.trim().length > 0;
+  const [code, setCode] = useState(selected.code ?? "");
+  const [codeSaving, setCodeSaving] = useState(false);
+  const codeDirty = code.trim() !== (selected.code ?? "");
 
   useEffect(() => setName(selected.name), [selected.id]);
+  useEffect(() => setCode(selected.code ?? ""), [selected.id]);
 
   async function saveName() {
     setNameSaving(true);
@@ -639,6 +643,22 @@ function NodeHeaderEditor({
       onError(e instanceof ApiError ? e.message : "Could not rename this node");
     } finally {
       setNameSaving(false);
+    }
+  }
+
+  // F-006 of the 2026-09-15 campaign: a code, once set, is what purchasing's
+  // Procurement Office lookup keys on instead of the name, so renaming the office no
+  // longer breaks purchasing university-wide. Editable here, next to the name, the
+  // same "click it, change it, explicit Save" pattern.
+  async function saveCode() {
+    setCodeSaving(true);
+    try {
+      await api.patch(`/org/nodes/${selected.id}`, { code: code.trim() });
+      onSaved();
+    } catch (e) {
+      onError(e instanceof ApiError ? e.message : "Could not save this code");
+    } finally {
+      setCodeSaving(false);
     }
   }
 
@@ -671,6 +691,21 @@ function NodeHeaderEditor({
         </select>
         <Tag>level {selected.level}</Tag>
         <Tag tone={selected.active ? "good" : "bad"}>{selected.active ? "active" : "inactive"}</Tag>
+      </div>
+
+      <div className="mt-8 flex items-center gap-8">
+        <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Code</span>
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="e.g. PROC — a stable key some lookups use instead of the name"
+          className="flex-1 border border-border2 bg-panel h-24 px-8 rounded-2 text-10.5 outline-none focus:border-accent"
+        />
+        {codeDirty && (
+          <Button onClick={saveCode} disabled={codeSaving}>
+            {codeSaving ? "Saving…" : "Save"}
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -799,6 +834,7 @@ function NewNodeForm({
   const [kind, setKind] = useState<OrgNodeKind>(maxLevel < 0 ? "UNIVERSITY" : "DEPARTMENT");
   const [level, setLevel] = useState(Math.max(maxLevel + 1, 0));
   const [parentIds, setParentIds] = useState<string[]>([]);
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   const parentCandidates = nodes.filter((n) => n.level === level - 1 && n.active);
@@ -823,7 +859,7 @@ function NewNodeForm({
     }
     setBusy(true);
     try {
-      await api.post("/org/nodes", { name: name.trim(), level, kind, parentIds: level === 0 ? [] : parentIds });
+      await api.post("/org/nodes", { name: name.trim(), level, kind, parentIds: level === 0 ? [] : parentIds, code: code.trim() || undefined });
       onDone();
     } catch (e) {
       onError(e instanceof ApiError ? e.message : "Could not create this node");
@@ -867,6 +903,15 @@ function NewNodeForm({
               </option>
             ))}
           </select>
+        </label>
+        <label className="block">
+          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Code (optional)</span>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder='e.g. "PROC" — a stable key some lookups use instead of the name'
+            className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent"
+          />
         </label>
       </div>
       {level === 0 ? (

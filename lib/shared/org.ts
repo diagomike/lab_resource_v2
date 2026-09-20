@@ -29,14 +29,34 @@ export const OrgNodeDto = z.object({
    *  toggle in Org Studio; direct editing is unaffected either way for anyone not
    *  using the draft workflow. */
   draftWorkflowEnabled: z.boolean(),
+  /** Stable short key ("SE", "PROC"), null if none is set. F-006 of the 2026-09-15
+   *  campaign: code, not name, is what purchasing's Procurement Office lookup and any
+   *  future "the one office named X" resolution should key on — a rename can't break
+   *  it once it's set. */
+  code: z.string().nullable(),
 });
 export type OrgNodeDto = z.infer<typeof OrgNodeDto>;
+
+/** Undefined leaves the code untouched (used by UpdateOrgNodeInput's PATCH
+ *  semantics); an empty string explicitly clears it back to null. */
+const orgNodeCode = z
+  .union([
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(20)
+      .regex(/^[A-Za-z0-9_-]+$/, "Use letters, digits, - or _ only"),
+    z.literal(""),
+  ])
+  .optional();
 
 export const CreateOrgNodeInput = z.object({
   name: z.string().min(1),
   level: z.number().int().min(0),
   kind: OrgNodeKindSchema,
   parentIds: z.array(z.string()),
+  code: orgNodeCode,
 });
 export type CreateOrgNodeInput = z.infer<typeof CreateOrgNodeInput>;
 
@@ -55,6 +75,7 @@ export type CreateOrgEdgeInput = z.infer<typeof CreateOrgEdgeInput>;
 export const UpdateOrgNodeInput = z.object({
   name: z.string().min(1).optional(),
   kind: OrgNodeKindSchema.optional(),
+  code: orgNodeCode,
 });
 export type UpdateOrgNodeInput = z.infer<typeof UpdateOrgNodeInput>;
 
@@ -67,6 +88,11 @@ export type ReassignParentsInput = z.infer<typeof ReassignParentsInput>;
 
 export const ChangeNodeLevelInput = z.object({
   level: z.number().int().min(0),
+  /** Required (non-empty) when `level > 0` — a level change invalidates every edge the
+   *  node holds in either direction, so its new parents must be supplied in the same
+   *  call or the node is left with none (F-005 of the 2026-09-15 campaign). Omit or
+   *  leave empty for a move to level 0. */
+  parentIds: z.array(z.string()).optional(),
 });
 export type ChangeNodeLevelInput = z.infer<typeof ChangeNodeLevelInput>;
 

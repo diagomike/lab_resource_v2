@@ -99,20 +99,30 @@ async function assertHeadsNode(actorId: string, orgNodeId: string): Promise<void
   if (!(await orgScope.isHeadOf(actorId, orgNodeId))) throw new HttpError(403, "Only this unit's head may do this.");
 }
 
-/** The single active Office-kind node named exactly "Procurement Office" — the one
- *  real rollout prerequisite (see the plan's §6). Resolved live, never cached, same
- *  discipline as every other chain-building call in this codebase. Missing or
- *  ambiguous refuses clearly rather than silently building a broken or short chain. */
+/** The Procurement Office — the one real rollout prerequisite (see the plan's §6).
+ *  Resolved by the node's stable `code` ("PROC") first (F-006 of the 2026-09-15
+ *  campaign: a name lookup broke purchasing university-wide the moment the office was
+ *  renamed, an ordinary Org Studio edit). Falls back to the exact-name match for an
+ *  install that hasn't set the code yet, so nothing breaks before an admin does.
+ *  Resolved live, never cached, same discipline as every other chain-building call in
+ *  this codebase. Missing or ambiguous refuses clearly rather than silently building a
+ *  broken or short chain. */
 async function findProcurementOffice(nodes: DomainOrgNode[]): Promise<DomainOrgNode> {
+  const byCode = await prisma.orgNode.findFirst({ where: { kind: "OFFICE", active: true, code: "PROC" } });
+  if (byCode) return nodes.find((n) => n.id === byCode.id) ?? { ...byCode, parentIds: [], occupantId: byCode.userId };
+
   const matches = nodes.filter((n) => n.kind === "OFFICE" && n.active && n.name === "Procurement Office");
   if (matches.length === 0) {
     throw new HttpError(
       400,
-      'No "Procurement Office" exists on the org chart yet. Ask an administrator to create one (an Office-kind node named exactly "Procurement Office") before raising a purchase request.',
+      'No Procurement Office exists on the org chart yet. Ask an administrator to create one (an Office-kind node with code "PROC", or named exactly "Procurement Office") before raising a purchase request.',
     );
   }
   if (matches.length > 1) {
-    throw new HttpError(400, 'More than one active "Procurement Office" node exists on the org chart. Ask an administrator to rename or deactivate the extra one.');
+    throw new HttpError(
+      400,
+      'More than one active "Procurement Office" node exists on the org chart. Ask an administrator to give the real one the code "PROC", or deactivate the extra one.',
+    );
   }
   return matches[0];
 }
