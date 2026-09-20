@@ -4037,6 +4037,38 @@ its model that make porting it as-is the wrong move.
   **E2E re-verification** (fresh clone, all 14 suites, 194 cases): 174 PASS; the 20 remaining ✘ are all Phase 3 LOW / DESIGN / INFO / deferred-F-051-notification. It caught two extra product defects fixed in `ec9fe9d` — purchasing `decideStep` was not advisory-locked (B-18) and admin `createItem` skipped custodian eligibility (R-07). Details in the findings doc.
 
 
+- **2026-09-20 (fix round, Phase 3 — the 13 LOW + the 3 DESIGN)** — Third and last phase of the
+  plan (`~/.claude/plans/you-are-a-master-robust-knuth.md`), after Phase 2's own E2E re-run came
+  back clean (174 PASS on a fresh clone; it also surfaced two extra product defects — purchasing
+  `decideStep` not advisory-locked, and admin `createItem` skipping custodian eligibility — fixed in
+  `ec9fe9d`). One commit per cluster, each with its regression test:
+  - **F-008** org node names trimmed, 2–120 chars, case-insensitively unique among active nodes
+    (checked inside the org lock; no DB index, so pre-existing duplicates can't fail a migration).
+  - **F-028/F-029/F-030** category & resource input hygiene: names trimmed/≤160, category key is a
+    slug, `iconKey` validated against the registry; required fields are enforced on `createItem`
+    (root items only) and the preview counts existing items lacking a newly required field; a
+    field-type change is a 409 while stored values can't be read as the new type, unless purged in
+    the same save (the preview offers the purge through `orphanKeys`).
+  - **F-033** access views validate their units, people and view id before saving.
+  - **F-018/F-019** a dean's resend/invite reach their subtree (the invite form gained a department
+    picker; a home node outside the tree is now an explicit 403); duplicate invites are a 400.
+  - **F-011** occupant emails on the org chart only for SYS_ADMIN/MANAGER.
+  - **F-048** purchase-request costs follow `canSeeCost` (plus post occupants and the raiser).
+  - **F-053** booking on-behalf-of note / head-count / decision note only for the requester, the
+    room's custodian and the owning head (read-only reach).
+  - **F-052** booking horizon and class-slot span ≤ 366 days; series exceptions validated.
+  - **F-057** the portal no longer probes `/auth/me`; one shared catalog fetch.
+  - **DESIGN, decided — no code:** F-007 (deactivated unit keeps reach — follows from F-001),
+    F-038 (vacancy freezes), F-054 (bookings stay custodian-only); reasoning is in the findings doc.
+
+  **Verified**: `npx tsc --noEmit`, `npm test` (480/480), `npm run build` clean; fresh-clone E2E
+  re-run of all 14 suites: 187 PASS. Remaining ✘ are the DESIGN-decided cases (O-11, S-18), the
+  deliberately deferred notification half of F-051 (S-14), and the fixture-only INFO artifacts
+  V-01/V-03. Harness edit: P-06 now expects the new 403 for a foreign home node. F-057 was checked
+  by build and code reading only (the browser tooling was unavailable this session).
+
+  **Fix campaign complete** — all 57 findings are Fixed or Decided. Stopping here for review.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

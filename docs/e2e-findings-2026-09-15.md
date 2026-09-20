@@ -49,24 +49,26 @@ Input for the review and dev step. This report lists what the end-to-end campaig
 | [F-051](#f-051) | MEDIUM | Scheduling | Bookings don't react when a machine breaks or a category stops being bookable | Fixed (2026-09-20, Phase 2) |
 | [F-055](#f-055) | MEDIUM | External | Holds can be placed on slots outside the requested windows | Fixed (2026-09-20, Phase 2) |
 | [F-056](#f-056) | MEDIUM | External | `extendHolds` can push a hold years past the payment deadline | Fixed (2026-09-20, Phase 2) |
-| [F-008](#f-008) | LOW | Org structure | No name hygiene: blank, 5,000-character and duplicate names accepted | Open |
-| [F-011](#f-011) | LOW | Privacy | Every signed-in account, including students, can list every office holder's name and email | Open |
-| [F-018](#f-018) | LOW | Personnel | Deans see everyone below them but can't act on any of it | Open |
-| [F-019](#f-019) | LOW | Personnel | Double-submitting an invite returns 500 | Open |
-| [F-028](#f-028) | LOW | Categories | Changing a field's type leaves invalid stored values behind | Open |
-| [F-029](#f-029) | LOW | Categories/Register | "Required" fields aren't enforced | Open |
-| [F-030](#f-030) | LOW | Categories/Register | No name hygiene for categories and resources | Open |
-| [F-033](#f-033) | LOW | Access views | Validation gaps (empty or unknown nodes accepted; unknown person → 500) | Open |
+| [F-008](#f-008) | LOW | Org structure | No name hygiene: blank, 5,000-character and duplicate names accepted | Fixed (2026-09-20, Phase 3) |
+| [F-011](#f-011) | LOW | Privacy | Every signed-in account, including students, can list every office holder's name and email | Fixed (2026-09-20, Phase 3) |
+| [F-018](#f-018) | LOW | Personnel | Deans see everyone below them but can't act on any of it | Fixed (2026-09-20, Phase 3) |
+| [F-019](#f-019) | LOW | Personnel | Double-submitting an invite returns 500 | Fixed (2026-09-20, Phase 3) |
+| [F-028](#f-028) | LOW | Categories | Changing a field's type leaves invalid stored values behind | Fixed (2026-09-20, Phase 3) |
+| [F-029](#f-029) | LOW | Categories/Register | "Required" fields aren't enforced | Fixed (2026-09-20, Phase 3) |
+| [F-030](#f-030) | LOW | Categories/Register | No name hygiene for categories and resources | Fixed (2026-09-20, Phase 3) |
+| [F-033](#f-033) | LOW | Access views | Validation gaps (empty or unknown nodes accepted; unknown person → 500) | Fixed (2026-09-20, Phase 3) |
 | [F-034](#f-034) | LOW | Scope | Read-only "context" visibility of a container exposes the whole container's aggregate counts | Fixed (2026-09-20, Phase 2) |
-| [F-048](#f-048) | LOW | Purchasing | Estimated costs visible to staff and custodians despite `canSeeCost = false` | Open |
-| [F-052](#f-052) | LOW | Scheduling | No sanity bounds on horizons, series length or exceptions | Open |
-| [F-053](#f-053) | LOW | Scheduling | Any staff member can read every room's calendar, including which student a booking is for | Open |
-| [F-057](#f-057) | LOW | Portal UI | The public portal fires authenticated requests and duplicate catalog fetches | Open |
-| [F-007](#f-007) | DESIGN | Org structure | A deactivated node still grants its residents full scope | Open |
-| [F-038](#f-038) | DESIGN | Draft mode | A vacant headship freezes a department's lab commits with no escalation | Open |
-| [F-054](#f-054) | DESIGN | Scheduling | Department heads have no role in their department's room bookings or class timetables | Open |
+| [F-048](#f-048) | LOW | Purchasing | Estimated costs visible to staff and custodians despite `canSeeCost = false` | Fixed (2026-09-20, Phase 3) |
+| [F-052](#f-052) | LOW | Scheduling | No sanity bounds on horizons, series length or exceptions | Fixed (2026-09-20, Phase 3) |
+| [F-053](#f-053) | LOW | Scheduling | Any staff member can read every room's calendar, including which student a booking is for | Fixed (2026-09-20, Phase 3) |
+| [F-057](#f-057) | LOW | Portal UI | The public portal fires authenticated requests and duplicate catalog fetches | Fixed (2026-09-20, Phase 3) |
+| [F-007](#f-007) | DESIGN | Org structure | A deactivated node still grants its residents full scope | Decided — no change (2026-09-20) |
+| [F-038](#f-038) | DESIGN | Draft mode | A vacant headship freezes a department's lab commits with no escalation | Decided — no change (2026-09-20) |
+| [F-054](#f-054) | DESIGN | Scheduling | Department heads have no role in their department's room bookings or class timetables | Decided — no change (2026-09-20) |
 
 **Counts:** CRITICAL 2 · HIGH 10 · MEDIUM 29 · LOW 13 · DESIGN 3 — 57 findings total
+
+**Status after Phase 3:** 54 fixed, 3 decided-as-is (F-007, F-038, F-054). Not implemented by choice: F-051's notification half (surfacing/notifying on a machine marked BROKEN).
 
 ### Coverage
 
@@ -144,6 +146,20 @@ Plan: `~/.claude/plans/you-are-a-master-robust-knuth.md`. All 29 MEDIUM findings
 - **admin `createItem` skipped custodian eligibility** (E2E R-07: the SYS_ADMIN early-return in `assertAuthorized` ran before the check, so a root could be created with a DISABLED custodian). The check now runs first; SYS_ADMIN was added to the eligible custodian roles because the seeded admin legitimately custodies items.
 - `previewImpact` now warns when a `bookingMode` change would strand future live reservations (S-15).
 - Harness corrections (not product changes): O-07 uses throwaway occupants because F-017 auto-grants MANAGER on `assignNode` and was polluting the shared staff accounts; A-12/B-11/B-12/D-04/P-11/P-12/V-05/V-01b predicates updated to the intended post-fix behaviour (V-01b now treats foreign containers above a unit's own lent-out items as read-only context, not a leak). The pre-fix `e2e/results.json` baseline was overwritten by this run.
+
+
+## Phase 3 fix round (2026-09-20)
+
+All 13 LOW findings that were still open are fixed (F-008, F-011, F-018, F-019, F-028, F-029, F-030, F-033, F-048, F-052, F-053, F-057; F-034 was closed in Phase 2), and the three DESIGN findings are recorded as decided with their reasoning (F-007, F-038, F-054) — no code. One commit per cluster, each with its regression test.
+
+**Verified:** `npx tsc --noEmit`, `npm test` (480/480, up from 458), `npm run build` all clean; a fresh-clone E2E re-run of all 14 suites finished with 187 PASS. The only ✘ left are the three DESIGN-decided cases (O-11 F-007, S-18 F-054), the deliberately deferred notification half of F-051 (S-14), and the two INFO artifacts V-01/V-03 (fixture-only, see the Phase 2 re-verification note).
+
+**Behaviour changes worth knowing about:**
+- A department head who sends a `homeNodeId` outside their own subtree now gets a 403 (it used to be silently rewritten to their own node). E2E P-06 was updated for this.
+- Creating an item with an empty *required* category field is now a 400; the Add-resources form marks required fields with an asterisk.
+- Changing a category field's type is a 409 while stored values can't be read as the new type, unless the field is purged in the same save.
+- A class slot may span at most 366 days; existing longer slots must be split before they can be edited.
+- Purchase-request line costs are hidden from readers who are not purchasing roles, post occupants or the raiser.
 
 ## How it was run
 
@@ -322,6 +338,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-007 · DESIGN · Org structure — A deactivated node still grants its residents full scope
 
+**Status: Decided — no change (2026-09-20)** — A deactivated unit's residents keep their reach. This follows from the F-001 decision (deactivating a node vacates the post only; it never disables anyone), and refusing deactivation while residents remain would make retiring a unit unworkable. Revisit only if it causes a real problem.
+
 - **Case:** O-11 (H7)
 - **Observed:** a CUSTODIAN whose home department was deactivated still gets `me.scope` pointing at the inactive node, with `reachableNodeCount: 1`. They keep reading and writing what they hold. `scope.visibleNodeIds` and `reachRootNodeId` never look at `OrgNode.active` (`lib/server/org/scope.ts:30-53`).
 - **Question:** should a deactivated department's people become read-only or lose reach, or should deactivation be refused while residents remain? Today, deactivation only affects the occupant (and too much; see F-001).
@@ -331,6 +349,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
   - **C:** Leave it as is, but show the state in `me.scope` and Personnel.
 
 ### F-008 · LOW · Org structure — No name hygiene: blank, 5,000-character and duplicate names accepted
+
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/shared/org.ts` (trimmed 2–120 chars) + `lib/server/org/org.ts`'s `assertNameFree` (case-insensitive unique among active nodes, checked inside the org lock; deliberately not a DB index so existing duplicates can't fail a migration). See "Phase 3 fix round" below for verification.
 
 - **Case:** O-03
 - **Actual:** `"   "` → 201; `"L" × 5000` → 201; a second "Software Engineering" under CoEEC → 201.
@@ -375,6 +395,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `auth.spec.ts` "the 4th reset request within an hour sends nothing but still answers 201".
 
 ### F-011 · LOW · Privacy — Every signed-in account, including students, can list every office holder's name and email
+
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/org/org.ts`'s `list(activeOnly, { includeEmail })` + `app/api/org/nodes/route.ts` — `occupant.email` is null unless the caller is SYS_ADMIN or MANAGER. See "Phase 3 fix round" below for verification.
 
 - **Case:** A-08
 - **Actual:** `GET /api/org/nodes?scope=all` as STUDENT → 200 with `occupant.email` for the AVP, deans, heads and the procurement officer. `GET /api/people/custodians` (custodian and above) returns university-wide names and emails too, which is expected for pickers.
@@ -491,6 +513,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-018 · LOW · Personnel — Deans see everyone below them but can't act on any of it
 
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/people/people.ts`'s `resendInvite` (whole visible subtree) and `create` (a head may name any department in their subtree as home unit), plus the invite form's department picker in `PersonnelPage.tsx`. A home node outside the head's tree is now an explicit 403 instead of being silently rewritten. See "Phase 3 fix round" below for verification.
+
 - **Case:** P-09
 - **Actual:**
   - `GET /people` as the CoEEC dean lists SE and Materials people, with "Resend invite" buttons on invitees.
@@ -501,6 +525,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
   - **B:** Keep own-node-only, but hide actions that will 403 and say "ask the department head".
 
 ### F-019 · LOW · Personnel — Double-submitting an invite returns 500
+
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/people/people.ts`'s `create` — the `emailLower` P2002 maps to the same 400 as the pre-check. See "Phase 3 fix round" below for verification.
 
 - **Case:** P-03
 - **Actual:** 5 parallel identical invites → `[201,500,500,500,500]`. One user row is created (correct), but four callers get "Internal server error".
@@ -646,6 +672,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-028 · LOW · Categories — Changing a field's type leaves invalid stored values behind
 
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/resources/categories.ts`'s `update` — refuses (409) a field-type change while any item holds a value the new type can't read, unless that field is purged in the same save; the impact preview now offers the purge via `orphanKeys`. See "Phase 3 fix round" below for verification.
+
 - **Case:** C-08
 - **Actual:** changing "Reading" from TEXT to NUMBER on a category whose item holds `"about five"`: the preview correctly flags it as destructive, the PATCH → 200, and the stored value stays `"about five"` in a NUMBER field. Later unrelated edits still succeed, and filters or sums over that field see mixed types.
 - **Fix:**
@@ -653,6 +681,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
   - **B:** Refuse a type change while any item holds an incompatible value.
 
 ### F-029 · LOW · Categories/Register — "Required" fields aren't enforced
+
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/resources/mutate.ts`'s `applyCreateItem` (required fields on root items being created; template children and existing rows are never forced) + `lib/domain/edit-impact.ts` (a warning counting existing items lacking a newly required field). See "Phase 3 fix round" below for verification.
 
 - **Cases:** C-09, R-22
 - **Actual:**
@@ -662,6 +692,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Fix:** enforce required keys on `createItem` (400 naming the missing fields). The impact preview reports a *warning* with the count of existing items lacking the new required field. Existing rows aren't forced; the Register can highlight them.
 
 ### F-030 · LOW · Categories/Register — No name hygiene for categories and resources
+
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/shared/resources/{category,item}.ts` (names trimmed, ≤160; key `^[a-z][a-z0-9-]{1,40}$`) + `categories.ts`'s `assertKnownIcon` against the icon registry. See "Phase 3 fix round" below for verification.
 
 - **Cases:** C-12, R-21
 - **Actual:**
@@ -701,6 +733,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `views.spec.ts` "an implicit EVERYONE read-only view does not block writes of a user who did not choose it".
 
 ### F-033 · LOW · Access views — Validation gaps (empty or unknown nodes accepted; unknown person → 500)
+
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/resources/views.ts`'s `assertViewReferencesValid` — EXPLICIT_NODES needs ≥1 existing active unit, PERSON audiences must exist and not be disabled, an unknown view id is a 404. See "Phase 3 fix round" below for verification.
 
 - **Case:** V-12
 - **Actual:**
@@ -766,6 +800,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `lab-drafts.spec.ts` "ideal targets can be proposed and approved with draft mode off".
 
 ### F-038 · DESIGN · Draft mode — A vacant headship freezes a department's lab commits with no escalation
+
+**Status: Decided — no change (2026-09-20)** — A vacant headship freezes decisions rather than escalating — the plan's decision was that authority stays with the post's occupant, and that a silent auto-escalation is worse than a visible block. The block message already names the vacancy; appointing a head unblocks immediately (E2E D-09).
 
 - **Case:** D-09
 - **Observed:**
@@ -925,6 +961,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-048 · LOW · Purchasing — Estimated costs visible to staff and custodians despite `canSeeCost = false`
 
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/resources/purchasing.ts`'s single DTO choke point (`loadDto`/`toRequestDtos`) — costs are null unless the reader has a cost-seeing role, occupies a post (ladder approvers), or raised the request. See "Phase 3 fix round" below for verification.
+
 - **Case:** B-07
 - **Actual:** SE custodian Girma (`me.canSeeCost: false`) reads `GET /purchase-requests/:id` → 200 with `estimatedUnitCost: 45000` on every line. SE STAFF gets the same.
 - **Root cause:** `readableRequestWhere` lets every unit member read (a deliberate decision, `purchasing.ts:611-652`), but `toRequestDto` always includes costs, unlike the cost rule in `lib/server/org/scope.ts:75-87`.
@@ -977,6 +1015,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-052 · LOW · Scheduling — No sanity bounds on horizons, series length or exceptions
 
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/domain/civil-time.ts` (`MAX_SERIES_SPAN_DAYS`/`MAX_HORIZON_DAYS` = 366), `reservations.ts`'s `windowOf`, and `series.ts` (start horizon; `addException` must fall within the range, on a meeting weekday, not in the past). See "Phase 3 fix round" below for verification.
+
 - **Cases:** S-10, S-11, S-12 (H25)
 - **Actual:**
   - A booking on 2099-01-05 → 201.
@@ -990,11 +1030,15 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-053 · LOW · Scheduling — Any staff member can read every room's calendar, including which student a booking is for
 
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/server/scheduling/context.ts`'s `toReservationDto` — `onBehalfOfNote`, `participantCount` and the decision `note` go only to the requester, whoever decides for the room, and heads of the owning unit (read-only reach; booking authority unchanged, see F-054). See "Phase 3 fix round" below for verification.
+
 - **Case:** S-17
 - **Actual:** ChemE STAFF → `GET /scheduling/calendar?labItemId=<SE room>` → 200, with `onBehalfOfNote: "Sara T. (UGR/1234/13)"` (a student's name and ID).
 - **Fix:** keep the calendar visible (it's needed for planning), but return `onBehalfOfNote`, `note` and `participantCount` only to the requester, the room's custodian, and heads of the owning unit.
 
 ### F-054 · DESIGN · Scheduling — Department heads have no role in their department's room bookings or class timetables
+
+**Status: Decided — no change (2026-09-20)** — Room bookings and class timetables stay custodian-only, with SYS_ADMIN as the backstop. Heads gained read-only sight of their rooms' booking details in F-053, not authority to decide them.
 
 - **Cases:** S-04, S-07, S-18
 - **Observed:** SE's head gets 403 approving a staff booking for an SE room and 403 creating a weekly class for an SE room, and their bookings inbox never shows pending requests for SE rooms. Everything rests on the room's custodian alone. If that custodian is absent, disabled (F-001, F-024) or leaves, only SYS_ADMIN can act.
@@ -1055,6 +1099,8 @@ H26 produced two findings not yet numbered separately above; they are recorded h
 - **Fix:** cap `until` at the payment deadline (or deadline + a small grace); for a PAID request use the confirmation window.
 
 ### F-057 · LOW · Portal UI — The public portal fires authenticated requests and duplicate catalog fetches
+
+**Status: Fixed (2026-09-20, Phase 3)** — `lib/auth-context.tsx` (no `/auth/me` probe on `/portal` paths) + `lib/portal-catalog.ts` (one cached catalog promise shared by the portal home and request form). Verified by build and code reading; not re-observed in a browser this round. See "Phase 3 fix round" below for verification.
 
 - **Observed (browser, signed out, `/portal`):** the page renders correctly (Lab 27, no units/locations/custodians leaked), but the console shows repeated `GET /api/auth/me → 401` and several duplicate `GET /api/public/catalog` calls. The auth provider runs on the public tree, so every visitor triggers 401s, and the catalog is fetched multiple times per load.
 - **Impact:** noise in logs and dev tools; minor extra load on a page meant to be cache-friendly and reachable by anonymous outsiders.
