@@ -85,6 +85,8 @@ model User {
   passwordResets         PasswordReset[]
   orgNodeAssignments     OrgNodeAssignment[] @relation("OrgNodeAssignmentUser")
   orgNodeAssignmentsMade OrgNodeAssignment[] @relation("OrgNodeAssignmentAssignedBy")
+  homeNodeChanges        HomeNodeChange[]    @relation("HomeNodeChangeUser")
+  homeNodeChangesMade    HomeNodeChange[]    @relation("HomeNodeChangeChangedBy")
   invitationsSent        Invitation[]        @relation("InvitationInvitedBy")
 
   // ── Resource management back-relations (replatforming onto temp_works) ──────────
@@ -169,6 +171,23 @@ model PasswordReset {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// F-010 of the 2026-09-15 campaign: login had no attempt counter at all, so password
+/// guessing was unthrottled. No FK to User (an attempt against an email with no
+/// account must still count, or an attacker just probes non-existent addresses to
+/// dodge the lockout) — keyed on the lowercased email like every other lookup here,
+/// counted the same table-counted-throttle way external/requests.ts's submission
+/// throttle already works. Rows are never deleted; a login route only ever counts
+/// recent ones, so an unbounded table costs nothing but disk.
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  emailLower String
+  ipHash     String?
+  succeeded  Boolean
+  createdAt  DateTime @default(now())
+
+  @@index([emailLower, createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -268,6 +287,26 @@ model OrgNodeAssignment {
 
   @@index([nodeId, startedAt])
   @@index([userId])
+}
+
+/// F-015 of the 2026-09-15 campaign — moving a person's HOME department (membership,
+/// distinct from `OrgNodeAssignment`'s occupancy/headship) had no route and so no
+/// history at all; the only workaround was a direct DB edit. One row per move,
+/// mirroring `OrgNodeAssignment`'s own history discipline — `fromNodeId` is nullable
+/// because a person can be invited with no home department at all.
+model HomeNodeChange {
+  id         String   @id @default(cuid())
+  userId     String
+  fromNodeId String?
+  toNodeId   String?
+  reason     String?
+  changedById String
+  changedAt  DateTime @default(now())
+
+  user       User     @relation("HomeNodeChangeUser", fields: [userId], references: [id], onDelete: Cascade)
+  changedBy  User     @relation("HomeNodeChangeChangedBy", fields: [changedById], references: [id])
+
+  @@index([userId, changedAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

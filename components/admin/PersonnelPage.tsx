@@ -130,6 +130,15 @@ export default function PersonnelPage() {
     }
   }
 
+  async function moveHomeNode(personId: string, nodeId: string | null) {
+    try {
+      await api.post(`/people/${personId}/home-node`, { nodeId, reason: "Moved via admin console" });
+      reload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not move this person's department");
+    }
+  }
+
   async function updateRoles(personId: string, roles: RoleKind[]) {
     try {
       await api.post(`/people/${personId}/roles`, { roles });
@@ -228,6 +237,7 @@ export default function PersonnelPage() {
           onClose={() => setManageId(null)}
           onSaveRoles={(roles) => updateRoles(managing.id, roles)}
           onAssignNode={(nodeId) => assignNode(managing.id, nodeId)}
+          onMoveHomeNode={(nodeId) => moveHomeNode(managing.id, nodeId)}
           onDeactivate={() => deactivate(managing)}
           onReactivate={() => reactivate(managing)}
           onError={setError}
@@ -334,6 +344,7 @@ function PersonManageModal({
   onClose,
   onSaveRoles,
   onAssignNode,
+  onMoveHomeNode,
   onDeactivate,
   onReactivate,
   onError,
@@ -345,6 +356,7 @@ function PersonManageModal({
   onClose: () => void;
   onSaveRoles: (roles: RoleKind[]) => void;
   onAssignNode: (nodeId: string | null) => void;
+  onMoveHomeNode: (nodeId: string | null) => void;
   onDeactivate: () => void;
   onReactivate: () => void;
   onError: (m: string) => void;
@@ -411,6 +423,26 @@ function PersonManageModal({
             onSelect={(nodeId) => onAssignNode(nodeId)}
             placeholder="Assign a node…"
             clearLabel="Vacate this person's node"
+          />
+        </div>
+      )}
+
+      {/* F-015 of the 2026-09-15 campaign — moving a person's home DEPARTMENT
+          (membership), distinct from occupancy above. There was previously no way
+          to do this at all short of a direct DB edit. Refused server-side while
+          they hold custody, an open need or an open staged draft. */}
+      {isAdmin && (
+        <div>
+          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Home department</div>
+          <div className="mb-8 text-11 text-dim">
+            {person.homeNodeName ? <span className="text-text">{person.homeNodeName}</span> : <span className="text-faint">none</span>}
+          </div>
+          <EntityPicker
+            options={nodes.filter((n) => n.active).map((n) => ({ id: n.id, label: n.name, sublabel: n.kind }))}
+            value={person.homeNodeId}
+            onSelect={(nodeId) => onMoveHomeNode(nodeId)}
+            placeholder="Move to a department…"
+            clearLabel="Clear this person's home department"
           />
         </div>
       )}

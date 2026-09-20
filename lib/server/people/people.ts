@@ -3,6 +3,7 @@ import type {
   CreatePersonInput,
   CreatePersonResultDto,
   DeactivateResultDto,
+  MoveHomeNodeInput,
   PersonDto,
   PersonSummaryDto,
   ResendInviteResultDto,
@@ -206,12 +207,37 @@ async function assertMayManageStaff(actorUserId: string, actorRoles: RoleKind[],
   }
 }
 
+/** F-016 of the 2026-09-15 campaign — with a single administrator, as in a fresh
+ *  production bootstrap, losing the last active SYS_ADMIN locks everyone out of Org
+ *  Studio, Personnel and categories, recoverable only via `prisma/bootstrap.ts` with
+ *  production credentials. Called whenever a change would remove SYS_ADMIN's access
+ *  from someone who currently has it — role edit or deactivation alike — and refuses
+ *  if no OTHER active administrator would be left. */
+async function assertNotLastActiveAdmin(targetUserId: string, action: string): Promise<void> {
+  const otherActiveAdmins = await prisma.user.count({
+    where: { id: { not: targetUserId }, status: "ACTIVE", roles: { some: { kind: "SYS_ADMIN" } } },
+  });
+  if (otherActiveAdmins === 0) {
+    throw new HttpError(400, `Cannot ${action} this person — they are the last active system administrator.`);
+  }
+}
+
 export async function updateRoles(actorUserId: string, actorRoles: RoleKind[], id: string, input: UpdatePersonRolesInput): Promise<PersonDto> {
   const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");
   await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
   if (!actorRoles.includes("SYS_ADMIN") && input.roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r))) {
     throw new HttpError(403, `A department head may only set ${MANAGER_INVITABLE_ROLES.join(" or ")} roles.`);
+  }
+  // F-016 of the 2026-09-15 campaign: assertMayManageStaff returns early for a
+  // SYS_ADMIN actor (an admin may otherwise manage anyone), which meant an admin
+  // could strip SYS_ADMIN from themselves — or from the only other admin — via this
+  // same route, with the guard existing only in the UI. Checked here, independent of
+  // who the actor is, because the failure mode (nobody left who can open Org Studio,
+  // Personnel or categories) doesn't care who caused it.
+  const wasAdmin = user.roles.some((r) => r.kind === "SYS_ADMIN");
+  if (wasAdmin && !input.roles.includes("SYS_ADMIN")) {
+    await assertNotLastActiveAdmin(id, "remove system-administrator access from");
   }
   await prisma.$transaction([
     prisma.userRole.deleteMany({ where: { userId: id } }),
@@ -228,9 +254,18 @@ export async function updateRoles(actorUserId: string, actorRoles: RoleKind[], i
  * as a stuck approval chain.
  */
 export async function deactivate(actorUserId: string, actorRoles: RoleKind[], id: string): Promise<DeactivateResultDto> {
+  // F-016 of the 2026-09-15 campaign: below, assertMayManageStaff refuses self-target
+  // for a HEAD actor but returns early (no check at all) for a SYS_ADMIN one — an
+  // admin could otherwise deactivate their own account via this route, with the
+  // guard existing only in the UI. Checked first, ahead of role, for the same reason.
+  if (actorUserId === id) throw new HttpError(400, "You cannot deactivate your own account.");
+
   const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");
   await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
+  if (user.roles.some((r) => r.kind === "SYS_ADMIN")) {
+    await assertNotLastActiveAdmin(id, "deactivate");
+  }
 
   // Item.custodianId is onDelete: Restrict and NEVER null — custody hands off, it
   // never lapses. A disabled custodian could never again sign in to act on what they
@@ -285,16 +320,25 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
   }
 
   const raw = generateToken();
-  await prisma.invitation.create({
-    data: {
-      emailLower: user.emailLower,
-      tokenHash: hashToken(raw),
-      intendedRole: (await prisma.userRole.findFirst({ where: { userId: id } }))?.kind ?? "STAFF",
-      orgNodeId: user.homeNodeId,
-      invitedById: actorUserId,
-      expiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 86_400_000),
-    },
-  });
+  const intendedRole = (await prisma.userRole.findFirst({ where: { userId: id } }))?.kind ?? "STAFF";
+  // F-013 of the 2026-09-15 campaign: the email this same call sends says "the
+  // previous one, if any, no longer works" — it didn't; both old and new tokens
+  // stayed live, so a link sent to the wrong address or forwarded on kept working
+  // after the admin believed they'd replaced it. Expire every open invitation for
+  // this email in the same transaction as issuing the new one.
+  await prisma.$transaction([
+    prisma.invitation.updateMany({ where: { emailLower: user.emailLower, consumedAt: null }, data: { expiresAt: new Date() } }),
+    prisma.invitation.create({
+      data: {
+        emailLower: user.emailLower,
+        tokenHash: hashToken(raw),
+        intendedRole,
+        orgNodeId: user.homeNodeId,
+        invitedById: actorUserId,
+        expiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 86_400_000),
+      },
+    }),
+  ]);
   const inviteUrl = `${APP_ORIGIN}/accept-invite?token=${raw}`;
   await mail.send({
     to: user.email,
@@ -376,6 +420,50 @@ export async function assignNode(
     });
   }
 
+  return one(targetUserId);
+}
+
+/**
+ * F-015 of the 2026-09-15 campaign — there was no way to move a person to another
+ * department at all: `assignNode` sets *occupancy* (headship), not membership, and
+ * the only workaround (used once, in the campaign's own O-13 fixture) was a direct
+ * DB edit, which then went on to expose F-004. SYS_ADMIN-only. Refuses while the
+ * person still holds custody, has an open need, or has an open staged draft — each
+ * of those is scoped to the OLD department by nature (custody, needs and drafts are
+ * all raised/held by a person acting FOR their home unit), and moving them elsewhere
+ * while one is outstanding would silently orphan it from the head who's supposed to
+ * see it. Recorded in `HomeNodeChange`, mirroring `OrgNodeAssignment`'s own history
+ * discipline for occupancy moves.
+ */
+export async function moveHomeNode(actorUserId: string, targetUserId: string, input: MoveHomeNodeInput): Promise<PersonDto> {
+  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!target) throw new HttpError(404, "Person not found");
+  if (target.homeNodeId === input.nodeId) return one(targetUserId);
+
+  if (input.nodeId) {
+    const node = await prisma.orgNode.findUnique({ where: { id: input.nodeId } });
+    if (!node || !node.active) throw new HttpError(400, "That department does not exist or is inactive");
+  }
+
+  const [custodyCount, openNeeds, openDrafts] = await Promise.all([
+    prisma.item.count({ where: { custodianId: targetUserId } }),
+    prisma.needLine.count({ where: { raisedById: targetUserId, status: "OPEN" } }),
+    prisma.itemDraftChange.count({ where: { authorId: targetUserId, status: "OPEN" } }),
+  ]);
+  const blockers: string[] = [];
+  if (custodyCount > 0) blockers.push(`is custodian of ${custodyCount} resource(s)`);
+  if (openNeeds > 0) blockers.push(`has ${openNeeds} open purchasing need(s)`);
+  if (openDrafts > 0) blockers.push(`has ${openDrafts} open staged draft change(s)`);
+  if (blockers.length > 0) {
+    throw new HttpError(400, `Cannot move "${target.name}" — they ${blockers.join("; ")}. Resolve these first, or move them after they're cleared.`);
+  }
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: targetUserId }, data: { homeNodeId: input.nodeId } }),
+    prisma.homeNodeChange.create({
+      data: { userId: targetUserId, fromNodeId: target.homeNodeId, toNodeId: input.nodeId, reason: input.reason ?? null, changedById: actorUserId },
+    }),
+  ]);
   return one(targetUserId);
 }
 
