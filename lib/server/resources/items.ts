@@ -87,6 +87,11 @@ async function computeScopedIds(
   scopeOverride?: ScopeOverride,
   extraFilters?: FilterState | null,
 ): Promise<{ base: Set<string>; closed: Set<string> }> {
+  // F-031 of the 2026-09-15 campaign: every register read (search/tree/facets/
+  // filterFields/summary/containers/getOne) shares this one choke point, so the
+  // student/external floor lives here once rather than at each of the API routes
+  // that call them (also gated there, defense in depth — see STAFF_ROLES).
+  await scope.assertMayBrowseRegister(userId);
   const resolved = await scope.resolveScope(userId, scopeOverride?.mode, scopeOverride?.explicitNodeIds);
   let base: Set<string>;
   if (resolved.mode === "UNIVERSITY") base = new Set(forest.items.map((i) => i.id));

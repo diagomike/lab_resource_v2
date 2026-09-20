@@ -52,6 +52,15 @@ export async function requireSession(request: NextRequest): Promise<AuthedUser> 
  * no role restriction (matches RolesGuard's `if (!required || required.length === 0)
  * return true`).
  */
+/** Every role except STUDENT/EXTERNAL — F-031 of the 2026-09-15 campaign: the
+ *  asset register's own read routes called only `requireSession`, trusting
+ *  `resources/scope.ts`'s own header, which says the opposite ("The per-endpoint
+ *  RBAC layer, not this module, is what actually keeps a student off the asset
+ *  register"). A student or external account with a home node got
+ *  `defaultModeFor`'s ORG_SUBTREE scope like anyone else, exposing their whole
+ *  department's locations, custodian names and statuses. */
+export const STAFF_ROLES: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"];
+
 export function requireRole(user: AuthedUser, allowed: RoleKind[]): void {
   if (allowed.length === 0) return;
   if (!allowed.some((r) => user.roles.includes(r))) {

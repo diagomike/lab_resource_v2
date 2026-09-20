@@ -36,8 +36,14 @@ export const NAV: NavGroup[] = [
   {
     label: "Resources",
     items: [
-      { key: "dashboard", label: "Dashboard", icon: "▦", path: "/dashboard" },
-      { key: "register", label: "Register", icon: "▤", path: "/register" },
+      // F-031 of the 2026-09-15 campaign: the asset register (and its history, the
+      // change log below) is staff/custodian/procurement territory — a student or
+      // external account never reaches the underlying routes now either
+      // (STAFF_ROLES, lib/server/auth/session.ts). Hiding the entry here is
+      // convenience on top of that real enforcement, same discipline every other
+      // role-gated item in this file already follows.
+      { key: "dashboard", label: "Dashboard", icon: "▦", path: "/dashboard", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
+      { key: "register", label: "Register", icon: "▤", path: "/register", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
       // A capability gate, not scope-narrowed data — this file's own header note.
       // Matches assertCanBrowseUniversity's exact permitted set (lib/server/resources/
       // scope.ts): global roles are unrestricted already; MANAGER and STORE_KEEPER are
@@ -63,7 +69,7 @@ export const NAV: NavGroup[] = [
         // enforcement, which the server still applies on every write.
         roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER", "EXTERNAL"],
       },
-      { key: "change-log", label: "Change log", icon: "◷", path: "/change-log" },
+      { key: "change-log", label: "Change log", icon: "◷", path: "/change-log", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
       { key: "categories", label: "Categories", icon: "◈", path: "/categories" },
     ],
   },

@@ -37,6 +37,7 @@ let seHeadId: string; // MANAGER
 let chemCustodianId: string;
 let storeKeeperId: string;
 let staffOnlyId: string;
+let studentId: string;
 
 let groupId: string;
 let categoryId: string;
@@ -89,6 +90,18 @@ beforeAll(async () => {
   });
   staffOnlyId = staffOnly.id;
 
+  const student = await prisma.user.create({
+    data: {
+      email: `${testKey}-student@astu.edu.et`,
+      emailLower: `${testKey}-student@astu.edu.et`,
+      name: "Test Student",
+      status: "ACTIVE",
+      homeNodeId: seNode.id,
+      roles: { create: [{ kind: "STUDENT" }] },
+    },
+  });
+  studentId = student.id;
+
   const group = await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } });
   groupId = group.id;
   const category = await categories.create(sysAdminId, {
@@ -123,9 +136,21 @@ afterAll(async () => {
   await prisma.item.deleteMany({ where: { id: { in: [seItemId, chemItemId] } } });
   await prisma.resourceCategory.delete({ where: { id: categoryId } });
   await prisma.categoryGroup.delete({ where: { id: groupId } });
-  await prisma.userRole.deleteMany({ where: { userId: { in: [storeKeeperId, staffOnlyId] } } });
-  await prisma.user.deleteMany({ where: { id: { in: [storeKeeperId, staffOnlyId] } } });
+  await prisma.userRole.deleteMany({ where: { userId: { in: [storeKeeperId, staffOnlyId, studentId] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [storeKeeperId, staffOnlyId, studentId] } } });
   await prisma.$disconnect();
+});
+
+describe("F-031 — a student (or external) cannot browse the register at all", () => {
+  it("refuses search, tree and getOne", async () => {
+    await expect(items.search(studentId, {}, 1, 50)).rejects.toMatchObject({ status: 403 });
+    await expect(items.tree(studentId, {})).rejects.toMatchObject({ status: 403 });
+    await expect(items.getOne(studentId, seItemId)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("still allows an ordinary STAFF account (not STUDENT/EXTERNAL)", async () => {
+    await expect(items.search(staffOnlyId, {}, 1, 50)).resolves.toBeTruthy();
+  });
 });
 
 describe("assertCanBrowseUniversity — the gate itself", () => {

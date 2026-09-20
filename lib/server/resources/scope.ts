@@ -210,6 +210,22 @@ export async function assertEligibleCustodian(userId: string): Promise<void> {
   }
 }
 
+/** F-031 of the 2026-09-15 campaign — this module's own opening note used to say
+ *  "the per-endpoint RBAC layer, not this module, is what actually keeps a
+ *  student off the asset register", but no read route ever called one:
+ *  `defaultModeFor` gives any non-custodian with a home node the same
+ *  ORG_SUBTREE reach as a staff member, so a student or external account with a
+ *  home node saw their whole department's register — locations, custodian
+ *  names, statuses. Called at the top of every register/change-log read (not
+ *  only the API routes, so a future caller can't reach the data by skipping the
+ *  route) — categories stays exempt (everyone needs to see what fields exist to
+ *  make sense of anything else). */
+export async function assertMayBrowseRegister(userId: string): Promise<void> {
+  const roles = await rolesOf(userId);
+  if (roles.some((r) => r !== "STUDENT" && r !== "EXTERNAL")) return;
+  throw new HttpError(403, "The asset register is for staff and custodians.");
+}
+
 // ── WRITE eligibility (Phase 7 of ~/.claude/plans/wait-i-want-gentle-haven.md) ──────
 //
 // Deliberately narrower than everything above, and a SEPARATE question from read
