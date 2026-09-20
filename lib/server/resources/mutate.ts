@@ -14,7 +14,7 @@ import { toDomainCategoryMap } from "./adapt";
 import { canPlace } from "@/lib/domain/placement";
 import { storage } from "./storage";
 
-type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
+export type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
 /**
  * The one write door. Ported from temp_works/src/lib/store.ts's `validate` → `apply`
@@ -54,7 +54,27 @@ function scopeSnapshot(item: { ownerOrgNodeId: string; currentOrgNodeId: string;
 export async function applyChange(
   actorId: string,
   input: ItemChangeInput,
-  opts?: { dryRun?: boolean; viewId?: string | null; bypassDraftWorkflowBlock?: boolean; viaApprovalEngine?: boolean },
+  opts?: {
+    dryRun?: boolean;
+    viewId?: string | null;
+    bypassDraftWorkflowBlock?: boolean;
+    viaApprovalEngine?: boolean;
+    /**
+     * F-035 of the 2026-09-15 campaign — a caller-supplied transaction, so several
+     * operations (a lab commit's whole staged batch — see lab-drafts.ts's
+     * decideCommit) apply as ONE atomic unit instead of N independent ones. Before
+     * this, each staged change ran in its OWN transaction against the SAME
+     * pre-flight starting state; the first real apply bumped a version the second
+     * expected, so it deterministically failed with VERSION_CONFLICT, leaving the
+     * batch half-applied. When `tx` is given, this call joins the CALLER's
+     * transaction rather than opening its own — `dryRun` and its own storage
+     * cleanup no longer apply here (the caller owns both: pass `cleanupKeys` to
+     * collect this call's own storage removals, and run a dry run via a savepoint
+     * of the caller's own choosing, if it needs one at all).
+     */
+    tx?: Tx;
+    cleanupKeys?: string[];
+  },
 ): Promise<ItemChangeResultDto> {
   await assertAuthorized(actorId, input, opts?.viewId, opts?.bypassDraftWorkflowBlock, opts?.viaApprovalEngine);
   // Computed once, against committed state, alongside assertAuthorized's own check —
@@ -64,6 +84,11 @@ export async function applyChange(
   // trusted (F-023 of the 2026-09-15 campaign). Every other kind's authorization is
   // already fully decided by assertAuthorized/assertCanMutate above.
   const isAdmin = await scope.isSysAdmin(actorId);
+
+  if (opts?.tx) {
+    await assertVersionsMatch(opts.tx, input);
+    return performChange(opts.tx, actorId, input, opts.cleanupKeys ?? [], isAdmin);
+  }
 
   let captured: ItemChangeResultDto | undefined;
   // Storage keys a successful commit makes unreferenced (a removed photo, a deleted

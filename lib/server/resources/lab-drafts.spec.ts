@@ -281,6 +281,66 @@ describe("rejection keeps the draft intact for revision", () => {
   });
 });
 
+describe("F-035/F-036 — atomic batch apply and staleness against a direct correction", () => {
+  let custodianId: string;
+  let headId: string;
+  let labId: string;
+  let childId: string;
+
+  beforeAll(async () => {
+    await prisma.orgNode.update({ where: { id: testDeptNodeId }, data: { draftWorkflowEnabled: true } });
+    custodianId = await makeUser("atomic-custodian", { homeNodeId: testDeptNodeId, roles: ["CUSTODIAN"] });
+    headId = await makeUser("atomic-head", { roles: ["MANAGER"] });
+    await setHead(headId);
+    labId = await makeLab(custodianId, "Atomic-Flow Lab");
+  });
+
+  afterAll(async () => {
+    await setHead(null);
+  });
+
+  it("F-035: two staged edits of the same item, EACH carrying its own expectedVersions (as the Inspector/Change modal actually send it), both apply atomically", async () => {
+    childId = await makeChild(labId, custodianId, "F035 Widget");
+    const before = await prisma.item.findUniqueOrThrow({ where: { id: childId } });
+    // Both staged against the SAME starting version — exactly how two edits made
+    // from the same open Inspector, staged one after another, would arrive.
+    await labDrafts.stageChange(custodianId, labId, {
+      targetKind: "VISIBLE",
+      change: { kind: "setName", itemIds: [childId], value: "F035 Renamed", expectedVersions: { [childId]: before.version } },
+    });
+    await labDrafts.stageChange(custodianId, labId, {
+      targetKind: "VISIBLE",
+      change: { kind: "setStatus", itemIds: [childId], value: "UNDER_MAINTENANCE", expectedVersions: { [childId]: before.version } },
+    });
+    const commit = await labDrafts.submitDraft(custodianId, labId, "VISIBLE");
+    const decided = await labDrafts.decideCommit(headId, commit.id, "APPROVE");
+
+    // Before the fix, the first real apply bumped the version the second staged
+    // change expected, so the second deterministically failed with
+    // VERSION_CONFLICT: the request stayed PENDING with only the rename applied.
+    expect(decided.status).toBe("APPLIED");
+    const live = await prisma.item.findUniqueOrThrow({ where: { id: childId } });
+    expect(live.name).toBe("F035 Renamed");
+    expect(live.status).toBe("UNDER_MAINTENANCE");
+  });
+
+  it("F-036: an item changed after submission (a direct correction) makes approval STALE, not a silent overwrite", async () => {
+    childId = await makeChild(labId, custodianId, "F036 Widget");
+    await labDrafts.stageChange(custodianId, labId, { targetKind: "VISIBLE", change: { kind: "setName", itemIds: [childId], value: "Stale Draft Name" } });
+    const commit = await labDrafts.submitDraft(custodianId, labId, "VISIBLE");
+
+    // An admin corrects the item directly while the draft sits waiting for its head.
+    await prisma.item.update({ where: { id: childId }, data: { name: "Admin Correction", version: { increment: 1 } } });
+
+    const decided = await labDrafts.decideCommit(headId, commit.id, "APPROVE");
+    expect(decided.status).toBe("STALE");
+    expect(decided.resolution).toContain("Admin Correction");
+
+    const live = await prisma.item.findUniqueOrThrow({ where: { id: childId } });
+    expect(live.name).toBe("Admin Correction"); // the correction survives, never overwritten
+  });
+});
+
 describe("approval to IDEAL never touches Item, only LabIdealTarget", () => {
   let custodianId: string;
   let headId: string;

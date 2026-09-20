@@ -4,7 +4,8 @@ import type { ItemChangeInput, StageDraftChangeInput, DraftTargetKind, ItemDraft
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
-import { applyChange, previewChange } from "./mutate";
+import { applyChange, previewChange, type Tx } from "./mutate";
+import { storage } from "./storage";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { computeStatuses, statusOf, NEEDS_ATTENTION } from "@/lib/domain/status";
 import { aggregatePurchasables, type LabIdealSheet } from "@/lib/domain/purchasables";
@@ -355,21 +356,13 @@ export async function decideCommit(actorId: string, requestId: string, decision:
     return getRequest(actorId, requestId);
   }
 
-  // VISIBLE: pre-flight every staged operation as a dry run FIRST. Each real
-  // `applyChange` call below manages its OWN transaction (mutate.ts's own design —
-  // "one write door", not a second transactional path this module opens instead),
-  // so this batch cannot be made formally atomic across all N operations the way a
-  // single applyChange call is atomic within itself. The pre-flight pass is what
-  // makes "nothing partially applies" true in practice: every operation is proven
-  // valid against CURRENT state before any of them commits for real. The residual
-  // race — state changing between the pre-flight and the real apply of a LATER
-  // operation in the same batch, in the few milliseconds of one request — is the
-  // same class of risk `assertVersionsMatch`'s own FOR UPDATE lock already narrows
-  // per-operation; it is not eliminated for the batch as a whole.
-  // `bypassDraftWorkflowBlock: true` on both loops — this IS the approved conclusion
-  // of the draft workflow mutate.ts's own block exists to require; by this point
-  // staging and approval have already happened, so the block must not refuse the
-  // very apply it was raised to enable.
+  // VISIBLE: pre-flight every staged operation as a dry run FIRST, against
+  // committed state, cheaply and with no locks held — catches most bad states
+  // (an item deleted, a category changed) early with a clear per-operation
+  // message. `bypassDraftWorkflowBlock: true` on both passes below — this IS the
+  // approved conclusion of the draft workflow mutate.ts's own block exists to
+  // require; by this point staging and approval have already happened, so the
+  // block must not refuse the very apply it was raised to enable.
   for (const c of changes) {
     try {
       await previewChange(request.requesterId, c.payload as ItemChangeInput, undefined, true);
@@ -379,12 +372,83 @@ export async function decideCommit(actorId: string, requestId: string, decision:
     }
   }
 
-  for (const c of changes) {
-    await applyChange(request.requesterId, c.payload as ItemChangeInput, { bypassDraftWorkflowBlock: true });
-    await prisma.itemDraftChange.update({ where: { id: c.id }, data: { status: "APPLIED" } });
+  // The real apply: the whole batch in ONE transaction (F-035 of the 2026-09-15
+  // campaign) — before this, each staged change ran in its OWN transaction, each
+  // one re-validated against the SAME pre-flight starting state; the first real
+  // apply bumped a version the second expected, so two edits of the same item
+  // deterministically left the request stuck PENDING with only the first half
+  // applied. `applyChange`'s own per-operation version check is skipped by design
+  // here (LabDraftPanel's staged payloads carry no `expectedVersions` at all —
+  // this workflow's own concurrency guard is `baseVersions`, checked next); any
+  // failure below rolls back everything this transaction touched.
+  const staleMessage = await checkBaseVersionsCurrent(prisma, request.baseVersions as Record<string, number> | null);
+  if (staleMessage) {
+    await prisma.labCommitRequest.update({ where: { id: requestId }, data: { status: "STALE", resolution: staleMessage } });
+    return getRequest(actorId, requestId);
   }
-  await prisma.labCommitRequest.update({ where: { id: requestId }, data: { status: "APPLIED", decidedById: actorId, decidedAt: new Date(), resolution: note ?? null } });
+
+  const cleanupKeys: string[] = [];
+  try {
+    await prisma.$transaction(async (tx) => {
+      // F-036 of the 2026-09-15 campaign: re-checked HERE, under the SAME
+      // FOR UPDATE lock the write itself is about to run under — the read above
+      // (before this transaction opened) is what lets a genuinely stale batch
+      // fail fast without ever taking a lock, but only a check inside this
+      // transaction is airtight against a correction landing in the gap between
+      // that read and this write.
+      const staleInTx = await checkBaseVersionsCurrent(tx, request.baseVersions as Record<string, number> | null);
+      if (staleInTx) throw new HttpError(409, "Stale", { message: staleInTx, code: "STALE_DRAFT" });
+
+      for (const c of changes) {
+        // `expectedVersions`, if the staged payload carries any (the Inspector and
+        // Change modal both send it — see stageChange's own header), is stripped
+        // here: every operation in this batch was staged against the SAME
+        // pre-batch state, already validated as a whole by baseVersions just
+        // above, so an EARLIER operation in this same batch bumping the version
+        // an operation later touching the same item recorded when IT was staged
+        // must not then read as "someone else changed it" and fail the batch —
+        // that self-inflicted conflict is exactly F-035's own bug.
+        const { expectedVersions: _ignored, ...payloadWithoutVersions } = c.payload as ItemChangeInput;
+        void _ignored;
+        await applyChange(request.requesterId, payloadWithoutVersions as ItemChangeInput, { bypassDraftWorkflowBlock: true, tx, cleanupKeys });
+        await tx.itemDraftChange.update({ where: { id: c.id }, data: { status: "APPLIED" } });
+      }
+      await tx.labCommitRequest.update({ where: { id: requestId }, data: { status: "APPLIED", decidedById: actorId, decidedAt: new Date(), resolution: note ?? null } });
+    });
+  } catch (err) {
+    const message = err instanceof HttpError ? err.message : "One or more staged changes no longer apply.";
+    await prisma.labCommitRequest.update({ where: { id: requestId }, data: { status: "STALE", resolution: message } });
+    return getRequest(actorId, requestId);
+  }
+  // Best-effort, after the committed transaction only — same discipline
+  // mutate.ts's own applyChange follows for a single operation.
+  for (const key of cleanupKeys) await storage.remove(key).catch(() => undefined);
   return getRequest(actorId, requestId);
+}
+
+/**
+ * F-036 of the 2026-09-15 campaign — `submitDraft` stores each staged item's
+ * version at submission time (`baseVersions`), but nothing ever read it back:
+ * an admin's direct correction made while a draft sat waiting for its head could
+ * be silently overwritten the moment the head approved. Locks the named rows
+ * `FOR UPDATE` (the same discipline mutate.ts's own `assertVersionsMatch`
+ * follows) and compares; returns a message naming what changed, or `null` when
+ * every row still matches. IDEAL requests carry no `baseVersions` (they touch no
+ * `Item` row) and are exempt.
+ */
+async function checkBaseVersionsCurrent(tx: Tx, baseVersions: Record<string, number> | null): Promise<string | null> {
+  if (!baseVersions || !Object.keys(baseVersions).length) return null;
+  const ids = Object.keys(baseVersions);
+  const rows = await tx.$queryRaw<{ id: string; name: string; version: number }[]>`
+    SELECT id, name, version FROM "Item" WHERE id = ANY(${ids}) FOR UPDATE
+  `;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const changed = ids
+    .map((id) => ({ id, expected: baseVersions[id], row: byId.get(id) }))
+    .filter((c) => !c.row || c.row.version !== c.expected);
+  if (!changed.length) return null;
+  const names = changed.map((c) => (c.row ? `"${c.row.name}"` : "an item that no longer exists"));
+  return `Changed since this request was submitted: ${names.join(", ")}.`;
 }
 
 // ── Ideal vs. actual ─────────────────────────────────────────────────────
