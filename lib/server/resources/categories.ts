@@ -3,8 +3,9 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import type { CategoryFieldType, CategoryImpactDto, CreateCategoryInput, ResourceCategoryDto, UpdateCategoryInput } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
-import { categoryImpact } from "@/lib/domain/edit-impact";
+import { categoryImpact, coerces } from "@/lib/domain/edit-impact";
 import { canPlace } from "@/lib/domain/placement";
+import { CATEGORY_ICONS } from "@/lib/domain/icons";
 import type { Category } from "@/lib/domain/types";
 import { toDomainCategory, toDomainCategoryMap, toDomainItem } from "./adapt";
 import { wouldCreateTemplateCycle } from "./template-cycle";
@@ -185,7 +186,15 @@ function assertBookableCountingMode(bookingMode: string | undefined, countingMod
   }
 }
 
+/** F-030: an unknown icon key silently rendered the fallback glyph; refuse it at the door. */
+function assertKnownIcon(iconKey: string | undefined): void {
+  if (iconKey !== undefined && !Object.prototype.hasOwnProperty.call(CATEGORY_ICONS, iconKey)) {
+    throw new HttpError(400, "Unknown icon \"" + iconKey + "\" — pick one from the icon list.");
+  }
+}
+
 export async function create(actorId: string, input: CreateCategoryInput): Promise<ResourceCategoryDto> {
+  assertKnownIcon(input.iconKey);
   assertBookableCountingMode(input.bookingMode, input.countingMode);
   assertEnumFieldsHaveOptions(input.fields);
   assertNoDuplicateFieldKeys(input.fields);
@@ -290,6 +299,7 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
  * values (dormant, not deleted) by default.
  */
 export async function update(actorId: string, id: string, input: UpdateCategoryInput): Promise<ResourceCategoryDto> {
+  assertKnownIcon(input.iconKey);
   await prisma.$transaction(async (tx) => {
     const lock = await tx.$queryRaw<{ id: string; version: number }[]>`
       SELECT id, version FROM "ResourceCategory" WHERE id = ${id} FOR UPDATE
@@ -370,6 +380,7 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
         unit: f.unit ?? undefined,
         summary: f.summary,
         long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
+        required: f.required || undefined,
       })),
       defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
     };
@@ -406,6 +417,25 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
         throw new HttpError(409, "Cannot switch to serialized counting", {
           message: `${withRealQty.length} item(s) of this category hold a quantity other than 1 (e.g. "${withRealQty[0].name}" at ${Number(withRealQty[0].qty)}) — switching to serialized counting would silently reset them to 1. Split them into individual units first.`,
           itemIds: withRealQty.map((i) => i.id),
+        });
+      }
+    }
+
+    // F-028: changing a field's type used to leave values the new type can't read
+    // sitting in Item.props ("about five" in a NUMBER field). Refused unless the caller
+    // erases that field's values in the same save (purgeKeys) — the same explicit,
+    // audited opt-in a removed field's stranded values already use.
+    for (const next of afterDomain.fields) {
+      const prev = beforeDomain.fields.find((f) => f.key === next.key);
+      if (!prev || prev.type === next.type || purgeKeys.includes(next.key)) continue;
+      const bad = domainItems.filter((i) => {
+        const v = i.props[next.key];
+        return v !== null && v !== undefined && v !== "" && !coerces(v, next);
+      });
+      if (bad.length) {
+        throw new HttpError(409, "Cannot change field type", {
+          message: bad.length + " item(s) hold a value for \"" + next.label + "\" that can't be read as " + next.type + " (e.g. \"" + String(bad[0].props[next.key]) + "\" on \"" + bad[0].name + "\"). Erase the stranded values with the change, or fix them first.",
+          itemIds: bad.map((i) => i.id),
         });
       }
     }
@@ -596,6 +626,7 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
       unit: f.unit ?? undefined,
       summary: f.summary,
       long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
+      required: f.required || undefined,
     })),
     defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
   };

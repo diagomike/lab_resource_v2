@@ -463,6 +463,16 @@ async function applyCreateItem(
     }
   }
 
+  // F-029: a category's `required` fields must be filled on the root item(s) being created.
+  // (Template children keep their blank start — they are auto-generated parts, not
+  // something the caller could fill in — and existing rows are never forced.)
+  const missingRequired = category.fields
+    .filter((f) => f.required && (initialProps[f.key] === undefined || initialProps[f.key] === null || initialProps[f.key] === ""))
+    .map((f) => f.label);
+  if (missingRequired.length) {
+    throw new HttpError(400, `Fill in the required field${missingRequired.length > 1 ? "s" : ""}: ${missingRequired.join(", ")}.`);
+  }
+
   // Item-specific properties supplied by Add resources use exactly the same rules as
   // adding one later in Inspector. Build a fresh bag rather than trusting the record
   // keys verbatim: keys are trimmed, checked against category fields, checked against

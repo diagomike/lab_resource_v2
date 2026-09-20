@@ -244,3 +244,26 @@ describe("F-041 — an item named in a pending transfer request cannot be moved 
     await prisma.item.deleteMany({ where: { id: { in: [item.id, destination.id] } } });
   });
 });
+
+describe("F-029 — a category's required fields are enforced when creating an item", () => {
+  it("refuses a create that leaves a required field empty, and accepts it once filled", async () => {
+    const cat = await prisma.resourceCategory.create({
+      data: {
+        key: `__test-f029-${Date.now()}`, name: "F029 Required Test", iconKey: "Box", groupId, countingMode: "SERIALIZED", canBeRoot: true,
+        fields: { create: [{ key: "serial", label: "Serial number", type: "TEXT", required: true }] },
+      },
+    });
+    const create = (props?: Record<string, string>) =>
+      applyChange(sysAdminId, { kind: "createItem", parentId: null, categoryId: cat.id, count: 1, name: "F029 Item", ownerOrgNodeId: orgNodeId, custodianId: sysAdminId, ...(props ? { props } : {}) });
+
+    await expect(create()).rejects.toMatchObject({ status: 400, message: expect.stringContaining("Serial number") });
+    await expect(create({ serial: "" })).rejects.toMatchObject({ status: 400 });
+    const ok = await create({ serial: "SN-1" });
+    expect(ok.applied).toBe(1);
+
+    const ids = (await prisma.item.findMany({ where: { categoryId: cat.id }, select: { id: true } })).map((i) => i.id);
+    await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: ids } }, { categoryId: cat.id }] } });
+    await prisma.item.deleteMany({ where: { id: { in: ids } } });
+    await prisma.resourceCategory.delete({ where: { id: cat.id } });
+  });
+});

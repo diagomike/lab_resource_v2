@@ -32,6 +32,8 @@ export interface FieldDef {
   summary?: boolean;
   /** Render as a multi-line block in the inspector — descriptions, procedures. */
   long?: boolean;
+  /** Must be filled when an item of this category is created (F-029). Existing items are never forced. */
+  required?: boolean;
 }
 
 /** A slot in a category's default subtree: Computer contains 1 Motherboard, 2 Speakers. */

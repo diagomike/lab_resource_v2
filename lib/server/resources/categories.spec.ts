@@ -350,3 +350,79 @@ describe("F-027 — BULK to SERIALIZED, the safe case", () => {
     await prisma.item.delete({ where: { id: item.id } });
   });
 });
+
+describe("F-030 — category name/key/icon hygiene", () => {
+  it("the input schema trims names, caps their length and pins the key to a slug", async () => {
+    const { CreateCategoryInput } = await import("../../shared/resources/category");
+    const ok = { key: "good-key", name: "  Good  ", iconKey: "Box", groupId: "g", countingMode: "SERIALIZED" as const };
+    expect(CreateCategoryInput.parse(ok).name).toBe("Good");
+    expect(CreateCategoryInput.safeParse({ ...ok, name: "   " }).success).toBe(false);
+    expect(CreateCategoryInput.safeParse({ ...ok, name: "N".repeat(2000) }).success).toBe(false);
+    expect(CreateCategoryInput.safeParse({ ...ok, key: "has spaces here" }).success).toBe(false);
+    expect(CreateCategoryInput.safeParse({ ...ok, key: "Upper" }).success).toBe(false);
+  });
+
+  it("refuses an icon that is not in the registry, on create and on update", async () => {
+    const base = { name: "F030 Icon", groupId, countingMode: "SERIALIZED" as const, impairRule: "NEVER" as const, canBeRoot: true, placement: "ANYWHERE" as const, allowedParentCategoryIds: [], fields: [], templateChildren: [] };
+    await expect(categories.create(sysAdminId, { ...base, key: key("bad-icon"), iconKey: "NoSuchIcon" })).rejects.toMatchObject({ status: 400 });
+    const cat = await categories.create(sysAdminId, { ...base, key: key("good-icon"), iconKey: "Box" });
+    await expect(categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, iconKey: "NoSuchIcon", purgeKeys: [] })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("F-029 — required fields", () => {
+  it("the impact preview counts existing items that lack a newly required field", async () => {
+    const cat = await categories.create(sysAdminId, {
+      key: key("req-preview"), name: "F029 Preview", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
+      canBeRoot: true, placement: "ANYWHERE", allowedParentCategoryIds: [], fields: [], templateChildren: [],
+    });
+    const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
+    const item = await prisma.item.create({
+      data: { categoryId: cat.id, name: "F029 Item", countingMode: "SERIALIZED", qty: 1, status: "WORKING", ownerOrgNodeId: orgNode.id, currentOrgNodeId: orgNode.id, custodianId: sysAdminId },
+    });
+    const impact = await categories.previewImpact(cat.id, {
+      fields: [{ key: "tag", label: "Asset tag", type: "TEXT", options: [], summary: false, longText: false, required: true, sortOrder: 0 }],
+    });
+    const note = impact.notes.find((n) => n.id === "cat-field-required-tag");
+    expect(note?.severity).toBe("warning");
+    expect(note?.title).toMatch(/1 existing item/);
+    await prisma.item.delete({ where: { id: item.id } });
+  });
+});
+
+describe("F-028 — a field type change cannot leave unreadable values behind", () => {
+  it("is refused while an item holds an incompatible value, and allowed when the field is purged in the same save", async () => {
+    const cat = await categories.create(sysAdminId, {
+      key: key("type-change"), name: "F028 Type", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
+      canBeRoot: true, placement: "ANYWHERE", allowedParentCategoryIds: [], templateChildren: [],
+      fields: [{ key: "reading", label: "Reading", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
+    });
+    const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
+    const item = await prisma.item.create({
+      data: { categoryId: cat.id, name: "F028 Item", countingMode: "SERIALIZED", qty: 1, status: "WORKING", props: { reading: "about five" }, ownerOrgNodeId: orgNode.id, currentOrgNodeId: orgNode.id, custodianId: sysAdminId },
+    });
+    const numeric = [{ key: "reading", label: "Reading", type: "NUMBER" as const, options: [], summary: false, longText: false, required: false, sortOrder: 0 }];
+
+    await expect(categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, fields: numeric, purgeKeys: [] })).rejects.toMatchObject({ status: 409 });
+    expect((await categories.getOne(cat.id)).fields[0].type).toBe("TEXT");
+
+    const done = await categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, fields: numeric, purgeKeys: ["reading"] });
+    expect(done.fields[0].type).toBe("NUMBER");
+    const after = await prisma.item.findUniqueOrThrow({ where: { id: item.id } });
+    expect((after.props as Record<string, unknown>).reading).toBeUndefined();
+    await prisma.item.delete({ where: { id: item.id } });
+  });
+
+  it("allows a change every stored value survives", async () => {
+    const cat = await categories.create(sysAdminId, {
+      key: key("type-safe"), name: "F028 Safe", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
+      canBeRoot: true, placement: "ANYWHERE", allowedParentCategoryIds: [], templateChildren: [],
+      fields: [{ key: "reading", label: "Reading", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
+    });
+    const done = await categories.update(sysAdminId, cat.id, {
+      expectedVersion: cat.version, purgeKeys: [],
+      fields: [{ key: "reading", label: "Reading", type: "NUMBER", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
+    });
+    expect(done.fields[0].type).toBe("NUMBER");
+  });
+});

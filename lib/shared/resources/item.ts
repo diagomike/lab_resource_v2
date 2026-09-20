@@ -199,7 +199,7 @@ export const CreateItemChange = Base.extend({
    *  "Lab 02", …) — most useful when `count` is 1 (a lab is worth naming), still
    *  applied as the numbering base when `count` is more than 1. Blank/omitted keeps
    *  the existing auto-naming unchanged. */
-  name: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1).max(160).optional(),
   /** The category's own fields, filled in at creation time instead of via a
    *  follow-up edit — the same `Item.props` shape `setProperty` writes, validated
    *  the same way (`category-props.ts`'s `buildCategoryPropsSchema`). Applied only
@@ -222,7 +222,8 @@ export const DeleteItemChange = Base.extend({
 export const SetNameChange = Base.extend({
   kind: z.literal("setName"),
   itemIds: z.array(z.string()).min(1),
-  value: z.string().min(1),
+  /** F-030: trimmed and bounded — a blank or 10,000-character name broke every list layout. */
+  value: z.string().trim().min(1).max(160),
 });
 
 export const SetStatusChange = Base.extend({
