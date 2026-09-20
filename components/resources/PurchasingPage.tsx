@@ -857,20 +857,18 @@ export default function PurchasingPage() {
   if (!user) return null;
 
   const isStudent = roles.includes("STUDENT");
-  const canCompile = roles.includes("MANAGER") || roles.includes("SYS_ADMIN");
   const canRunPipeline = roles.includes("PROCUREMENT") || roles.includes("SYS_ADMIN");
   const canReceive = roles.includes("STORE_KEEPER") || roles.includes("SYS_ADMIN");
+  // Occupancy decides who heads a unit (F-017 of the 2026-09-15 campaign) — not the
+  // MANAGER role label, which used to gate this panel independently of `ownNodeId`
+  // and could silently disagree with it (a role change, or a fresh appointment,
+  // leaving the panel showing the wrong thing until the role happened to match).
   const ownNodeId = me?.scope?.isOccupant ? me.scope.nodeId : null;
 
   return (
     <Screen>
       {!isStudent && <RaiseNeedPanel categories={categories} />}
-      {canCompile && ownNodeId && <CompilePanel orgNodeId={ownNodeId} categories={categories} onCompiled={() => setRefreshKey((k) => k + 1)} />}
-      {canCompile && !ownNodeId && (
-        <Panel title="Compile a purchase request">
-          <div className="px-14 py-12 text-11 text-dim">You don't currently head a unit on the org chart, so there's nothing to compile a request for.</div>
-        </Panel>
-      )}
+      {ownNodeId && <CompilePanel orgNodeId={ownNodeId} categories={categories} onCompiled={() => setRefreshKey((k) => k + 1)} />}
       <RequestListPanel key={`mine-${refreshKey}`} title="My requests" box="mine" viewerId={user.id} categories={categories} emptyLabel="You haven't compiled any purchase requests." />
       {canRunPipeline && (
         <RequestListPanel key={`pipeline-${refreshKey}`} title="Pipeline" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is currently on order." showAdvance />

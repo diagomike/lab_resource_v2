@@ -1,5 +1,5 @@
 import "server-only";
-import type { Prisma, PurchaseStep as PrismaPurchaseStep } from "@prisma/client";
+import { Prisma, type PurchaseStep as PrismaPurchaseStep } from "@prisma/client";
 import type {
   AdvancePurchaseInput,
   ChainStepDto,
@@ -14,6 +14,7 @@ import type {
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
+import * as orgScope from "../org/scope";
 import { applyChange } from "./mutate";
 import {
   activate,
@@ -26,7 +27,7 @@ import {
   type ChainStep as DomainChainStep,
   type StepSelector,
 } from "@/lib/domain/approvals";
-import { FIRST_PIPELINE_STAGE, canCompile, canRaiseNeed, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
+import { FIRST_PIPELINE_STAGE, canRaiseNeed, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
 import type { RoleKind } from "@/lib/shared";
 
@@ -90,18 +91,12 @@ function toDomainStep(row: PrismaPurchaseStep): DomainChainStep {
   };
 }
 
-/** Whoever currently occupies `orgNodeId`, or null if headless/inactive — the same
- *  head-of-unit check `lib/server/resources/lab-drafts.ts`'s own `currentHeadOf`
- *  private helper already established for Track 2. */
-async function currentHeadOf(orgNodeId: string): Promise<string | null> {
-  const node = await prisma.orgNode.findUnique({ where: { id: orgNodeId }, select: { userId: true, active: true } });
-  return node?.active ? node.userId : null;
-}
-
+/** Occupancy, via the one canonical "head" definition (`org/scope.ts`'s own
+ *  `isHeadOf` — F-017 of the 2026-09-15 campaign consolidated this module's
+ *  previously-local copy into it, alongside removing the redundant MANAGER-role
+ *  pre-checks that used to gate every caller of this function). */
 async function assertHeadsNode(actorId: string, orgNodeId: string): Promise<void> {
-  if (await scope.isSysAdmin(actorId)) return;
-  const head = await currentHeadOf(orgNodeId);
-  if (head !== actorId) throw new HttpError(403, "Only this unit's head may do this.");
+  if (!(await orgScope.isHeadOf(actorId, orgNodeId))) throw new HttpError(403, "Only this unit's head may do this.");
 }
 
 /** The single active Office-kind node named exactly "Procurement Office" — the one
@@ -133,18 +128,34 @@ async function buildLadderSteps(orgNodeId: string, actorId: string): Promise<Dom
 /** Every referenced need must be an OPEN need already belonging to this unit — a
  *  head cannot carry someone else's department's need, or one already carried or
  *  declined, into their own request. */
-async function assertNeedsOpenAt(orgNodeId: string, needIds: string[]): Promise<void> {
+async function assertNeedsOpenAt(client: typeof prisma | Prisma.TransactionClient, orgNodeId: string, needIds: string[]): Promise<void> {
   if (!needIds.length) return;
-  const needs = await prisma.needLine.findMany({ where: { id: { in: needIds } } });
+  const needs = await client.needLine.findMany({ where: { id: { in: needIds } } });
   if (needs.length !== needIds.length || needs.some((n) => n.orgNodeId !== orgNodeId || n.status !== "OPEN")) {
     throw new HttpError(400, "One or more referenced needs are not open needs belonging to this unit.");
   }
 }
 
-async function nextReference(): Promise<string> {
-  const year = new Date().getFullYear();
-  const count = await prisma.purchaseRequest.count({ where: { createdAt: { gte: new Date(Date.UTC(year, 0, 1)) } } });
-  return `PR-${year}-${String(count + 1).padStart(3, "0")}`;
+/**
+ * MAX(numeric suffix) + 1 for the year, run INSIDE the caller's transaction against
+ * `tx` — the identical fix `lib/server/external/requests.ts`'s own `nextReference`
+ * already applied for the same flaw (F-044 of the 2026-09-15 campaign): a row-count
+ * numbering scheme goes stale the moment any request row is ever deleted (a
+ * verification pass's own cleanup, a retention job), after which "next" collides
+ * with a reference that already exists and stays permanently wrong — count-based
+ * numbering can only go UP, but a deletion moves the true next number DOWN. Reading
+ * the actual highest number in use, instead of counting rows, self-heals through any
+ * deletion. The caller retries the whole transaction on a P2002 collision (two
+ * requests compiled in the same instant computing the same next number), exactly
+ * like the external-request intake already does.
+ */
+async function nextReference(tx: Prisma.TransactionClient): Promise<string> {
+  const prefix = "PR-" + new Date().getFullYear() + "-";
+  const [{ max }] = await tx.$queryRaw<[{ max: number | null }]>`
+    SELECT MAX(CAST(substring(reference FROM ${prefix.length + 1}::int) AS integer)) AS max
+    FROM "PurchaseRequest" WHERE reference LIKE ${prefix + "%"} AND substring(reference FROM ${prefix.length + 1}::int) ~ '^[0-9]+$'
+  `;
+  return `${prefix}${String((max ?? 0) + 1).padStart(3, "0")}`;
 }
 
 // ── Needs ──────────────────────────────────────────────────────────────────────
@@ -203,10 +214,11 @@ export async function raiseNeed(actorId: string, input: RaiseNeedInput): Promise
 }
 
 /** What a head reads while compiling their own unit's request. Head-of-`orgNodeId`
- *  only, or SYS_ADMIN. */
+ *  only, or SYS_ADMIN — occupancy alone (F-017 of the 2026-09-15 campaign): this
+ *  used to ALSO require the MANAGER role before even reaching `assertHeadsNode`'s
+ *  own occupancy check, so removing MANAGER from a sitting head silently broke
+ *  this while `assertHeadsNode` alone would have kept working correctly. */
 export async function listOpenNeeds(actorId: string, orgNodeId: string): Promise<NeedLineDto[]> {
-  const person = await loadPerson(actorId);
-  if (!canCompile(person)) throw new HttpError(403, "Only a head may browse a unit's open needs.");
   await assertHeadsNode(actorId, orgNodeId);
   const rows = await prisma.needLine.findMany({ where: { orgNodeId, status: "OPEN" }, include: needInclude, orderBy: { createdAt: "asc" } });
   return rows.map(toNeedDto);
@@ -221,8 +233,7 @@ export async function declineNeed(actorId: string, needId: string, input: Declin
   const need = await prisma.needLine.findUnique({ where: { id: needId } });
   if (!need) throw new HttpError(404, "Need not found");
   if (need.status !== "OPEN") throw new HttpError(409, "This need has already been handled.");
-  const person = await loadPerson(actorId);
-  if (!canCompile(person)) throw new HttpError(403, "Only a head may decide on a need.");
+  // Occupancy alone decides this (F-017) — see listOpenNeeds's own note.
   await assertHeadsNode(actorId, need.orgNodeId);
   const row = await prisma.needLine.update({
     where: { id: needId },
@@ -313,55 +324,63 @@ async function toRequestDto(row: RequestRow): Promise<PurchaseRequestDto> {
 
 /** The department's formal ask. Compiled straight into `APPROVING` — there is no
  *  separate "save a draft, submit later" step in this first pass (see the plan's
- *  §3 note on `DRAFT`/`reviseAndResubmit`). `canCompile` and head-of-`orgNodeId`
- *  gate it; every referenced need must be OPEN and belong to this same unit. */
+ *  §3 note on `DRAFT`/`reviseAndResubmit`). Head-of-`orgNodeId` (occupancy, not the
+ *  MANAGER role — F-017 of the 2026-09-15 campaign: see listOpenNeeds's own note)
+ *  gates it; every referenced need must be OPEN and belong to this same unit. */
 export async function compilePurchaseRequest(actorId: string, input: CompilePurchaseInput): Promise<PurchaseRequestDto> {
-  const person = await loadPerson(actorId);
-  if (!canCompile(person)) throw new HttpError(403, "Only a head may compile a purchase request.");
   await assertHeadsNode(actorId, input.orgNodeId);
 
   const orgNode = await prisma.orgNode.findUnique({ where: { id: input.orgNodeId } });
   if (!orgNode?.active) throw new HttpError(400, "Choose an active unit.");
 
   const neededIds = [...new Set(input.lines.flatMap((l) => l.fromNeedIds))];
-  await assertNeedsOpenAt(input.orgNodeId, neededIds);
+  await assertNeedsOpenAt(prisma, input.orgNodeId, neededIds);
 
   const steps = await buildLadderSteps(input.orgNodeId, actorId);
-  const reference = await nextReference();
 
-  const requestId = await prisma.$transaction(async (tx) => {
-    const request = await tx.purchaseRequest.create({
-      data: { reference, orgNodeId: input.orgNodeId, raisedById: actorId, title: input.title, stage: "APPROVING" },
-    });
+  let requestId = "";
+  for (let attempt = 0; ; attempt++) {
+    try {
+      requestId = await prisma.$transaction(async (tx) => {
+        const reference = await nextReference(tx);
+        const request = await tx.purchaseRequest.create({
+          data: { reference, orgNodeId: input.orgNodeId, raisedById: actorId, title: input.title, stage: "APPROVING" },
+        });
 
-    const created = await Promise.all(
-      input.lines.map((l) =>
-        tx.purchaseLine.create({
-          data: {
-            purchaseId: request.id,
-            name: l.name,
-            qty: l.qty,
-            unit: l.unit ?? null,
-            categoryId: l.categoryId ?? null,
-            estimatedUnitCost: l.estimatedUnitCost ?? null,
-            justification: l.justification ?? null,
-          },
-        }),
-      ),
-    );
-    for (let i = 0; i < input.lines.length; i++) {
-      const ids = input.lines[i].fromNeedIds;
-      if (!ids.length) continue;
-      await tx.needLine.updateMany({ where: { id: { in: ids } }, data: { status: "CARRIED", purchaseLineId: created[i].id, handledById: actorId, handledAt: new Date() } });
+        const created = await Promise.all(
+          input.lines.map((l) =>
+            tx.purchaseLine.create({
+              data: {
+                purchaseId: request.id,
+                name: l.name,
+                qty: l.qty,
+                unit: l.unit ?? null,
+                categoryId: l.categoryId ?? null,
+                estimatedUnitCost: l.estimatedUnitCost ?? null,
+                justification: l.justification ?? null,
+              },
+            }),
+          ),
+        );
+        for (let i = 0; i < input.lines.length; i++) {
+          const ids = input.lines[i].fromNeedIds;
+          if (!ids.length) continue;
+          await tx.needLine.updateMany({ where: { id: { in: ids } }, data: { status: "CARRIED", purchaseLineId: created[i].id, handledById: actorId, handledAt: new Date() } });
+        }
+
+        await tx.purchaseStep.createMany({
+          data: steps.map((s) => ({ requestId: request.id, order: s.order, selector: s.selector, label: s.label, nodeId: s.nodeId, approverId: s.approverId, status: s.status, skipReason: s.skipReason })),
+        });
+        await tx.purchaseEvent.create({ data: { purchaseId: request.id, byId: actorId, stage: "APPROVING", note: "Submitted for approval." } });
+
+        return request.id;
+      });
+      break;
+    } catch (err) {
+      const collided = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002" && String(err.meta?.target).includes("reference");
+      if (!collided || attempt >= 4) throw err;
     }
-
-    await tx.purchaseStep.createMany({
-      data: steps.map((s) => ({ requestId: request.id, order: s.order, selector: s.selector, label: s.label, nodeId: s.nodeId, approverId: s.approverId, status: s.status, skipReason: s.skipReason })),
-    });
-    await tx.purchaseEvent.create({ data: { purchaseId: request.id, byId: actorId, stage: "APPROVING", note: "Submitted for approval." } });
-
-    return request.id;
-  });
+  }
 
   await settleIfComplete(requestId, actorId, steps);
   return loadDto(requestId);
@@ -392,11 +411,9 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
   if (!isEditable(request.stage)) throw new HttpError(409, "This request can no longer be edited.");
   if (request.orgNodeId !== input.orgNodeId) throw new HttpError(400, "A request cannot change which unit it belongs to.");
 
-  const neededIds = [...new Set(input.lines.flatMap((l) => l.fromNeedIds))];
-  await assertNeedsOpenAt(input.orgNodeId, neededIds);
-
   const steps = await buildLadderSteps(input.orgNodeId, actorId);
   const oldLineIds = request.lines.map((l) => l.id);
+  const neededIds = [...new Set(input.lines.flatMap((l) => l.fromNeedIds))];
 
   await prisma.$transaction(async (tx) => {
     if (oldLineIds.length) {
@@ -405,6 +422,15 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
       // genuinely CARRIED (so nothing accounts for it) once this transaction commits.
       await tx.needLine.updateMany({ where: { purchaseLineId: { in: oldLineIds } }, data: { status: "OPEN", purchaseLineId: null, handledById: null, handledAt: null } });
     }
+
+    // Checked HERE, not before the transaction opened (F-043 of the 2026-09-15
+    // campaign): a resubmission that keeps the SAME need link used to 400 outright,
+    // because its own needs were still CARRIED by the very lines this transaction
+    // is about to replace. Now that the release above has already run, a kept link
+    // passes the ordinary "must be OPEN" check like any other — no special case
+    // needed for "already carried by this request".
+    await assertNeedsOpenAt(tx, input.orgNodeId, neededIds);
+
     await tx.purchaseLine.deleteMany({ where: { purchaseId: requestId } });
     await tx.purchaseStep.deleteMany({ where: { requestId } });
 
