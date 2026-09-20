@@ -532,6 +532,75 @@ describe("the reporting pipeline and receiving", () => {
     expect(Number(created[0].qty)).toBe(5);
     expect(created[0].name.startsWith("Ethanol")).toBe(true);
   });
+
+  it("F-045: refuses a category that doesn't match what the line ordered", async () => {
+    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("f045-category", [{ name: "Oscilloscope", qty: 1, unit: "Unit", categoryId: serializedCategoryId, fromNeedIds: [] }]);
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+
+    const storeKeeperId = await makeUser("f045-category-keeper", ["STORE_KEEPER"]);
+    const storeItem = await prisma.item.create({
+      data: { categoryId: serializedCategoryId, name: "F045 Category Store", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
+    });
+    createdItemIds.push(storeItem.id);
+
+    await expect(purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 1, categoryId: bulkCategoryId, storeParentId: storeItem.id })).rejects.toMatchObject({ status: 400 });
+    const untouched = await purchasing.getRequest(storeKeeperId, requestId);
+    expect(untouched.lines[0].receivedQty).toBeNull();
+  });
+
+  it("F-045: refuses receiving more than what remains on the line", async () => {
+    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("f045-over", [{ name: "Balance", qty: 10, unit: "L", fromNeedIds: [] }]);
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+
+    const storeKeeperId = await makeUser("f045-over-keeper", ["STORE_KEEPER"]);
+    const storeItem = await prisma.item.create({
+      data: { categoryId: bulkCategoryId, name: "F045 Over Store", countingMode: "BULK", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
+    });
+    createdItemIds.push(storeItem.id);
+
+    await expect(purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 500, categoryId: bulkCategoryId, storeParentId: storeItem.id })).rejects.toMatchObject({ status: 409 });
+    const untouched = await purchasing.getRequest(storeKeeperId, requestId);
+    expect(untouched.lines[0].receivedQty).toBeNull();
+    expect(untouched.stage).toBe("IN_STORE"); // never closed on the strength of an over-receipt
+  });
+
+  it("F-045: parallel receipts on the same line sum correctly, no lost update", async () => {
+    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("f045-parallel", [{ name: "Ethanol", qty: 10, unit: "L", fromNeedIds: [] }]);
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+    await purchasing.advanceStage(procurementUserId, requestId, {});
+
+    const storeKeeperId = await makeUser("f045-parallel-keeper", ["STORE_KEEPER"]);
+    const storeItem = await prisma.item.create({
+      data: { categoryId: bulkCategoryId, name: "F045 Parallel Store", countingMode: "BULK", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
+    });
+    createdItemIds.push(storeItem.id);
+
+    const results = await Promise.allSettled([
+      purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 1, categoryId: bulkCategoryId, storeParentId: storeItem.id }),
+      purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 1, categoryId: bulkCategoryId, storeParentId: storeItem.id }),
+    ]);
+    for (const r of results) if (r.status === "rejected") throw r.reason;
+
+    const after = await purchasing.getRequest(storeKeeperId, requestId);
+    expect(after.lines[0].receivedQty).toBe(2); // not 1 — the pre-fix lost-update bug (B-10)
+
+    const createdItems = await prisma.item.findMany({ where: { parentId: storeItem.id } });
+    createdItemIds.push(...createdItems.map((i) => i.id));
+    expect(createdItems).toHaveLength(2);
+  });
+
+  it("F-045: rejects a fractional quantity ordered against a SERIALIZED category, at compile time", async () => {
+    const headId = await makeUser("f045-fraction-head", ["MANAGER"]);
+    const { deptId } = await makeChain("f045-fraction", headId);
+    await expect(
+      purchasing.compilePurchaseRequest(headId, compileInput(deptId, { lines: [{ name: "Computer", qty: 2.5, unit: "Unit", categoryId: serializedCategoryId, fromNeedIds: [] }] })),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe("history and visibility — every send-back is kept, everyone involved can follow it", () => {

@@ -135,6 +135,19 @@ async function buildLadderSteps(orgNodeId: string, actorId: string): Promise<Dom
   return buildChain(ladder, { ownerNodeId: orgNodeId, requesterId: actorId, nodes, orgIndex });
 }
 
+/** F-045 of the 2026-09-15 campaign: a SERIALIZED category (Computer, not
+ *  Ethanol) receives one unit at a time — a fractional order like qty: 2.5 could
+ *  compile but could then never be received exactly. Checked at compile/resubmit
+ *  time, not just at receiving, so the request never gets that far unfixable. */
+async function assertSerializedQtyIsInteger(lines: CompilePurchaseInput["lines"]): Promise<void> {
+  const categoryIds = [...new Set(lines.map((l) => l.categoryId).filter((id): id is string => !!id))];
+  if (!categoryIds.length) return;
+  const categories = await prisma.resourceCategory.findMany({ where: { id: { in: categoryIds } }, select: { id: true, countingMode: true } });
+  const serializedIds = new Set(categories.filter((c) => c.countingMode === "SERIALIZED").map((c) => c.id));
+  const bad = lines.find((l) => l.categoryId && serializedIds.has(l.categoryId) && !Number.isInteger(l.qty));
+  if (bad) throw new HttpError(400, `"${bad.name}" is a serialized category — order whole units, not ${bad.qty}.`);
+}
+
 /** Every referenced need must be an OPEN need already belonging to this unit — a
  *  head cannot carry someone else's department's need, or one already carried or
  *  declined, into their own request. */
@@ -343,6 +356,8 @@ export async function compilePurchaseRequest(actorId: string, input: CompilePurc
   const orgNode = await prisma.orgNode.findUnique({ where: { id: input.orgNodeId } });
   if (!orgNode?.active) throw new HttpError(400, "Choose an active unit.");
 
+  await assertSerializedQtyIsInteger(input.lines);
+
   const neededIds = [...new Set(input.lines.flatMap((l) => l.fromNeedIds))];
   await assertNeedsOpenAt(prisma, input.orgNodeId, neededIds);
 
@@ -420,6 +435,8 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
   if (request.raisedById !== actorId) throw new HttpError(403, "Only the person who raised this request may revise it.");
   if (!isEditable(request.stage)) throw new HttpError(409, "This request can no longer be edited.");
   if (request.orgNodeId !== input.orgNodeId) throw new HttpError(400, "A request cannot change which unit it belongs to.");
+
+  await assertSerializedQtyIsInteger(input.lines);
 
   const steps = await buildLadderSteps(input.orgNodeId, actorId);
   const oldLineIds = request.lines.map((l) => l.id);
@@ -625,6 +642,7 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
 export async function receivePurchaseLine(actorId: string, requestId: string, input: ReceivePurchaseLineInput): Promise<PurchaseRequestDto> {
   const person = await loadPerson(actorId);
   if (!canReceive(person)) throw new HttpError(403, "Only the store keeper may register arrived stock.");
+  if (!(input.qty > 0)) throw new HttpError(400, "Received quantity must be greater than zero.");
 
   const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, include: { lines: true } });
   if (!request) throw new HttpError(404, "Request not found");
@@ -632,6 +650,13 @@ export async function receivePurchaseLine(actorId: string, requestId: string, in
 
   const line = request.lines.find((l) => l.id === input.lineId);
   if (!line) throw new HttpError(404, "Line not found on this request");
+
+  // F-045 of the 2026-09-15 campaign: a line ordered as one category (Computer)
+  // could be received against a completely different one (Chair), creating an
+  // item nobody ordered and leaving the real order looking un-received.
+  if (line.categoryId && line.categoryId !== input.categoryId) {
+    throw new HttpError(400, "The received category does not match what this line ordered.");
+  }
 
   const category = await prisma.resourceCategory.findUnique({ where: { id: input.categoryId } });
   if (!category) throw new HttpError(400, "Choose an existing category.");
@@ -641,21 +666,64 @@ export async function receivePurchaseLine(actorId: string, requestId: string, in
     throw new HttpError(400, "A serialized category must be received in whole units.");
   }
 
-  const result = await applyChange(actorId, {
-    kind: "createItem",
-    parentId: input.storeParentId,
-    categoryId: input.categoryId,
-    count: isSerialized ? input.qty : 1,
-    name: line.name,
-    note: `Received against purchase request ${request.reference}`,
+  // Atomic cap, not read-then-check: the threshold (ordered minus THIS call's own
+  // qty) is a constant known before the query runs, so the WHERE clause is
+  // correct against whatever the row's true current value is at execution time —
+  // no window for two concurrent receipts to each pass a check computed against
+  // the same stale reading. This closes both halves of F-045 at once: the lost
+  // update (two simultaneous 1-unit receipts on the same line, both creating an
+  // item but only one recorded) and the over-receipt hole (10 ordered, 500
+  // received, closing the request as though fully delivered) — each of the two
+  // attempts below either claims the row or it doesn't; nothing in between.
+  const orderedQty = dec(line.qty)!;
+  const threshold = orderedQty - input.qty;
+  if (threshold < 0) {
+    // This single call's own qty already exceeds the whole order, regardless of
+    // anything received before it — no need to touch the row to know that.
+    const remaining = orderedQty - (dec(line.receivedQty) ?? 0);
+    throw new HttpError(409, `Only ${remaining} ${line.unit ?? "unit(s)"} remain on this line — refusing to receive ${input.qty}.`);
+  }
+  const startingFromZero = await prisma.purchaseLine.updateMany({
+    where: { id: line.id, receivedQty: null },
+    data: { receivedQty: input.qty, receivedAt: new Date(), receivedById: actorId },
   });
-
-  if (!isSerialized && result.itemIds[0]) {
-    await applyChange(actorId, { kind: "setQuantity", itemIds: [result.itemIds[0]], value: input.qty });
+  if (startingFromZero.count === 0) {
+    const claimed = await prisma.purchaseLine.updateMany({
+      where: { id: line.id, receivedQty: { lte: threshold } },
+      data: { receivedQty: { increment: input.qty }, receivedAt: new Date(), receivedById: actorId },
+    });
+    if (claimed.count === 0) {
+      const current = await prisma.purchaseLine.findUniqueOrThrow({ where: { id: line.id } });
+      const remaining = orderedQty - (dec(current.receivedQty) ?? 0);
+      throw new HttpError(409, `Only ${remaining} ${line.unit ?? "unit(s)"} remain on this line — refusing to receive ${input.qty}.`);
+    }
   }
 
-  const newReceivedQty = (dec(line.receivedQty) ?? 0) + input.qty;
-  await prisma.purchaseLine.update({ where: { id: line.id }, data: { receivedQty: newReceivedQty, receivedAt: new Date(), receivedById: actorId } });
+  // The item creation below is a SEPARATE commit from the claim above (fix B of
+  // F-045's own write-up: a minimal patch, not the fully atomic tx-aware
+  // applyChange fix A would need) — a failure here leaves the line's own
+  // receivedQty already booked with no item behind it yet, a narrower and more
+  // honest gap than the pre-fix state (no accounting at all, and no cap).
+  let result;
+  try {
+    result = await applyChange(actorId, {
+      kind: "createItem",
+      parentId: input.storeParentId,
+      categoryId: input.categoryId,
+      count: isSerialized ? input.qty : 1,
+      name: line.name,
+      note: `Received against purchase request ${request.reference}`,
+    });
+    if (!isSerialized && result.itemIds[0]) {
+      await applyChange(actorId, { kind: "setQuantity", itemIds: [result.itemIds[0]], value: input.qty });
+    }
+  } catch (err) {
+    // Roll back the claim so a failed item creation doesn't book a receipt with
+    // nothing behind it — the two-updateMany dance above has no natural "undo"
+    // built in, so this reverses it explicitly.
+    await prisma.purchaseLine.update({ where: { id: line.id }, data: { receivedQty: { decrement: input.qty } } });
+    throw err;
+  }
 
   const updatedLines = await prisma.purchaseLine.findMany({ where: { purchaseId: requestId } });
   const allComplete = updatedLines.every((l) => l.receivedQty !== null && dec(l.receivedQty)! >= dec(l.qty)!);
