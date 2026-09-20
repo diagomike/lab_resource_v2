@@ -4034,10 +4034,8 @@ its model that make porting it as-is the wrong move.
   commit's own message for the full reasoning; the suite is now both deterministic
   and, in practice, faster (no DB contention between parallel workers).
 
-  **Still open**: 16 findings (13 LOW, 3 DESIGN) — Phase 3 of the same plan, not
-  started. A full E2E campaign re-run (the same one Phase 1 used) has not yet been
-  done for Phase 2 specifically; the unit-test suite (458/458) is the verification
-  gate that ran at every step.
+  **E2E re-verification** (fresh clone, all 14 suites, 194 cases): 174 PASS; the 20 remaining ✘ are all Phase 3 LOW / DESIGN / INFO / deferred-F-051-notification. It caught two extra product defects fixed in `ec9fe9d` — purchasing `decideStep` was not advisory-locked (B-18) and admin `createItem` skipped custodian eligibility (R-07). Details in the findings doc.
+
 
 ## Working agreements for this project
 
