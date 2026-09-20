@@ -267,21 +267,29 @@ async function assertDraftWorkflowNotBlocking(input: ItemChangeInput): Promise<v
 
 /**
  * A view may WIDEN reads; it may never widen writes — see views.ts's own header for
- * the full invariant. This is the write door's half of it: `canEdit: false` on the
- * caller's EFFECTIVE view (their explicit choice if `viewId` names one they may
- * actually pick, else their own default — `resolveEffectiveView`'s existing
- * fallback) refuses every write while that view is active, for every role
- * including SYS_ADMIN. That is deliberate, not an oversight of "SYS_ADMIN may act
- * on anything unconditionally" above: choosing a read-only view (e.g. switching the
+ * the full invariant. This is the write door's half of it: `canEdit: false` on a
+ * view the caller EXPLICITLY chose (`viewId` names one they may actually pick)
+ * refuses every write while that view is active, for every role including
+ * SYS_ADMIN. That is deliberate, not an oversight of "SYS_ADMIN may act on
+ * anything unconditionally" above: choosing a read-only view (e.g. switching the
  * sidebar to "Browse university-wide") is the person's own reversible UI choice —
  * unlike custody/role scope, it grants nothing and blocks nothing that a switch of
  * the same picker back to an editable view doesn't immediately undo. Runs BEFORE
- * the SYS_ADMIN early-return above for exactly this reason. A person with no views
- * assigned at all (today's production default) is unaffected —
- * `resolveEffectiveView` returns `null` and this is a no-op, byte-identical to
- * behaviour before Track 1 existed. */
+ * the SYS_ADMIN early-return above for exactly this reason.
+ *
+ * F-032 of the 2026-09-15 campaign: an IMPLICIT default view (nobody chose it —
+ * `resolveEffectiveView`'s own fallback when `viewId` is omitted) used to be
+ * checked the identical way, so one `canEdit: false` EVERYONE-scoped view made
+ * every account with no more specific view of their own read-only university-wide,
+ * including SYS_ADMIN — with no views seeded in production at all, this would have
+ * been every custodian in the university, and the outage would have looked random
+ * (only accounts that happened to have a PERSON/ROLE view of their own kept
+ * editing). An implicit default now narrows READS only, never blocks a write —
+ * `resolveReadOverride` (the read path) still applies it exactly as before, this
+ * function just stops asking it for anything when nobody chose a view. */
 async function assertViewAllowsEdit(actorId: string, viewId: string | null | undefined): Promise<void> {
-  const effective = await resolveEffectiveView(actorId, viewId ?? null);
+  if (!viewId) return;
+  const effective = await resolveEffectiveView(actorId, viewId);
   if (effective && !effective.canEdit) {
     throw new HttpError(403, `"${effective.name}" is a read-only view — switch views to make changes.`);
   }

@@ -249,7 +249,7 @@ describe("assertViewAllowsEdit — the write door's half of the invariant", () =
     expect(result.itemIds).toEqual([itemId]);
   });
 
-  it("a canEdit:false view active for that person refuses the SAME write, 403, for every role including none extra", async () => {
+  it("F-032: a canEdit:false view nobody CHOSE narrows reads only — it does not block a write", async () => {
     readOnlyViewId = await makeView({
       name: `${testKey}-readonly`,
       scope: "MY_CUSTODY",
@@ -258,12 +258,25 @@ describe("assertViewAllowsEdit — the write door's half of the invariant", () =
       canEdit: false,
       active: true,
     });
-    // No explicit viewId passed — this is now the person's ONLY (hence default) view.
-    await expect(mutate.applyChange(personId, { kind: "setName", itemIds: [itemId], value: "Should not apply" })).rejects.toMatchObject({ status: 403 });
+    // No explicit viewId passed — this is the person's ONLY (hence default) view.
+    // Before F-032, a canEdit:false view resolved as anyone's IMPLICIT default
+    // blocked every write of theirs, for every role including SYS_ADMIN — with no
+    // views seeded in production, one such EVERYONE-scoped view would have made
+    // every custodian in the university read-only, and the outage would have
+    // looked random (only accounts with a more specific view of their own kept
+    // editing). An implicit default now narrows reads only.
+    const result = await mutate.applyChange(personId, { kind: "setName", itemIds: [itemId], value: "Write-Gate Item (renamed 1b)" });
+    expect(result.applied).toBe(1);
+  });
+
+  it("the SAME canEdit:false view, chosen EXPLICITLY, still refuses the write with 403", async () => {
+    await expect(
+      mutate.applyChange(personId, { kind: "setName", itemIds: [itemId], value: "Should not apply" }, { viewId: readOnlyViewId }),
+    ).rejects.toMatchObject({ status: 403 });
     // Confirmed structurally, not just by the write's own failure: the item's name
     // is unchanged.
     const row = await prisma.item.findUniqueOrThrow({ where: { id: itemId }, select: { name: true } });
-    expect(row.name).toBe("Write-Gate Item (renamed 1)");
+    expect(row.name).toBe("Write-Gate Item (renamed 1b)");
   });
 
   it("switching back to an editable view (an explicit viewId) unblocks the identical write", async () => {

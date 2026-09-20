@@ -383,7 +383,7 @@ export async function decideCommit(actorId: string, requestId: string, decision:
  *  thing a department head reviewing a lab's gap should see flagged, the same as
  *  everywhere else in this app. */
 export async function getIdealVsActual(actorId: string, labItemId: string): Promise<IdealVsActualRowDto[]> {
-  await scope.assertCanSeeItem(actorId, labItemId);
+  await scope.assertMaySeeLabAggregate(actorId, labItemId);
   return idealVsActualRows(labItemId, await loadCategoryRows());
 }
 

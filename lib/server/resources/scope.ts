@@ -127,6 +127,34 @@ export async function assertCanSeeItem(userId: string, itemId: string, modeOverr
   if (!(await canSeeItem(userId, itemId, modeOverride, explicitNodeIds))) throw new HttpError(404, "Resource not found");
 }
 
+/**
+ * F-034 of the 2026-09-15 campaign — `assertCanSeeItem` is ancestor-inclusive by
+ * design (custodying one item nested three levels deep makes every container
+ * above it "visible", so a breadcrumb/tree can be drawn), which is the wrong
+ * question for a LAB AGGREGATE (ideal-vs-actual, purchasables, calendars):
+ * `getIdealVsActual` used to gate on it and so exposed a whole department's
+ * lab composition to anyone who merely custodied ONE borrowed item sitting
+ * inside it. This checks DIRECT visibility of the lab item itself (no
+ * descendant walk), or write custody over it, or headship of the unit that
+ * owns it — never "something under it happens to be visible to me". */
+export async function assertMaySeeLabAggregate(userId: string, labItemId: string): Promise<void> {
+  if (await isSysAdmin(userId)) return;
+
+  const lab = await prisma.item.findUnique({ where: { id: labItemId, deletedAt: null }, select: { ownerOrgNodeId: true } });
+  if (!lab) throw new HttpError(404, "Resource not found");
+
+  const where = await visibleItemWhere(userId);
+  const directlyVisible = await prisma.item.count({ where: { AND: [where, { id: labItemId, deletedAt: null }] } });
+  if (directlyVisible > 0) return;
+
+  const writable = new Set(await writableItemIdsOf(userId));
+  if (writable.has(labItemId)) return;
+
+  if (await orgScope.isHeadOf(userId, lab.ownerOrgNodeId)) return;
+
+  throw new HttpError(404, "Resource not found");
+}
+
 async function descendantIdsIncludingSelf(itemId: string): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     WITH RECURSIVE subtree AS (

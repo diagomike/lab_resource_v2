@@ -49,6 +49,7 @@ const testKey = `__test-lab-drafts-${Date.now()}`;
 
 const createdUserIds: string[] = [];
 const createdItemIds: string[] = [];
+const createdNodeIds: string[] = [];
 
 async function makeUser(suffix: string, data: { homeNodeId?: string; roles: string[] }) {
   const email = `${testKey}-${suffix}@astu.edu.et`;
@@ -120,6 +121,7 @@ afterAll(async () => {
   await prisma.userRole.deleteMany({ where: { userId: { in: createdUserIds } } });
   await setHead(null);
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+  await prisma.orgNode.deleteMany({ where: { id: { in: createdNodeIds } } });
   await prisma.orgNode.delete({ where: { id: testDeptNodeId } });
   await prisma.$disconnect();
 });
@@ -305,6 +307,20 @@ describe("approval to IDEAL never touches Item, only LabIdealTarget", () => {
     const otherLabId = await makeLab(custodianId, "No-Ideal Lab");
     const rows = await labDrafts.getIdealVsActual(custodianId, otherLabId);
     expect(rows).toEqual([]);
+  });
+
+  it("F-034: custodying one item NESTED inside this lab does not expose the whole lab's composition", async () => {
+    // A foreign custodian (a different department entirely) who merely holds one
+    // borrowed item sitting inside this lab — assertCanSeeItem's own ancestor walk
+    // would have made the whole lab "visible" to them via that one nested item;
+    // getIdealVsActual now gates on direct visibility/write custody/headship of
+    // the lab itself instead.
+    const foreignNode = await prisma.orgNode.create({ data: { name: `${testKey}-foreign-dept`, level: 9, kind: "DEPARTMENT", active: true } });
+    createdNodeIds.push(foreignNode.id);
+    const foreignCustodianId = await makeUser("foreign-custodian", { homeNodeId: foreignNode.id, roles: ["CUSTODIAN"] });
+    await makeChild(labId, foreignCustodianId, "Foreign Borrowed Item");
+
+    await expect(labDrafts.getIdealVsActual(foreignCustodianId, labId)).rejects.toMatchObject({ status: 404 });
   });
 });
 
