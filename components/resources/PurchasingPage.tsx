@@ -501,6 +501,7 @@ function RequestCard({
   onChanged,
   showReceive,
   showAdvance,
+  canRunPipeline,
   readOnly,
 }: {
   request: PurchaseRequestDto;
@@ -509,6 +510,7 @@ function RequestCard({
   onChanged: () => void;
   showReceive?: boolean;
   showAdvance?: boolean;
+  canRunPipeline?: boolean;
   /** Status-following only — no decide/revise/withdraw affordances. */
   readOnly?: boolean;
 }) {
@@ -567,11 +569,11 @@ function RequestCard({
     }
   }
 
-  async function cancel() {
+  async function cancel(procurementNote?: string) {
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/cancel`);
+      await api.post(`/resources/purchase-requests/${request.id}/cancel`, procurementNote !== undefined ? { note: procurementNote } : undefined);
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not cancel this request");
@@ -719,12 +721,21 @@ function RequestCard({
         </div>
       )}
 
-      {isRequester && !isFinished(request.stage) && request.stage !== "REVISING" && (
+      {/* F-047 of the 2026-09-15 campaign — the raiser may withdraw only while the
+          request is still theirs to decide (APPROVING; REVISING has its own Edit &
+          resubmit path above). From ORDER_PLACED on, procurement has already acted
+          on it — placing an order, finding a buyer — so cancelling from there is
+          procurement's own call, with a required note (below), not a silent
+          withdrawal nobody downstream is told about. */}
+      {isRequester && request.stage === "APPROVING" && (
         <div>
-          <button className="text-10.5 text-bad" onClick={cancel} disabled={busy}>
+          <button className="text-10.5 text-bad" onClick={() => cancel()} disabled={busy}>
             Withdraw this request
           </button>
         </div>
+      )}
+      {canRunPipeline && !isFinished(request.stage) && request.stage !== "APPROVING" && request.stage !== "REVISING" && (
+        <ProcurementCancel busy={busy} onCancel={cancel} />
       )}
 
       {showAdvance && (
@@ -786,6 +797,39 @@ function RequestCard({
   );
 }
 
+/** F-047 of the 2026-09-15 campaign — procurement's own cancellation of a placed
+ *  order, which (unlike the raiser's plain withdrawal) requires a note: this is
+ *  what everyone tracking the order — the store, whoever's watching the pipeline —
+ *  will read to understand why it stopped. */
+function ProcurementCancel({ busy, onCancel }: { busy: boolean; onCancel: (note: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+
+  if (!open) {
+    return (
+      <button className="text-10.5 text-bad" onClick={() => setOpen(true)} disabled={busy}>
+        Cancel this order…
+      </button>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-6 pt-4 border-t border-border">
+      <label className="flex flex-col gap-3">
+        <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Reason (required — visible to everyone tracking this order)</span>
+        <input value={note} onChange={(e) => setNote(e.target.value)} className="border border-border2 bg-panel h-26 px-8 rounded-2 text-11.5 outline-none focus:border-accent" />
+      </label>
+      <div className="flex items-center gap-8">
+        <Button variant="danger" disabled={busy || !note.trim()} onClick={() => onCancel(note.trim())}>
+          Confirm cancellation
+        </Button>
+        <Button onClick={() => setOpen(false)} disabled={busy}>
+          Never mind
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Boxed lists ────────────────────────────────────────────────────────────────
 
 function RequestListPanel({
@@ -796,6 +840,7 @@ function RequestListPanel({
   emptyLabel,
   showReceive,
   showAdvance,
+  canRunPipeline,
   readOnly,
 }: {
   title: string;
@@ -805,6 +850,10 @@ function RequestListPanel({
   emptyLabel: string;
   showReceive?: boolean;
   showAdvance?: boolean;
+  /** F-047 of the 2026-09-15 campaign — procurement may cancel a request that's
+   *  already ORDER_PLACED or beyond, with a required note; the raiser's own
+   *  withdrawal stops being offered from that stage on. */
+  canRunPipeline?: boolean;
   readOnly?: boolean;
 }) {
   const [rows, setRows] = useState<PurchaseRequestDto[] | null>(null);
@@ -830,7 +879,17 @@ function RequestListPanel({
         ) : (
           <div className="p-12 flex flex-col gap-10">
             {rows.map((r) => (
-              <RequestCard key={r.id} request={r} viewerId={viewerId} categories={categories} onChanged={load} showReceive={showReceive} showAdvance={showAdvance} readOnly={readOnly} />
+              <RequestCard
+                key={r.id}
+                request={r}
+                viewerId={viewerId}
+                categories={categories}
+                onChanged={load}
+                showReceive={showReceive}
+                showAdvance={showAdvance}
+                canRunPipeline={canRunPipeline}
+                readOnly={readOnly}
+              />
             ))}
           </div>
         )}
@@ -869,9 +928,9 @@ export default function PurchasingPage() {
     <Screen>
       {!isStudent && <RaiseNeedPanel categories={categories} />}
       {ownNodeId && <CompilePanel orgNodeId={ownNodeId} categories={categories} onCompiled={() => setRefreshKey((k) => k + 1)} />}
-      <RequestListPanel key={`mine-${refreshKey}`} title="My requests" box="mine" viewerId={user.id} categories={categories} emptyLabel="You haven't compiled any purchase requests." />
+      <RequestListPanel key={`mine-${refreshKey}`} title="My requests" box="mine" viewerId={user.id} categories={categories} emptyLabel="You haven't compiled any purchase requests." canRunPipeline={canRunPipeline} />
       {canRunPipeline && (
-        <RequestListPanel key={`pipeline-${refreshKey}`} title="Pipeline" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is currently on order." showAdvance />
+        <RequestListPanel key={`pipeline-${refreshKey}`} title="Pipeline" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is currently on order." showAdvance canRunPipeline />
       )}
       {canReceive && (
         <RequestListPanel key={`receiving-${refreshKey}`} title="Receive" box="receiving" viewerId={user.id} categories={categories} emptyLabel="Nothing has arrived at the store yet." showReceive />

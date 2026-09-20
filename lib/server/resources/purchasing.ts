@@ -485,6 +485,21 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
  * exactly like Track 3's `decideStep`; once every step has settled, the request
  * enters the reporting pipeline.
  */
+/** F-046 of the 2026-09-15 campaign — a need carried into a request that's then
+ *  rejected or cancelled used to stay CARRIED forever: not OPEN (so the head could
+ *  never carry it into a new request), not visible in the head's open-needs list,
+ *  and not declinable either (declineNeed also requires OPEN). The staff member who
+ *  raised it saw it permanently attached to a dead request. Reopening mirrors
+ *  reviseAndResubmit's own release exactly, plus a note recording why. */
+async function reopenCarriedNeeds(tx: Prisma.TransactionClient, requestId: string, reference: string, reason: string): Promise<void> {
+  const lineIds = (await tx.purchaseLine.findMany({ where: { purchaseId: requestId }, select: { id: true } })).map((l) => l.id);
+  if (!lineIds.length) return;
+  await tx.needLine.updateMany({
+    where: { purchaseLineId: { in: lineIds } },
+    data: { status: "OPEN", purchaseLineId: null, handledById: null, handledAt: null, note: `Returned from ${reference} (${reason})` },
+  });
+}
+
 export async function decideStep(actorId: string, requestId: string, decision: "APPROVE" | "REJECT" | "REVISE", note?: string): Promise<PurchaseRequestDto> {
   const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, include: { steps: { orderBy: { order: "asc" } } } });
   if (!request) throw new HttpError(404, "Request not found");
@@ -505,11 +520,12 @@ export async function decideStep(actorId: string, requestId: string, decision: "
   const eventNote = (verb?: string) => `${verb ? `${verb} — ` : ""}${step!.label}${note ? `: ${note}` : ""}`;
 
   if (decision === "REJECT") {
-    await prisma.$transaction([
-      prisma.purchaseStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } }),
-      prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REJECTED", feedback: note ?? null } }),
-      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote() } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await tx.purchaseStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } });
+      await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REJECTED", feedback: note ?? null } });
+      await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote() } });
+      await reopenCarriedNeeds(tx, requestId, request.reference, `rejected${note ? `: ${note}` : ""}`);
+    });
     return loadDto(requestId);
   }
 
@@ -541,15 +557,38 @@ export async function decideStep(actorId: string, requestId: string, decision: "
   return loadDto(requestId);
 }
 
-export async function cancelPurchaseRequest(actorId: string, requestId: string): Promise<void> {
+/**
+ * F-047 of the 2026-09-15 campaign — the raiser could cancel a request procurement
+ * had already placed and shipped, with nobody in procurement or the store asked or
+ * told, and the goods still arriving with no way left to register them. The raiser
+ * may withdraw only while the request is still THEIRS to decide (APPROVING/
+ * REVISING, before it ever reaches procurement); once it's ORDER_PLACED or beyond,
+ * cancelling is procurement's own act (`canRunPipeline`), with a required note —
+ * their pipeline history is where the store and everyone tracking it will read why.
+ */
+export async function cancelPurchaseRequest(actorId: string, requestId: string, note?: string): Promise<void> {
   const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId } });
   if (!request) throw new HttpError(404, "Request not found");
-  if (request.raisedById !== actorId) throw new HttpError(403, "Only the person who raised this request may cancel it.");
   if (isFinished(request.stage)) throw new HttpError(409, "This request has already finished.");
-  await prisma.$transaction([
-    prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "CANCELLED" } }),
-    prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: "CANCELLED", note: "Withdrawn by the requester." } }),
-  ]);
+
+  const isRaiser = request.raisedById === actorId;
+  if (isRaiser) {
+    if (!isEditable(request.stage) && request.stage !== "APPROVING") {
+      throw new HttpError(409, "This request has already been sent to procurement — ask procurement to cancel it.");
+    }
+  } else {
+    const person = await loadPerson(actorId);
+    if (!canRunPipeline(person)) throw new HttpError(403, "Only the person who raised this request, or procurement, may cancel it.");
+    if (!note?.trim()) throw new HttpError(400, "A note is required when procurement cancels a placed order.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: "CANCELLED" } });
+    await tx.purchaseEvent.create({
+      data: { purchaseId: requestId, byId: actorId, stage: "CANCELLED", note: isRaiser ? "Withdrawn by the requester." : `Cancelled by procurement: ${note}` },
+    });
+    await reopenCarriedNeeds(tx, requestId, request.reference, "cancelled");
+  });
 }
 
 /** The reporting pipeline: ORDER_PLACED → BUYER_FOUND → ON_DELIVERY → IN_STORE. A

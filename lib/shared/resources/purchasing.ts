@@ -54,6 +54,17 @@ export const DeclineNeedInput = z.object({
 });
 export type DeclineNeedInput = z.infer<typeof DeclineNeedInput>;
 
+/** `note` is optional for the raiser's own withdrawal (while APPROVING/REVISING) but
+ *  required once procurement is cancelling an order already placed (F-047 of the
+ *  2026-09-15 campaign) — enforced server-side, not by this schema, since which one
+ *  applies depends on who's asking and the request's own stage. */
+export const CancelPurchaseRequestInput = z
+  .object({
+    note: z.string().min(1).optional(),
+  })
+  .default({}); // the raiser's own withdrawal sends no body at all
+export type CancelPurchaseRequestInput = z.infer<typeof CancelPurchaseRequestInput>;
+
 export const PurchaseLineDto = z.object({
   id: z.string(),
   name: z.string(),

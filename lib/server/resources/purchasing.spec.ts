@@ -369,6 +369,69 @@ describe("cancelPurchaseRequest", () => {
     const req = await purchasing.getRequest(headId, result.id);
     expect(req.stage).toBe("CANCELLED");
   });
+
+  it("F-047: the raiser cannot cancel after ORDER_PLACED — only procurement can, and only with a note", async () => {
+    const deptHeadId = await makeUser("f047-dept-head", ["MANAGER"]);
+    const collegeHeadId = await makeUser("f047-college-head");
+    const universityHeadId = await makeUser("f047-university-head");
+    const { universityId, collegeId, deptId } = await makeChain("f047", deptHeadId);
+    await setHead(collegeId, collegeHeadId);
+    await setHead(universityId, universityHeadId);
+
+    const result = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId));
+    createdRequestIds.push(result.id);
+    await purchasing.decideStep(collegeHeadId, result.id, "APPROVE");
+    await purchasing.decideStep(universityHeadId, result.id, "APPROVE");
+    const decided = await purchasing.decideStep(procurementUserId, result.id, "APPROVE");
+    expect(decided.stage).toBe("ORDER_PLACED");
+
+    await expect(purchasing.cancelPurchaseRequest(deptHeadId, result.id)).rejects.toMatchObject({ status: 409 });
+
+    const outsiderId = await makeUser("f047-outsider");
+    await expect(purchasing.cancelPurchaseRequest(outsiderId, result.id, "trying anyway")).rejects.toMatchObject({ status: 403 });
+
+    await expect(purchasing.cancelPurchaseRequest(procurementUserId, result.id)).rejects.toMatchObject({ status: 400 });
+
+    const cancelled = await purchasing.cancelPurchaseRequest(procurementUserId, result.id, "Supplier withdrew the offer").then(() => purchasing.getRequest(procurementUserId, result.id));
+    expect(cancelled.stage).toBe("CANCELLED");
+    expect(cancelled.history.at(-1)?.note).toContain("Supplier withdrew the offer");
+  });
+
+  it("F-046: rejecting or cancelling a request reopens the needs it carried", async () => {
+    const staffId = await makeUser("f046-staff", ["STAFF"]);
+    const headId = await makeUser("f046-head", ["MANAGER"]);
+    const collegeHeadId = await makeUser("f046-college-head");
+    const { collegeId, deptId } = await makeChain("f046", headId);
+    await setHead(collegeId, collegeHeadId);
+    await prisma.user.update({ where: { id: staffId }, data: { homeNodeId: deptId } });
+
+    const need = await purchasing.raiseNeed(staffId, { name: "F046 Projector", qty: 1, reason: "Ours broke" });
+    createdNeedIds.push(need.id);
+
+    const rejected = await purchasing.compilePurchaseRequest(headId, compileInput(deptId, { lines: [{ name: "F046 Projector", qty: 1, unit: "Unit", fromNeedIds: [need.id] }] }));
+    createdRequestIds.push(rejected.id);
+    let need1 = await purchasing.listMyNeeds(staffId).then((ns) => ns.find((n) => n.id === need.id)!);
+    expect(need1.status).toBe("CARRIED");
+
+    // The dept head's own OWNER_HEAD step is self-skipped (they raised it and occupy
+    // the dept); the college HIERARCHY step is the first genuinely PENDING one.
+    await purchasing.decideStep(collegeHeadId, rejected.id, "REJECT", "not this quarter");
+    need1 = await purchasing.listMyNeeds(staffId).then((ns) => ns.find((n) => n.id === need.id)!);
+    expect(need1.status).toBe("OPEN");
+    expect(need1.note).toContain(rejected.reference);
+
+    // Carry it again into a second request, then cancel that one too (still
+    // APPROVING, so the raiser's own withdrawal applies).
+    const cancelled = await purchasing.compilePurchaseRequest(headId, compileInput(deptId, { lines: [{ name: "F046 Projector", qty: 1, unit: "Unit", fromNeedIds: [need.id] }] }));
+    createdRequestIds.push(cancelled.id);
+    need1 = await purchasing.listMyNeeds(staffId).then((ns) => ns.find((n) => n.id === need.id)!);
+    expect(need1.status).toBe("CARRIED");
+
+    await purchasing.cancelPurchaseRequest(headId, cancelled.id);
+    need1 = await purchasing.listMyNeeds(staffId).then((ns) => ns.find((n) => n.id === need.id)!);
+    expect(need1.status).toBe("OPEN");
+    expect(need1.note).toContain(cancelled.reference);
+  });
 });
 
 describe("the reporting pipeline and receiving", () => {
