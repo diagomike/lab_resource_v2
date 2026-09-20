@@ -870,6 +870,16 @@ model ChangeRequest {
   /// applying — the field that stops an approval granted Monday from silently
   /// overwriting Tuesday's correction. Keyed by item id.
   baseVersions Json
+  /// Each affected item's parentId/ownerOrgNodeId/currentOrgNodeId/custodianId when
+  /// the request was raised, keyed by item id — F-041 of the 2026-09-15 campaign.
+  /// Compared (not `baseVersions`, which a cosmetic edit like a rename also bumps) on
+  /// every `decideStep` call, so a chain fails fast and named the moment something
+  /// that actually matters to a transfer changes, instead of the previous behaviour:
+  /// walking all the way to the last (receipt) step before failing on an unexplained
+  /// "Version conflict" that a same rename would trigger just as readily as a real
+  /// structural change. Nullable — a request raised before this column existed has
+  /// none, and decideStep skips the check rather than treating that as a mismatch.
+  structuralSnapshot Json?
   summary      String
   note         String?
   resolvedAt   DateTime?

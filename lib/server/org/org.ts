@@ -21,10 +21,23 @@ type Tx = Prisma.TransactionClient;
 const ORG_STRUCTURE_LOCK_KEY = "org-structure";
 
 async function withOrgLock<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ORG_STRUCTURE_LOCK_KEY}))`;
-    return fn(tx);
-  });
+  // A P2003 from recomputeClosure (a node referenced mid-recompute disappeared —
+  // see that function's own note) aborts the whole Postgres transaction; Postgres
+  // gives no way to retry just the failing statement once a transaction is
+  // aborted, so the retry has to re-run the ENTIRE locked transaction from
+  // scratch, re-acquiring the lock and re-reading committed state.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ORG_STRUCTURE_LOCK_KEY}))`;
+        return fn(tx);
+      });
+    } catch (err) {
+      const isMissingNode = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003";
+      if (!isMissingNode || attempt === 2) throw err;
+    }
+  }
+  throw new Error("unreachable");
 }
 
 export async function list(activeOnly: boolean): Promise<OrgNodeDto[]> {
@@ -352,6 +365,14 @@ async function assertAdjacentParents(tx: Tx, level: number, parentIds: string[])
  * anyone until some later edit happened to recompute again.
  */
 export async function recomputeClosure(tx: Tx): Promise<void> {
+  // This transaction's own advisory lock (F-003) is what protects this against
+  // every OTHER structural write this codebase makes — all of them go through
+  // this same module. A node deleted by something outside that discipline
+  // entirely (this project's test suite deliberately creates and tears down
+  // orphan nodes with direct Prisma calls, bypassing org.ts on purpose for
+  // fixture isolation — see org.spec.ts's own header) can still race the read
+  // below against the write; withOrgLock's own P2003 retry is what actually
+  // recovers from that, by re-running this whole transaction from scratch.
   const [nodes, edges] = await Promise.all([tx.orgNode.findMany({ select: { id: true } }), tx.orgEdge.findMany()]);
   const rows = computeClosureRows(
     nodes.map((n) => n.id),

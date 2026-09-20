@@ -819,6 +819,22 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
   }
 
   const roots = await tx.item.findMany({ where: { id: { in: await topMostItemIds(tx, input.itemIds) }, deletedAt: null } });
+  // F-041 of the 2026-09-15 campaign: an item named in a PENDING transfer request
+  // could still be freely moved elsewhere in the meantime — the chain kept walking
+  // for a resource whose containment no longer matched what everyone approving it
+  // was shown, discovered only at the very last (receipt) step as an unexplained
+  // "Version conflict". decideStep now also re-validates on every decision (see
+  // approvals.ts), but blocking the move itself, up front, is the more honest fix:
+  // the actor doing the moving is told immediately, in their own words, instead of
+  // leaving a stranger's approval to fail silently later.
+  if (roots.length) {
+    const pending = await tx.$queryRaw<{ summary: string }[]>`
+      SELECT summary FROM "ChangeRequest" WHERE status = 'PENDING' AND payload -> 'itemIds' ?| ${roots.map((r) => r.id)}::text[] LIMIT 1
+    `;
+    if (pending.length) {
+      throw new HttpError(409, `Cannot move — it is named in a pending transfer request ("${pending[0].summary}"). Cancel or resolve that first.`);
+    }
+  }
   const applied: string[] = [];
   const batchId = roots.length > 1 ? newId("b") : undefined;
 

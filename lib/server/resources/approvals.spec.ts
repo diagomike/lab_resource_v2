@@ -209,6 +209,9 @@ describe("requestTransfer — policy resolution (pull: the requester holds the d
     const targetHeadId = await makeUser("chain-target-head");
     const ownerNodeId = await makeNode("chain-owner", ownerHeadId);
     const targetNodeId = await makeNode("chain-target", targetHeadId);
+    // The dest lab's own custodian IS the requester — pulling into their OWN lab,
+    // the common case, so F-042's "ask the destination's custodian, when it
+    // differs" step is correctly omitted here (covered separately below).
     const destLabId = await makeItem(targetNodeId, requesterId, "Chain Dest Lab");
     const sourceId = await makeItem(ownerNodeId, lenderId, "Chain Source Item");
 
@@ -252,6 +255,10 @@ describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
     const targetHeadId = await makeUser("flow-target-head");
     const ownerNodeId = await makeNode("flow-owner", ownerHeadId);
     const targetNodeId = await makeNode("flow-target", targetHeadId);
+    // The dest lab's own custodian is the requester (pulling into their own lab),
+    // which keeps this fixture's chain at the plain 4-step shape (ITEM_CUSTODIAN,
+    // OWNER_HEAD, TARGET_HEAD, REQUESTER_RECEIPT) — these tests are about
+    // vacancy/handoff/staleness generically, not F-042's own fix.
     const destLabId = await makeItem(targetNodeId, requesterId, "Flow Dest Lab");
     const sourceId = await makeItem(ownerNodeId, lenderId, "Flow Source Item");
 
@@ -321,17 +328,41 @@ describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
     await expect(approvals.decideStep(lenderId, requestId, "APPROVE")).rejects.toMatchObject({ status: 409 });
   });
 
-  it("a version conflict at final settle time marks the request STALE and applies nothing", async () => {
+  it("a rename mid-flight does not void an approved transfer (F-041) — it still applies, using a fresh version", async () => {
+    const { requestId, requesterId, lenderId, ownerHeadId, targetHeadId, sourceId, targetNodeId, destLabId, ownerNodeId } = await setUpChain();
+    await approvals.decideStep(lenderId, requestId, "APPROVE");
+    await approvals.decideStep(ownerHeadId, requestId, "APPROVE");
+    await approvals.decideStep(targetHeadId, requestId, "APPROVE");
+
+    // A cosmetic edit bumps the item's own row version but changes none of the
+    // fields a transfer actually depends on (parent/owner/current unit/custodian)
+    // — F-041 of the 2026-09-15 campaign: this used to void the whole chain at the
+    // very last (receipt) step with an unexplained "Version conflict", even though
+    // nothing the approvers actually signed off on had changed.
+    await mutate.applyChange(sysAdminId, { kind: "setName", itemIds: [sourceId], value: "Renamed mid-flight" });
+
+    const final = await approvals.decideStep(requesterId, requestId, "APPROVE");
+    expect(final.status).toBe("APPLIED");
+
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
+    expect(item.name).toBe("Renamed mid-flight");
+    expect([item.parentId, item.currentOrgNodeId, item.ownerOrgNodeId, item.custodianId]).toEqual([destLabId, targetNodeId, ownerNodeId, lenderId]);
+  });
+
+  it("a structural change mid-flight (not a rename) DOES mark the request STALE, named (F-041)", async () => {
     const { requestId, requesterId, lenderId, ownerHeadId, targetHeadId, sourceId, targetNodeId } = await setUpChain();
     await approvals.decideStep(lenderId, requestId, "APPROVE");
     await approvals.decideStep(ownerHeadId, requestId, "APPROVE");
     await approvals.decideStep(targetHeadId, requestId, "APPROVE");
 
-    // Something else touches the item while the request waits on receipt.
-    await mutate.applyChange(sysAdminId, { kind: "setName", itemIds: [sourceId], value: "Changed underneath" });
+    // A real structural change this time — the source item's own custodian moves —
+    // one of the fields structuralFieldsOf actually compares.
+    const otherCustodianId = await makeUser("mid-flight-new-custodian", ["CUSTODIAN"]);
+    await prisma.item.update({ where: { id: sourceId }, data: { custodianId: otherCustodianId } });
 
     const final = await approvals.decideStep(requesterId, requestId, "APPROVE");
     expect(final.status).toBe("STALE");
+    expect(final.resolution).toContain("custodian");
 
     const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
     expect(item.currentOrgNodeId).not.toBe(targetNodeId);
@@ -460,6 +491,114 @@ describe("store handover — the main store hands stock over to a department", (
 
     await expect(approvals.requestTransfer(custodianId, handoverInput([sourceId], destLabId, targetNodeId, custodianId))).rejects.toMatchObject({ status: 403 });
     await expect(approvals.previewTransfer(custodianId, handoverInput([sourceId], destLabId, targetNodeId, custodianId))).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("F-042 — a pull always asks both the owning and the receiving end, regardless of the requester's role", () => {
+  beforeAll(async () => {
+    // The exact chain pol-store-transfer uses for a genuine HANDOVER — seeded here
+    // under a STORE_KEEPER role so resolvePolicy resolves a CHAIN outcome (not
+    // AUTO/DENY) for the ordinary PULL test below too. Before F-042, this same
+    // policy row's chain (TARGET_HEAD, TARGET_CUSTODIAN only) was what actually got
+    // used for a store keeper's pull as well, since resolvePolicy matches by role
+    // alone — never asking the owning head. The fix bypasses this chain for any
+    // non-handover transfer, replacing it with the fixed pull shape.
+    await makePolicy({ id: `${testKey}-f042-storekeeper`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }] });
+  });
+
+  it("a store keeper's pull (not a handover) asks the owning head, not just the receiving end", async () => {
+    const keeperId = await makeUser("f042-keeper", ["STORE_KEEPER"]);
+    const deptHeadId = await makeUser("f042-dept-head", ["MANAGER"]);
+    const deptCustodianId = await makeUser("f042-dept-custodian", ["CUSTODIAN"]);
+    const storeHeadId = await makeUser("f042-store-head", ["MANAGER"]);
+    const deptNodeId = await makeNode("f042-dept", deptHeadId);
+    const storeNodeId = await makeNode("f042-store-unit", storeHeadId);
+    const sourceId = await makeItem(deptNodeId, deptCustodianId, "F042 Dept Item");
+    // The Main Store item itself, custodied by the keeper — pulling into their own
+    // shelf, so TARGET_CUSTODIAN is correctly omitted (self); OWNER_HEAD/TARGET_HEAD
+    // are the actual point of this test.
+    const storeLabId = await makeItem(storeNodeId, keeperId, "F042 Main Store");
+
+    const preview = await approvals.previewTransfer(keeperId, transferInput([sourceId], storeLabId, storeNodeId));
+    expect(preview.outcome).toBe("ROUTED");
+    expect(preview.steps?.map((s) => s.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
+    expect(preview.steps?.find((s) => s.selector === "OWNER_HEAD")?.approverId).toBe(deptHeadId);
+    expect(preview.steps?.find((s) => s.selector === "TARGET_HEAD")?.approverId).toBe(storeHeadId);
+  });
+
+  it("a dean's pull into another unit's lab asks that lab's own custodian and head, not just the dean's own receipt", async () => {
+    const deanId = await makeUser("f042-dean", ["MANAGER"]);
+    const seHeadId = await makeUser("f042-se-head", ["MANAGER"]);
+    const seCustodianId = await makeUser("f042-se-custodian", ["CUSTODIAN"]);
+    const chemHeadId = await makeUser("f042-chem-head", ["MANAGER"]);
+    const chemCustodianId = await makeUser("f042-chem-custodian", ["CUSTODIAN"]);
+    const seNodeId = await makeNode("f042-se", seHeadId);
+    const chemNodeId = await makeNode("f042-chem", chemHeadId);
+    const whiteboardId = await makeItem(seNodeId, seCustodianId, "F042 Whiteboard");
+    const chemStoreId = await makeItem(chemNodeId, chemCustodianId, "F042 ChemE Store");
+
+    // The dean occupies a college one level above ChemE — MANAGER's write reach
+    // covers their whole visible subtree (F-021 of the earlier fix round), not
+    // just the exact node they occupy, so a real ancestor/descendant closure row is
+    // what actually grants it (matching what org.recomputeClosure would produce).
+    const collegeNodeId = await makeNode("f042-college", deanId);
+    await prisma.orgClosure.createMany({
+      data: [
+        { ancestorId: collegeNodeId, descendantId: collegeNodeId, depth: 0 },
+        { ancestorId: chemNodeId, descendantId: chemNodeId, depth: 0 },
+        { ancestorId: collegeNodeId, descendantId: chemNodeId, depth: 1 },
+      ],
+    });
+
+    const preview = await approvals.previewTransfer(deanId, transferInput([whiteboardId], chemStoreId, chemNodeId));
+    expect(preview.outcome).toBe("ROUTED");
+    expect(preview.steps?.map((s) => s.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_CUSTODIAN", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
+    expect(preview.steps?.find((s) => s.selector === "ITEM_CUSTODIAN")?.approverId).toBe(seCustodianId);
+    expect(preview.steps?.find((s) => s.selector === "OWNER_HEAD")?.approverId).toBe(seHeadId);
+    expect(preview.steps?.find((s) => s.selector === "TARGET_CUSTODIAN")?.approverId).toBe(chemCustodianId);
+    expect(preview.steps?.find((s) => s.selector === "TARGET_HEAD")?.approverId).toBe(chemHeadId);
+  });
+});
+
+describe("F-040 — concurrent final approvals never leave an applied transfer marked STALE", () => {
+  it("4 simultaneous final approvals yield exactly one APPLIED and no STALE overwrite", async () => {
+    const requesterId = await makeUser("f040-requester", ["CUSTODIAN"]);
+    const lenderId = await makeUser("f040-lender", ["CUSTODIAN"]);
+    const ownerHeadId = await makeUser("f040-owner-head");
+    const targetHeadId = await makeUser("f040-target-head");
+    const ownerNodeId = await makeNode("f040-owner", ownerHeadId);
+    const targetNodeId = await makeNode("f040-target", targetHeadId);
+    const destLabId = await makeItem(targetNodeId, requesterId, "F040 Dest Lab");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "F040 Source Item");
+
+    const result = await approvals.requestTransfer(requesterId, transferInput([sourceId], destLabId, targetNodeId));
+    if (result.outcome !== "ROUTED") throw new Error("expected ROUTED");
+    createdRequestIds.push(result.request.id);
+
+    await approvals.decideStep(lenderId, result.request.id, "APPROVE");
+    await approvals.decideStep(ownerHeadId, result.request.id, "APPROVE");
+    await approvals.decideStep(targetHeadId, result.request.id, "APPROVE");
+
+    // The double-click / two-tabs race: the item's own optimistic version check
+    // already stopped a double move (unchanged by this fix); what F-042 of the
+    // 2026-09-15 campaign found is that the LOSING call(s) then unconditionally
+    // overwrote the request's own status to STALE, regardless of what actually
+    // happened — so the stored status could end up STALE even though the register
+    // shows the transfer went through.
+    const results = await Promise.allSettled(Array.from({ length: 4 }, () => approvals.decideStep(requesterId, result.request.id, "APPROVE")));
+    const statuses = results.map((r) => (r.status === "fulfilled" ? r.value.status : `rejected:${(r.reason as { status?: number })?.status}`));
+    expect(statuses.filter((s) => s === "APPLIED")).toHaveLength(1);
+    expect(statuses.filter((s) => s === "STALE")).toHaveLength(0);
+    // The other 3 concurrent calls each land on either "already decided" (the
+    // request itself is no longer PENDING by the time they get the lock) or
+    // "nothing left for you to decide" (the step was already approved) — never a
+    // STALE overwrite of the one call that actually succeeded.
+    expect(statuses.filter((s) => s === "rejected:403" || s === "rejected:409")).toHaveLength(3);
+
+    const final = await approvals.getRequest(requesterId, result.request.id);
+    expect(final.status).toBe("APPLIED");
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
+    expect(item.currentOrgNodeId).toBe(targetNodeId);
   });
 });
 

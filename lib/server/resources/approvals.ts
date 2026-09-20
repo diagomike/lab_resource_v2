@@ -105,8 +105,26 @@ function toDomainStep(row: PrismaChainStep): DomainChainStep {
 // shows it to the requester before they commit to asking).
 
 interface TransferContext {
-  items: Array<{ id: string; name: string; categoryId: string; ownerOrgNodeId: string; custodianId: string; version: number }>;
-  destination: { id: string; name: string; categoryId: string };
+  items: Array<{ id: string; name: string; categoryId: string; parentId: string | null; ownerOrgNodeId: string; currentOrgNodeId: string; custodianId: string; version: number }>;
+  destination: { id: string; name: string; categoryId: string; custodianId: string };
+}
+
+/** The fields a transfer actually depends on — F-041 of the 2026-09-15 campaign.
+ *  Deliberately excludes `version` (which a cosmetic edit like a rename bumps just
+ *  as readily as a structural one) and every other column (name, properties, ...). */
+interface StructuralFields {
+  parentId: string | null;
+  ownerOrgNodeId: string;
+  currentOrgNodeId: string;
+  custodianId: string;
+}
+
+function structuralFieldsOf(item: { parentId: string | null; ownerOrgNodeId: string; currentOrgNodeId: string; custodianId: string }): StructuralFields {
+  return { parentId: item.parentId, ownerOrgNodeId: item.ownerOrgNodeId, currentOrgNodeId: item.currentOrgNodeId, custodianId: item.custodianId };
+}
+
+function structuralFieldsEqual(a: StructuralFields, b: StructuralFields): boolean {
+  return a.parentId === b.parentId && a.ownerOrgNodeId === b.ownerOrgNodeId && a.currentOrgNodeId === b.currentOrgNodeId && a.custodianId === b.custodianId;
 }
 
 async function loadTransferContext(input: TransferInput): Promise<TransferContext> {
@@ -191,18 +209,45 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   const first = ctx.items[0];
   const ownerNodeId = first.ownerOrgNodeId;
   const targetNodeId = input.transfer.targetOrgNodeId;
-  const targetCustodianId = input.transfer.targetCustodianId ?? first.custodianId;
 
   const nodes = await loadDomainOrgNodes();
   const orgIndex = buildOrgIndex(nodes);
 
-  const broken = validateChain(routed.policy.chain, { ownerNodeId, targetNodeId, nodes, orgIndex });
+  // F-042 of the 2026-09-15 campaign: resolvePolicy matches by actor ROLE only, with
+  // no notion of the transfer's own SHAPE — so a store keeper's pull (not a
+  // handover) reused pol-store-transfer (built for handing stock OUT, whose chain
+  // is TARGET_HEAD → TARGET_CUSTODIAN only) and never asked the owning head at all,
+  // and a manager/dean's pull used pol-transfer-mgr, which omits TARGET_HEAD
+  // entirely — nobody at the RECEIVING end was ever asked. A pull's consent needs
+  // are the same shape regardless of the requester's role: whoever currently
+  // answers for the item, the unit that owns it, whoever runs the room it's about
+  // to sit in (the destination CONTAINER's own custodian — a plain pull never
+  // reassigns the ITEM's own custody, which stays with the lender; this is a
+  // courtesy/security consult for the room, not an accountability question, so it's
+  // skipped like any other post when the requester already holds it themselves),
+  // the receiving unit's head, and finally the requester's own confirmation that it
+  // arrived. Handovers (`transferOwnership: true`) are a different shape entirely
+  // (ownership itself changes hands) and keep using the resolved policy's own chain
+  // (`pol-store-transfer`) and its own client-supplied `targetCustodianId` (the
+  // person taking on custody) unchanged.
+  const targetCustodianId = input.transfer.transferOwnership ? (input.transfer.targetCustodianId ?? first.custodianId) : ctx.destination.custodianId;
+  const chain = input.transfer.transferOwnership
+    ? routed.policy.chain
+    : [
+        { type: "ITEM_CUSTODIAN" as const },
+        { type: "OWNER_HEAD" as const },
+        ...(targetCustodianId !== actorId ? [{ type: "TARGET_CUSTODIAN" as const }] : []),
+        { type: "TARGET_HEAD" as const },
+        { type: "REQUESTER_RECEIPT" as const },
+      ];
+
+  const broken = validateChain(chain, { ownerNodeId, targetNodeId, nodes, orgIndex });
   if (broken) return { outcome: "DENIED", reason: broken };
 
   const firstRow = await prisma.item.findUnique({ where: { id: first.id } });
   const domainItem = firstRow ? toDomainItem(firstRow, []) : undefined;
 
-  const steps = buildChain(routed.policy.chain, {
+  const steps = buildChain(chain, {
     item: domainItem,
     ownerNodeId,
     targetNodeId,
@@ -383,6 +428,7 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
   }
 
   const baseVersions: Record<string, number> = Object.fromEntries(ctx.items.map((i) => [i.id, i.version]));
+  const structuralSnapshot: Record<string, StructuralFields> = Object.fromEntries(ctx.items.map((i) => [i.id, structuralFieldsOf(i)]));
 
   const requestId = await prisma.$transaction(async (tx) => {
     const request = await tx.changeRequest.create({
@@ -391,6 +437,7 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
         requesterId: actorId,
         status: "PENDING",
         baseVersions,
+        structuralSnapshot: structuralSnapshot as unknown as Prisma.InputJsonValue,
         summary: summarize(ctx, input),
         note: input.note ?? null,
       },
@@ -425,54 +472,108 @@ async function loadRequestWithSteps(requestId: string) {
   return request;
 }
 
+type DecideOutcome = { done: true } | { done: false; requesterId: string; payload: TransferInput; freshVersions: Record<string, number>; at: Date; note?: string };
+
 /**
  * Ends the request outright on REJECT (no draft to preserve here, unlike Track 2's
  * lab commits — see §6.3). On APPROVE, arms the next step; once every step (the
  * REQUESTER_RECEIPT included) is APPROVED or SKIPPED, applies the payload through
  * the ordinary write door, attributed to the ORIGINAL REQUESTER regardless of who
  * cast the last approval — the same attribution discipline Track 2 established.
+ *
+ * F-040 of the 2026-09-15 campaign: everything up to and including the chain-step
+ * advancement now runs inside ONE transaction opened with an advisory lock keyed on
+ * `requestId`, serialising concurrent decisions on the SAME request (a double-click
+ * on "confirm receipt", two tabs). Before this, two concurrent calls could both pass
+ * the PENDING check, both advance the same step, and — after the ITEM's own
+ * optimistic version check correctly let only one `applyChange` actually win —
+ * BOTH unconditionally overwrote the request's own status, so the loser's STALE
+ * write could land last even though the register showed the transfer had gone
+ * through. Serialised, a second concurrent caller now finds the step already
+ * decided (`currentStep` returns nothing left to decide) and gets a plain 403,
+ * never reaching the settle/apply logic at all — there is structurally only ever
+ * one caller who can settle a given request, so the final `applyChange` and status
+ * write need no lock of their own.
  */
 export async function decideStep(actorId: string, requestId: string, decision: "APPROVE" | "REJECT", note?: string): Promise<ChangeRequestDto> {
-  const request = await loadRequestWithSteps(requestId);
-  if (request.status !== "PENDING") throw new HttpError(409, "This request has already been decided.");
+  const outcome = await prisma.$transaction(async (tx): Promise<DecideOutcome> => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${requestId}))`;
 
-  const payload = request.payload as unknown as TransferInput;
-  const subjectRow = await prisma.item.findUnique({ where: { id: payload.itemIds[0] } });
-  const domainItem = subjectRow ? toDomainItem(subjectRow, []) : undefined;
-  const nodes = await loadDomainOrgNodes();
+    const request = await tx.changeRequest.findUnique({ where: { id: requestId }, include: { steps: { orderBy: { order: "asc" } } } });
+    if (!request) throw new HttpError(404, "Request not found");
+    if (request.status !== "PENDING") throw new HttpError(409, "This request has already been decided.");
 
-  const domainSteps = request.steps.map(toDomainStep);
-  const step = currentStep(domainSteps);
-  const person = await loadPerson(actorId);
-  if (!canDecide(step, person, nodes, domainItem)) {
-    throw new HttpError(403, "This decision is not yours to make.");
-  }
+    const payload = request.payload as unknown as TransferInput;
+    const subjectRow = await tx.item.findUnique({ where: { id: payload.itemIds[0] } });
+    const domainItem = subjectRow ? toDomainItem(subjectRow, []) : undefined;
+    const nodes = await loadDomainOrgNodes();
 
-  const at = new Date();
+    const domainSteps = request.steps.map(toDomainStep);
+    const step = currentStep(domainSteps);
+    const person = await loadPerson(actorId);
+    if (!canDecide(step, person, nodes, domainItem)) {
+      throw new HttpError(403, "This decision is not yours to make.");
+    }
 
-  if (decision === "REJECT") {
-    await prisma.$transaction([
-      prisma.chainStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } }),
-      prisma.changeRequest.update({ where: { id: requestId }, data: { status: "REJECTED", resolvedAt: at, resolution: note ?? null } }),
-    ]);
-    return getRequest(actorId, requestId);
-  }
+    const at = new Date();
 
-  await prisma.chainStep.update({ where: { id: step!.id }, data: { status: "APPROVED", decidedById: actorId, decidedAt: at, note: note ?? null } });
+    if (decision === "REJECT") {
+      await tx.chainStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } });
+      await tx.changeRequest.update({ where: { id: requestId }, data: { status: "REJECTED", resolvedAt: at, resolution: note ?? null } });
+      return { done: true };
+    }
 
-  const refreshedRows = await prisma.chainStep.findMany({ where: { requestId }, orderBy: { order: "asc" } });
-  const advanced = activate(refreshedRows.map(toDomainStep));
-  await Promise.all(
-    advanced.map((s, i) => (refreshedRows[i].status === s.status ? null : prisma.chainStep.update({ where: { id: refreshedRows[i].id }, data: { status: s.status } }))),
-  );
+    // F-041, part 1 of the 2026-09-15 campaign: re-validate every subject item
+    // BEFORE recording this decision — existence, and the fields a transfer
+    // actually depends on (structuralFieldsOf's own note explains why not the
+    // whole-row version). A mismatch fails the request immediately, named, instead
+    // of walking every remaining step only to fail at the very last one with an
+    // unexplained "Version conflict".
+    const snapshot = request.structuralSnapshot as Record<string, StructuralFields> | null;
+    if (snapshot) {
+      const liveItems = await tx.item.findMany({ where: { id: { in: payload.itemIds } } });
+      const liveById = new Map(liveItems.map((i) => [i.id, i]));
+      const reasons = new Set<string>();
+      for (const itemId of payload.itemIds) {
+        const was = snapshot[itemId];
+        if (!was) continue; // no snapshot for this id — never our own case, skip rather than false-flag
+        const live = liveById.get(itemId);
+        if (!live || live.deletedAt) reasons.add("an item this request names was deleted");
+        else if (!structuralFieldsEqual(structuralFieldsOf(live), was)) reasons.add(`"${live.name}" was moved, re-owned, re-homed or given a new custodian since this request was raised`);
+      }
+      if (reasons.size) {
+        await tx.changeRequest.update({ where: { id: requestId }, data: { status: "STALE", resolvedAt: at, resolution: [...reasons].join("; ") } });
+        return { done: true };
+      }
+    }
 
-  if (!chainSettled(advanced)) {
-    return getRequest(actorId, requestId);
-  }
+    await tx.chainStep.update({ where: { id: step!.id }, data: { status: "APPROVED", decidedById: actorId, decidedAt: at, note: note ?? null } });
 
+    const refreshedRows = await tx.chainStep.findMany({ where: { requestId }, orderBy: { order: "asc" } });
+    const advanced = activate(refreshedRows.map(toDomainStep));
+    for (let i = 0; i < advanced.length; i++) {
+      if (refreshedRows[i].status !== advanced[i].status) {
+        await tx.chainStep.update({ where: { id: refreshedRows[i].id }, data: { status: advanced[i].status } });
+      }
+    }
+
+    if (!chainSettled(advanced)) return { done: true };
+
+    // Fresh versions, taken right here under the lock, not the request's own
+    // creation-time baseVersions — a rename tolerated by the structural check above
+    // would have bumped those, incorrectly failing this final version check even
+    // though nothing this transfer actually depends on changed (F-041).
+    const finalItems = await tx.item.findMany({ where: { id: { in: payload.itemIds } } });
+    const freshVersions: Record<string, number> = Object.fromEntries(finalItems.map((i) => [i.id, i.version]));
+    return { done: false, requesterId: request.requesterId, payload, freshVersions, at, note };
+  });
+
+  if (outcome.done) return getRequest(actorId, requestId);
+
+  const { requesterId, payload, freshVersions, at, note: settleNote } = outcome;
   try {
-    const result = await applyChange(request.requesterId, { ...payload, expectedVersions: request.baseVersions as Record<string, number> }, { viaApprovalEngine: true });
-    await prisma.changeRequest.update({ where: { id: requestId }, data: { status: "APPLIED", resolvedAt: at, resolution: note ?? null } });
+    const result = await applyChange(requesterId, { ...payload, expectedVersions: freshVersions }, { viaApprovalEngine: true });
+    await prisma.changeRequest.update({ where: { id: requestId }, data: { status: "APPLIED", resolvedAt: at, resolution: settleNote ?? null } });
     void result; // the applied ItemChangeResultDto isn't surfaced on the request itself — the change log already records it
   } catch (err) {
     const message = err instanceof HttpError ? err.message : "One or more of these resources changed while this was waiting, so nothing was applied.";

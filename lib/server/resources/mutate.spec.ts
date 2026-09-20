@@ -151,3 +151,31 @@ describe("applyChange — item version-conflict atomicity", () => {
     expect(["Version Conflict Item C — writer 1", "Version Conflict Item C — writer 2"]).toContain(after.name);
   });
 });
+
+describe("F-041 — an item named in a pending transfer request cannot be moved out from under it", () => {
+  it("refuses moveInTree while a PENDING ChangeRequest names the item", async () => {
+    const item = await prisma.item.create({
+      data: { categoryId, name: "F041 Move Blocker Item", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+    const destination = await prisma.item.create({
+      data: { categoryId, name: "F041 Move Destination", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+    const request = await prisma.changeRequest.create({
+      data: {
+        payload: { kind: "transferItem", itemIds: [item.id], transfer: { targetParentId: "some-other-item", targetOrgNodeId: orgNodeId, targetCustodianId: null } },
+        requesterId: sysAdminId,
+        status: "PENDING",
+        baseVersions: { [item.id]: item.version },
+        summary: "F-041 test pending transfer",
+      },
+    });
+
+    await expect(applyChange(sysAdminId, { kind: "moveInTree", itemIds: [item.id], value: destination.id })).rejects.toMatchObject({ status: 409 });
+
+    const unchanged = await prisma.item.findUniqueOrThrow({ where: { id: item.id } });
+    expect(unchanged.parentId).toBeNull(); // never moved
+
+    await prisma.changeRequest.delete({ where: { id: request.id } });
+    await prisma.item.deleteMany({ where: { id: { in: [item.id, destination.id] } } });
+  });
+});
