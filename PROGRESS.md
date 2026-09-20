@@ -3917,6 +3917,128 @@ its model that make porting it as-is the wrong move.
   **Still open**: 45 findings (0 CRITICAL, 0 HIGH, 29 MEDIUM, 13 LOW, 3 DESIGN) —
   Phase 2 (MEDIUM) and Phase 3 (LOW/DESIGN) of the same plan, not started.
 
+- **2026-09-20 (fix round, Phase 2 — all 29 MEDIUM)** — Same plan as Phase 1
+  (`~/.claude/plans/you-are-a-master-robust-knuth.md`). Every MEDIUM finding from the
+  2026-09-15 campaign is now fixed, tested and committed: **F-003, F-004, F-005,
+  F-006, F-009, F-010, F-013, F-015, F-016, F-024, F-025, F-026, F-027, F-031, F-032,
+  F-034, F-035, F-036, F-037, F-040, F-041, F-042, F-045, F-046, F-047, F-050, F-051,
+  F-055, F-056** — 14 commits, one per finding-cluster, matching Phase 1's own
+  granularity. `docs/e2e-findings-2026-09-15.md` carries the full per-group writeup
+  (a new "Phase 2 fix round" section) and every closed finding's own Status line; this
+  entry is the short version.
+
+  **Org-structure concurrency (F-003–F-006)**: every structural write now runs under
+  one `pg_advisory_xact_lock`-guarded transaction (closing the exact closure-recompute
+  race the campaign found), `deleteNode` names needs/purchases/external-assignments as
+  blockers instead of a raw 500, `changeLevel` requires and validates new parents
+  atomically instead of stranding the node, and `OrgNode.code` (already in the schema,
+  never wired up) is what `findProcurementOffice` now resolves by, so renaming the
+  office no longer disables purchasing university-wide.
+
+  **Identity (F-009/010/013/015/016)**: `forgotPassword` skips accounts with no
+  password; login and forgot-password both gained table-counted throttles (new
+  `LoginAttempt` table); `resendInvite` actually revokes the old token now; a new
+  `moveHomeNode` (new `HomeNodeChange` table) is the first way to move a person
+  between departments, blocked while they hold custody/an open need/an open draft;
+  the last active SYS_ADMIN can't be demoted, deactivated, or self-deactivate.
+
+  **Register (F-024/025/026/027)**: custodian eligibility is now checked on root
+  creation and a handover's receiving custodian too, for every actor including
+  SYS_ADMIN, not just direct `setCustodian`. **`deleteItem` is now a soft delete** —
+  `deletedAt`, nothing physically removed — replacing a hard delete whose FK cascades
+  quietly destroyed photos, custom properties and staged drafts with only the audit
+  row surviving; nearly every reader already filtered `deletedAt`, so this mostly
+  activated existing, previously-dead guards rather than requiring a wide rewrite (two
+  narrow gaps found and closed: `scope.ts`'s `assertCanMutate` MANAGER-fallback query,
+  and the new `checkBaseVersionsCurrent`'s version-only comparison, which a soft
+  delete doesn't bump). `createItem`'s `count` is capped at 500. BULK→SERIALIZED is
+  refused (409, naming an item) instead of a raw 500 or silently resetting quantities
+  to 1.
+
+  **Scope & views (F-031/032/034)**: a student/external account can no longer read
+  the asset register at all (`assertMayBrowseRegister`, the one choke point every
+  register read already shared); an access view nobody explicitly *chose* narrows
+  reads only, never blocks a write — closing a hole where one seeded `canEdit:false`
+  EVERYONE view would have made every account with no more specific view of their own
+  read-only, university-wide, including SYS_ADMIN; a lab's aggregate views
+  (ideal-vs-actual) gate on direct scope of the lab, not the ancestor-inclusive check
+  built for tree breadcrumbs, which let custodying one nested borrowed item expose an
+  entire foreign lab's composition.
+
+  **Draft mode (F-035/036/037)**: a lab commit's whole VISIBLE batch now applies
+  inside one transaction (`mutate.ts`'s `applyChange` accepts a caller-supplied `tx`),
+  with per-operation `expectedVersions` stripped inside the batch loop — two staged
+  edits of the SAME item, each carrying the item's own pre-batch version exactly as
+  the Inspector/Change modal send it, now both apply instead of the second
+  deterministically failing on a version the first had already bumped. The commit
+  request's own `baseVersions` (recorded at submission, never read back before) is
+  now re-checked under `FOR UPDATE` immediately before applying, so a direct
+  correction made while a draft waited for its head turns approval STALE — naming the
+  change — instead of being silently overwritten. IDEAL targets no longer require
+  draft mode to be on, which is why *no* production department could ever record one
+  before this.
+
+  **Transfers (F-040/041/042)**: `decideStep`'s chain-step advancement is now
+  serialised per request under its own advisory lock, closing the race where a losing
+  concurrent "confirm receipt" call overwrote an already-APPLIED transfer's status
+  with STALE. Every subject item is re-validated on every decision against a
+  structural snapshot (parent/owner/current-unit/custodian — not the whole-row
+  version a cosmetic rename also bumps), failing fast and named instead of failing at
+  the very last step with an unexplained "Version conflict"; the final apply reads a
+  fresh version so a tolerated rename doesn't then void it anyway.
+  `applyMoveInTree` refuses moving an item named in a pending transfer. Any
+  non-handover pull's chain is now built directly in code (item's custodian, owning
+  head, the destination container's own custodian when it differs from the
+  requester, receiving head, requester receipt) instead of taken from a role-matched
+  policy — closing the gap where a store keeper's or a dean's pull could skip the
+  owning or receiving side entirely.
+
+  **Purchasing (F-045/046/047)**: `receivePurchaseLine`'s received-quantity update
+  is now two atomic conditional `updateMany` attempts instead of a read-modify-write,
+  with the cap encoded directly in the WHERE clause — closing both the lost-update
+  bug (two simultaneous partial receipts, only one ever recorded) and the
+  over-receipt hole in the same mechanism; a category mismatch is refused; a
+  SERIALIZED line must order whole units, checked at compile time. Rejecting or
+  cancelling a request now reopens the needs it carried, named with why
+  (`reopenCarriedNeeds`). The raiser may withdraw only through APPROVING; from
+  ORDER_PLACED on, cancelling an order is procurement's own act, with a required
+  note.
+
+  **Scheduling (F-050/051)**: a booking that's already taken place can't be
+  cancelled; an undecided REQUESTED booking whose own start time has passed drops
+  out of the inbox directly, backed by a new cron sweep (`expireLapsedRequests`)
+  that marks it EXPIRED. A category's `bookingMode` can't be changed away from
+  ROOM/EQUIPMENT while a future live reservation or class occurrence still depends
+  on it. F-051's own notification half (telling requesters when their machine
+  breaks) is a deliberate scope cut — a UX addition, not a data-integrity fix.
+
+  **External (F-055/056)**: `placeHold` refuses a hold on a date the request's own
+  windows never named (checked by date, not exact time — a same-day replacement
+  hold for a lost slot keeps working, its own case in `verify.spec.ts`);
+  `extendHolds` is capped at the same ceiling a fresh hold gets, instead of only
+  checking the date is in the future.
+
+  **One deliberate architectural call**: F-035's fix combines transactional batching
+  with stripping per-operation `expectedVersions` inside the batch loop (closer to
+  the plan's "Fix B" for this specific point than pure "Fix A") — necessary because
+  two edits of the same item, each staged against the pre-batch version, would
+  otherwise still conflict with each other inside a single shared transaction exactly
+  as they did across separate ones; F-036's batch-level `baseVersions` check is what
+  actually guards staleness once per-operation checks are stripped for the batch.
+
+  **Verified**: `npx tsc --noEmit`, `npm test` (458/458, up from 408 before Phase 1),
+  `npm run build` all clean, at every commit in this round. The unit-test suite's own
+  `fileParallelism` was turned off (`vitest.config.ts`) partway through this phase
+  after the new `org.spec.ts` (F-003) started exercising real concurrent structural
+  writes against the shared DB other spec files' fixtures also touch — see that
+  commit's own message for the full reasoning; the suite is now both deterministic
+  and, in practice, faster (no DB contention between parallel workers).
+
+  **Still open**: 16 findings (13 LOW, 3 DESIGN) — Phase 3 of the same plan, not
+  started. A full E2E campaign re-run (the same one Phase 1 used) has not yet been
+  done for Phase 2 specifically; the unit-test suite (458/458) is the verification
+  gate that ran at every step.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

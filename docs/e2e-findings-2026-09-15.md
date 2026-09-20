@@ -20,35 +20,35 @@ Input for the review and dev step. This report lists what the end-to-end campaig
 | [F-043](#f-043) | HIGH | Purchasing | "Revise and resubmit" fails for any request that carries staff needs | Fixed (2026-09-20, Phase 1) |
 | [F-044](#f-044) | HIGH | Purchasing | Count-based PR numbering: concurrent compiles fail, and one removed row takes purchasing down | Fixed (2026-09-20, Phase 1) |
 | [F-049](#f-049) | HIGH | Scheduling | Deleting a room silently erases its confirmed bookings and its class timetable | Open |
-| [F-003](#f-003) | MEDIUM | Org structure | Concurrent structural edits return 500 and leave nodes with no closure rows | Open |
-| [F-004](#f-004) | MEDIUM | Org structure | Delete returns a raw 500 when a node is referenced by purchasing or external-request rows | Open |
-| [F-005](#f-005) | MEDIUM | Org structure | Change-level strands the node and its former children | Open |
-| [F-006](#f-006) | MEDIUM | Purchasing ↔ Org | Renaming the Procurement Office disables purchasing for every department | Open |
-| [F-009](#f-009) | MEDIUM | Auth | "Forgot password" activates invited accounts that never accepted their invitation | Open |
-| [F-010](#f-010) | MEDIUM | Auth | No throttling on forgot-password (and, per code reading, on login) | Open |
-| [F-013](#f-013) | MEDIUM | Personnel | "Resend invite" does not revoke the previous link, though the email says it does | Open |
-| [F-015](#f-015) | MEDIUM | Personnel | There's no way to move a person to another department | Open |
-| [F-016](#f-016) | MEDIUM | Personnel | An administrator can demote or deactivate themselves via the API (last-admin lockout) | Open |
+| [F-003](#f-003) | MEDIUM | Org structure | Concurrent structural edits return 500 and leave nodes with no closure rows | Fixed (2026-09-20, Phase 2) |
+| [F-004](#f-004) | MEDIUM | Org structure | Delete returns a raw 500 when a node is referenced by purchasing or external-request rows | Fixed (2026-09-20, Phase 2) |
+| [F-005](#f-005) | MEDIUM | Org structure | Change-level strands the node and its former children | Fixed (2026-09-20, Phase 2) |
+| [F-006](#f-006) | MEDIUM | Purchasing ↔ Org | Renaming the Procurement Office disables purchasing for every department | Fixed (2026-09-20, Phase 2) |
+| [F-009](#f-009) | MEDIUM | Auth | "Forgot password" activates invited accounts that never accepted their invitation | Fixed (2026-09-20, Phase 2) |
+| [F-010](#f-010) | MEDIUM | Auth | No throttling on forgot-password (and, per code reading, on login) | Fixed (2026-09-20, Phase 2) |
+| [F-013](#f-013) | MEDIUM | Personnel | "Resend invite" does not revoke the previous link, though the email says it does | Fixed (2026-09-20, Phase 2) |
+| [F-015](#f-015) | MEDIUM | Personnel | There's no way to move a person to another department | Fixed (2026-09-20, Phase 2) |
+| [F-016](#f-016) | MEDIUM | Personnel | An administrator can demote or deactivate themselves via the API (last-admin lockout) | Fixed (2026-09-20, Phase 2) |
 | [F-017](#f-017) | MEDIUM | Personnel / Authorization | Head powers are split between the MANAGER role and node occupancy | Fixed (2026-09-20, Phase 1) |
-| [F-024](#f-024) | MEDIUM | Register | Custodian eligibility is never validated (students, disabled accounts) | Open |
-| [F-025](#f-025) | MEDIUM | Register | Deleting a resource is a hard delete with no recovery | Open |
-| [F-026](#f-026) | MEDIUM | Register | No upper bound on "Add N resources" | Open |
-| [F-027](#f-027) | MEDIUM | Categories | Switching BULK → SERIALIZED fails with 500 on real stock; if it succeeded it would silently erase quantities | Open |
-| [F-031](#f-031) | MEDIUM | Scope | Students can read their department's whole asset register | Open |
-| [F-032](#f-032) | MEDIUM | Access views | One "Everyone, read-only" view silently blocks every write for the whole university, including SYS_ADMIN | Open |
-| [F-035](#f-035) | MEDIUM | Draft mode | Approving a lab commit can apply only half of it and leave the request stuck | Open |
-| [F-036](#f-036) | MEDIUM | Draft mode | A stale draft silently overwrites later corrections (lost update) | Open |
-| [F-037](#f-037) | MEDIUM | Planning | Ideal targets (and so purchasables) only exist for departments in draft mode | Open |
-| [F-040](#f-040) | MEDIUM | Transfers | Concurrent final approvals leave an applied transfer marked STALE | Open |
-| [F-041](#f-041) | MEDIUM | Transfers | Items in a pending transfer aren't locked (rename wastes every approval; delete leaves a ghost request) | Open |
-| [F-042](#f-042) | MEDIUM | Transfers | Some pull chains skip the owning or receiving department | Open |
-| [F-045](#f-045) | MEDIUM | Purchasing | Receiving stock has no integrity checks (wrong category, over-receipt, lost updates, fractional units) | Open |
-| [F-046](#f-046) | MEDIUM | Purchasing | Needs carried by a rejected or cancelled request are stuck forever | Open |
-| [F-047](#f-047) | MEDIUM | Purchasing | The raiser can cancel an order procurement has already placed and shipped | Open |
-| [F-050](#f-050) | MEDIUM | Scheduling | Past bookings can be cancelled, and undecided past requests never leave the inbox | Open |
-| [F-051](#f-051) | MEDIUM | Scheduling | Bookings don't react when a machine breaks or a category stops being bookable | Open |
-| [F-055](#f-055) | MEDIUM | External | Holds can be placed on slots outside the requested windows | Open |
-| [F-056](#f-056) | MEDIUM | External | `extendHolds` can push a hold years past the payment deadline | Open |
+| [F-024](#f-024) | MEDIUM | Register | Custodian eligibility is never validated (students, disabled accounts) | Fixed (2026-09-20, Phase 2) |
+| [F-025](#f-025) | MEDIUM | Register | Deleting a resource is a hard delete with no recovery | Fixed (2026-09-20, Phase 2) |
+| [F-026](#f-026) | MEDIUM | Register | No upper bound on "Add N resources" | Fixed (2026-09-20, Phase 2) |
+| [F-027](#f-027) | MEDIUM | Categories | Switching BULK → SERIALIZED fails with 500 on real stock; if it succeeded it would silently erase quantities | Fixed (2026-09-20, Phase 2) |
+| [F-031](#f-031) | MEDIUM | Scope | Students can read their department's whole asset register | Fixed (2026-09-20, Phase 2) |
+| [F-032](#f-032) | MEDIUM | Access views | One "Everyone, read-only" view silently blocks every write for the whole university, including SYS_ADMIN | Fixed (2026-09-20, Phase 2) |
+| [F-035](#f-035) | MEDIUM | Draft mode | Approving a lab commit can apply only half of it and leave the request stuck | Fixed (2026-09-20, Phase 2) |
+| [F-036](#f-036) | MEDIUM | Draft mode | A stale draft silently overwrites later corrections (lost update) | Fixed (2026-09-20, Phase 2) |
+| [F-037](#f-037) | MEDIUM | Planning | Ideal targets (and so purchasables) only exist for departments in draft mode | Fixed (2026-09-20, Phase 2) |
+| [F-040](#f-040) | MEDIUM | Transfers | Concurrent final approvals leave an applied transfer marked STALE | Fixed (2026-09-20, Phase 2) |
+| [F-041](#f-041) | MEDIUM | Transfers | Items in a pending transfer aren't locked (rename wastes every approval; delete leaves a ghost request) | Fixed (2026-09-20, Phase 2) |
+| [F-042](#f-042) | MEDIUM | Transfers | Some pull chains skip the owning or receiving department | Fixed (2026-09-20, Phase 2) |
+| [F-045](#f-045) | MEDIUM | Purchasing | Receiving stock has no integrity checks (wrong category, over-receipt, lost updates, fractional units) | Fixed (2026-09-20, Phase 2) |
+| [F-046](#f-046) | MEDIUM | Purchasing | Needs carried by a rejected or cancelled request are stuck forever | Fixed (2026-09-20, Phase 2) |
+| [F-047](#f-047) | MEDIUM | Purchasing | The raiser can cancel an order procurement has already placed and shipped | Fixed (2026-09-20, Phase 2) |
+| [F-050](#f-050) | MEDIUM | Scheduling | Past bookings can be cancelled, and undecided past requests never leave the inbox | Fixed (2026-09-20, Phase 2) |
+| [F-051](#f-051) | MEDIUM | Scheduling | Bookings don't react when a machine breaks or a category stops being bookable | Fixed (2026-09-20, Phase 2) |
+| [F-055](#f-055) | MEDIUM | External | Holds can be placed on slots outside the requested windows | Fixed (2026-09-20, Phase 2) |
+| [F-056](#f-056) | MEDIUM | External | `extendHolds` can push a hold years past the payment deadline | Fixed (2026-09-20, Phase 2) |
 | [F-008](#f-008) | LOW | Org structure | No name hygiene: blank, 5,000-character and duplicate names accepted | Open |
 | [F-011](#f-011) | LOW | Privacy | Every signed-in account, including students, can list every office holder's name and email | Open |
 | [F-018](#f-018) | LOW | Personnel | Deans see everyone below them but can't act on any of it | Open |
@@ -57,7 +57,7 @@ Input for the review and dev step. This report lists what the end-to-end campaig
 | [F-029](#f-029) | LOW | Categories/Register | "Required" fields aren't enforced | Open |
 | [F-030](#f-030) | LOW | Categories/Register | No name hygiene for categories and resources | Open |
 | [F-033](#f-033) | LOW | Access views | Validation gaps (empty or unknown nodes accepted; unknown person → 500) | Open |
-| [F-034](#f-034) | LOW | Scope | Read-only "context" visibility of a container exposes the whole container's aggregate counts | Open |
+| [F-034](#f-034) | LOW | Scope | Read-only "context" visibility of a container exposes the whole container's aggregate counts | Fixed (2026-09-20, Phase 2) |
 | [F-048](#f-048) | LOW | Purchasing | Estimated costs visible to staff and custodians despite `canSeeCost = false` | Open |
 | [F-052](#f-052) | LOW | Scheduling | No sanity bounds on horizons, series length or exceptions | Open |
 | [F-053](#f-053) | LOW | Scheduling | Any staff member can read every room's calendar, including which student a booking is for | Open |
@@ -114,6 +114,29 @@ Plan: `~/.claude/plans/you-are-a-master-robust-knuth.md`. The 2 CRITICAL and 10 
 - The plan's schema-level `Reservation.lab`/`ScheduleSeries.lab` FK change from `Cascade` to `Restrict` was **not applied**: a bare FK can't distinguish a live booking from fully closed-out history, so it would have permanently blocked deleting a room with any booking ever recorded against it, including harmless resolved ones. The application-layer blocker in `applyDeleteItem` is the correct enforcement point (it checks *live* dependents only) and was kept as the sole mechanism.
 - `external/requests.ts`'s `isAvp` was **not changed** to resolve by a hardcoded `code = "ASTU"`. The schema invariant (F-002) already guarantees at most one `UNIVERSITY`-kind node exists, so `isAvp`'s existing kind-based lookup is now structurally safe without hardcoding an institution-specific code.
 - F-024 (custodian eligibility) stays Open for Phase 2 as planned; only its `assertEligibleCustodian` helper and its use in the new `setCustodian` gate landed now, since 1A's own rewrite needed it — full enforcement on `createItem` is deliberately deferred, not forgotten.
+
+## Phase 2 fix round (2026-09-20)
+
+Plan: `~/.claude/plans/you-are-a-master-robust-knuth.md`. All 29 MEDIUM findings are fixed, tested, and re-verified. **29 findings closed: F-003, F-004, F-005, F-006, F-009, F-010, F-013, F-015, F-016, F-024, F-025, F-026, F-027, F-031, F-032, F-034 (LOW in the table, grouped here since it shares F-031's own scope module), F-035, F-036, F-037, F-040, F-041, F-042, F-045, F-046, F-047, F-050, F-051, F-055, F-056.**
+
+**What changed, by group:**
+
+- **Org-structure concurrency (F-003)** — every structural write (create/update/reassignParents/changeLevel/deleteNode) and the closure recompute after it now run inside one transaction opened with `pg_advisory_xact_lock`, serialising them; a `withOrgLock` retry recovers from a node disappearing mid-recompute via a path outside this discipline entirely. **F-004** — `deleteNode` gained named blockers for needs/purchase-requests/external-assignments. **F-005** — `changeLevel` refuses while the node still has children, and now takes `parentIds`, required and validated at the new level in the same call. **F-006** — `OrgNode.code` is now settable and is what `findProcurementOffice` resolves by first, falling back to the exact-name match.
+- **Identity/personnel (F-009, F-010, F-013, F-015, F-016)** — `forgotPassword` skips accounts with no password yet; `login`/`forgotPassword` gained table-counted throttles (new `LoginAttempt` table); `resendInvite` expires the previous token in the same transaction as issuing the new one; a new `moveHomeNode` (new `HomeNodeChange` table) moves a person's home department, refusing while they hold custody, an open need or an open draft; `deactivate`/`updateRoles` refuse removing the last active SYS_ADMIN or self-deactivating, regardless of who's asking.
+- **Register/categories (F-024, F-025, F-026, F-027)** — `assertEligibleCustodian` is now also checked on root creation and on a handover's receiving custodian, for every actor including SYS_ADMIN. `deleteItem` is a **soft delete** (`deletedAt`, nothing physically removed) instead of a hard `tx.item.delete` that cascaded away photos, custom properties and staged drafts with only the audit row surviving — most readers already filtered `deletedAt`, so this activates guards that were already live but unreachable. `createItem`'s `count` is capped at 500. BULK → SERIALIZED is refused (409, naming an item and a count) while any item still holds a quantity other than 1, instead of a raw 500 or a silent reset to 1.
+- **Scope & views (F-031, F-032, F-034)** — a student/external account can no longer read the asset register at all (`assertMayBrowseRegister`, the one choke point every register read shares, plus route-level role gates); an access view nobody explicitly chose narrows reads only, never blocks a write, closing a hole where one `canEdit:false` EVERYONE view could make every account with no more specific view of their own read-only university-wide, including SYS_ADMIN; a lab's aggregate views (ideal-vs-actual) now gate on direct scope of the lab itself, not the ancestor-inclusive check built for tree context, which let custodying one nested borrowed item expose a whole foreign lab's composition.
+- **Draft mode (F-035, F-036, F-037)** — a lab commit's whole VISIBLE batch now applies inside one transaction instead of each staged change opening its own (the fix behind "two staged edits of the same item both apply atomically" instead of the second deterministically failing on a version the first had already bumped); the request's own `baseVersions`, recorded at submission, is now read back and re-checked under `FOR UPDATE` before applying, so a direct correction made while a draft waited for its head turns approval STALE (naming the change) instead of being silently overwritten; IDEAL targets no longer require draft mode to be switched on.
+- **Transfers (F-040, F-041, F-042)** — `decideStep`'s chain-step advancement is now serialised per request under an advisory lock, closing the race where a losing concurrent "confirm receipt" call could overwrite an already-APPLIED transfer's status with STALE; every subject item is re-validated on every decision against a structural snapshot (parent/owner/current-unit/custodian, not the whole-row version a cosmetic rename also bumps), failing fast and named instead of failing at the last step with an unexplained conflict, and a fresh version is read for the final apply so a tolerated rename doesn't then void it; `applyMoveInTree` refuses moving an item named in a pending transfer; any non-handover pull's chain is now built directly (owning custodian, owning head, the destination container's own custodian when it differs from the requester, receiving head, requester receipt) instead of taken from a role-matched policy that let a store keeper's or a dean's pull skip the owning or receiving side entirely.
+- **Purchasing (F-045, F-046, F-047)** — `receivePurchaseLine`'s cap and lost-update fix: the received-quantity update is two atomic conditional `updateMany` attempts instead of a read-modify-write, with the cap encoded directly in the WHERE clause; a category mismatch is refused; a SERIALIZED category's line must be a whole number, checked at compile time. Rejecting or cancelling a request now reopens the needs it carried (`reopenCarriedNeeds`), named with why. The raiser may withdraw only through APPROVING; from ORDER_PLACED on, cancelling is procurement's own act with a required note.
+- **Scheduling (F-050, F-051)** — a booking whose `endsAt` has passed can no longer be cancelled; an undecided REQUESTED booking whose own start time has passed drops out of the inbox, and a new cron sweep (`expireLapsedRequests`) marks it EXPIRED. A category's `bookingMode` can no longer be changed away from ROOM/EQUIPMENT while a future live reservation or class occurrence still depends on it.
+- **External (F-055, F-056)** — `placeHold` refuses a hold on a date the request's own windows never named (checked by date, not exact time, so a same-day replacement hold for a lost slot keeps working); `extendHolds` is capped at the same ceiling a fresh hold gets (a still-future payment deadline, or the two-week horizon otherwise) instead of only checking the date is in the future.
+
+**Verified:** `npx tsc --noEmit`, `npm test` (458/458, up from 408 at the start of Phase 1), `npm run build` all clean, at every commit in this round.
+
+**Deliberate scope decisions:**
+- F-051's own second half (surfacing/notifying on `setStatus` → BROKEN/IMPAIRED) is **not implemented** — a UX/notification addition rather than a data-integrity fix, judged out of scope for this pass; the bookingMode-change guard (the data-integrity half) is.
+- Two blocker-count sites (`org.ts`'s `deleteNode`, `categories.ts`'s `remove`) deliberately **keep counting soft-deleted items** (F-025) alongside live ones: the FK they guard against (`onDelete: Restrict`) still holds for a soft-deleted row exactly as it does for a live one, so excluding it would promise a delete the database would then refuse anyway.
+- F-035's fix combines transactional batching with stripping per-operation `expectedVersions` inside the batch loop (closer to the plan's "Fix B" for this specific point) rather than pure "Fix A" — necessary because two edits of the same item, each staged against the pre-batch version, would otherwise still conflict with each other inside a single transaction exactly as they did across separate ones; the batch-level `baseVersions` check (F-036) is what actually guards staleness once per-operation checks are stripped for the batch.
 
 ## How it was run
 
@@ -218,6 +241,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-003 · MEDIUM · Org structure — Concurrent structural edits return 500 and leave nodes with no closure rows
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/org/org.ts`'s `withOrgLock`/`recomputeClosure`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** O-17, O-17b · **Actor:** admin (two browser tabs, or two admins)
 - **Repro:** fire 8 `POST /api/org/nodes` in parallel under the same college.
 - **Expected:** all 201, and every node has complete closure rows.
@@ -239,6 +264,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-004 · MEDIUM · Org structure — Delete returns a raw 500 when a node is referenced by purchasing or external-request rows
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/org/org.ts`'s `deleteNode`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** O-13 (H6) · **Actor:** admin
 - **Repro:**
   1. A staff member of department `D` raises a need.
@@ -255,6 +282,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-005 · MEDIUM · Org structure — Change-level strands the node and its former children
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/org/org.ts`'s `changeLevel`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** O-09 (H7) · **Actor:** admin
 - **Repro:**
   1. Create department `D` (level 2) with a child office (level 3).
@@ -269,6 +298,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `org.spec.ts` "change-level without parents is refused / applies atomically with new parents".
 
 ### F-006 · MEDIUM · Purchasing ↔ Org — Renaming the Procurement Office disables purchasing for every department
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/purchasing.ts`'s `findProcurementOffice`, keyed on `OrgNode.code`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** O-16 (H7) · **Actor:** admin, then headSe
 - **Repro:**
@@ -304,6 +335,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-009 · MEDIUM · Auth — "Forgot password" activates invited accounts that never accepted their invitation
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/auth/auth.ts`'s `forgotPassword`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** A-10 (H2) · **Actor:** anonymous
 - **Repro:**
   1. Admin invites `x@…` (status INVITED, no password).
@@ -319,6 +352,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `lib/server/auth/auth.spec.ts` (new) "forgot-password for an INVITED account sends no reset".
 
 ### F-010 · MEDIUM · Auth — No throttling on forgot-password (and, per code reading, on login)
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/auth/auth.ts`'s `login`/`forgotPassword` (new `LoginAttempt` table). See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** A-12 · **Actor:** anonymous
 - **Repro:** 20× `POST /api/auth/forgot-password {"email":"staff.chem@e2e.test"}`.
@@ -366,6 +401,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-013 · MEDIUM · Personnel — "Resend invite" does not revoke the previous link, though the email says it does
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/people/people.ts`'s `resendInvite`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** P-08 (H1)
 - **Repro:** head.se invites a custodian, then clicks "Resend invite".
 - **Expected:** exactly one usable token. The resend email says "the previous one, if any, no longer works" (`people.ts:258`), and `lib/shared/people.ts:72-74` says "resending invalidates the previous one".
@@ -401,6 +438,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-015 · MEDIUM · Personnel — There's no way to move a person to another department
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/people/people.ts`'s new `moveHomeNode` (new `HomeNodeChange` table). See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** P-11
 - **Actual:**
   - `PATCH /api/people/:id` → 404, and no route or UI edits `User.homeNodeId` after the invitation.
@@ -413,6 +452,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `people.spec.ts` "moving a person's home node changes their scope and is recorded".
 
 ### F-016 · MEDIUM · Personnel — An administrator can demote or deactivate themselves via the API (last-admin lockout)
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/people/people.ts`'s `assertNotLastActiveAdmin`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** P-12 (H3)
 - **Repro:** as a SYS_ADMIN, `POST /api/people/<self>/roles {"roles":["STAFF"]}` → 201; `POST /api/people/<self>/deactivate` → 201.
@@ -548,6 +589,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-024 · MEDIUM · Register — Custodian eligibility is never validated (students, disabled accounts)
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/scope.ts`'s `assertEligibleCustodian`, called from `mutate.ts`, `scope.ts`'s `assertCanCreateRoot`, and `approvals.ts`'s `loadTransferContext`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Cases:** R-07, R-09
 - **Actual:**
   - A root lab created by admin with a DISABLED custodian → 200.
@@ -560,6 +603,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-025 · MEDIUM · Register — Deleting a resource is a hard delete with no recovery
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/mutate.ts`'s `applyDeleteItem`, now a soft delete. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** R-18 (H12)
 - **Actual:** after `deleteItem` the `Item` row no longer exists (`deletedAt` stays unused), and the cascades remove images, drafts, ideal targets, **reservations and class series** (`schema.prisma` `onDelete: Cascade` on `Reservation.lab`, `ScheduleSeries.lab` and `ReservationResource.item`; see the S suite for the booking impact). Only the `ItemChange` audit row survives, without the item's data.
 - **Root cause:** `mutate.ts:548` calls `tx.item.delete`. Yet every reader already filters `deletedAt: null`, and the column exists in the schema.
@@ -570,12 +615,16 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-026 · MEDIUM · Register — No upper bound on "Add N resources"
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/shared/resources/item.ts`'s `CreateItemChange.count`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** R-06 (H11)
 - **Actual:** `createItem count: 2000` → 200 in 734 ms (chairs have no template). A category with a 12-part template multiplies that: 2,000 computers is about 26,000 rows in one transaction, and 50,000 would exceed the 5 s default interactive-transaction timeout or exhaust memory on a serverless function.
 - **Root cause:** `CreateItemChange.count` is `z.number().int().min(1)` with no max (`lib/shared/resources/item.ts:188`).
 - **Fix:** `.max(500)` (or a per-category cap computed as count × template size ≤ 5,000 rows), plus a friendly message suggesting BULK counting for large quantities.
 
 ### F-027 · MEDIUM · Categories — Switching BULK → SERIALIZED fails with 500 on real stock; if it succeeded it would silently erase quantities
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/categories.ts`'s `update`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** C-07
 - **Repro:**
@@ -616,6 +665,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-031 · MEDIUM · Scope — Students can read their department's whole asset register
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/scope.ts`'s `assertMayBrowseRegister`, plus route-level `STAFF_ROLES` gates. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** V-05 · **Actor:** student (home: Software Engineering)
 - **Actual:** `GET /api/resources/items?pageSize=200` → 200 with **146 SE resources**, including custodian names, rooms, statuses and properties. A point read of an SE computer → 200. Tree, summary and facets behave the same way.
 - **Expected:** the scope module's own header says students have no register access. `lib/server/org/scope.ts:24-26`: *"The per-endpoint RBAC layer (requireRole), not this module, is what actually keeps a student off the asset register."* No resource read route calls `requireRole`.
@@ -627,6 +678,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `university-scope.spec.ts` "a STUDENT's search/tree/getOne are refused".
 
 ### F-032 · MEDIUM · Access views — One "Everyone, read-only" view silently blocks every write for the whole university, including SYS_ADMIN
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/mutate.ts`'s `assertViewAllowsEdit`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** V-11 · **Actor:** propadmin (PROPERTY_ADMIN), then admin
 - **Repro:**
@@ -651,12 +704,16 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-034 · LOW · Scope — Read-only "context" visibility of a container exposes the whole container's aggregate counts
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/scope.ts`'s `assertMaySeeLabAggregate`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** V-02
 - **Actual:** Hanna (ChemE) custodies one item that sits inside SE's "SE Lab X". That gives her ancestor read-only context on the lab, and `GET /api/resources/labs/<SE Lab X>/ideal-vs-actual` → 200 with the full ideal/actual composition of SE's lab. Direct item reads of SE's other items correctly 404.
 - **Root cause:** `lab-drafts.ts:385-388` gates on `assertCanSeeItem`, which is ancestor-inclusive (designed for tree context), and then aggregates the entire subtree.
 - **Fix:** gate lab aggregates (ideal vs actual, purchasables, calendars) on *direct* scope of the lab (`canSeeItem` without ancestor closure), write custody, or headship of the owning unit.
 
 ### F-035 · MEDIUM · Draft mode — Approving a lab commit can apply only half of it and leave the request stuck
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/mutate.ts`'s `applyChange` (caller-supplied `tx`) and `lab-drafts.ts`'s `decideCommit`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** D-06 (H17) · **Actors:** custMat, headMat (Materials Science in draft mode)
 - **Repro:**
@@ -676,6 +733,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-036 · MEDIUM · Draft mode — A stale draft silently overwrites later corrections (lost update)
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/lab-drafts.ts`'s `checkBaseVersionsCurrent`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** D-07
 - **Repro:**
   1. The custodian stages a rename to "WB from stale draft" and submits.
@@ -688,6 +747,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `lab-drafts.spec.ts` "an item changed after submission makes approval STALE".
 
 ### F-037 · MEDIUM · Planning — Ideal targets (and so purchasables) only exist for departments in draft mode
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/lab-drafts.ts`'s `assertWorkflowEnabled`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** D-01 (H18)
 - **Actual:** `POST /api/resources/labs/:lab/draft {targetKind:"IDEAL"}` for a lab whose department isn't in draft mode → `403 Draft mode is not enabled…`. There's no other way to set `LabIdealTarget`. Every department in production today has draft mode off, so none can record ideal state, and the head's "compute purchasables from ideal vs current" (Track 4 / E2E S5) always comes back empty.
@@ -732,6 +793,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-040 · MEDIUM · Transfers — Concurrent final approvals leave an applied transfer marked STALE
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/approvals.ts`'s `decideStep`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** T-07 (H13)
 - **Repro:** bring a pull request to its last step (receipt), then send 4 simultaneous "Confirm receipt" calls, e.g. a double-click or two tabs.
 - **Actual:**
@@ -745,6 +808,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `approvals.spec.ts` "parallel final approvals yield exactly one APPLIED and no STALE overwrite". Apply the same pattern to purchasing `decideStep` (B suite).
 
 ### F-041 · MEDIUM · Transfers — Items in a pending transfer aren't locked (rename wastes every approval; delete leaves a ghost request)
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/approvals.ts`'s `decideStep` (structural re-validation) and `mutate.ts`'s `applyMoveInTree`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Cases:** T-08, T-09 (H14)
 - **Actual:**
@@ -760,6 +825,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression tests:** `approvals.spec.ts` "deleting an item in a pending transfer is refused"; "a rename does not void an approved transfer".
 
 ### F-042 · MEDIUM · Transfers — Some pull chains skip the owning or receiving department
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/approvals.ts`'s `resolveTransfer`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Cases:** T-12, T-13
 - **Actual:**
@@ -806,6 +873,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-045 · MEDIUM · Purchasing — Receiving stock has no integrity checks (wrong category, over-receipt, lost updates, fractional units)
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/purchasing.ts`'s `receivePurchaseLine`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Cases:** B-09, B-10, B-11, B-13 (H21) · **Actor:** storekeeper
 - **Actual:**
   - **B-09:** a line ordered as *Computer* was received with `categoryId: chair` → 200, and an "Oscilloscope" **Chair** was created in the store.
@@ -825,6 +894,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-046 · MEDIUM · Purchasing — Needs carried by a rejected or cancelled request are stuck forever
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/purchasing.ts`'s `reopenCarriedNeeds`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** B-14 (H19)
 - **Actual:** a custodian's "Projector" need was carried into a request the dean **rejected**. Afterwards the need is still `CARRIED`, doesn't appear in the head's open needs, and can't be carried into a new request (`assertNeedsOpenAt` requires OPEN) or declined (`declineNeed` requires OPEN). The staff member's "My needs" shows it attached to a dead request. The same holds for `cancelPurchaseRequest`.
 - **Root cause:** `decideStep` REJECT (`purchasing.ts:471-478`) and `cancelPurchaseRequest` (`:508-517`) don't touch `NeedLine`. Only `reviseAndResubmit` releases needs.
@@ -834,6 +905,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `purchasing.spec.ts` "rejecting a request reopens the needs it carried".
 
 ### F-047 · MEDIUM · Purchasing — The raiser can cancel an order procurement has already placed and shipped
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/purchasing.ts`'s `cancelPurchaseRequest`. See "Phase 2 fix round" below for the full change and verification.
 
 - **Case:** B-15 (H19)
 - **Actual:** a request at `ON_DELIVERY` (approved by every office, with procurement having reported a buyer and a shipment) → `POST /purchase-requests/:id/cancel` by the head → 200 `CANCELLED`. Nobody in procurement or the store is asked or told, and the goods still arrive. The store keeper can't receive them (the stage isn't `IN_STORE`), so they can't be registered.
@@ -866,6 +939,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 
 ### F-050 · MEDIUM · Scheduling — Past bookings can be cancelled, and undecided past requests never leave the inbox
 
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/scheduling/reservations.ts`'s `cancelBooking`/`listBookings`, and the new `expireLapsedRequests`. See "Phase 2 fix round" below for the full change and verification.
+
 - **Case:** S-13 (H23)
 - **Actual:**
   - A CONFIRMED booking that took place on 2026-09-01 → `POST /bookings/:id/cancel` by its requester → 200 `CANCELLED`, rewriting what the lab was used for. The DTO's `canCancel` is false for it, but only the UI respects that.
@@ -878,6 +953,8 @@ Findings are numbered in discovery order; the summary table above sorts them by 
 - **Regression test:** `scheduling.spec.ts` "a finished booking cannot be cancelled; a lapsed request expires".
 
 ### F-051 · MEDIUM · Scheduling — Bookings don't react when a machine breaks or a category stops being bookable
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/resources/categories.ts`'s `update` (bookingMode change guard). See "Phase 2 fix round" below for the full change and verification.
 
 - **Cases:** S-14, S-15 (H24)
 - **Actual:**
@@ -959,10 +1036,14 @@ Every hypothesis raised while reading the code was run against the live app and 
 H26 produced two findings not yet numbered separately above; they are recorded here and in the table as **F-055** and **F-056**:
 
 ### F-055 · MEDIUM · External — Holds can be placed on slots outside the requested windows
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/external/requests.ts`'s `placeHold`. See "Phase 2 fix round" below for the full change and verification.
 - **Case:** X-05. A custodian held 2027-03-15 06:00–23:00 for a request whose only window was 2026-11-20 09:00–10:00 → 200. `placeHold` (`requests.ts:509-536`) never checks the slot against `ExternalRequestWindow`.
 - **Fix:** validate the hold's date/time against the request's windows (A: strict; B: warn and allow with a note).
 
 ### F-056 · MEDIUM · External — `extendHolds` can push a hold years past the payment deadline
+
+**Status: Fixed (2026-09-20, Phase 2)** — `lib/server/external/requests.ts`'s `extendHolds`. See "Phase 2 fix round" below for the full change and verification.
 - **Case:** X-07. With a quote deadline of 2026-11-05, the AVP extended holds to 2030-01-01 → 200. `extendHolds` (`requests.ts:542-551`) only checks the date is in the future, not that it's ≤ the payment deadline (or a bounded grace). A slot can be tied up indefinitely against a quote that will expire.
 - **Fix:** cap `until` at the payment deadline (or deadline + a small grace); for a PAID request use the confirmation window.
 
