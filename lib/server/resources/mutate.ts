@@ -6,6 +6,7 @@ import { HttpError } from "../http-error";
 import { instantiateMany, newId } from "@/lib/domain/instantiate";
 import type { Category } from "@/lib/domain/types";
 import * as scope from "./scope";
+import * as orgScope from "../org/scope";
 import { resolveEffectiveView } from "./views";
 import { validatePropWrite } from "./category-props";
 import { assertNoCollision, assertValidCustomKey, validateCustomPropValue } from "./custom-props";
@@ -56,6 +57,13 @@ export async function applyChange(
   opts?: { dryRun?: boolean; viewId?: string | null; bypassDraftWorkflowBlock?: boolean; viaApprovalEngine?: boolean },
 ): Promise<ItemChangeResultDto> {
   await assertAuthorized(actorId, input, opts?.viewId, opts?.bypassDraftWorkflowBlock, opts?.viaApprovalEngine);
+  // Computed once, against committed state, alongside assertAuthorized's own check —
+  // threaded into performChange only for createItem, which is the one write kind
+  // where a NON-admin's client-supplied accountability fields (owner/current/
+  // custodian on a CHILD) must be silently overridden by the parent's rather than
+  // trusted (F-023 of the 2026-09-15 campaign). Every other kind's authorization is
+  // already fully decided by assertAuthorized/assertCanMutate above.
+  const isAdmin = await scope.isSysAdmin(actorId);
 
   let captured: ItemChangeResultDto | undefined;
   // Storage keys a successful commit makes unreferenced (a removed photo, a deleted
@@ -70,7 +78,7 @@ export async function applyChange(
       // Version check and write must be atomic — see assertVersionsMatch's own header
       // on why this runs INSIDE the transaction, not before it opens.
       await assertVersionsMatch(tx, input);
-      captured = await performChange(tx, actorId, input, cleanupKeys);
+      captured = await performChange(tx, actorId, input, cleanupKeys, isAdmin);
       if (opts?.dryRun) throw DRY_RUN_ABORT;
     });
   } catch (err) {
@@ -130,6 +138,18 @@ async function assertAuthorized(
   }
 
   if (input.kind === "transferItem" && !input.transfer.transferOwnership) {
+    // A RETURN settling here (2026-09-20, F-039) is the one shape where the
+    // REQUESTER need not hold the destination at all — the requester may be the
+    // HOST releasing it, who has no standing whatsoever in the owner's own unit.
+    // The chain that got here (HOST_RELEASE → REQUESTER_RECEIPT) already gathered
+    // every consent a return needs; re-checked structurally against committed state
+    // instead, exactly like the pull check below re-checks its own premise: the
+    // destination must still belong to the SAME unit that owns every item moving.
+    const destination = await prisma.item.findUnique({ where: { id: input.transfer.targetParentId }, select: { currentOrgNodeId: true } });
+    const subjectItems = await prisma.item.findMany({ where: { id: { in: input.itemIds } }, select: { ownerOrgNodeId: true, currentOrgNodeId: true } });
+    const isReturn = !!destination && subjectItems.length > 0 && subjectItems.every((i) => i.ownerOrgNodeId !== i.currentOrgNodeId && i.ownerOrgNodeId === destination.currentOrgNodeId);
+    if (isReturn) return;
+
     // Track 5 — a pull transfer's settled chain IS the source side's consent (its
     // custodian and owning head both signed). What the requester must still hold at
     // apply time is the place it lands in; checked again here, against committed
@@ -139,6 +159,32 @@ async function assertAuthorized(
   }
 
   if (!bypassDraftWorkflowBlock) await assertDraftWorkflowNotBlocking(input);
+
+  if (input.kind === "setOwnerOrg" || input.kind === "setCurrentOrg") {
+    // F-022 of the 2026-09-15 campaign: moving an item between units — who owns it,
+    // or merely who currently holds it — is exactly what the transfer/handover chain
+    // exists to decide (`pol-owner-any`/`pol-current-any` already say so; nothing
+    // read them before this fix). SYS_ADMIN already returned above; everyone else
+    // uses `requestTransfer`, never this direct door.
+    throw new HttpError(403, "Moving a resource between units goes through Transfer, not a direct edit — see Approvals.");
+  }
+
+  if (input.kind === "setCustodian") {
+    // Direct custody handoff is allowed only to someone whose own reach already
+    // covers the item's owning unit — an ordinary same-department reassignment
+    // (or a head/global role receiving it). Handing custody to a stranger
+    // department (a different custodian who has no standing there at all) is a
+    // handover, which goes through the approvals chain instead (F-022, F-024).
+    await scope.assertCanMutate(actorId, input.itemIds);
+    await scope.assertEligibleCustodian(input.value);
+    const items = await prisma.item.findMany({ where: { id: { in: input.itemIds } }, select: { ownerOrgNodeId: true } });
+    const ownerNodeIds = [...new Set(items.map((i) => i.ownerOrgNodeId))];
+    const targetReach = new Set(await orgScope.visibleNodeIds(input.value));
+    if (ownerNodeIds.some((id) => !targetReach.has(id))) {
+      throw new HttpError(403, "Handing custody to another unit goes through Transfer, not a direct edit — see Approvals.");
+    }
+    return;
+  }
 
   if (input.kind === "createItem") {
     if (input.parentId) {
@@ -282,17 +328,17 @@ async function assertVersionsMatch(tx: Tx, input: ItemChangeInput): Promise<void
 
 // ── The write itself — WHAT happens. ────────────────────────────────────────────────
 
-async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cleanupKeys: string[]): Promise<ItemChangeResultDto> {
+async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cleanupKeys: string[], isAdmin: boolean): Promise<ItemChangeResultDto> {
   const at = new Date();
   switch (input.kind) {
     case "createItem":
-      return applyCreateItem(tx, actorId, at, input);
+      return applyCreateItem(tx, actorId, at, input, isAdmin);
     case "deleteItem":
       return applyDeleteItem(tx, actorId, at, input, cleanupKeys);
     case "transferItem":
       return applyTransferItem(tx, actorId, at, input);
     case "moveInTree":
-      return applyMoveInTree(tx, actorId, at, input);
+      return applyMoveInTree(tx, actorId, at, input, isAdmin);
     case "setProperty":
       return applySetProperty(tx, actorId, at, input);
     case "addCustomProperty":
@@ -355,6 +401,7 @@ async function applyCreateItem(
   actorId: string,
   at: Date,
   input: Extract<ItemChangeInput, { kind: "createItem" }>,
+  isAdmin: boolean,
 ): Promise<ItemChangeResultDto> {
   const category = await tx.resourceCategory.findUnique({ where: { id: input.categoryId }, include: { fields: true } });
   if (!category) throw new HttpError(400, "Choose an existing category.");
@@ -389,11 +436,20 @@ async function applyCreateItem(
   const parent = input.parentId ? await tx.item.findUnique({ where: { id: input.parentId } }) : null;
   if (input.parentId && (!parent || parent.deletedAt)) throw new HttpError(400, "The selected parent no longer exists.");
 
-  const ownerOrgNodeId = input.ownerOrgNodeId ?? parent?.ownerOrgNodeId;
+  // A CHILD (parentId set) always inherits its parent's accountability for a
+  // non-admin caller — the client-supplied owner/current/custodian fields exist for
+  // SYS_ADMIN corrections and for a brand-new ROOT (which has no parent to inherit
+  // from and is validated by assertCanCreateRoot instead). Without this, a custodian
+  // adding a resource under their own lab could fabricate inventory owned by, held
+  // in, or answered for by an entirely different department (F-023 of the
+  // 2026-09-15 campaign) — assertAuthorized's own custody check only covers the
+  // PARENT, never these three fields.
+  const trustClientFields = isAdmin || !parent;
+  const ownerOrgNodeId = (trustClientFields ? input.ownerOrgNodeId : undefined) ?? parent?.ownerOrgNodeId;
   if (!ownerOrgNodeId) throw new HttpError(400, "A resource must have an owning unit.");
-  const currentOrgNodeId = input.currentOrgNodeId ?? parent?.currentOrgNodeId ?? ownerOrgNodeId;
+  const currentOrgNodeId = (trustClientFields ? input.currentOrgNodeId : undefined) ?? parent?.currentOrgNodeId ?? ownerOrgNodeId;
   // A resource must have a custodian; never deferred to after creation.
-  const custodianId = input.custodianId ?? parent?.custodianId;
+  const custodianId = (trustClientFields ? input.custodianId : undefined) ?? parent?.custodianId;
   if (!custodianId) throw new HttpError(400, "A resource must have a custodian.");
 
   const [ownerNode, currentNode, custodian] = await Promise.all([
@@ -520,6 +576,67 @@ async function assertSubtreeInScope(actorId: string, subtree: PrismaItem[]): Pro
   await scope.assertCanMutate(actorId, subtree.map((i) => i.id));
 }
 
+/** The precise, named version of `assertSubtreeInScope`'s blanket 404 — used only once
+ *  the batched check has already failed, so the actor demonstrably has SOME standing
+ *  over this subtree (the batched call above already lets a fully-authorized delete
+ *  through cheaply; this is the failure-path cost only). One `assertCanMutate` call
+ *  per row reuses the exact same authorization rule (custody walk AND a MANAGER's
+ *  owned-subtree reach) rather than re-deriving it, so the two never drift apart. */
+async function foreignAccountabilityBlockers(actorId: string, subtree: PrismaItem[]): Promise<PrismaItem[]> {
+  if (await scope.isSysAdmin(actorId)) return [];
+  const blockers: PrismaItem[] = [];
+  for (const item of subtree) {
+    try {
+      await scope.assertCanMutate(actorId, [item.id]);
+    } catch {
+      blockers.push(item);
+    }
+  }
+  return blockers;
+}
+
+/**
+ * Live records that a hard delete would otherwise cascade away with no trace: a
+ * future REQUESTED/HELD/CONFIRMED booking or an active class series touching the
+ * subtree (F-049 of the 2026-09-15 campaign — today's FK cascade erases confirmed,
+ * even PAID, bookings the instant their room is deleted, with no notice to whoever
+ * holds them), or a PENDING transfer naming a subtree item (part of F-041 — a
+ * transfer mid-flight for an item that is about to stop existing). Applies to
+ * EVERYONE, including SYS_ADMIN: this is a data-safety floor, not an authorization
+ * question — an admin's delete must not silently orphan someone else's paid
+ * reservation any more than a custodian's may.
+ */
+async function liveDependentBlockers(tx: Tx, subtreeIds: string[]): Promise<string[]> {
+  if (!subtreeIds.length) return [];
+  const now = new Date();
+  const [reservations, series, transfers, drafts] = await Promise.all([
+    tx.reservation.findMany({
+      where: {
+        state: { in: ["REQUESTED", "HELD", "CONFIRMED"] },
+        endsAt: { gt: now },
+        OR: [{ labItemId: { in: subtreeIds } }, { resources: { some: { itemId: { in: subtreeIds } } } }],
+      },
+      select: { title: true },
+      take: 5,
+    }),
+    tx.scheduleSeries.findMany({
+      where: { active: true, OR: [{ labItemId: { in: subtreeIds } }, { resources: { some: { itemId: { in: subtreeIds } } } }] },
+      select: { title: true },
+      take: 5,
+    }),
+    tx.$queryRaw<{ summary: string }[]>`
+      SELECT summary FROM "ChangeRequest" WHERE status = 'PENDING' AND payload -> 'itemIds' ?| ${subtreeIds}::text[] LIMIT 5
+    `,
+    tx.itemDraftChange.findMany({ where: { status: { in: ["OPEN", "SUBMITTED"] }, labItemId: { in: subtreeIds } }, select: { id: true }, take: 5 }),
+  ]);
+  const blockers: string[] = [];
+  if (reservations.length) blockers.push(`${reservations.length} upcoming booking(s) (e.g. "${reservations[0].title}")`);
+  if (series.length) blockers.push(`${series.length} active class timetable(s) (e.g. "${series[0].title}")`);
+  if (transfers.length) blockers.push(`${transfers.length} pending transfer request(s) (e.g. "${transfers[0].summary}")`);
+  if (drafts.length) blockers.push(`${drafts.length} staged draft change(s) awaiting submission or approval`);
+  return blockers;
+}
+
 async function applyDeleteItem(
   tx: Tx,
   actorId: string,
@@ -531,7 +648,28 @@ async function applyDeleteItem(
   if (!roots.length) return { applied: 0, itemIds: [] };
 
   const doomed = await subtreeDeepestFirst(tx, roots.map((r) => r.id));
-  await assertSubtreeInScope(actorId, doomed);
+  try {
+    await assertSubtreeInScope(actorId, doomed);
+  } catch (err) {
+    // The cheap batched check failed — the actor has SOME standing here (assertAuthorized
+    // already confirmed it for the roots before this transaction opened) but the subtree
+    // contains something they don't account for. Name it (F-020): the actor can already
+    // see it (it's physically inside something they run), so naming it is not a new leak.
+    const blockers = await foreignAccountabilityBlockers(actorId, doomed);
+    if (!blockers.length) throw err; // the actor has no standing at all — the original 404 stands
+    throw new HttpError(409, "Cannot delete", {
+      message: `Cannot delete — it contains ${blockers.length} resource(s) this account does not answer for: ${blockers.map((b) => `"${b.name}"`).join(", ")}.`,
+      code: "CONTAINS_FOREIGN_ITEMS",
+    });
+  }
+
+  const liveBlockers = await liveDependentBlockers(tx, doomed.map((d) => d.id));
+  if (liveBlockers.length) {
+    throw new HttpError(409, "Cannot delete", {
+      message: `Cannot delete — it still has ${liveBlockers.join("; ")}. Cancel or resolve these first.`,
+      code: "HAS_LIVE_DEPENDENTS",
+    });
+  }
 
   // Every photo the doomed subtree owns — both finalized (ItemImage) and any upload
   // that reached storage but was never finalized (ImageUpload, status UPLOADED) —
@@ -673,7 +811,7 @@ async function applyTransferItem(
   return { applied: applied.length, itemIds: applied };
 }
 
-async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract<ItemChangeInput, { kind: "moveInTree" }>): Promise<ItemChangeResultDto> {
+async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract<ItemChangeInput, { kind: "moveInTree" }>, isAdmin: boolean): Promise<ItemChangeResultDto> {
   let target: PrismaItem | null = null;
   if (input.value !== null) {
     target = await tx.item.findUnique({ where: { id: input.value } });
@@ -687,11 +825,26 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
   const categories = await loadAllCategoriesDomain(tx);
   for (const root of roots) assertPlacementAllowed(categories, root.categoryId, target?.categoryId ?? null);
 
+  // `moveInTree` never touches `currentOrgNodeId` — it is reordering WITHIN a unit's
+  // own containment tree, never a relocation between units (that is `transferItem`'s
+  // job, routed through approvals). For a non-admin, refuse crossing a unit boundary
+  // outright rather than silently leaving `currentOrgNodeId` stale: a borrowed item
+  // (current ≠ owner) moved by its own lender back into the lender's own tree would
+  // otherwise "return" physically while the register still recorded it as sitting in
+  // the borrower's unit (F-039 of the 2026-09-15 campaign) — real returns go through
+  // `requestTransfer`'s dedicated flow (Phase 1C), which does update the column.
+  const targetUnit = target ? target.currentOrgNodeId : null;
   for (const root of roots) {
     if (target) {
       if (target.id === root.id || (await isWithinSubtree(tx, root.id, target.id))) continue; // skipped, not an abort
     }
     if (root.parentId === (target?.id ?? null)) continue; // no-op
+    if (!isAdmin) {
+      const destinationUnit = targetUnit ?? root.ownerOrgNodeId; // moving to top-level returns it to its own owner
+      if (destinationUnit !== root.currentOrgNodeId) {
+        throw new HttpError(400, `"${root.name}" is not currently in that unit — use Transfer to move a resource between units.`);
+      }
+    }
 
     await tx.item.update({ where: { id: root.id }, data: { parentId: target?.id ?? null, version: { increment: 1 } } });
     await tx.itemChange.create({

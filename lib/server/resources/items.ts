@@ -471,7 +471,7 @@ export async function containers(userId: string, categoryId: string, excludeSubt
   if (!forest.categories[categoryId]) throw new HttpError(400, "Choose an existing category.");
 
   const { base: visible } = await computeScopedIds(userId, forest);
-  const writable = (await scope.isSysAdmin(userId)) ? null : new Set(await scope.custodyItemIdsOf(userId));
+  const writable = (await scope.isSysAdmin(userId)) ? null : new Set(await scope.writableItemIdsOf(userId));
 
   const excluded = new Set(subtreeIds(forest.index, excludeSubtreeIds));
 

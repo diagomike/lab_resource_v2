@@ -43,7 +43,12 @@ export interface ScopeOverride {
 export async function defaultModeFor(userId: string): Promise<ScopeMode> {
   if (await orgScope.hasGlobalReach(userId)) return "UNIVERSITY";
   const roles = await rolesOf(userId);
-  if (roles.includes("CUSTODIAN") && !roles.includes("MANAGER")) return "MY_CUSTODY";
+  // Occupying a node, not the MANAGER role label, is what widens a custodian's
+  // default past their own lab (F-017 of the 2026-09-15 campaign) — the two used
+  // to be able to disagree (a role edit leaving someone occupying a node they no
+  // longer formally carry MANAGER for, or vice versa).
+  const heads = await orgScope.headNodeIdsOf(userId);
+  if (roles.includes("CUSTODIAN") && !heads.length) return "MY_CUSTODY";
   return "ORG_SUBTREE";
 }
 
@@ -161,6 +166,50 @@ export async function custodyItemIdsOf(userId: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/**
+ * Item ids a user may WRITE through containment — the same walk as
+ * `custodyItemIdsOf`, except descent stops the instant accountability changes.
+ * `custodyItemIdsOf` answers "what does this custodian's lab contain" (a READ
+ * question: a custodian must see everything physically in their own lab, including a
+ * borrowed item sitting in it). This answers "what may this custodian WRITE" — a
+ * borrowed item's foreign owner/custodian means it, and anything nested inside IT, is
+ * excluded, along with anything nested inside a differently-owned child anywhere in
+ * the walk. Fixes the 2026-09-15 campaign's two CRITICAL findings (F-020, F-021):
+ * write custody must never be inherited from a container into something the
+ * container does not itself account for.
+ *
+ * Used by `assertCanMutate` and `containers()` (the create/move destination picker,
+ * which must offer only what a write would actually be allowed to target) — never by
+ * anything answering a READ question, which keeps using `custodyItemIdsOf`.
+ */
+export async function writableItemIdsOf(userId: string): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    WITH RECURSIVE held AS (
+      SELECT id, "custodianId", "ownerOrgNodeId" FROM "Item" WHERE "custodianId" = ${userId} AND "deletedAt" IS NULL
+      UNION
+      SELECT i.id, i."custodianId", i."ownerOrgNodeId" FROM "Item" i
+      INNER JOIN held h ON i."parentId" = h.id
+      WHERE i."deletedAt" IS NULL AND i."custodianId" = h."custodianId" AND i."ownerOrgNodeId" = h."ownerOrgNodeId"
+    )
+    SELECT id FROM held
+  `;
+  return rows.map((r) => r.id);
+}
+
+/** Custody may only ever be handed to someone who can actually answer for what they'd
+ *  hold: an ACTIVE account carrying CUSTODIAN, STORE_KEEPER or MANAGER — the identical
+ *  set `people.custodians()` already offers as candidates. A student or a disabled
+ *  account failing this floor is F-024 from the same campaign; every write path that
+ *  assigns custody (direct setCustodian, createItem, transfer/handover settlement)
+ *  must call this before writing `custodianId`. */
+export async function assertEligibleCustodian(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, include: { roles: true } });
+  const eligibleRole = user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "MANAGER");
+  if (!user || user.status !== "ACTIVE" || !eligibleRole) {
+    throw new HttpError(400, "Choose an active custodian, store keeper or department head.");
+  }
+}
+
 // ── WRITE eligibility (Phase 7 of ~/.claude/plans/wait-i-want-gentle-haven.md) ──────
 //
 // Deliberately narrower than everything above, and a SEPARATE question from read
@@ -188,23 +237,32 @@ export async function isSysAdmin(userId: string): Promise<boolean> {
   return hit !== null;
 }
 
-/** Throws the same 404 a direct read of an out-of-scope item would — never a 403:
- *  confirming an item exists to someone who may not act on it is its own leak. Empty
- *  `itemIds` is trivially fine (nothing to check) rather than an error, so a caller
- *  building this list conditionally (e.g. `moveInTree` with a null destination) never
- *  needs its own special case. */
+/**
+ * Throws the same 404 a direct read of an out-of-scope item would — never a 403:
+ * confirming an item exists to someone who may not act on it is its own leak. Empty
+ * `itemIds` is trivially fine (nothing to check) rather than an error, so a caller
+ * building this list conditionally (e.g. `moveInTree` with a null destination) never
+ * needs its own special case.
+ *
+ * Custody is `writableItemIdsOf`, not `custodyItemIdsOf` — see that function's own
+ * header. The MANAGER branch below checks `ownerOrgNodeId` ONLY, never
+ * `currentOrgNodeId`: a head answers for what their unit OWNS, not for whatever
+ * happens to be sitting inside it on loan (F-021 of the 2026-09-15 campaign — a host
+ * head could otherwise rename or re-own a borrowed item just because it was
+ * physically parked in their department's lab).
+ */
 export async function assertCanMutate(userId: string, itemIds: string[]): Promise<void> {
   if (!itemIds.length) return;
   if (await isSysAdmin(userId)) return;
-  const custodyIds = new Set(await custodyItemIdsOf(userId));
-  const remaining = itemIds.filter((id) => !custodyIds.has(id));
+  const writableIds = new Set(await writableItemIdsOf(userId));
+  const remaining = itemIds.filter((id) => !writableIds.has(id));
   if (!remaining.length) return;
 
   const roles = await rolesOf(userId);
   if (roles.includes("MANAGER")) {
     const visible = await orgScope.visibleNodeIds(userId);
-    const rows = await prisma.item.findMany({ where: { id: { in: remaining } }, select: { id: true, ownerOrgNodeId: true, currentOrgNodeId: true } });
-    const stillOut = rows.length !== remaining.length || rows.some((r) => !visible.includes(r.ownerOrgNodeId) && !visible.includes(r.currentOrgNodeId));
+    const rows = await prisma.item.findMany({ where: { id: { in: remaining } }, select: { id: true, ownerOrgNodeId: true } });
+    const stillOut = rows.length !== remaining.length || rows.some((r) => !visible.includes(r.ownerOrgNodeId));
     if (!stillOut) return;
   }
 
