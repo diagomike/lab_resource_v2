@@ -285,6 +285,13 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
  * need to hide, and "Resource not found" on an Add button is just confusing.
  */
 export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeId: string; custodianId: string }): Promise<void> {
+  // F-024 of the 2026-09-15 campaign: custody landing on an account that can't act
+  // (disabled) or shouldn't hold assets (a student) was never checked here, for
+  // ANY actor including SYS_ADMIN — a root lab could be created with a disabled or
+  // student custodian just as readily as an ordinary CUSTODIAN/setCustodian call
+  // could hand it one directly (mutate.ts's own use of this same assertion).
+  await assertEligibleCustodian(input.custodianId);
+
   if (await isSysAdmin(userId)) return;
 
   const roles = await rolesOf(userId);

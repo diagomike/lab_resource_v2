@@ -152,6 +152,36 @@ describe("applyChange — item version-conflict atomicity", () => {
   });
 });
 
+describe("F-024 — custody may not land on an ineligible account", () => {
+  it("refuses setCustodian to a student, and to a disabled CUSTODIAN", async () => {
+    const studentId = (
+      await prisma.user.create({ data: { email: `f024-student-${Date.now()}@astu.edu.et`, emailLower: `f024-student-${Date.now()}@astu.edu.et`, name: "F024 Student", status: "ACTIVE", roles: { create: { kind: "STUDENT" } } } })
+    ).id;
+    const disabledCustodianEmail = `f024-disabled-${Date.now()}@astu.edu.et`;
+    const disabledId = (
+      await prisma.user.create({ data: { email: disabledCustodianEmail, emailLower: disabledCustodianEmail, name: "F024 Disabled", status: "DISABLED", roles: { create: { kind: "CUSTODIAN" } } } })
+    ).id;
+
+    await expect(applyChange(sysAdminId, { kind: "setCustodian", itemIds: [itemAId], value: studentId })).rejects.toMatchObject({ status: 400 });
+    await expect(applyChange(sysAdminId, { kind: "setCustodian", itemIds: [itemAId], value: disabledId })).rejects.toMatchObject({ status: 400 });
+
+    await prisma.userRole.deleteMany({ where: { userId: { in: [studentId, disabledId] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [studentId, disabledId] } } });
+  });
+
+  it("refuses creating a root item with an ineligible custodian, even for SYS_ADMIN", async () => {
+    const studentEmail = `f024-root-student-${Date.now()}@astu.edu.et`;
+    const studentId = (await prisma.user.create({ data: { email: studentEmail, emailLower: studentEmail, name: "F024 Root Student", status: "ACTIVE", roles: { create: { kind: "STUDENT" } } } })).id;
+
+    await expect(
+      applyChange(sysAdminId, { kind: "createItem", parentId: null, categoryId, count: 1, name: "F024 Root Test Item", ownerOrgNodeId: orgNodeId, custodianId: studentId }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    await prisma.userRole.deleteMany({ where: { userId: studentId } });
+    await prisma.user.delete({ where: { id: studentId } });
+  });
+});
+
 describe("F-041 — an item named in a pending transfer request cannot be moved out from under it", () => {
   it("refuses moveInTree while a PENDING ChangeRequest names the item", async () => {
     const item = await prisma.item.create({

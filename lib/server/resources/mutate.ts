@@ -122,6 +122,12 @@ async function assertAuthorized(
 ): Promise<void> {
   await assertViewAllowsEdit(actorId, viewId);
 
+  // F-024 of the 2026-09-15 campaign: checked before the SYS_ADMIN exemption below,
+  // not after — custody landing on a disabled account or a student is exactly as
+  // stuck (they can never sign in to act on it, or shouldn't hold assets at all)
+  // regardless of who handed it to them.
+  if (input.kind === "setCustodian") await scope.assertEligibleCustodian(input.value);
+
   if (await scope.isSysAdmin(actorId)) return;
 
   if (input.kind === "transferItem" && !viaApprovalEngine) {
@@ -176,7 +182,7 @@ async function assertAuthorized(
     // department (a different custodian who has no standing there at all) is a
     // handover, which goes through the approvals chain instead (F-022, F-024).
     await scope.assertCanMutate(actorId, input.itemIds);
-    await scope.assertEligibleCustodian(input.value);
+    // Eligibility itself is already checked above, before the SYS_ADMIN exemption.
     const items = await prisma.item.findMany({ where: { id: { in: input.itemIds } }, select: { ownerOrgNodeId: true } });
     const ownerNodeIds = [...new Set(items.map((i) => i.ownerOrgNodeId))];
     const targetReach = new Set(await orgScope.visibleNodeIds(input.value));

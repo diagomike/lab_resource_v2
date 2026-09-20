@@ -140,6 +140,12 @@ async function loadTransferContext(input: TransferInput): Promise<TransferContex
   if (input.transfer.targetCustodianId) {
     const custodian = await prisma.user.findUnique({ where: { id: input.transfer.targetCustodianId } });
     if (!custodian) throw new HttpError(400, "Choose an existing custodian.");
+    // F-024 of the 2026-09-15 campaign: a handover's receiving custodian was only
+    // ever checked for existing, the same gap setCustodian and root creation had —
+    // custody landing on a disabled account or a student stalls the receipt step
+    // forever (they can never sign in to confirm it, or shouldn't hold assets at
+    // all).
+    await scope.assertEligibleCustodian(input.transfer.targetCustodianId);
   }
 
   return { items, destination };

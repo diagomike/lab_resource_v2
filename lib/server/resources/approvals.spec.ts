@@ -492,6 +492,18 @@ describe("store handover — the main store hands stock over to a department", (
     await expect(approvals.requestTransfer(custodianId, handoverInput([sourceId], destLabId, targetNodeId, custodianId))).rejects.toMatchObject({ status: 403 });
     await expect(approvals.previewTransfer(custodianId, handoverInput([sourceId], destLabId, targetNodeId, custodianId))).rejects.toMatchObject({ status: 403 });
   });
+
+  it("F-024: refuses a handover naming a student as the receiving custodian", async () => {
+    const keeperId = await makeUser("f024-handover-keeper", ["STORE_KEEPER"]);
+    const labHeadId = await makeUser("f024-handover-head", ["MANAGER"]);
+    const studentId = await makeUser("f024-handover-student", ["STUDENT"]);
+    const storeNodeId = await makeNode("f024-handover-store", null);
+    const deptNodeId = await makeNode("f024-handover-dept", labHeadId);
+    const labId = await makeItem(deptNodeId, studentId, "F024 Handover Dest Lab");
+    const stock = await makeItem(storeNodeId, keeperId, "F024 Handover Stock");
+
+    await expect(approvals.requestTransfer(keeperId, handoverInput([stock], labId, deptNodeId, studentId))).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe("F-042 — a pull always asks both the owning and the receiving end, regardless of the requester's role", () => {
