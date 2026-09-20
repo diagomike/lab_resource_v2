@@ -3,7 +3,7 @@ import type { BookableDto, BookingInput, BookingPreviewDto, ReservationDto, Sche
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { findClashes } from "@/lib/domain/availability";
-import { DEFAULT_TIME_ZONE, addDays, civilToInstant, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
+import { DEFAULT_TIME_ZONE, MAX_HORIZON_DAYS, addDays, civilToInstant, instantToCivil, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
 import {
   RESERVATION_INCLUDE,
   assertMayBook,
@@ -44,6 +44,7 @@ function windowOf(input: Pick<BookingInput, "date" | "start" | "end">, timeZone 
   const length = minutesOf(input.end) - minutesOf(input.start);
   if (length <= 0) throw new HttpError(400, "A booking must end after it starts, on the same day.");
   if (length > MAX_BOOKING_MINUTES) throw new HttpError(400, "A single booking can last at most 16 hours.");
+  if (input.date > addDays(instantToCivil(new Date(), timeZone).date, MAX_HORIZON_DAYS)) throw new HttpError(400, "Bookings open at most a year ahead.");
   return { startsAt: civilToInstant(input.date, input.start, timeZone), endsAt: civilToInstant(input.date, input.end, timeZone) };
 }
 

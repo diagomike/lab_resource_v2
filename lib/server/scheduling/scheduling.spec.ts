@@ -309,3 +309,28 @@ describe("F-053 — a booking's private details go only to the requester, the ro
     await prisma.orgNode.update({ where: { id: nodeId }, data: { userId: null } });
   });
 });
+
+describe("F-052 — sane bounds on horizon, series length and exceptions", () => {
+  it("refuses a booking more than a year ahead", async () => {
+    await expect(reservations.createStaffBooking(custodianId, booking([pc1], dayAhead(400), "10:00", "11:00"))).rejects.toMatchObject({ status: 400 });
+    await expect(reservations.createStaffBooking(custodianId, booking([pc1], dayAhead(300), "10:00", "11:00"))).resolves.toMatchObject({ state: "CONFIRMED" });
+  });
+
+  it("refuses a class slot spanning more than a year, or starting more than a year out", async () => {
+    const startDate = dayAhead(120);
+    const base = { labItemId: labId, title: "Forever class", weekdays: [1, 2, 3, 4, 5, 6, 7], startTimeLocal: "18:00", endTimeLocal: "19:00", equipmentItemIds: [] as string[] };
+    await expect(series.createSeries(custodianId, { ...base, startDate, endDate: addDays(startDate, 3650) })).rejects.toMatchObject({ status: 400 });
+    await expect(series.createSeries(custodianId, { ...base, startDate: dayAhead(500), endDate: dayAhead(520) })).rejects.toMatchObject({ status: 400 });
+    expect(await prisma.scheduleSeries.count({ where: { labItemId: labId, title: "Forever class" } })).toBe(0);
+  });
+
+  it("an exception must name a date the class meets, within its range, and still ahead", async () => {
+    const startDate = dayAhead(70);
+    const created = await series.createSeries(custodianId, { labItemId: labId, title: "Exceptions class", weekdays: [weekdayOf(startDate)], startTimeLocal: "13:00", endTimeLocal: "14:00", startDate, endDate: addDays(startDate, 14), equipmentItemIds: [] });
+    await expect(series.addException(custodianId, created.id, { date: addDays(startDate, 200) })).rejects.toMatchObject({ status: 400 }); // outside the range
+    await expect(series.addException(custodianId, created.id, { date: addDays(startDate, 1) })).rejects.toMatchObject({ status: 400 }); // wrong weekday
+    await expect(series.addException(custodianId, created.id, { date: dayAhead(-30) })).rejects.toMatchObject({ status: 400 }); // past
+    await expect(series.addException(custodianId, created.id, { date: addDays(startDate, 7) })).resolves.toBeTruthy();
+    await series.removeSeries(custodianId, created.id);
+  });
+});

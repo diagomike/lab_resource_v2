@@ -4,7 +4,7 @@ import type { ScheduleSeriesDto, SeriesExceptionInput, SeriesInput, UpdateSeries
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { findClashes, type Clash } from "@/lib/domain/availability";
-import { DEFAULT_TIME_ZONE, expandSeries, instantToCivil, validateSeriesRule, weekdayOf, type Occurrence, type SeriesRule } from "@/lib/domain/civil-time";
+import { DEFAULT_TIME_ZONE, MAX_HORIZON_DAYS, addDays, expandSeries, instantToCivil, validateSeriesRule, weekdayOf, type Occurrence, type SeriesRule } from "@/lib/domain/civil-time";
 import {
   assertMayBook,
   civilDateOf,
@@ -177,12 +177,18 @@ async function runLocked<T>(rootId: string, fn: (tx: Tx) => Promise<T>): Promise
   }
 }
 
+/** F-052: a class may not start further ahead than a booking may be made. */
+function assertWithinHorizon(startDate: string): void {
+  if (startDate > addDays(instantToCivil(new Date()).date, MAX_HORIZON_DAYS)) throw new HttpError(400, "A class slot can start at most a year ahead.");
+}
+
 export async function createSeries(userId: string, input: SeriesInput): Promise<ScheduleSeriesDto> {
   const equipment = [...new Set(input.equipmentItemIds)];
   const rootId = await assertLabAndEquipment(userId, input.labItemId, equipment);
   const rule: SeriesRule = { weekdays: [...new Set(input.weekdays)].sort(), startTimeLocal: input.startTimeLocal, endTimeLocal: input.endTimeLocal, startDate: input.startDate, endDate: input.endDate, timeZone: DEFAULT_TIME_ZONE };
   const problem = validateSeriesRule(rule);
   if (problem) throw new HttpError(400, problem);
+  assertWithinHorizon(rule.startDate);
   const occurrences = futureOccurrences(rule, []);
   if (!occurrences.length) throw new HttpError(400, "No session of this class falls between now and its last date.");
 
@@ -228,6 +234,7 @@ export async function updateSeries(userId: string, id: string, input: UpdateSeri
   };
   const problem = validateSeriesRule(rule);
   if (problem) throw new HttpError(400, problem);
+  assertWithinHorizon(rule.startDate);
   const occurrences = futureOccurrences(rule, existing.exceptions.map((e) => civilDateOf(e.date)));
 
   await runLocked(rootId, async (tx) => {
@@ -274,6 +281,14 @@ export async function addException(userId: string, id: string, input: SeriesExce
   const existing = await loadSeries(id);
   if (!existing) throw new HttpError(404, "Class slot not found");
   await assertLabAndEquipment(userId, existing.labItemId, []);
+  // F-052: an exception cancels ONE session of this class — so it must name a date the class
+  // actually meets, and one still ahead. (A past date used to flip an already-held session
+  // to CANCELLED after the fact; an off-week date recorded a no-op that later regenerations
+  // would still carry around.)
+  const rule = ruleOf(existing);
+  if (input.date < rule.startDate || input.date > rule.endDate) throw new HttpError(400, "That date is outside this class slot's range.");
+  if (!rule.weekdays.includes(weekdayOf(input.date))) throw new HttpError(400, "This class does not meet on that weekday.");
+  if (input.date < instantToCivil(new Date(), rule.timeZone).date) throw new HttpError(400, "That session is already past.");
   const date = dateColumn(input.date);
   await prisma.$transaction(async (tx) => {
     await tx.scheduleSeriesException.upsert({

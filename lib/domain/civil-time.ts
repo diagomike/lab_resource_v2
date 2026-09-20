@@ -118,6 +118,11 @@ export interface Occurrence {
   endsAt: Date;
 }
 
+/** F-052: a class term is well under a year; a 10-year, 7-day rule was 3,653 rows in one transaction. */
+export const MAX_SERIES_SPAN_DAYS = 366;
+/** F-052: nothing is bookable or schedulable further ahead than this. */
+export const MAX_HORIZON_DAYS = 366;
+
 /** Why a weekly rule is unusable, or null. Kept separate from expansion so a form can
  *  say what is wrong before anything is generated. */
 export function validateSeriesRule(rule: SeriesRule): string | null {
@@ -127,6 +132,7 @@ export function validateSeriesRule(rule: SeriesRule): string | null {
   if (minutesOf(rule.endTimeLocal) <= minutesOf(rule.startTimeLocal)) return "A session must end after it starts, on the same day.";
   if (!isCivilDate(rule.startDate) || !isCivilDate(rule.endDate)) return "Dates must look like 2026-09-14.";
   if (rule.endDate < rule.startDate) return "The last date must not be before the first.";
+  if (addDays(rule.startDate, MAX_SERIES_SPAN_DAYS) < rule.endDate) return `A class slot can span at most ${MAX_SERIES_SPAN_DAYS} days — split a longer run into terms.`;
   return null;
 }
 
