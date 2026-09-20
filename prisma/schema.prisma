@@ -871,6 +871,13 @@ enum StepSelectorType {
   ITEM_CUSTODIAN
   /// Whoever will be answerable for it once it lands.
   TARGET_CUSTODIAN
+  /// Whoever currently answers for the physical place a borrowed item sits — the
+  /// return flow's own step (2026-09-20, F-039): consent to let it go home.
+  HOST_RELEASE
+  /// The item's own custodian confirming a returned resource has come home — never
+  /// skipped, and deliberately distinct from REQUESTER_RECEIPT: a return may be
+  /// initiated by the host, not the lender, so "whoever asked" is the wrong person.
+  OWNER_RECEIPT
   /// Back to the person who asked: "I have received it." Never skipped.
   REQUESTER_RECEIPT
 }

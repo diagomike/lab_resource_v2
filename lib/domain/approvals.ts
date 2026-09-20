@@ -49,6 +49,25 @@ export type StepSelector =
   | { type: "ITEM_CUSTODIAN" }
   /** Whoever will be answerable for it once it lands. */
   | { type: "TARGET_CUSTODIAN" }
+  /**
+   * Whoever currently answers for the physical place a borrowed item sits — the
+   * custodian of its current container, resolved server-side (the pure domain layer
+   * has no DB access to walk containment) and handed in as `ChainContext.hostReleaserId`,
+   * the same way `targetCustodianId` names a person rather than an office. Return
+   * flow only (2026-09-20 fix for F-039 of the 2026-09-15 campaign): the host's
+   * consent to let something go, before it travels back to its own owning unit.
+   */
+  | { type: "HOST_RELEASE" }
+  /**
+   * The item's own custodian (never re-derived — see ITEM_CUSTODIAN's own precedent
+   * for why a receipt-type step is frozen at request time), confirming a returned
+   * resource has come home. Never skipped, deliberately unlike ITEM_CUSTODIAN: a
+   * return may be INITIATED by the host, not the lender, so "whoever asked" (which
+   * REQUESTER_RECEIPT means) is the wrong person to confirm arrival — it must
+   * always be the item's own custodian, receiving it back, regardless of which side
+   * raised the request.
+   */
+  | { type: "OWNER_RECEIPT" }
   /** Back to the person who asked: "I have received it." Never skipped. */
   | { type: "REQUESTER_RECEIPT" };
 
@@ -101,6 +120,8 @@ export interface ChainContext {
   ownerNodeId: string | null;
   targetNodeId?: string | null;
   targetCustodianId?: string | null;
+  /** HOST_RELEASE only — who currently answers for where the item physically sits. */
+  hostReleaserId?: string | null;
   requesterId: string;
   nodes: OrgNode[];
   orgIndex: OrgChainIndex;
@@ -283,6 +304,14 @@ export function buildChain(selectors: StepSelector[], ctx: ChainContext): ChainS
         push("TARGET_CUSTODIAN", "Receiving custodian accepts", null, ctx.targetCustodianId ?? null, { receipt: ctx.targetCustodianId === ctx.requesterId });
         break;
       }
+      case "HOST_RELEASE": {
+        push("HOST_RELEASE", "Host releases it", null, ctx.hostReleaserId ?? null);
+        break;
+      }
+      case "OWNER_RECEIPT": {
+        push("OWNER_RECEIPT", "Confirm receipt", null, ctx.item?.custodianId ?? null, { receipt: true });
+        break;
+      }
       case "REQUESTER_RECEIPT": {
         push("REQUESTER_RECEIPT", "Confirm receipt", null, ctx.requesterId, { receipt: true });
         break;
@@ -410,6 +439,8 @@ export const SELECTOR_LABEL: Record<StepSelector["type"], string> = {
   TARGET_HEAD: "Head of the receiving unit",
   ITEM_CUSTODIAN: "Current custodian",
   TARGET_CUSTODIAN: "Receiving custodian accepts",
+  HOST_RELEASE: "Host releases it",
+  OWNER_RECEIPT: "Owner confirms receipt",
   REQUESTER_RECEIPT: "Requester confirms receipt",
 };
 

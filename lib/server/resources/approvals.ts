@@ -138,7 +138,7 @@ type Resolution =
  * a bulk transfer and routing the other half leaves the register in a state nobody
  * asked for.
  */
-async function resolveTransfer(actorId: string, input: TransferInput, ctx: TransferContext): Promise<Resolution> {
+async function resolveTransfer(actorId: string, input: TransferInput, ctx: TransferContext, isReturn: boolean): Promise<Resolution> {
   const person = await loadPerson(actorId);
   if (!person) return { outcome: "DENIED", reason: "Nobody is signed in." };
 
@@ -151,6 +151,32 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
     if (!canPlace(categories, item.categoryId, ctx.destination.categoryId)) {
       throw new HttpError(400, `"${categories[item.categoryId]?.name ?? item.categoryId}" may not be placed inside the selected destination.`);
     }
+  }
+
+  if (isReturn) {
+    // A fixed, always-available two-step flow — not something an approval policy
+    // row could misconfigure into oblivion, and not decided by resolvePolicy (which
+    // has no "is this a return" dimension to match on). See assertTransferParties's
+    // own header for why this is detected by shape rather than a client flag.
+    const first = ctx.items[0];
+    const nodes = await loadDomainOrgNodes();
+    const orgIndex = buildOrgIndex(nodes);
+    const firstRow = await prisma.item.findUnique({ where: { id: first.id } });
+    const domainItem = firstRow ? toDomainItem(firstRow, []) : undefined;
+    const hostReleaserId = await resolveHostReleaserId(first.id);
+    const steps = buildChain([{ type: "HOST_RELEASE" }, { type: "OWNER_RECEIPT" }], {
+      item: domainItem,
+      ownerNodeId: first.ownerOrgNodeId,
+      targetNodeId: input.transfer.targetOrgNodeId,
+      hostReleaserId,
+      requesterId: actorId,
+      nodes,
+      orgIndex,
+    });
+    if (steps.every((s) => s.status === "SKIPPED")) {
+      return { outcome: "APPLIED", reason: "Returned directly — nobody else to ask." };
+    }
+    return { outcome: "ROUTED", reason: "Returning it to its own owning unit", steps };
   }
 
   const policies = await loadPolicies("transferItem");
@@ -216,6 +242,56 @@ async function assertMayTransferOwnership(actorId: string, input: TransferInput)
 }
 
 /**
+ * Return flow (2026-09-20, F-039 of the 2026-09-15 campaign) — sending a borrowed
+ * item back to its own owning unit. Not a policy-table CHAIN (resolvePolicy has no
+ * notion of "is this a return" as a dimension to match on): detected structurally,
+ * by shape, and built directly. A transfer is a return exactly when every named
+ * item is currently on loan (owner ≠ current) and the chosen destination belongs to
+ * that SAME owning unit — sending it home, never anywhere else.
+ */
+async function isReturnShape(destinationUnitId: string, items: Array<{ ownerOrgNodeId: string; currentOrgNodeId: string }>): Promise<boolean> {
+  return items.length > 0 && items.every((i) => i.ownerOrgNodeId !== i.currentOrgNodeId && i.ownerOrgNodeId === destinationUnitId);
+}
+
+/**
+ * Either side of a loan may ask for it back: the lender (their ordinary custody/
+ * MANAGER write reach over the item itself) or the host (they currently physically
+ * hold it, via the READ-side containment walk — `custodyItemIdsOf`, unchanged by
+ * the 2026-09-20 write-custody fix — even though that same fix means the host may
+ * no longer WRITE the item directly; asking for it to leave is not writing it).
+ * Neither check alone is right for both directions, so this tries both.
+ */
+async function mayInitiateReturn(actorId: string, itemIds: string[]): Promise<boolean> {
+  try {
+    await scope.assertCanMutate(actorId, itemIds);
+    return true;
+  } catch {
+    // fall through to the host-side check below
+  }
+  const hosted = new Set(await scope.custodyItemIdsOf(actorId));
+  return itemIds.every((id) => hosted.has(id));
+}
+
+/** HOST_RELEASE's approver: whoever custodies the item's current physical
+ *  container, falling back to the current unit's own occupant if the item is
+ *  somehow a root. Resolved once, at request time — the same frozen-person
+ *  discipline `targetCustodianId` already uses for TARGET_CUSTODIAN, not a live
+ *  office re-resolution (there is no "office" here, just whoever happens to run
+ *  the room today). */
+async function resolveHostReleaserId(itemId: string): Promise<string | null> {
+  const item = await prisma.item.findUnique({ where: { id: itemId }, select: { parentId: true, currentOrgNodeId: true } });
+  if (item?.parentId) {
+    const parent = await prisma.item.findUnique({ where: { id: item.parentId }, select: { custodianId: true } });
+    if (parent?.custodianId) return parent.custodianId;
+  }
+  if (item?.currentOrgNodeId) {
+    const node = await prisma.orgNode.findUnique({ where: { id: item.currentOrgNodeId }, select: { userId: true } });
+    return node?.userId ?? null;
+  }
+  return null;
+}
+
+/**
  * Track 5 — who is on which end of a transfer. Transfers are PULLED: the unit that
  * needs something finds it (University resources) and asks for it into a place it
  * already holds, and the chain (`pol-transfer-cust`: the item's custodian → its owning
@@ -228,15 +304,32 @@ async function assertMayTransferOwnership(actorId: string, input: TransferInput)
  * The one push left is the main store handing stock over (`transferOwnership`):
  * store keeper/SYS_ADMIN only, checked against the SOURCE as it always was.
  */
-async function assertTransferParties(actorId: string, input: TransferInput): Promise<TransferInput> {
+async function assertTransferParties(actorId: string, input: TransferInput): Promise<{ input: TransferInput; isReturn: boolean }> {
   if (input.transfer.transferOwnership) {
     await assertMayTransferOwnership(actorId, input);
     await scope.assertCanMutate(actorId, input.itemIds);
-    return input;
+    return { input, isReturn: false };
   }
 
   const destination = await prisma.item.findUnique({ where: { id: input.transfer.targetParentId } });
   if (!destination || destination.deletedAt) throw new HttpError(400, "The destination no longer exists.");
+
+  const items = await prisma.item.findMany({ where: { id: { in: input.itemIds } }, select: { ownerOrgNodeId: true, currentOrgNodeId: true } });
+  const normalized: TransferInput = {
+    ...input,
+    transfer: { targetParentId: destination.id, targetOrgNodeId: destination.currentOrgNodeId, targetCustodianId: null },
+  };
+
+  if (await isReturnShape(destination.currentOrgNodeId, items)) {
+    // Sending something home is the lender's own standing already exercised, or the
+    // host's own standing to let it go — see mayInitiateReturn's own header. The
+    // ordinary pull's "you already hold this" refusal below is about a PULL
+    // specifically (asking for something into a place you already run); it must not
+    // block either return party, so this branches BEFORE reaching it.
+    if (!(await mayInitiateReturn(actorId, input.itemIds))) throw new HttpError(404, "Resource not found");
+    return { input: normalized, isReturn: true };
+  }
+
   await scope.assertCanMutate(actorId, [destination.id]);
 
   const held = new Set(await scope.custodyItemIdsOf(actorId));
@@ -244,10 +337,7 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
     throw new HttpError(400, "You already hold this resource — use Move to place it elsewhere in your own lab.");
   }
 
-  return {
-    ...input,
-    transfer: { targetParentId: destination.id, targetOrgNodeId: destination.currentOrgNodeId, targetCustodianId: null },
-  };
+  return { input: normalized, isReturn: false };
 }
 
 /** Preview only — resolves what WOULD happen, commits nothing. What `TransferModal`
@@ -261,9 +351,9 @@ async function normalizeTransfer(input: TransferInput): Promise<TransferInput> {
 }
 
 export async function previewTransfer(actorId: string, rawInput: TransferInput): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] }> {
-  const input = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
+  const { input, isReturn } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
   const ctx = await loadTransferContext(input);
-  const resolution = await resolveTransfer(actorId, input, ctx);
+  const resolution = await resolveTransfer(actorId, input, ctx, isReturn);
   if (resolution.outcome !== "ROUTED") return resolution;
 
   // buildChain already resolved each step's approver against LIVE org data a moment
@@ -280,10 +370,10 @@ export async function previewTransfer(actorId: string, rawInput: TransferInput):
 }
 
 export async function requestTransfer(actorId: string, rawInput: TransferInput): Promise<RequestTransferResultDto> {
-  const input = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
+  const { input, isReturn } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
 
   const ctx = await loadTransferContext(input);
-  const resolution = await resolveTransfer(actorId, input, ctx);
+  const resolution = await resolveTransfer(actorId, input, ctx, isReturn);
 
   if (resolution.outcome === "DENIED") throw new HttpError(403, resolution.reason);
 

@@ -137,6 +137,8 @@ export const stepSelectorTypes = [
   "TARGET_HEAD",
   "ITEM_CUSTODIAN",
   "TARGET_CUSTODIAN",
+  "HOST_RELEASE",
+  "OWNER_RECEIPT",
   "REQUESTER_RECEIPT",
 ] as const;
 export const StepSelectorTypeSchema = z.enum(stepSelectorTypes);

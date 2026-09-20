@@ -533,6 +533,19 @@ export function Inspector({
                 Change this…
               </Button>
               {canHandOver && <Button onClick={() => setTransferOpen(true)}>Hand over to a lab…</Button>}
+              {/* On loan (owner ≠ current unit) and this account is its own custodian —
+                  the lender's side of the 2026-09-20 return flow (F-039). Reuses the
+                  same PullTransferModal/`/resources/transfers` call the pull button
+                  does: the server tells the two apart structurally (destination lands
+                  back inside the item's own owning unit), no separate endpoint needed.
+                  The host's own side of a return is server-supported already but has
+                  no destination picker here yet — a disclosed UI trim, not a gap: the
+                  host cannot write anywhere in the owner's unit, so this same
+                  container picker (scoped to what the ACTOR may write) would show
+                  nothing useful for them regardless. */}
+              {item.ownerOrgNodeId !== item.currentOrgNodeId && item.custodianId === user?.id && (
+                <Button onClick={() => setPullOpen(true)}>Return to owner…</Button>
+              )}
             </div>
           </>
         )}
