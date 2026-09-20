@@ -83,7 +83,19 @@ async function loadLabOwnerNode(labItemId: string): Promise<{ ownerOrgNodeId: st
   return lab;
 }
 
-async function assertWorkflowEnabled(ownerOrgNodeId: string): Promise<void> {
+/**
+ * F-037 of the 2026-09-15 campaign — the toggle governs VISIBLE edits only.
+ * IDEAL targets (what a lab is meant to hold) are a planning artifact, not a
+ * live edit to the register, and every department in production today has
+ * draft mode off — meaning before this fix, NO department could ever record
+ * an ideal target at all, so `getDepartmentPurchasables`'s own "compute
+ * purchasables from ideal vs current" always came back empty. The custodian
+ * proposes an ideal target and the head approves it (submitDraft/decideCommit
+ * already require exactly that pair) regardless of whether VISIBLE edits are
+ * staged or direct for this department.
+ */
+async function assertWorkflowEnabled(ownerOrgNodeId: string, targetKind: DraftTargetKind): Promise<void> {
+  if (targetKind === "IDEAL") return;
   const node = await prisma.orgNode.findUnique({ where: { id: ownerOrgNodeId }, select: { draftWorkflowEnabled: true } });
   if (!node?.draftWorkflowEnabled) {
     throw new HttpError(403, "Draft mode is not enabled for this lab's department — edit directly instead.");
@@ -111,7 +123,7 @@ async function currentHeadOf(ownerOrgNodeId: string): Promise<{ id: string; name
 
 export async function stageChange(actorId: string, labItemId: string, input: StageDraftChangeInput): Promise<ItemDraftChangeDto> {
   const lab = await loadLabOwnerNode(labItemId);
-  await assertWorkflowEnabled(lab.ownerOrgNodeId);
+  await assertWorkflowEnabled(lab.ownerOrgNodeId, input.targetKind);
 
   if (input.targetKind === "VISIBLE") {
     await assertStageable(labItemId, input.change);
@@ -172,7 +184,7 @@ export async function withdrawDraft(actorId: string, draftId: string): Promise<v
 
 export async function submitDraft(actorId: string, labItemId: string, targetKind: DraftTargetKind): Promise<LabCommitRequestDto> {
   const lab = await loadLabOwnerNode(labItemId);
-  await assertWorkflowEnabled(lab.ownerOrgNodeId);
+  await assertWorkflowEnabled(lab.ownerOrgNodeId, targetKind);
   await scope.assertCanMutate(actorId, [labItemId]);
 
   const open = await prisma.itemDraftChange.findMany({ where: { labItemId, authorId: actorId, targetKind, status: "OPEN" } });

@@ -145,6 +145,22 @@ describe("toggle off (today's production state) — the regression guard", () =>
   it("refuses to submit while off, even with no staged rows to check first", async () => {
     await expect(labDrafts.submitDraft(custodianId, labId, "VISIBLE")).rejects.toMatchObject({ status: 403 });
   });
+
+  it("F-037: IDEAL targets can still be proposed and approved with draft mode off", async () => {
+    const headId = await makeUser("toggle-off-head", { roles: ["MANAGER"] });
+    await setHead(headId);
+    try {
+      const staged = await labDrafts.stageChange(custodianId, labId, { targetKind: "IDEAL", categoryId, qty: 5 });
+      expect(staged.targetKind).toBe("IDEAL");
+      const commit = await labDrafts.submitDraft(custodianId, labId, "IDEAL");
+      const decided = await labDrafts.decideCommit(headId, commit.id, "APPROVE");
+      expect(decided.status).toBe("APPLIED");
+      const target = await prisma.labIdealTarget.findUniqueOrThrow({ where: { labItemId_categoryId: { labItemId: labId, categoryId } } });
+      expect(target.idealQty).toBe(5);
+    } finally {
+      await setHead(null);
+    }
+  });
 });
 
 describe("toggle on — the direct write door refuses to be bypassed", () => {
