@@ -249,7 +249,7 @@ describe("assertViewAllowsEdit — the write door's half of the invariant", () =
     expect(result.itemIds).toEqual([itemId]);
   });
 
-  it("a canEdit:false view active for that person refuses the SAME write, 403, for every role including none extra", async () => {
+  it("F-032: a canEdit:false view nobody CHOSE narrows reads only — it does not block a write", async () => {
     readOnlyViewId = await makeView({
       name: `${testKey}-readonly`,
       scope: "MY_CUSTODY",
@@ -258,12 +258,25 @@ describe("assertViewAllowsEdit — the write door's half of the invariant", () =
       canEdit: false,
       active: true,
     });
-    // No explicit viewId passed — this is now the person's ONLY (hence default) view.
-    await expect(mutate.applyChange(personId, { kind: "setName", itemIds: [itemId], value: "Should not apply" })).rejects.toMatchObject({ status: 403 });
+    // No explicit viewId passed — this is the person's ONLY (hence default) view.
+    // Before F-032, a canEdit:false view resolved as anyone's IMPLICIT default
+    // blocked every write of theirs, for every role including SYS_ADMIN — with no
+    // views seeded in production, one such EVERYONE-scoped view would have made
+    // every custodian in the university read-only, and the outage would have
+    // looked random (only accounts with a more specific view of their own kept
+    // editing). An implicit default now narrows reads only.
+    const result = await mutate.applyChange(personId, { kind: "setName", itemIds: [itemId], value: "Write-Gate Item (renamed 1b)" });
+    expect(result.applied).toBe(1);
+  });
+
+  it("the SAME canEdit:false view, chosen EXPLICITLY, still refuses the write with 403", async () => {
+    await expect(
+      mutate.applyChange(personId, { kind: "setName", itemIds: [itemId], value: "Should not apply" }, { viewId: readOnlyViewId }),
+    ).rejects.toMatchObject({ status: 403 });
     // Confirmed structurally, not just by the write's own failure: the item's name
     // is unchanged.
     const row = await prisma.item.findUniqueOrThrow({ where: { id: itemId }, select: { name: true } });
-    expect(row.name).toBe("Write-Gate Item (renamed 1)");
+    expect(row.name).toBe("Write-Gate Item (renamed 1b)");
   });
 
   it("switching back to an editable view (an explicit viewId) unblocks the identical write", async () => {
@@ -295,5 +308,32 @@ describe("assertViewAllowsEdit — the write door's half of the invariant", () =
     await expect(
       mutate.applyChange(outsiderId, { kind: "setName", itemIds: [itemId], value: "Hijacked" }, { viewId: wideViewId }),
     ).rejects.toMatchObject({ status: 404 }); // ...but still cannot write it — assertCanMutate is unaffected.
+  });
+});
+
+describe("F-033 — a view's references must resolve before it is saved", () => {
+  const base = { scope: "EXPLICIT_NODES" as const, canEdit: true, active: true, audiences: [{ type: "EVERYONE" as const }] };
+
+  it("refuses EXPLICIT_NODES with no units, and with an unknown unit id", async () => {
+    await expect(views.upsert({ ...base, name: `${testKey}-f33-empty`, explicitNodeIds: [] })).rejects.toMatchObject({ status: 400 });
+    await expect(views.upsert({ ...base, name: `${testKey}-f33-ghost`, explicitNodeIds: [seNodeId, "no-such-node"] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("refuses an unknown or disabled PERSON audience with a 400, never a raw FK 500", async () => {
+    const disabledEmail = `${testKey}-f33-off@astu.edu.et`;
+    const disabled = await prisma.user.create({ data: { email: disabledEmail, emailLower: disabledEmail, name: "F33 Off", status: "DISABLED" } });
+    createdUserIds.push(disabled.id);
+    const v = { ...base, name: `${testKey}-f33-person`, explicitNodeIds: [seNodeId] };
+    await expect(views.upsert({ ...v, audiences: [{ type: "PERSON", personId: "no-such-person" }] })).rejects.toMatchObject({ status: 400 });
+    await expect(views.upsert({ ...v, audiences: [{ type: "PERSON", personId: disabled.id }] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("an update of a view id that does not exist is a 404", async () => {
+    await expect(views.upsert({ ...base, id: "no-such-view", name: `${testKey}-f33-404`, explicitNodeIds: [seNodeId] })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("still saves a valid view", async () => {
+    const id = await makeView({ ...base, name: `${testKey}-f33-ok`, explicitNodeIds: [seNodeId, chemNodeId] });
+    expect(id).toBeTruthy();
   });
 });

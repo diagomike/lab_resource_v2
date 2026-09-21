@@ -23,5 +23,20 @@ export default defineConfig({
   test: {
     include: ["**/*.spec.ts"],
     exclude: ["node_modules/**", ".next/**"],
+    // Most of these specs are DB-backed against one real, shared, non-transactional
+    // Postgres instance (see mutate.spec.ts's own header on why: some of what's
+    // proven here is a race that only a real database can show). Running spec
+    // FILES concurrently (Vitest's default) was safe only because every file kept
+    // to its own uniquely-named orphan fixtures — until org.spec.ts (F-003 of the
+    // 2026-09-15 campaign fix round) started exercising org.ts's structural
+    // functions, whose closure recompute has always rebuilt the WHOLE OrgClosure
+    // table, not just one file's own rows. Two files' fixture teardowns/writes
+    // landing at the same moment then surfaces as a real, intermittent Postgres
+    // deadlock or FK error — not a bug in either file, just two independent
+    // transactions racing the same shared tables. Sequential file execution is the
+    // fix: it costs some wall-clock time (this suite is DB-round-trip-bound, not
+    // CPU-bound, so the loss is real but not dramatic) in exchange for the whole
+    // suite being deterministic instead of occasionally, spuriously red.
+    fileParallelism: false,
   },
 });

@@ -111,12 +111,56 @@ export const ContainerOptionDto = z.object({
 });
 export type ContainerOptionDto = z.infer<typeof ContainerOptionDto>;
 
+/** A candidate TRANSFER destination — `GET /resources/transfers/destinations`.
+ *  Deliberately not `ContainerOptionDto`: that picker is scoped to destinations the
+ *  caller could already write into (their own custody); this one is the opposite —
+ *  a destination is only interesting here BECAUSE it sits outside the requester's own
+ *  custody, so it carries the owning department's name (`orgNodeName`) to say whose
+ *  approval a transfer there would need, and nothing about write-eligibility. */
+export const TransferDestinationDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  path: z.array(z.string()),
+  orgNodeId: z.string(),
+  orgNodeName: z.string(),
+  /** Who answers for the destination — the person a store handover hands custody to. */
+  custodianId: z.string(),
+  custodianName: z.string(),
+});
+export type TransferDestinationDto = z.infer<typeof TransferDestinationDto>;
+
+/** One direct child, for Inspector's own "Contains (N)" list — what lets a viewer
+ *  walk DOWN the hierarchy from an open Inspector without closing it and re-finding
+ *  the child in the register. Deliberately lighter than `ItemRowDto`: enough to
+ *  label, icon and status-badge a row that is really just a navigation target.
+ *  `readOnlyContext` mirrors the parent row's own field — a child can be visible
+ *  only as ancestor-closure context even when its own parent is directly actionable
+ *  (e.g. it was individually transferred elsewhere structurally still nested here). */
+export const ItemChildDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  effectiveStatus: EffectiveStatusSchema,
+  critical: z.boolean(),
+  readOnlyContext: z.boolean(),
+});
+export type ItemChildDto = z.infer<typeof ItemChildDto>;
+
 export const ItemDetailDto = ItemRowDto.extend({
   images: z.array(ItemImageDto),
   /** Item-specific properties this ONE item carries beyond its category's own
    *  fields — Inspector-only (not on the row list; the table's Specs cell stays
    *  category fields only), keyed the same way `props` is. */
   customProps: CustomProps,
+  /** Direct children only (one level) — Inspector's own hierarchy walk-through
+   *  clicks into one of these; the item's own `path`/`parentId` handle climbing
+   *  back up. Scope-filtered the same way a list read is (see items.ts's `getOne`). */
+  children: z.array(ItemChildDto),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -141,7 +185,13 @@ export const CreateItemChange = Base.extend({
   kind: z.literal("createItem"),
   parentId: z.string().nullable(),
   categoryId: z.string(),
-  count: z.number().int().min(1),
+  // F-026 of the 2026-09-15 campaign: unbounded, a template-carrying category
+  // multiplies this into tens of thousands of rows in one transaction (2,000
+  // computers is about 26,000 rows), risking the interactive-transaction timeout
+  // or exhausting memory on a serverless function. 500 is comfortably past any
+  // real one-off order; BULK counting (a category's own quantity field, not this)
+  // is the right tool past that.
+  count: z.number().int().min(1).max(500),
   ownerOrgNodeId: z.string().optional(),
   currentOrgNodeId: z.string().optional(),
   custodianId: z.string().optional(),
@@ -149,7 +199,7 @@ export const CreateItemChange = Base.extend({
    *  "Lab 02", …) — most useful when `count` is 1 (a lab is worth naming), still
    *  applied as the numbering base when `count` is more than 1. Blank/omitted keeps
    *  the existing auto-naming unchanged. */
-  name: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1).max(160).optional(),
   /** The category's own fields, filled in at creation time instead of via a
    *  follow-up edit — the same `Item.props` shape `setProperty` writes, validated
    *  the same way (`category-props.ts`'s `buildCategoryPropsSchema`). Applied only
@@ -172,7 +222,8 @@ export const DeleteItemChange = Base.extend({
 export const SetNameChange = Base.extend({
   kind: z.literal("setName"),
   itemIds: z.array(z.string()).min(1),
-  value: z.string().min(1),
+  /** F-030: trimmed and bounded — a blank or 10,000-character name broke every list layout. */
+  value: z.string().trim().min(1).max(160),
 });
 
 export const SetStatusChange = Base.extend({
@@ -219,10 +270,12 @@ export const MoveInTreeChange = Base.extend({
 });
 
 /**
- * Borrowing, not selling: `ownerOrgNodeId` is deliberately absent from `transfer` —
- * the whole point of the owner/current split is that a resource can sit in another
- * department's lab without changing hands. `targetCustodianId: null` keeps the
- * existing custodian.
+ * Borrowing, not selling, by default: the whole point of the owner/current split is
+ * that a resource can sit in another department's lab without changing hands.
+ * `targetCustodianId: null` keeps the existing custodian. `transferOwnership` is the
+ * one exception — the main store handing stock over to a department, where the
+ * receiving unit becomes the owner too. Only a store keeper (or SYS_ADMIN) may ask for
+ * it; approvals.ts enforces that before a request is ever raised.
  */
 export const TransferItemChange = Base.extend({
   kind: z.literal("transferItem"),
@@ -231,6 +284,7 @@ export const TransferItemChange = Base.extend({
     targetParentId: z.string(),
     targetOrgNodeId: z.string(),
     targetCustodianId: z.string().nullable(),
+    transferOwnership: z.boolean().optional(),
   }),
 });
 

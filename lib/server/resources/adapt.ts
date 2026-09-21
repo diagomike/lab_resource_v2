@@ -73,6 +73,7 @@ export function toDomainField(row: PrismaCategoryField): FieldDef {
     unit: row.unit ?? undefined,
     summary: row.summary,
     long: row.longText,
+    required: row.required || undefined,
   };
 }
 

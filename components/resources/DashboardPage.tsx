@@ -308,7 +308,7 @@ function DashboardPageInner() {
             )}
           </Panel>
 
-          <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} />
+          <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} onNavigate={setInspectId} />
         </>
       )}
     </Screen>

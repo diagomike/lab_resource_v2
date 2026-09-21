@@ -3,11 +3,13 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import type { CategoryFieldType, CategoryImpactDto, CreateCategoryInput, ResourceCategoryDto, UpdateCategoryInput } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
-import { categoryImpact } from "@/lib/domain/edit-impact";
+import { categoryImpact, coerces } from "@/lib/domain/edit-impact";
 import { canPlace } from "@/lib/domain/placement";
+import { CATEGORY_ICONS } from "@/lib/domain/icons";
 import type { Category } from "@/lib/domain/types";
 import { toDomainCategory, toDomainCategoryMap, toDomainItem } from "./adapt";
 import { wouldCreateTemplateCycle } from "./template-cycle";
+import { LIVE_STATES } from "../scheduling/context";
 
 type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
@@ -40,6 +42,8 @@ function toDto(row: NonNullable<CategoryRow>): ResourceCategoryDto {
     active: row.active,
     canBeRoot: row.canBeRoot,
     placement: row.placement,
+    bookingMode: row.bookingMode,
+    publicListed: row.publicListed,
     allowedParents: row.placementRulesAsChild.map((r) => ({ id: r.id, parentCategoryId: r.parentCategoryId, parentCategoryName: r.parentCategory.name })),
     fields: row.fields.map((f) => ({
       id: f.id,
@@ -174,7 +178,24 @@ async function assertPlacementRulesValid(client: Tx, parentCategoryIds: string[]
   }
 }
 
+/** Scheduling reserves individual units by time window; stock is never reserved that
+ *  way (see prisma/schema.prisma's BookingMode note). */
+function assertBookableCountingMode(bookingMode: string | undefined, countingMode: string): void {
+  if (bookingMode && bookingMode !== "NOT_BOOKABLE" && countingMode !== "SERIALIZED") {
+    throw new HttpError(400, "Only a category of individual units can be booked — bulk stock is never reserved by time.");
+  }
+}
+
+/** F-030: an unknown icon key silently rendered the fallback glyph; refuse it at the door. */
+function assertKnownIcon(iconKey: string | undefined): void {
+  if (iconKey !== undefined && !Object.prototype.hasOwnProperty.call(CATEGORY_ICONS, iconKey)) {
+    throw new HttpError(400, "Unknown icon \"" + iconKey + "\" — pick one from the icon list.");
+  }
+}
+
 export async function create(actorId: string, input: CreateCategoryInput): Promise<ResourceCategoryDto> {
+  assertKnownIcon(input.iconKey);
+  assertBookableCountingMode(input.bookingMode, input.countingMode);
   assertEnumFieldsHaveOptions(input.fields);
   assertNoDuplicateFieldKeys(input.fields);
   assertNoDuplicateTemplateChildren(input.templateChildren);
@@ -199,6 +220,8 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
           impairRule: input.impairRule,
           canBeRoot: input.canBeRoot,
           placement: input.placement,
+          bookingMode: input.bookingMode ?? "NOT_BOOKABLE",
+          publicListed: input.publicListed ?? false,
         },
       });
       if (input.allowedParentCategoryIds.length) {
@@ -276,6 +299,7 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
  * values (dormant, not deleted) by default.
  */
 export async function update(actorId: string, id: string, input: UpdateCategoryInput): Promise<ResourceCategoryDto> {
+  assertKnownIcon(input.iconKey);
   await prisma.$transaction(async (tx) => {
     const lock = await tx.$queryRaw<{ id: string; version: number }[]>`
       SELECT id, version FROM "ResourceCategory" WHERE id = ${id} FOR UPDATE
@@ -292,6 +316,23 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
 
     const before = await tx.resourceCategory.findUnique({ where: { id }, include: CATEGORY_INCLUDE });
     if (!before) throw new HttpError(404, "Category not found");
+
+    assertBookableCountingMode(input.bookingMode ?? before.bookingMode, input.countingMode ?? before.countingMode);
+
+    // F-051 of the 2026-09-15 campaign: turning a category away from ROOM/EQUIPMENT
+    // used to leave every future reservation and class session against its items
+    // live but orphaned — the room simply vanished from Schedule (getLab/
+    // listCalendar 404 for a non-ROOM category), with nobody told and nothing left
+    // to manage it from. Refused while any future live reservation exists; the
+    // custodian cancels them first (which notifies people) or waits them out.
+    if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode && before.bookingMode !== "NOT_BOOKABLE") {
+      const futureReservations = await tx.reservation.count({
+        where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
+      });
+      if (futureReservations > 0) {
+        throw new HttpError(409, `Cannot change booking mode — ${futureReservations} future reservation(s) still depend on it.`);
+      }
+    }
 
     const nextFields = input.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
     assertEnumFieldsHaveOptions(nextFields);
@@ -339,6 +380,7 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
         unit: f.unit ?? undefined,
         summary: f.summary,
         long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
+        required: f.required || undefined,
       })),
       defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
     };
@@ -351,9 +393,52 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
     if (input.key !== undefined && input.key !== before.key) {
       diff.push({ field: "key", before: before.key, after: input.key });
     }
+    // Scheduling/portal flags live on the Prisma row only, same as "key" above.
+    if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode) {
+      diff.push({ field: "booking mode", before: before.bookingMode, after: input.bookingMode });
+    }
+    if (input.publicListed !== undefined && input.publicListed !== before.publicListed) {
+      diff.push({ field: "public portal", before: before.publicListed, after: input.publicListed });
+    }
 
     const countingModeChanged = input.countingMode !== undefined && input.countingMode !== before.countingMode;
     const purgeKeys = input.purgeKeys ?? [];
+
+    // F-027 of the 2026-09-15 campaign: BULK -> SERIALIZED used to fail with a raw
+    // 500 (the code set countingMode first, then qty = 1 in a second statement,
+    // and the CHECK constraint fired on the first) — and even fixed to run
+    // atomically, the switch silently turns "25 L of ethanol" into "1", with no
+    // warning beyond a generic preview line. Refused outright while any item of
+    // the category still holds a quantity other than 1; splitting into individual
+    // units is a distinct, explicit action this does not attempt.
+    if (countingModeChanged && input.countingMode === "SERIALIZED") {
+      const withRealQty = items.filter((i) => Number(i.qty) !== 1);
+      if (withRealQty.length) {
+        throw new HttpError(409, "Cannot switch to serialized counting", {
+          message: `${withRealQty.length} item(s) of this category hold a quantity other than 1 (e.g. "${withRealQty[0].name}" at ${Number(withRealQty[0].qty)}) — switching to serialized counting would silently reset them to 1. Split them into individual units first.`,
+          itemIds: withRealQty.map((i) => i.id),
+        });
+      }
+    }
+
+    // F-028: changing a field's type used to leave values the new type can't read
+    // sitting in Item.props ("about five" in a NUMBER field). Refused unless the caller
+    // erases that field's values in the same save (purgeKeys) — the same explicit,
+    // audited opt-in a removed field's stranded values already use.
+    for (const next of afterDomain.fields) {
+      const prev = beforeDomain.fields.find((f) => f.key === next.key);
+      if (!prev || prev.type === next.type || purgeKeys.includes(next.key)) continue;
+      const bad = domainItems.filter((i) => {
+        const v = i.props[next.key];
+        return v !== null && v !== undefined && v !== "" && !coerces(v, next);
+      });
+      if (bad.length) {
+        throw new HttpError(409, "Cannot change field type", {
+          message: bad.length + " item(s) hold a value for \"" + next.label + "\" that can't be read as " + next.type + " (e.g. \"" + String(bad[0].props[next.key]) + "\" on \"" + bad[0].name + "\"). Erase the stranded values with the change, or fix them first.",
+          itemIds: bad.map((i) => i.id),
+        });
+      }
+    }
 
     await tx.resourceCategory.update({
       where: { id },
@@ -369,6 +454,8 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
         ...(input.active !== undefined ? { active: input.active } : {}),
         ...(input.canBeRoot !== undefined ? { canBeRoot: input.canBeRoot } : {}),
         ...(input.placement !== undefined ? { placement: input.placement } : {}),
+        ...(input.bookingMode !== undefined ? { bookingMode: input.bookingMode } : {}),
+        ...(input.publicListed !== undefined ? { publicListed: input.publicListed } : {}),
       },
     });
 
@@ -539,6 +626,7 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
       unit: f.unit ?? undefined,
       summary: f.summary,
       long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
+      required: f.required || undefined,
     })),
     defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
   };
@@ -549,6 +637,22 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
 
   const placementWarning = await placementContradictionWarning(id, afterDomain);
   if (placementWarning) notes.push(placementWarning);
+
+  // F-051: the preview used to say only "Reaches N existing items" while every future
+  // booking and class on those rooms stayed live — the same count update() now refuses on.
+  if (draft.bookingMode !== undefined && draft.bookingMode !== before.bookingMode && before.bookingMode !== "NOT_BOOKABLE") {
+    const future = await prisma.reservation.count({
+      where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
+    });
+    if (future > 0) {
+      notes.push({
+        id: "future-reservations",
+        severity: "destructive",
+        title: `${future} future booking${future === 1 ? "" : "s"} and class session${future === 1 ? "" : "s"} depend on this`,
+        detail: "This change will be refused until they are cancelled (which notifies the people booked) or have passed.",
+      });
+    }
+  }
 
   return {
     affectedItemCount: domainItems.length,

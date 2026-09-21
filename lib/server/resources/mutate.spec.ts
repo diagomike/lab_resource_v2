@@ -151,3 +151,119 @@ describe("applyChange — item version-conflict atomicity", () => {
     expect(["Version Conflict Item C — writer 1", "Version Conflict Item C — writer 2"]).toContain(after.name);
   });
 });
+
+describe("F-025 — deleteItem is a soft delete", () => {
+  it("keeps the row (deletedAt set), excludes it from reads, and refuses re-deleting it", async () => {
+    const parent = await prisma.item.create({
+      data: { categoryId, name: "F025 Parent", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+    const child = await prisma.item.create({
+      data: { categoryId, name: "F025 Child", parentId: parent.id, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+
+    const result = await applyChange(sysAdminId, { kind: "deleteItem", itemIds: [parent.id] });
+    expect(result.applied).toBe(1);
+
+    const parentAfter = await prisma.item.findUniqueOrThrow({ where: { id: parent.id } });
+    const childAfter = await prisma.item.findUniqueOrThrow({ where: { id: child.id } });
+    expect(parentAfter.deletedAt).not.toBeNull(); // the row survives
+    expect(childAfter.deletedAt).not.toBeNull(); // the whole subtree does too
+
+    // A field edit against the now-deleted item touches nothing — applyFieldChange's
+    // own item lookup already filters deletedAt: null, so the deleted item is
+    // silently excluded from the batch (applied: 0) rather than having its name
+    // actually changed.
+    const editResult = await applyChange(sysAdminId, { kind: "setName", itemIds: [parent.id], value: "Should not apply" });
+    expect(editResult.applied).toBe(0);
+    expect((await prisma.item.findUniqueOrThrow({ where: { id: parent.id } })).name).toBe("F025 Parent");
+
+    // Re-deleting an already-deleted item is a no-op (nothing left to find), not
+    // an error and not a second audit row.
+    const again = await applyChange(sysAdminId, { kind: "deleteItem", itemIds: [parent.id] });
+    expect(again.applied).toBe(0);
+
+    await prisma.itemChange.deleteMany({ where: { itemId: { in: [parent.id, child.id] } } });
+    await prisma.item.deleteMany({ where: { id: { in: [child.id, parent.id] } } });
+  });
+});
+
+describe("F-024 — custody may not land on an ineligible account", () => {
+  it("refuses setCustodian to a student, and to a disabled CUSTODIAN", async () => {
+    const studentId = (
+      await prisma.user.create({ data: { email: `f024-student-${Date.now()}@astu.edu.et`, emailLower: `f024-student-${Date.now()}@astu.edu.et`, name: "F024 Student", status: "ACTIVE", roles: { create: { kind: "STUDENT" } } } })
+    ).id;
+    const disabledCustodianEmail = `f024-disabled-${Date.now()}@astu.edu.et`;
+    const disabledId = (
+      await prisma.user.create({ data: { email: disabledCustodianEmail, emailLower: disabledCustodianEmail, name: "F024 Disabled", status: "DISABLED", roles: { create: { kind: "CUSTODIAN" } } } })
+    ).id;
+
+    await expect(applyChange(sysAdminId, { kind: "setCustodian", itemIds: [itemAId], value: studentId })).rejects.toMatchObject({ status: 400 });
+    await expect(applyChange(sysAdminId, { kind: "setCustodian", itemIds: [itemAId], value: disabledId })).rejects.toMatchObject({ status: 400 });
+
+    await prisma.userRole.deleteMany({ where: { userId: { in: [studentId, disabledId] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [studentId, disabledId] } } });
+  });
+
+  it("refuses creating a root item with an ineligible custodian, even for SYS_ADMIN", async () => {
+    const studentEmail = `f024-root-student-${Date.now()}@astu.edu.et`;
+    const studentId = (await prisma.user.create({ data: { email: studentEmail, emailLower: studentEmail, name: "F024 Root Student", status: "ACTIVE", roles: { create: { kind: "STUDENT" } } } })).id;
+
+    await expect(
+      applyChange(sysAdminId, { kind: "createItem", parentId: null, categoryId, count: 1, name: "F024 Root Test Item", ownerOrgNodeId: orgNodeId, custodianId: studentId }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    await prisma.userRole.deleteMany({ where: { userId: studentId } });
+    await prisma.user.delete({ where: { id: studentId } });
+  });
+});
+
+describe("F-041 — an item named in a pending transfer request cannot be moved out from under it", () => {
+  it("refuses moveInTree while a PENDING ChangeRequest names the item", async () => {
+    const item = await prisma.item.create({
+      data: { categoryId, name: "F041 Move Blocker Item", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+    const destination = await prisma.item.create({
+      data: { categoryId, name: "F041 Move Destination", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
+    });
+    const request = await prisma.changeRequest.create({
+      data: {
+        payload: { kind: "transferItem", itemIds: [item.id], transfer: { targetParentId: "some-other-item", targetOrgNodeId: orgNodeId, targetCustodianId: null } },
+        requesterId: sysAdminId,
+        status: "PENDING",
+        baseVersions: { [item.id]: item.version },
+        summary: "F-041 test pending transfer",
+      },
+    });
+
+    await expect(applyChange(sysAdminId, { kind: "moveInTree", itemIds: [item.id], value: destination.id })).rejects.toMatchObject({ status: 409 });
+
+    const unchanged = await prisma.item.findUniqueOrThrow({ where: { id: item.id } });
+    expect(unchanged.parentId).toBeNull(); // never moved
+
+    await prisma.changeRequest.delete({ where: { id: request.id } });
+    await prisma.item.deleteMany({ where: { id: { in: [item.id, destination.id] } } });
+  });
+});
+
+describe("F-029 — a category's required fields are enforced when creating an item", () => {
+  it("refuses a create that leaves a required field empty, and accepts it once filled", async () => {
+    const cat = await prisma.resourceCategory.create({
+      data: {
+        key: `__test-f029-${Date.now()}`, name: "F029 Required Test", iconKey: "Box", groupId, countingMode: "SERIALIZED", canBeRoot: true,
+        fields: { create: [{ key: "serial", label: "Serial number", type: "TEXT", required: true }] },
+      },
+    });
+    const create = (props?: Record<string, string>) =>
+      applyChange(sysAdminId, { kind: "createItem", parentId: null, categoryId: cat.id, count: 1, name: "F029 Item", ownerOrgNodeId: orgNodeId, custodianId: sysAdminId, ...(props ? { props } : {}) });
+
+    await expect(create()).rejects.toMatchObject({ status: 400, message: expect.stringContaining("Serial number") });
+    await expect(create({ serial: "" })).rejects.toMatchObject({ status: 400 });
+    const ok = await create({ serial: "SN-1" });
+    expect(ok.applied).toBe(1);
+
+    const ids = (await prisma.item.findMany({ where: { categoryId: cat.id }, select: { id: true } })).map((i) => i.id);
+    await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: ids } }, { categoryId: cat.id }] } });
+    await prisma.item.deleteMany({ where: { id: { in: ids } } });
+    await prisma.resourceCategory.delete({ where: { id: cat.id } });
+  });
+});

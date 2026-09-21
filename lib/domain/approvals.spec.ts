@@ -110,7 +110,7 @@ describe("resolvePolicy", () => {
     // ...but handing stock to a department changes who answers for it, so it does not.
     const handover = resolvePolicy({ operation: "transferItem", person: keeper, category: cat("computer"), policies: SEED_POLICIES });
     expect(handover.outcome).toBe("CHAIN");
-    expect(handover.policy?.chain).toEqual([{ type: "TARGET_CUSTODIAN" }]);
+    expect(handover.policy?.chain).toEqual([{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }]);
   });
 
   it("treats a routing rule that names no approver as a refusal", () => {
@@ -345,7 +345,7 @@ describe("describeSelectors states a rule without naming a department", () => {
 
   it("shows every step of a rule the old preview truncated", () => {
     const storeTransfer = SEED_POLICIES.find((p) => p.id === "pol-store-transfer")!;
-    expect(describeSelectors(storeTransfer.chain!, ORG_NODES)).toBe("Receiving custodian accepts");
+    expect(describeSelectors(storeTransfer.chain!, ORG_NODES)).toBe("Head of the receiving unit → Receiving custodian accepts");
 
     const headBorrow = SEED_POLICIES.find((p) => p.id === "pol-transfer-mgr")!;
     expect(describeSelectors(headBorrow.chain!, ORG_NODES)).toBe("Current custodian → Head of the owning unit → Requester confirms receipt");

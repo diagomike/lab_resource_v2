@@ -273,6 +273,21 @@ export default function OrgStudioPage() {
     }
   }
 
+  /** Track 2's per-department rollout switch — reversible and purely additive
+   *  (it only ever narrows/widens whether THIS department's custodians go through
+   *  draft-then-approve; nothing already staged or applied is touched either way),
+   *  so it applies immediately with no confirmation, matching this app's own
+   *  established rule for that class of action. */
+  async function toggleDraftWorkflow(enabled: boolean) {
+    if (!selected) return;
+    try {
+      await api.post(`/org/nodes/${selected.id}/draft-workflow`, { enabled });
+      reload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not change the draft workflow setting");
+    }
+  }
+
   async function saveParents(parentIds: string[]) {
     if (!selected) return;
     try {
@@ -423,6 +438,21 @@ export default function OrgStudioPage() {
                     />
                   )}
 
+                  <div>
+                    <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-6">Resource drafts</div>
+                    <label className="flex items-center gap-8 text-11.5">
+                      <input
+                        type="checkbox"
+                        checked={selected.draftWorkflowEnabled}
+                        onChange={(e) => toggleDraftWorkflow(e.target.checked)}
+                      />
+                      Custodians here draft changes for head approval before they go visible
+                    </label>
+                    <p className="mt-4 text-9.5 text-faint">
+                      Off by default. A custodian can still edit directly until this is turned on for their unit.
+                    </p>
+                  </div>
+
                   <div className="flex items-center gap-8 pt-4 border-t border-border">
                     {selected.active ? (
                       <Button variant="danger" onClick={() => setPending({ kind: "deactivate" })}>
@@ -485,8 +515,8 @@ export default function OrgStudioPage() {
               </>
             ) : pending.kind === "deactivate" ? (
               <>
-                Deactivate <b className="text-text">"{selected.name}"</b>? Its occupant, if any, will be revoked and
-                unable to sign in. You can reactivate it again later.
+                Deactivate <b className="text-text">"{selected.name}"</b>? Its occupant, if any, will be vacated from
+                this post — their account itself is unaffected. You can reactivate it again later.
               </>
             ) : (
               <>
@@ -597,8 +627,12 @@ function NodeHeaderEditor({
   const [name, setName] = useState(selected.name);
   const [nameSaving, setNameSaving] = useState(false);
   const nameDirty = name.trim() !== selected.name && name.trim().length > 0;
+  const [code, setCode] = useState(selected.code ?? "");
+  const [codeSaving, setCodeSaving] = useState(false);
+  const codeDirty = code.trim() !== (selected.code ?? "");
 
   useEffect(() => setName(selected.name), [selected.id]);
+  useEffect(() => setCode(selected.code ?? ""), [selected.id]);
 
   async function saveName() {
     setNameSaving(true);
@@ -609,6 +643,22 @@ function NodeHeaderEditor({
       onError(e instanceof ApiError ? e.message : "Could not rename this node");
     } finally {
       setNameSaving(false);
+    }
+  }
+
+  // F-006 of the 2026-09-15 campaign: a code, once set, is what purchasing's
+  // Procurement Office lookup keys on instead of the name, so renaming the office no
+  // longer breaks purchasing university-wide. Editable here, next to the name, the
+  // same "click it, change it, explicit Save" pattern.
+  async function saveCode() {
+    setCodeSaving(true);
+    try {
+      await api.patch(`/org/nodes/${selected.id}`, { code: code.trim() });
+      onSaved();
+    } catch (e) {
+      onError(e instanceof ApiError ? e.message : "Could not save this code");
+    } finally {
+      setCodeSaving(false);
     }
   }
 
@@ -641,6 +691,21 @@ function NodeHeaderEditor({
         </select>
         <Tag>level {selected.level}</Tag>
         <Tag tone={selected.active ? "good" : "bad"}>{selected.active ? "active" : "inactive"}</Tag>
+      </div>
+
+      <div className="mt-8 flex items-center gap-8">
+        <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Code</span>
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="e.g. PROC — a stable key some lookups use instead of the name"
+          className="flex-1 border border-border2 bg-panel h-24 px-8 rounded-2 text-10.5 outline-none focus:border-accent"
+        />
+        {codeDirty && (
+          <Button onClick={saveCode} disabled={codeSaving}>
+            {codeSaving ? "Saving…" : "Save"}
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -769,6 +834,7 @@ function NewNodeForm({
   const [kind, setKind] = useState<OrgNodeKind>(maxLevel < 0 ? "UNIVERSITY" : "DEPARTMENT");
   const [level, setLevel] = useState(Math.max(maxLevel + 1, 0));
   const [parentIds, setParentIds] = useState<string[]>([]);
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   const parentCandidates = nodes.filter((n) => n.level === level - 1 && n.active);
@@ -793,7 +859,7 @@ function NewNodeForm({
     }
     setBusy(true);
     try {
-      await api.post("/org/nodes", { name: name.trim(), level, kind, parentIds: level === 0 ? [] : parentIds });
+      await api.post("/org/nodes", { name: name.trim(), level, kind, parentIds: level === 0 ? [] : parentIds, code: code.trim() || undefined });
       onDone();
     } catch (e) {
       onError(e instanceof ApiError ? e.message : "Could not create this node");
@@ -837,6 +903,15 @@ function NewNodeForm({
               </option>
             ))}
           </select>
+        </label>
+        <label className="block">
+          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Code (optional)</span>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder='e.g. "PROC" — a stable key some lookups use instead of the name'
+            className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent"
+          />
         </label>
       </div>
       {level === 0 ? (

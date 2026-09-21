@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { errorResponse } from "@/lib/server/http-error";
-import { requireSession } from "@/lib/server/auth/session";
+import { requireSession, requireRole, STAFF_ROLES } from "@/lib/server/auth/session";
 import { parseItemQuery, tree } from "@/lib/server/resources/items";
 import { resolveReadOverride } from "@/lib/server/resources/views";
 
@@ -8,10 +8,11 @@ import { resolveReadOverride } from "@/lib/server/resources/views";
  *  — what both the Hierarchy and Rollup register views build from client-side via
  *  lib/domain/tree.ts's `buildTree`/`buildRollup`. See items.ts's `tree()` for why
  *  there is one endpoint, not two. `?scope=UNIVERSITY`/`?view=<id>` — see `/items`'s
- *  own note. */
+ *  own note; so is STAFF_ROLES (F-031 of the 2026-09-15 campaign). */
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession(request);
+    requireRole(user, STAFF_ROLES);
     const sp = request.nextUrl.searchParams;
     const readOverride = await resolveReadOverride(user.id, sp);
 

@@ -43,7 +43,12 @@ export interface ScopeOverride {
 export async function defaultModeFor(userId: string): Promise<ScopeMode> {
   if (await orgScope.hasGlobalReach(userId)) return "UNIVERSITY";
   const roles = await rolesOf(userId);
-  if (roles.includes("CUSTODIAN") && !roles.includes("MANAGER")) return "MY_CUSTODY";
+  // Occupying a node, not the MANAGER role label, is what widens a custodian's
+  // default past their own lab (F-017 of the 2026-09-15 campaign) — the two used
+  // to be able to disagree (a role edit leaving someone occupying a node they no
+  // longer formally carry MANAGER for, or vice versa).
+  const heads = await orgScope.headNodeIdsOf(userId);
+  if (roles.includes("CUSTODIAN") && !heads.length) return "MY_CUSTODY";
   return "ORG_SUBTREE";
 }
 
@@ -122,6 +127,34 @@ export async function assertCanSeeItem(userId: string, itemId: string, modeOverr
   if (!(await canSeeItem(userId, itemId, modeOverride, explicitNodeIds))) throw new HttpError(404, "Resource not found");
 }
 
+/**
+ * F-034 of the 2026-09-15 campaign — `assertCanSeeItem` is ancestor-inclusive by
+ * design (custodying one item nested three levels deep makes every container
+ * above it "visible", so a breadcrumb/tree can be drawn), which is the wrong
+ * question for a LAB AGGREGATE (ideal-vs-actual, purchasables, calendars):
+ * `getIdealVsActual` used to gate on it and so exposed a whole department's
+ * lab composition to anyone who merely custodied ONE borrowed item sitting
+ * inside it. This checks DIRECT visibility of the lab item itself (no
+ * descendant walk), or write custody over it, or headship of the unit that
+ * owns it — never "something under it happens to be visible to me". */
+export async function assertMaySeeLabAggregate(userId: string, labItemId: string): Promise<void> {
+  if (await isSysAdmin(userId)) return;
+
+  const lab = await prisma.item.findUnique({ where: { id: labItemId, deletedAt: null }, select: { ownerOrgNodeId: true } });
+  if (!lab) throw new HttpError(404, "Resource not found");
+
+  const where = await visibleItemWhere(userId);
+  const directlyVisible = await prisma.item.count({ where: { AND: [where, { id: labItemId, deletedAt: null }] } });
+  if (directlyVisible > 0) return;
+
+  const writable = new Set(await writableItemIdsOf(userId));
+  if (writable.has(labItemId)) return;
+
+  if (await orgScope.isHeadOf(userId, lab.ownerOrgNodeId)) return;
+
+  throw new HttpError(404, "Resource not found");
+}
+
 async function descendantIdsIncludingSelf(itemId: string): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     WITH RECURSIVE subtree AS (
@@ -161,6 +194,66 @@ export async function custodyItemIdsOf(userId: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/**
+ * Item ids a user may WRITE through containment — the same walk as
+ * `custodyItemIdsOf`, except descent stops the instant accountability changes.
+ * `custodyItemIdsOf` answers "what does this custodian's lab contain" (a READ
+ * question: a custodian must see everything physically in their own lab, including a
+ * borrowed item sitting in it). This answers "what may this custodian WRITE" — a
+ * borrowed item's foreign owner/custodian means it, and anything nested inside IT, is
+ * excluded, along with anything nested inside a differently-owned child anywhere in
+ * the walk. Fixes the 2026-09-15 campaign's two CRITICAL findings (F-020, F-021):
+ * write custody must never be inherited from a container into something the
+ * container does not itself account for.
+ *
+ * Used by `assertCanMutate` and `containers()` (the create/move destination picker,
+ * which must offer only what a write would actually be allowed to target) — never by
+ * anything answering a READ question, which keeps using `custodyItemIdsOf`.
+ */
+export async function writableItemIdsOf(userId: string): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    WITH RECURSIVE held AS (
+      SELECT id, "custodianId", "ownerOrgNodeId" FROM "Item" WHERE "custodianId" = ${userId} AND "deletedAt" IS NULL
+      UNION
+      SELECT i.id, i."custodianId", i."ownerOrgNodeId" FROM "Item" i
+      INNER JOIN held h ON i."parentId" = h.id
+      WHERE i."deletedAt" IS NULL AND i."custodianId" = h."custodianId" AND i."ownerOrgNodeId" = h."ownerOrgNodeId"
+    )
+    SELECT id FROM held
+  `;
+  return rows.map((r) => r.id);
+}
+
+/** Custody may only ever be handed to someone who can actually answer for what they'd
+ *  hold: an ACTIVE account carrying CUSTODIAN, STORE_KEEPER, MANAGER or SYS_ADMIN (the seeded administrator itself custodies real resources) — the identical
+ *  set `people.custodians()` already offers as candidates. A student or a disabled
+ *  account failing this floor is F-024 from the same campaign; every write path that
+ *  assigns custody (direct setCustodian, createItem, transfer/handover settlement)
+ *  must call this before writing `custodianId`. */
+export async function assertEligibleCustodian(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, include: { roles: true } });
+  const eligibleRole = user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "MANAGER" || r.kind === "SYS_ADMIN");
+  if (!user || user.status !== "ACTIVE" || !eligibleRole) {
+    throw new HttpError(400, "Choose an active custodian, store keeper or department head.");
+  }
+}
+
+/** F-031 of the 2026-09-15 campaign — this module's own opening note used to say
+ *  "the per-endpoint RBAC layer, not this module, is what actually keeps a
+ *  student off the asset register", but no read route ever called one:
+ *  `defaultModeFor` gives any non-custodian with a home node the same
+ *  ORG_SUBTREE reach as a staff member, so a student or external account with a
+ *  home node saw their whole department's register — locations, custodian
+ *  names, statuses. Called at the top of every register/change-log read (not
+ *  only the API routes, so a future caller can't reach the data by skipping the
+ *  route) — categories stays exempt (everyone needs to see what fields exist to
+ *  make sense of anything else). */
+export async function assertMayBrowseRegister(userId: string): Promise<void> {
+  const roles = await rolesOf(userId);
+  if (roles.some((r) => r !== "STUDENT" && r !== "EXTERNAL")) return;
+  throw new HttpError(403, "The asset register is for staff and custodians.");
+}
+
 // ── WRITE eligibility (Phase 7 of ~/.claude/plans/wait-i-want-gentle-haven.md) ──────
 //
 // Deliberately narrower than everything above, and a SEPARATE question from read
@@ -188,23 +281,36 @@ export async function isSysAdmin(userId: string): Promise<boolean> {
   return hit !== null;
 }
 
-/** Throws the same 404 a direct read of an out-of-scope item would — never a 403:
- *  confirming an item exists to someone who may not act on it is its own leak. Empty
- *  `itemIds` is trivially fine (nothing to check) rather than an error, so a caller
- *  building this list conditionally (e.g. `moveInTree` with a null destination) never
- *  needs its own special case. */
+/**
+ * Throws the same 404 a direct read of an out-of-scope item would — never a 403:
+ * confirming an item exists to someone who may not act on it is its own leak. Empty
+ * `itemIds` is trivially fine (nothing to check) rather than an error, so a caller
+ * building this list conditionally (e.g. `moveInTree` with a null destination) never
+ * needs its own special case.
+ *
+ * Custody is `writableItemIdsOf`, not `custodyItemIdsOf` — see that function's own
+ * header. The MANAGER branch below checks `ownerOrgNodeId` ONLY, never
+ * `currentOrgNodeId`: a head answers for what their unit OWNS, not for whatever
+ * happens to be sitting inside it on loan (F-021 of the 2026-09-15 campaign — a host
+ * head could otherwise rename or re-own a borrowed item just because it was
+ * physically parked in their department's lab).
+ */
 export async function assertCanMutate(userId: string, itemIds: string[]): Promise<void> {
   if (!itemIds.length) return;
   if (await isSysAdmin(userId)) return;
-  const custodyIds = new Set(await custodyItemIdsOf(userId));
-  const remaining = itemIds.filter((id) => !custodyIds.has(id));
+  const writableIds = new Set(await writableItemIdsOf(userId));
+  const remaining = itemIds.filter((id) => !writableIds.has(id));
   if (!remaining.length) return;
 
   const roles = await rolesOf(userId);
   if (roles.includes("MANAGER")) {
     const visible = await orgScope.visibleNodeIds(userId);
-    const rows = await prisma.item.findMany({ where: { id: { in: remaining } }, select: { id: true, ownerOrgNodeId: true, currentOrgNodeId: true } });
-    const stillOut = rows.length !== remaining.length || rows.some((r) => !visible.includes(r.ownerOrgNodeId) && !visible.includes(r.currentOrgNodeId));
+    // deletedAt: null (F-025 of the 2026-09-15 campaign) — a soft-deleted item's
+    // row still exists, so without this a MANAGER's reach would silently extend
+    // to editing something that's supposed to be gone; excluding it here makes
+    // it count as missing, the same "not found" a hard delete used to produce.
+    const rows = await prisma.item.findMany({ where: { id: { in: remaining }, deletedAt: null }, select: { id: true, ownerOrgNodeId: true } });
+    const stillOut = rows.length !== remaining.length || rows.some((r) => !visible.includes(r.ownerOrgNodeId));
     if (!stillOut) return;
   }
 
@@ -227,6 +333,13 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
  * need to hide, and "Resource not found" on an Add button is just confusing.
  */
 export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeId: string; custodianId: string }): Promise<void> {
+  // F-024 of the 2026-09-15 campaign: custody landing on an account that can't act
+  // (disabled) or shouldn't hold assets (a student) was never checked here, for
+  // ANY actor including SYS_ADMIN — a root lab could be created with a disabled or
+  // student custodian just as readily as an ordinary CUSTODIAN/setCustodian call
+  // could hand it one directly (mutate.ts's own use of this same assertion).
+  await assertEligibleCustodian(input.custodianId);
+
   if (await isSysAdmin(userId)) return;
 
   const roles = await rolesOf(userId);
@@ -257,7 +370,10 @@ export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeI
 // nothing beyond READ — the write door stays `assertCanMutate`'s custody-only policy,
 // entirely unaffected by seeing further.
 
-const UNIVERSITY_BROWSE_ROLES: RoleKind[] = ["MANAGER", "STORE_KEEPER"];
+// CUSTODIAN added by Track 5 (~/.claude/plans/understand-where-we-are-crystalline-
+// marshmallow.md): transfers are pulled, so a lab's custodian has to be able to find
+// what another unit holds before asking for it. Still read-only.
+const UNIVERSITY_BROWSE_ROLES: RoleKind[] = ["MANAGER", "STORE_KEEPER", "CUSTODIAN"];
 
 /** Throws 403 for anyone not on the list above — a STAFF or plain CUSTODIAN account
  *  hitting `scope=UNIVERSITY` directly, bypassing the UI's own nav gate, must be

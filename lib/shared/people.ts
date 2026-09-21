@@ -92,6 +92,16 @@ export const DeactivateResultDto = z.object({
 });
 export type DeactivateResultDto = z.infer<typeof DeactivateResultDto>;
 
+/** F-015 of the 2026-09-15 campaign — moving a person between departments (as
+ *  opposed to `assignNode`, which sets occupancy (headship), not membership) had no
+ *  route at all; the only workaround was a direct DB edit. SYS_ADMIN only, and
+ *  recorded in `HomeNodeChange` (mirrors `OrgNodeAssignment`'s history discipline). */
+export const MoveHomeNodeInput = z.object({
+  nodeId: z.string().nullable(),
+  reason: z.string().optional(),
+});
+export type MoveHomeNodeInput = z.infer<typeof MoveHomeNodeInput>;
+
 export const OrgNodeAssignmentDto = z.object({
   id: z.string(),
   userName: z.string(),

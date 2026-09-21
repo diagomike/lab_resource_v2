@@ -5,7 +5,7 @@
  * "category" a later module might want.
  */
 import { z } from "zod";
-import { CategoryFieldTypeSchema, CategoryPlacementSchema, CountingModeSchema, ImpairRuleSchema } from "./enums";
+import { BookingModeSchema, CategoryFieldTypeSchema, CategoryPlacementSchema, CountingModeSchema, ImpairRuleSchema } from "./enums";
 
 export const CategoryGroupDto = z.object({
   id: z.string(),
@@ -17,12 +17,12 @@ export type CategoryGroupDto = z.infer<typeof CategoryGroupDto>;
 /** Group names are a managed vocabulary, not free text — normalized (trimmed) and
  *  checked case-insensitively unique server-side so "IT"/"I.T."/"it" cannot become
  *  three shelves for the same thing. */
-export const CreateCategoryGroupInput = z.object({ name: z.string().min(1) });
+export const CreateCategoryGroupInput = z.object({ name: z.string().trim().min(1).max(160) });
 export type CreateCategoryGroupInput = z.infer<typeof CreateCategoryGroupInput>;
 
 /** Renaming preserves the group's id, so every category filed under it stays filed
  *  under it — this is a name change only, never a re-key. */
-export const RenameCategoryGroupInput = z.object({ name: z.string().min(1) });
+export const RenameCategoryGroupInput = z.object({ name: z.string().trim().min(1).max(160) });
 export type RenameCategoryGroupInput = z.infer<typeof RenameCategoryGroupInput>;
 
 /** One "defined metric" on a category: Computer has model, serial, brand, type. */
@@ -81,10 +81,20 @@ export const ResourceCategoryDto = z.object({
   placement: CategoryPlacementSchema,
   /** This category's own allow-list — only consulted when placement is ONLY_LISTED. */
   allowedParents: z.array(CategoryPlacementRuleDto),
+  /** Scheduling (Track 6): may items of this category be booked, and as what. */
+  bookingMode: BookingModeSchema,
+  /** Public portal (Track 7): does its working count appear on the public catalog. */
+  publicListed: z.boolean(),
   fields: z.array(CategoryFieldDto),
   templateChildren: z.array(CategoryTemplateChildDto),
 });
 export type ResourceCategoryDto = z.infer<typeof ResourceCategoryDto>;
+
+/** F-030: display names are trimmed and bounded; the key is a stable slug that seeds/imports
+ *  target, so it may not contain spaces or punctuation. `iconKey` is checked against the
+ *  icon registry server-side (categories.ts) — this file stays free of lucide imports. */
+const categoryName = z.string().trim().min(1, "Name is required").max(160, "Name must be at most 160 characters");
+const categoryKey = z.string().trim().regex(/^[a-z][a-z0-9-]{1,40}$/, "Key: 2-41 chars, lowercase letters, digits and -, starting with a letter");
 
 const CategoryFieldInput = z.object({
   key: z.string().min(1),
@@ -105,8 +115,8 @@ const CategoryTemplateChildInput = z.object({
 });
 
 export const CreateCategoryInput = z.object({
-  key: z.string().min(1),
-  name: z.string().min(1),
+  key: categoryKey,
+  name: categoryName,
   iconKey: z.string().min(1),
   groupId: z.string(),
   countingMode: CountingModeSchema,
@@ -115,6 +125,10 @@ export const CreateCategoryInput = z.object({
   canBeRoot: z.boolean().default(false),
   placement: CategoryPlacementSchema.default("ANYWHERE"),
   allowedParentCategoryIds: z.array(z.string()).default([]),
+  /** Optional rather than defaulted, so existing callers composing this type need not
+   *  name them — categories.ts applies NOT_BOOKABLE / false. */
+  bookingMode: BookingModeSchema.optional(),
+  publicListed: z.boolean().optional(),
   fields: z.array(CategoryFieldInput).default([]),
   templateChildren: z.array(CategoryTemplateChildInput).default([]),
 });
@@ -132,8 +146,8 @@ export const UpdateCategoryInput = z.object({
   /** The stable key seeds/imports target — editable (categories.ts checks it stays
    *  unique), but changing it does not touch any Item row: Item.categoryId is a cuid
    *  FK, never the key. */
-  key: z.string().min(1).optional(),
-  name: z.string().min(1).optional(),
+  key: categoryKey.optional(),
+  name: categoryName.optional(),
   iconKey: z.string().min(1).optional(),
   groupId: z.string().optional(),
   countingMode: CountingModeSchema.optional(),
@@ -142,6 +156,8 @@ export const UpdateCategoryInput = z.object({
   canBeRoot: z.boolean().optional(),
   placement: CategoryPlacementSchema.optional(),
   allowedParentCategoryIds: z.array(z.string()).optional(),
+  bookingMode: BookingModeSchema.optional(),
+  publicListed: z.boolean().optional(),
   fields: z.array(CategoryFieldInput).optional(),
   templateChildren: z.array(CategoryTemplateChildInput).optional(),
   active: z.boolean().optional(),

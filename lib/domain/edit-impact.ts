@@ -24,7 +24,7 @@ export interface ImpactNote {
 const filled = (v: PropValue | undefined) => v !== null && v !== undefined && v !== "";
 
 /** Would this stored value survive the field's new type? */
-function coerces(value: PropValue, field: FieldDef): boolean {
+export function coerces(value: PropValue, field: FieldDef): boolean {
   if (!filled(value)) return true;
   switch (field.type) {
     case "number":
@@ -123,6 +123,17 @@ export function templateSize(categories: Record<string, Category>, id: string, d
 
 // ── Tab 3 — the category definition itself ──────────────────────────────
 
+/** F-029: making a field required never edits existing rows — it only applies to items created
+ *  from now on — so say plainly how many current items are already out of step with it. */
+function requiredGapNote(f: { key: string; label: string }, lacking: number): ImpactNote {
+  return {
+    id: `cat-field-required-${f.key}`,
+    severity: "warning",
+    title: `"${f.label || f.key}" becomes required — ${plural(lacking, "existing item")} lack${lacking === 1 ? "s" : ""} a value`,
+    detail: "Existing items are left as they are; the field is enforced only when a new item is created.",
+  };
+}
+
 export function categoryImpact(before: Category, after: Category, items: Item[]): ImpactNote[] {
   const notes: ImpactNote[] = [];
   const mine = items.filter((i) => i.categoryId === before.id);
@@ -164,6 +175,7 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
       title: `Adding the "${f.label || f.key}" field`,
       detail: count ? `It starts empty on all ${plural(count, "existing item")}.` : "No existing items to fill in.",
     });
+    if (f.required && count > 0) notes.push(requiredGapNote(f, count));
 
     // A NEW category field can collide with an existing item-specific custom property
     // of the same name (lib/server/resources/custom-props.ts's own concept) — they are
@@ -188,13 +200,19 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
     const prev = before.fields.find((f) => f.key === next.key);
     if (!prev) continue;
 
+    if (next.required && !prev.required) {
+      const lacking = mine.filter((i) => !filled(i.props[next.key])).length;
+      if (lacking > 0) notes.push(requiredGapNote(next, lacking));
+    }
+
     if (prev.type !== next.type) {
       const bad = mine.filter((i) => filled(i.props[next.key]) && !coerces(i.props[next.key], next)).length;
       notes.push({
         id: `cat-field-type-${next.key}`,
         severity: bad > 0 ? "destructive" : "warning",
         title: `"${next.label}" changes from ${prev.type} to ${next.type}`,
-        detail: bad > 0 ? `${plural(bad, "stored value")} cannot be read as ${next.type} and will no longer display.` : "Every stored value survives the change.",
+        detail: bad > 0 ? `${plural(bad, "stored value")} cannot be read as ${next.type}. Saving is refused unless the stranded values are erased with the change.` : "Every stored value survives the change.",
+        orphanKeys: bad > 0 ? [next.key] : undefined,
       });
     }
 

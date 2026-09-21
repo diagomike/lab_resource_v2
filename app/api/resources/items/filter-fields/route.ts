@@ -1,16 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { ItemFilterFieldDef } from "@/lib/shared";
 import { errorResponse } from "@/lib/server/http-error";
-import { requireSession } from "@/lib/server/auth/session";
+import { requireSession, requireRole, STAFF_ROLES } from "@/lib/server/auth/session";
 import { filterFields } from "@/lib/server/resources/items";
 import { resolveReadOverride } from "@/lib/server/resources/views";
 
 /** The filter bar's column list, including the synthetic prop:/desc: fields for
  *  whichever categories `categoryId` names as active — repeat the param for more
- *  than one. `?scope=UNIVERSITY`/`?view=<id>` — see `/items`'s own note. */
+ *  than one. `?scope=UNIVERSITY`/`?view=<id>` and STAFF_ROLES — see `/items`'s own
+ *  note (F-031). */
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession(request);
+    requireRole(user, STAFF_ROLES);
     const sp = request.nextUrl.searchParams;
     const readOverride = await resolveReadOverride(user.id, sp);
 

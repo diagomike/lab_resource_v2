@@ -49,6 +49,13 @@ export const categoryPlacements = ["ANYWHERE", "ONLY_LISTED"] as const;
 export const CategoryPlacementSchema = z.enum(categoryPlacements);
 export type CategoryPlacement = (typeof categoryPlacements)[number];
 
+/** Scheduling (Track 6) — whether items of a category may be booked, and as what. A
+ *  ROOM claims everything inside it; EQUIPMENT is one machine within a room. Only a
+ *  SERIALIZED category may be anything but NOT_BOOKABLE. */
+export const bookingModes = ["NOT_BOOKABLE", "ROOM", "EQUIPMENT"] as const;
+export const BookingModeSchema = z.enum(bookingModes);
+export type BookingMode = (typeof bookingModes)[number];
+
 // ── Items ────────────────────────────────────────────────────────────────
 /** STORED status only. IMPAIRED is DERIVED (lib/domain/status.ts) and never appears here. */
 export const itemStatuses = ["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const;
@@ -111,6 +118,15 @@ export const stepStatuses = ["PENDING", "WAITING", "APPROVED", "REJECTED", "SKIP
 export const StepStatusSchema = z.enum(stepStatuses);
 export type StepStatus = (typeof stepStatuses)[number];
 
+// ── Track 2: lab draft/visible/ideal ────────────────────────────────────
+export const draftTargetKinds = ["VISIBLE", "IDEAL"] as const;
+export const DraftTargetKindSchema = z.enum(draftTargetKinds);
+export type DraftTargetKind = (typeof draftTargetKinds)[number];
+
+export const draftChangeStatuses = ["OPEN", "SUBMITTED", "APPLIED"] as const;
+export const DraftChangeStatusSchema = z.enum(draftChangeStatuses);
+export type DraftChangeStatus = (typeof draftChangeStatuses)[number];
+
 /** Which selector produced a ChainStep, so it can say how to re-resolve itself.
  *  Authorization must not hang off display text. */
 export const stepSelectorTypes = [
@@ -121,6 +137,8 @@ export const stepSelectorTypes = [
   "TARGET_HEAD",
   "ITEM_CUSTODIAN",
   "TARGET_CUSTODIAN",
+  "HOST_RELEASE",
+  "OWNER_RECEIPT",
   "REQUESTER_RECEIPT",
 ] as const;
 export const StepSelectorTypeSchema = z.enum(stepSelectorTypes);

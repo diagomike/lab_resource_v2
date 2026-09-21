@@ -85,3 +85,35 @@ export async function canSeeCost(userId: string): Promise<boolean> {
   });
   return hit !== null;
 }
+
+/**
+ * "Head" means OCCUPYING the node — a live, structural fact — never the MANAGER
+ * role label (2026-09-20 fix for F-017 of the 2026-09-15 campaign). Before this,
+ * head capabilities were checked two different, driftable ways across the
+ * codebase: some (purchasing's `assertHeadsNode`, transfer/draft chain steps)
+ * already resolved live occupancy; others independently required the MANAGER
+ * role, which a role edit could remove without ever touching the occupancy row —
+ * P-13 of the campaign demonstrated exactly that split (stripping MANAGER from a
+ * sitting head left them occupying the node but unable to compile a purchase
+ * request for it). SYS_ADMIN always counts as a head of everything, matching
+ * every existing "or SYS_ADMIN" bypass this mirrors.
+ */
+export async function isHeadOf(userId: string, nodeId: string): Promise<boolean> {
+  // SYS_ADMIN only, matching every existing "or SYS_ADMIN" head bypass this
+  // consolidates (purchasing's own former `assertHeadsNode`, lab-drafts' commit
+  // decisions) — deliberately NOT `hasGlobalReach`, which also covers
+  // PROPERTY_ADMIN/PROCUREMENT for READ purposes; widening who may act as a head
+  // is not this fix's job.
+  const admin = await prisma.userRole.findFirst({ where: { userId, kind: "SYS_ADMIN" } });
+  if (admin) return true;
+  const node = await prisma.orgNode.findUnique({ where: { id: nodeId }, select: { userId: true, active: true } });
+  return !!node?.active && node.userId === userId;
+}
+
+/** Every ACTIVE node this person currently occupies. `OrgNode.userId` is unique, so
+ *  this is at most one node in practice — plural only because "how many" is not
+ *  this function's business to assume. */
+export async function headNodeIdsOf(userId: string): Promise<string[]> {
+  const nodes = await prisma.orgNode.findMany({ where: { userId, active: true }, select: { id: true } });
+  return nodes.map((n) => n.id);
+}

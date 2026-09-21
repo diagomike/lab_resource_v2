@@ -85,22 +85,36 @@ model User {
   passwordResets         PasswordReset[]
   orgNodeAssignments     OrgNodeAssignment[] @relation("OrgNodeAssignmentUser")
   orgNodeAssignmentsMade OrgNodeAssignment[] @relation("OrgNodeAssignmentAssignedBy")
+  homeNodeChanges        HomeNodeChange[]    @relation("HomeNodeChangeUser")
+  homeNodeChangesMade    HomeNodeChange[]    @relation("HomeNodeChangeChangedBy")
   invitationsSent        Invitation[]        @relation("InvitationInvitedBy")
 
   // ── Resource management back-relations (replatforming onto temp_works) ──────────
-  custodyOf              Item[]               @relation("ItemCustodian")
-  uploadedImages         ItemImage[]          @relation("ItemImageUploadedBy")
-  imageUploadsRequested  ImageUpload[]        @relation("ImageUploadRequestedBy")
-  itemChangesActed       ItemChange[]         @relation("ItemChangeActor")
-  accessViewAudienceOf   AccessViewAudience[] @relation("AccessViewAudiencePerson")
-  changeRequestsRaised   ChangeRequest[]      @relation("ChangeRequestRequester")
-  chainStepsToApprove    ChainStep[]          @relation("ChainStepApprover")
-  chainStepsDecided      ChainStep[]          @relation("ChainStepDecidedBy")
-  needsRaised            NeedLine[]           @relation("NeedLineRaisedBy")
-  needsHandled           NeedLine[]           @relation("NeedLineHandledBy")
-  purchaseRequestsRaised PurchaseRequest[]    @relation("PurchaseRequestRaisedBy")
-  purchaseLinesReceived  PurchaseLine[]       @relation("PurchaseLineReceivedBy")
-  purchaseEventsLogged   PurchaseEvent[]      @relation("PurchaseEventBy")
+  custodyOf                  Item[]                      @relation("ItemCustodian")
+  uploadedImages             ItemImage[]                 @relation("ItemImageUploadedBy")
+  imageUploadsRequested      ImageUpload[]               @relation("ImageUploadRequestedBy")
+  itemChangesActed           ItemChange[]                @relation("ItemChangeActor")
+  accessViewAudienceOf       AccessViewAudience[]        @relation("AccessViewAudiencePerson")
+  changeRequestsRaised       ChangeRequest[]             @relation("ChangeRequestRequester")
+  chainStepsToApprove        ChainStep[]                 @relation("ChainStepApprover")
+  chainStepsDecided          ChainStep[]                 @relation("ChainStepDecidedBy")
+  needsRaised                NeedLine[]                  @relation("NeedLineRaisedBy")
+  needsHandled               NeedLine[]                  @relation("NeedLineHandledBy")
+  purchaseRequestsRaised     PurchaseRequest[]           @relation("PurchaseRequestRaisedBy")
+  purchaseLinesReceived      PurchaseLine[]              @relation("PurchaseLineReceivedBy")
+  purchaseEventsLogged       PurchaseEvent[]             @relation("PurchaseEventBy")
+  purchaseStepsToApprove     PurchaseStep[]              @relation("PurchaseStepApprover")
+  purchaseStepsDecided       PurchaseStep[]              @relation("PurchaseStepDecidedBy")
+  labCommitsRequested        LabCommitRequest[]          @relation("LabCommitRequester")
+  labCommitsDecided          LabCommitRequest[]          @relation("LabCommitDecidedBy")
+  labDraftItemsStaged        ItemDraftChange[]           @relation("DraftChangeAuthor")
+  scheduleSeriesCreated      ScheduleSeries[]            @relation("ScheduleSeriesCreatedBy")
+  scheduleExceptionsCreated  ScheduleSeriesException[]   @relation("ScheduleSeriesExceptionCreatedBy")
+  reservationsRequested      Reservation[]               @relation("ReservationRequestedBy")
+  reservationsDecided        Reservation[]               @relation("ReservationDecidedBy")
+  externalAssignmentsDecided ExternalRequestAssignment[] @relation("ExternalAssignmentDecidedBy")
+  externalRequestEvents      ExternalRequestEvent[]      @relation("ExternalRequestEventActor")
+  paymentsReviewed           PaymentVerification[]       @relation("PaymentVerificationReviewedBy")
 
   @@index([emailLower])
   @@index([homeNodeId])
@@ -159,6 +173,23 @@ model PasswordReset {
   @@index([userId])
 }
 
+/// F-010 of the 2026-09-15 campaign: login had no attempt counter at all, so password
+/// guessing was unthrottled. No FK to User (an attempt against an email with no
+/// account must still count, or an attacker just probes non-existent addresses to
+/// dodge the lockout) — keyed on the lowercased email like every other lookup here,
+/// counted the same table-counted-throttle way external/requests.ts's submission
+/// throttle already works. Rows are never deleted; a login route only ever counts
+/// recent ones, so an unbounded table costs nothing but disk.
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  emailLower String
+  ipHash     String?
+  succeeded  Boolean
+  createdAt  DateTime @default(now())
+
+  @@index([emailLower, createdAt])
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Org hierarchy — WHO IS ACCOUNTABLE / WHO APPROVES.
 // A layered DAG (multiple parents allowed), not a tree. Reachability is precomputed
@@ -173,17 +204,23 @@ enum OrgNodeKind {
 }
 
 model OrgNode {
-  id        String      @id @default(cuid())
-  name      String
-  level     Int // 0 = university root
-  kind      OrgNodeKind
-  userId    String?     @unique // occupant, null until they register
-  active    Boolean     @default(true)
+  id                   String      @id @default(cuid())
+  name                 String
+  level                Int // 0 = university root
+  kind                 OrgNodeKind
+  userId               String?     @unique // occupant, null until they register
+  active               Boolean     @default(true)
   /// Stable short key ("SE", "CHEM") — dense-table display AND the key a data importer
   /// resolves against instead of a live-database cuid. Optional: not every node needs one.
-  code      String?     @unique
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  code                 String?     @unique
+  /// Track 2 — per-department activation for the lab draft/visible/ideal workflow.
+  /// Default false: a department's custodians keep editing directly (today's
+  /// behaviour, unchanged) until an administrator opts THIS department in. Read by
+  /// lab-drafts.ts before staging/submitting anything for a lab owned here — never
+  /// inferred from row counts elsewhere.
+  draftWorkflowEnabled Boolean     @default(false)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -197,11 +234,13 @@ model OrgNode {
   occupancyHistory OrgNodeAssignment[]
 
   // ── Resource management back-relations (replatforming onto temp_works) ──────────
-  ownedItems       Item[]            @relation("ItemOwner")
-  heldItems        Item[]            @relation("ItemHolder")
-  chainStepsAt     ChainStep[]       @relation("ChainStepNode")
-  needLines        NeedLine[]
-  purchaseRequests PurchaseRequest[]
+  ownedItems          Item[]                      @relation("ItemOwner")
+  heldItems           Item[]                      @relation("ItemHolder")
+  chainStepsAt        ChainStep[]                 @relation("ChainStepNode")
+  needLines           NeedLine[]
+  purchaseRequests    PurchaseRequest[]
+  purchaseStepsAt     PurchaseStep[]              @relation("PurchaseStepNode")
+  externalAssignments ExternalRequestAssignment[]
 
   @@index([level])
 }
@@ -248,6 +287,26 @@ model OrgNodeAssignment {
 
   @@index([nodeId, startedAt])
   @@index([userId])
+}
+
+/// F-015 of the 2026-09-15 campaign — moving a person's HOME department (membership,
+/// distinct from `OrgNodeAssignment`'s occupancy/headship) had no route and so no
+/// history at all; the only workaround was a direct DB edit. One row per move,
+/// mirroring `OrgNodeAssignment`'s own history discipline — `fromNodeId` is nullable
+/// because a person can be invited with no home department at all.
+model HomeNodeChange {
+  id         String   @id @default(cuid())
+  userId     String
+  fromNodeId String?
+  toNodeId   String?
+  reason     String?
+  changedById String
+  changedAt  DateTime @default(now())
+
+  user       User     @relation("HomeNodeChangeUser", fields: [userId], references: [id], onDelete: Cascade)
+  changedBy  User     @relation("HomeNodeChangeChangedBy", fields: [changedById], references: [id])
+
+  @@index([userId, changedAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -347,6 +406,15 @@ model ResourceCategory {
   /// moment this flips back to ANYWHERE.
   placement CategoryPlacement @default(ANYWHERE)
 
+  /// Scheduling (Track 6) — configured, never inferred from a group name or a field.
+  /// ROOM: an item of this category is a bookable space (a lab); booking it claims
+  /// everything inside. EQUIPMENT: an individually bookable machine inside a room.
+  /// Only SERIALIZED categories may be bookable — stock is never reserved by time.
+  bookingMode  BookingMode @default(NOT_BOOKABLE)
+  /// Public portal (Track 7) — whether this category's university-wide working count
+  /// appears on the unauthenticated catalog. Counts only, never the tree.
+  publicListed Boolean     @default(false)
+
   group  CategoryGroup   @relation(fields: [groupId], references: [id], onDelete: Restrict)
   fields CategoryField[]
   items  Item[]
@@ -355,6 +423,7 @@ model ResourceCategory {
   templateAsChild  CategoryTemplateChild[] @relation("TemplateChild")
   needLines        NeedLine[]
   purchaseLines    PurchaseLine[]
+  labIdealTargets  LabIdealTarget[]
 
   /// This category's own allow-list when its OWN placement is ONLY_LISTED — the
   /// categories it may be placed directly inside.
@@ -492,6 +561,20 @@ model Item {
   custodian    User             @relation("ItemCustodian", fields: [custodianId], references: [id], onDelete: Restrict)
   images       ItemImage[]
   imageUploads ImageUpload[]
+
+  /// Track 2 — lab draft/visible/ideal states. Populated only when this item is itself
+  /// a lab root (a draft change/commit request/ideal target is always keyed by the LAB,
+  /// never by an arbitrary descendant item) — nothing here for an ordinary item.
+  labDraftChanges   ItemDraftChange[]  @relation("LabDraftChanges")
+  labCommitRequests LabCommitRequest[] @relation("LabCommitRequestLab")
+  labIdealTargets   LabIdealTarget[]   @relation("LabIdealTargets")
+
+  /// Track 6 — scheduling. A room's own series/reservations (keyed by the ROOM whose
+  /// custodian decides), and every reservation line claiming this exact item.
+  scheduleSeries       ScheduleSeries[]         @relation("ScheduleSeriesLab")
+  scheduleSeriesClaims ScheduleSeriesResource[] @relation("ScheduleSeriesResourceItem")
+  labReservations      Reservation[]            @relation("ReservationLab")
+  reservationClaims    ReservationResource[]    @relation("ReservationResourceItem")
 
   @@unique([sourceSystem, sourceKey])
   @@index([parentId])
@@ -787,6 +870,16 @@ model ChangeRequest {
   /// applying — the field that stops an approval granted Monday from silently
   /// overwriting Tuesday's correction. Keyed by item id.
   baseVersions Json
+  /// Each affected item's parentId/ownerOrgNodeId/currentOrgNodeId/custodianId when
+  /// the request was raised, keyed by item id — F-041 of the 2026-09-15 campaign.
+  /// Compared (not `baseVersions`, which a cosmetic edit like a rename also bumps) on
+  /// every `decideStep` call, so a chain fails fast and named the moment something
+  /// that actually matters to a transfer changes, instead of the previous behaviour:
+  /// walking all the way to the last (receipt) step before failing on an unexplained
+  /// "Version conflict" that a same rename would trigger just as readily as a real
+  /// structural change. Nullable — a request raised before this column existed has
+  /// none, and decideStep skips the check rather than treating that as a mismatch.
+  structuralSnapshot Json?
   summary      String
   note         String?
   resolvedAt   DateTime?
@@ -827,6 +920,13 @@ enum StepSelectorType {
   ITEM_CUSTODIAN
   /// Whoever will be answerable for it once it lands.
   TARGET_CUSTODIAN
+  /// Whoever currently answers for the physical place a borrowed item sits — the
+  /// return flow's own step (2026-09-20, F-039): consent to let it go home.
+  HOST_RELEASE
+  /// The item's own custodian confirming a returned resource has come home — never
+  /// skipped, and deliberately distinct from REQUESTER_RECEIPT: a return may be
+  /// initiated by the host, not the lender, so "whoever asked" is the wrong person.
+  OWNER_RECEIPT
   /// Back to the person who asked: "I have received it." Never skipped.
   REQUESTER_RECEIPT
 }
@@ -923,8 +1023,12 @@ enum PurchaseStage {
   CANCELLED
 }
 
-/// The department's formal ask, compiled by the head. Walks Head → Dean → College
-/// Managing Directorate → Academic Vice President → Procurement Office.
+/// The department's formal ask, compiled by the head. Walks the org chart itself —
+/// the owning unit's head, then every ancestor up to the university root (both
+/// branches of a multi-parent department required, not a choice between them, via
+/// the same HIERARCHY selector/ancestorsOfChain() Track 3 already relies on) — then
+/// the Procurement Office. See Track 4's plan for why this is dynamic rather than a
+/// fixed named sequence.
 model PurchaseRequest {
   id         String        @id @default(cuid())
   reference  String        @unique
@@ -941,6 +1045,7 @@ model PurchaseRequest {
   raisedBy User            @relation("PurchaseRequestRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
   lines    PurchaseLine[]
   events   PurchaseEvent[]
+  steps    PurchaseStep[]
 
   @@index([orgNodeId])
   @@index([stage])
@@ -981,4 +1086,486 @@ model PurchaseEvent {
   by       User            @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
 
   @@index([purchaseId, at])
+}
+
+/// A PurchaseRequest's own approval chain — the same shape as ChainStep, but ChainStep
+/// is hard-tied to ChangeRequest (payload: ItemChangeInput, baseVersions keyed by item
+/// id), which a purchase request has no use for: it has no item to point at yet, which
+/// is the whole point of raising one. Reuses StepSelectorType/StepStatus verbatim and
+/// is walked by the exact same pure lib/domain/approvals.ts functions
+/// (buildChain/activate/canDecide/resolveApprover/chainSettled), just persisted here
+/// instead. No `receipt` column — this ladder never uses REQUESTER_RECEIPT; the actual
+/// receiving happens later, physically, via receivePurchaseLine.
+model PurchaseStep {
+  id          String           @id @default(cuid())
+  requestId   String
+  order       Int
+  selector    StepSelectorType
+  label       String
+  /// The office this step belongs to. Null for the owning unit's own head step.
+  nodeId      String?
+  /// Who may decide it, resolved at build time and re-checked live at decision time.
+  /// Null means the post is VACANT, which HOLDS the request rather than skipping it.
+  approverId  String?
+  status      StepStatus       @default(PENDING)
+  skipReason  String?
+  decidedById String?
+  decidedAt   DateTime?
+  note        String?
+
+  request   PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  node      OrgNode?        @relation("PurchaseStepNode", fields: [nodeId], references: [id], onDelete: SetNull)
+  approver  User?           @relation("PurchaseStepApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  decidedBy User?           @relation("PurchaseStepDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([requestId, order])
+  @@index([approverId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 2 — lab draft/visible/ideal states. See
+// ~/.claude/plans/lets-merge-the-work-memoized-journal.md §5 for the full design.
+//
+// A custodian free-edits their own lab in DRAFT (ItemDraftChange rows — no approval
+// needed to stage). Submitting a batch creates ONE LabCommitRequest, decided by
+// exactly the lab's owning department's head (no multi-office chain — the generic
+// ApprovalPolicy/ChainStep engine elsewhere in this schema is reserved for Track 3's
+// transfers and Track 4's procurement review, which genuinely need a walked chain).
+// Approval to VISIBLE applies every staged operation through mutate.ts's existing,
+// unmodified applyChange — one write door, still. Approval to IDEAL instead upserts
+// LabIdealTarget rows directly (not an Item write at all).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum DraftTargetKind {
+  /// The custodian's default: "here is what my lab actually now has."
+  VISIBLE
+  /// The custodian's explicit alternative: "this is what my lab's target/optimal
+  /// state should be" — never applied to a live Item, only to LabIdealTarget.
+  IDEAL
+}
+
+enum DraftChangeStatus {
+  /// Staged, not yet part of any submitted batch. Freely edited/withdrawn.
+  OPEN
+  /// Part of a batch a LabCommitRequest is deciding. Reset to OPEN on rejection —
+  /// never deleted, never silently discarded (the user's own explicit choice).
+  SUBMITTED
+  /// The covering LabCommitRequest was approved and this row's payload was applied.
+  APPLIED
+}
+
+/// One staged, not-yet-applied operation against a lab's own subtree. `payload`'s
+/// shape depends on `targetKind`: VISIBLE stores an ItemChangeInput-shaped operation
+/// (the exact vocabulary mutate.ts's write door already validates — createItem,
+/// setStatus, setProperty, deleteItem, setQuantity, ...); IDEAL stores a
+/// `{ categoryId, qty }` pair for `getIdealVsActual`'s target table. Deliberately NOT
+/// unioned into ItemChangeInput itself — an ideal-target proposal never reaches
+/// applyChange, so it has no business in that door's own vocabulary.
+model ItemDraftChange {
+  id         String            @id @default(cuid())
+  labItemId  String
+  authorId   String
+  targetKind DraftTargetKind
+  payload    Json
+  status     DraftChangeStatus @default(OPEN)
+  /// Set when submitted — groups every row one submission covers. Null while OPEN.
+  batchId    String?
+  createdAt  DateTime          @default(now())
+
+  lab    Item @relation("LabDraftChanges", fields: [labItemId], references: [id], onDelete: Cascade)
+  author User @relation("DraftChangeAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([labItemId, status])
+  @@index([batchId])
+}
+
+/// The one decision a submitted draft batch needs — the lab's owning department's
+/// head, resolved live via the org chart (never a frozen id; a vacant post BLOCKS,
+/// exactly like the generic chain engine's own already-proven invariant, just applied
+/// to a single step here instead of a walked one).
+model LabCommitRequest {
+  id           String          @id @default(cuid())
+  labItemId    String
+  targetKind   DraftTargetKind
+  requesterId  String
+  /// The ItemDraftChange rows this request covers (their shared batchId).
+  batchId      String
+  status       RequestStatus   @default(PENDING)
+  /// Reuses mutate.ts's own expectedVersions shape verbatim — keyed by item id,
+  /// re-checked at approval time by the SAME assertVersionsMatch a direct edit uses.
+  baseVersions Json
+  note         String?
+  decidedById  String?
+  decidedAt    DateTime?
+  resolution   String?
+  createdAt    DateTime        @default(now())
+
+  lab       Item  @relation("LabCommitRequestLab", fields: [labItemId], references: [id], onDelete: Cascade)
+  requester User  @relation("LabCommitRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  decidedBy User? @relation("LabCommitDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([labItemId, status])
+  @@index([requesterId])
+  @@index([batchId])
+}
+
+/// The APPROVED (committed) ideal target for one category within one lab — "this lab
+/// should have 8 Computers." A PROPOSAL to change one is just another
+/// ItemDraftChange row (targetKind: IDEAL); this table only ever holds what a
+/// department head has actually approved.
+model LabIdealTarget {
+  id         String @id @default(cuid())
+  labItemId  String
+  categoryId String
+  idealQty   Int
+
+  lab      Item             @relation("LabIdealTargets", fields: [labItemId], references: [id], onDelete: Cascade)
+  category ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([labItemId, categoryId])
+}
+
+// ── Scheduling (Track 6 of ~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md)
+//
+// ONE calendar table (Reservation) fed by several sources — a class occurrence IS a
+// reservation, generated from its ScheduleSeries; a staff booking and (Track 7) an
+// external hold are the same row shape. Double-booking of the SAME item is made
+// structurally impossible by an exclusion constraint on ReservationResource (raw SQL
+// in the same migration); hierarchical clashes (a room vs a machine inside it) are
+// checked under a per-lab advisory lock in lib/server/scheduling/reservations.ts.
+// Every instant is timestamptz; recurring statements are civil time + IANA zone.
+
+enum BookingMode {
+  NOT_BOOKABLE
+  ROOM
+  EQUIPMENT
+}
+
+enum ReservationSource {
+  CLASS
+  STAFF
+  EXTERNAL
+  MAINTENANCE
+}
+
+/// REQUESTED contends but does not block; HELD and CONFIRMED block (see
+/// ReservationResource.blocking). DECLINED/CANCELLED/EXPIRED are terminal.
+enum ReservationState {
+  REQUESTED
+  HELD
+  CONFIRMED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
+/// A weekly class slot in one room, with its own date range (no academic-term model,
+/// by decision). A RULE, never occurrences — occurrences are materialised into
+/// Reservation rows tagged with this series' generation.
+model ScheduleSeries {
+  id               String   @id @default(cuid())
+  labItemId        String
+  title            String
+  section          String?
+  instructorName   String?
+  participantCount Int?
+  /// ISO weekdays, 1 = Monday … 7 = Sunday.
+  weekdays         Int[]
+  /// Civil wall-clock time in timeZone, "HH:mm".
+  startTimeLocal   String
+  endTimeLocal     String
+  startDate        DateTime @db.Date
+  endDate          DateTime @db.Date
+  timeZone         String   @default("Africa/Addis_Ababa")
+  /// Bumped every time the occurrences are regenerated.
+  generation       Int      @default(0)
+  active           Boolean  @default(true)
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  lab          Item                      @relation("ScheduleSeriesLab", fields: [labItemId], references: [id], onDelete: Cascade)
+  createdBy    User                      @relation("ScheduleSeriesCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  resources    ScheduleSeriesResource[]
+  exceptions   ScheduleSeriesException[]
+  reservations Reservation[]
+
+  @@index([labItemId])
+}
+
+/// Equipment every occurrence of a series claims, beyond the room itself.
+model ScheduleSeriesResource {
+  id       String @id @default(cuid())
+  seriesId String
+  itemId   String
+
+  series ScheduleSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  item   Item           @relation("ScheduleSeriesResourceItem", fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, itemId])
+}
+
+/// A cancelled single date of a series, keyed by CIVIL date so it survives regeneration.
+model ScheduleSeriesException {
+  id          String   @id @default(cuid())
+  seriesId    String
+  date        DateTime @db.Date
+  reason      String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  series    ScheduleSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  createdBy User           @relation("ScheduleSeriesExceptionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([seriesId, date])
+}
+
+model Reservation {
+  id                String            @id @default(cuid())
+  source            ReservationSource
+  state             ReservationState
+  title             String
+  /// The ROOM whose custodian decides (the booked room, or the room holding the
+  /// booked equipment).
+  labItemId         String
+  startsAt          DateTime          @db.Timestamptz(3)
+  endsAt            DateTime          @db.Timestamptz(3)
+  /// The civil date in the venue's zone, for series occurrences — never recomputed
+  /// from the UTC instant.
+  occursOnLocal     DateTime?         @db.Date
+  seriesId          String?
+  seriesGeneration  Int?
+  requestedById     String?
+  /// A staff booking for advisees: who the students are, as free text.
+  onBehalfOfNote    String?
+  participantCount  Int?
+  /// Track 7 — the outside request a HELD/EXTERNAL reservation is holding a slot for.
+  externalRequestId String?
+  /// A HELD reservation stops blocking once this passes.
+  holdExpiresAt     DateTime?         @db.Timestamptz(3)
+  decidedById       String?
+  decidedAt         DateTime?         @db.Timestamptz(3)
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  lab             Item                  @relation("ReservationLab", fields: [labItemId], references: [id], onDelete: Cascade)
+  series          ScheduleSeries?       @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  requestedBy     User?                 @relation("ReservationRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedBy       User?                 @relation("ReservationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  externalRequest ExternalRequest?      @relation(fields: [externalRequestId], references: [id], onDelete: SetNull)
+  resources       ReservationResource[]
+
+  @@index([externalRequestId])
+  @@index([labItemId, startsAt])
+  @@index([requestedById])
+  @@index([seriesId])
+  @@index([state, holdExpiresAt])
+}
+
+/// One item a reservation claims. startsAt/endsAt are denormalised from the parent and
+/// `blocking` mirrors "parent is HELD or CONFIRMED" — both kept in sync in the same
+/// transaction as every state change, because the exclusion constraint can only see
+/// this row. `period` is a generated tstzrange column that constraint reads; never
+/// written by the app.
+model ReservationResource {
+  id            String                    @id @default(cuid())
+  reservationId String
+  itemId        String
+  startsAt      DateTime                  @db.Timestamptz(3)
+  endsAt        DateTime                  @db.Timestamptz(3)
+  blocking      Boolean
+  /// GENERATED ALWAYS AS (tstzrange("startsAt", "endsAt", '[)')) STORED — declared as
+  /// the dbgenerated default introspection reports, so a future migrate diff sees no
+  /// drift and never tries to drop it.
+  period        Unsupported("tstzrange")? @default(dbgenerated("tstzrange(\"startsAt\", \"endsAt\", '[)'::text)"))
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  item        Item        @relation("ReservationResourceItem", fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([reservationId, itemId])
+  @@index([itemId, startsAt])
+}
+
+// ── External bookings (Track 7 of ~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md)
+//
+// An outside institution asks through the public portal — no account. The AVP (the
+// university root's occupant) forwards it to departments; their custodians place HELD
+// reservations; each department head accepts with a pricing sheet link and amount; the
+// AVP sends one quote; payment (Track 8) turns the holds CONFIRMED.
+
+enum ExternalRequestStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  QUOTED
+  PAYMENT_SUBMITTED
+  PAID
+  SCHEDULED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
+enum ExternalAssignmentStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model ExternalRequest {
+  id                String                @id @default(cuid())
+  /// EXT-2026-001 — what everyone quotes, in and out of the system.
+  reference         String                @unique
+  status            ExternalRequestStatus @default(SUBMITTED)
+  organizationName  String
+  contactName       String
+  contactEmail      String
+  contactPhone      String
+  purpose           String
+  /// What they asked for, as free text lines: [{ description, quantity, categoryName? }]
+  lines             Json
+  /// The official letter (PDF), stored through the same StorageDriver as images.
+  letterStorageKey  String
+  letterFileName    String
+  letterByteSize    Int
+  /// SHA-256 of the requester's tracking token — the raw token only ever lives in the
+  /// link emailed to them. Re-sending a link regenerates it.
+  trackingTokenHash String                @unique
+  submitterIpHash   String?
+  /// Money is integer santim (1 ETB = 100 santim), never a float.
+  quoteAmountSantim Int?
+  quoteNote         String?
+  quoteSentAt       DateTime?             @db.Timestamptz(3)
+  paymentDeadline   DateTime?             @db.Timestamptz(3)
+  closingNote       String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  windows      ExternalRequestWindow[]
+  assignments  ExternalRequestAssignment[]
+  events       ExternalRequestEvent[]
+  reservations Reservation[]
+  payments     PaymentVerification[]
+
+  @@index([status])
+  @@index([contactEmail, createdAt])
+  @@index([submitterIpHash, createdAt])
+}
+
+/// A date and time window the requester wants, stated in the venue's civil time.
+model ExternalRequestWindow {
+  id             String   @id @default(cuid())
+  requestId      String
+  date           DateTime @db.Date
+  startTimeLocal String
+  endTimeLocal   String
+  startsAt       DateTime @db.Timestamptz(3)
+  endsAt         DateTime @db.Timestamptz(3)
+  sortOrder      Int      @default(0)
+
+  request ExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+/// The AVP forwarding a request to one department, and that department head's answer.
+model ExternalRequestAssignment {
+  id               String                   @id @default(cuid())
+  requestId        String
+  orgNodeId        String
+  status           ExternalAssignmentStatus @default(PENDING)
+  /// The head's pricing breakdown (a Google Sheet) — link only, never a copy.
+  sheetUrl         String?
+  amountSantim     Int?
+  /// Accepting with no calendar holds needs this said out loud (e.g. chemicals only).
+  noCalendarNeeded Boolean                  @default(false)
+  note             String?
+  decidedById      String?
+  decidedAt        DateTime?                @db.Timestamptz(3)
+  createdAt        DateTime                 @default(now())
+
+  request   ExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  orgNode   OrgNode         @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
+  decidedBy User?           @relation("ExternalAssignmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@unique([requestId, orgNodeId])
+  @@index([orgNodeId, status])
+}
+
+/// Append-only history, shown to staff in full and to the requester in public terms.
+model ExternalRequestEvent {
+  id         String   @id @default(cuid())
+  requestId  String
+  at         DateTime @default(now()) @db.Timestamptz(3)
+  actorId    String?
+  /// "Requester", or the staff member's name at the time.
+  actorLabel String
+  kind       String
+  note       String?
+  data       Json?
+
+  request ExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User?           @relation("ExternalRequestEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([requestId, at])
+}
+
+// ── Payment verification (Track 8) ──────────────────────────────────────────
+//
+// The requester pays the quote into the university's account, then gives us the
+// transaction reference. A self-hosted verifier-api reads the bank's own receipt; we
+// check it paid the university, at least the amount, after the quote went out. When the
+// verifier can't help (bank down, unsupported), the requester asks for manual review and
+// the AVP's office decides. Split payments add up.
+
+enum PaymentProvider {
+  CBE
+  TELEBIRR
+  DASHEN
+  ABYSSINIA
+  CBEBIRR
+}
+
+enum PaymentVerificationStatus {
+  /// The verifier read a receipt that passed every check.
+  VERIFIED
+  /// The verifier refused it, or the receipt failed a check. Kept as history only.
+  REJECTED
+  /// The requester asked a person to check it.
+  PENDING_REVIEW
+  MANUAL_VERIFIED
+  MANUAL_REJECTED
+}
+
+model PaymentVerification {
+  id              String                    @id @default(cuid())
+  requestId       String
+  provider        PaymentProvider
+  /// Normalised (trimmed, upper-case) transaction reference or receipt number.
+  reference       String
+  /// "PROVIDER:REFERENCE" while this receipt counts or awaits review; null once rejected.
+  /// Unique, so one bank receipt can never pay for two requests (or twice for one),
+  /// while a mistyped attempt doesn't lock its reference out forever.
+  claimKey        String?                   @unique
+  status          PaymentVerificationStatus
+  /// What the receipt (or, for manual review, the requester) says was paid.
+  amountSantim    Int?
+  payerName       String?
+  receiverName    String?
+  receiverAccount String?
+  paidAt          DateTime?                 @db.Timestamptz(3)
+  /// The verifier's response as received, for audit.
+  raw             Json?
+  reason          String?
+  /// The requester's note when asking for manual review.
+  requesterNote   String?
+  reviewedById    String?
+  reviewedAt      DateTime?                 @db.Timestamptz(3)
+  createdAt       DateTime                  @default(now())
+
+  request    ExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  reviewedBy User?           @relation("PaymentVerificationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([requestId, createdAt])
+  @@index([status])
 }

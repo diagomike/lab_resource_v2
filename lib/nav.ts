@@ -36,17 +36,40 @@ export const NAV: NavGroup[] = [
   {
     label: "Resources",
     items: [
-      { key: "dashboard", label: "Dashboard", icon: "▦", path: "/dashboard" },
-      { key: "register", label: "Register", icon: "▤", path: "/register" },
+      // F-031 of the 2026-09-15 campaign: the asset register (and its history, the
+      // change log below) is staff/custodian/procurement territory — a student or
+      // external account never reaches the underlying routes now either
+      // (STAFF_ROLES, lib/server/auth/session.ts). Hiding the entry here is
+      // convenience on top of that real enforcement, same discipline every other
+      // role-gated item in this file already follows.
+      { key: "dashboard", label: "Dashboard", icon: "▦", path: "/dashboard", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
+      { key: "register", label: "Register", icon: "▤", path: "/register", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
       // A capability gate, not scope-narrowed data — this file's own header note.
       // Matches assertCanBrowseUniversity's exact permitted set (lib/server/resources/
       // scope.ts): global roles are unrestricted already; MANAGER and STORE_KEEPER are
       // the deliberate widening (10b of
       // ~/.claude/plans/three-product-changes-dynamic-thompson.md).
-      { key: "university", label: "University resources", icon: "◫", path: "/university", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER"] },
+      // CUSTODIAN since Track 5: transfers are pulled, so a lab has to be able to find
+      // what another unit holds before asking for it.
+      { key: "university", label: "University resources", icon: "◫", path: "/university", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER", "CUSTODIAN"] },
+      // Track 6 — lab calendars. Students are booked for by their advisor, so the
+      // screen is for the roles the booking service itself accepts.
+      { key: "schedule", label: "Schedule", icon: "◴", path: "/schedule", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN", "STAFF"] },
+      // Track 7 — outside institutions' requests. The service decides what each person
+      // sees (all of them for the AVP's office, their department's for heads/custodians).
+      { key: "external-requests", label: "External requests", icon: "⇲", path: "/external-requests", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN"] },
       { key: "approvals", label: "Approvals", icon: "✓", path: "/approvals" },
-      { key: "purchasing", label: "Purchasing", icon: "▣", path: "/purchasing" },
-      { key: "change-log", label: "Change log", icon: "◷", path: "/change-log" },
+      {
+        key: "purchasing",
+        label: "Purchasing",
+        icon: "▣",
+        path: "/purchasing",
+        // Everyone may raise a need except a student (lib/domain/purchasing.ts's
+        // own canRaiseNeed gate) — hiding the entry is convenience, not the real
+        // enforcement, which the server still applies on every write.
+        roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER", "EXTERNAL"],
+      },
+      { key: "change-log", label: "Change log", icon: "◷", path: "/change-log", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
       { key: "categories", label: "Categories", icon: "◈", path: "/categories" },
     ],
   },
@@ -71,7 +94,9 @@ const YOU_GROUP: NavGroup = { label: "You", items: [{ key: "profile", label: "Pr
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["", "Dashboard", "What the register looks like from where you stand"],
   register: ["", "Register", "Hierarchy, rollup and search views over the resources you can see"],
-  university: ["", "University resources", "Every department's resources, read-only — what to check before approving a purchase"],
+  university: ["", "University resources", "Every unit's resources — find what you need and request it into your lab"],
+  schedule: ["", "Schedule", "Lab calendars — weekly classes, and booking a room or machine"],
+  "external-requests": ["", "External requests", "Workshops and trainings outside institutions have asked the university to host"],
   approvals: ["", "Approvals", "Requests routed to you, and what you have asked for yourself"],
   purchasing: ["", "Purchasing", "Needs raised, purchase requests, and what has arrived"],
   "change-log": ["", "Change log", "Every applied change, who made it, and when"],

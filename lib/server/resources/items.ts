@@ -9,6 +9,8 @@ import {
   type ItemFilterFieldDef,
   type ItemRowDto,
   type ItemSummaryDto,
+  type PublicCatalogDto,
+  type TransferDestinationDto,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
@@ -85,6 +87,11 @@ async function computeScopedIds(
   scopeOverride?: ScopeOverride,
   extraFilters?: FilterState | null,
 ): Promise<{ base: Set<string>; closed: Set<string> }> {
+  // F-031 of the 2026-09-15 campaign: every register read (search/tree/facets/
+  // filterFields/summary/containers/getOne) shares this one choke point, so the
+  // student/external floor lives here once rather than at each of the API routes
+  // that call them (also gated there, defense in depth — see STAFF_ROLES).
+  await scope.assertMayBrowseRegister(userId);
   const resolved = await scope.resolveScope(userId, scopeOverride?.mode, scopeOverride?.explicitNodeIds);
   let base: Set<string>;
   if (resolved.mode === "UNIVERSITY") base = new Set(forest.items.map((i) => i.id));
@@ -341,6 +348,42 @@ export async function facets(userId: string, query: ItemQuery, scopeOverride?: S
 
 const NEEDS_ATTENTION: EffectiveStatus[] = ["BROKEN", "IMPAIRED", "UNDER_MAINTENANCE", "LOST"];
 
+/**
+ * Track 7 — the public portal's catalog: for each category an administrator has marked
+ * `publicListed`, how many WORKING units (derived status, the same engine the dashboard
+ * uses — a lab whose switch rack died is not offered) exist across the whole university.
+ * For stock, the working quantity. Deliberately nothing else: no unit, no location, no
+ * item, no tree — "we have 700 workstations", never where they are.
+ */
+export async function publicCatalog(): Promise<PublicCatalogDto> {
+  const [forest, listed] = await Promise.all([
+    loadForest(),
+    prisma.resourceCategory.findMany({ where: { publicListed: true, active: true }, include: { group: { select: { name: true, sortOrder: true } } } }),
+  ]);
+  const counts = new Map<string, number>();
+  for (const item of forest.items) {
+    if (!listed.some((c) => c.id === item.categoryId)) continue;
+    const effective = forest.statuses.get(item.id)?.effective ?? "WORKING";
+    if (NEEDS_ATTENTION.includes(effective) || effective === "CONSUMED") continue;
+    counts.set(item.categoryId, (counts.get(item.categoryId) ?? 0) + (forest.categories[item.categoryId]?.countingMode === "BULK" ? Number(item.qty) : 1));
+  }
+  const groups = new Map<string, { name: string; sortOrder: number; categories: PublicCatalogDto["groups"][number]["categories"] }>();
+  for (const c of listed) {
+    const count = counts.get(c.id) ?? 0;
+    if (count === 0) continue;
+    const g = groups.get(c.groupId) ?? { name: c.group.name, sortOrder: c.group.sortOrder, categories: [] };
+    g.categories.push({ id: c.id, name: c.name, iconKey: c.iconKey, bookingMode: c.bookingMode, count, unit: c.unit });
+    groups.set(c.groupId, g);
+  }
+  const rank = (mode: string) => (mode === "ROOM" ? 0 : mode === "EQUIPMENT" ? 1 : 2);
+  return {
+    groups: [...groups.values()]
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+      .map((g) => ({ name: g.name, categories: g.categories.sort((a, b) => rank(a.bookingMode) - rank(b.bookingMode) || a.name.localeCompare(b.name)) })),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 /** Dashboard totals over the exact same direct-scope, genuine-match set returned by
  * `search()`. Context-only ancestors are a tree navigation aid, not resources that
  * should inflate the dashboard, and every filter is applied before counting so the
@@ -433,7 +476,7 @@ export async function containers(userId: string, categoryId: string, excludeSubt
   if (!forest.categories[categoryId]) throw new HttpError(400, "Choose an existing category.");
 
   const { base: visible } = await computeScopedIds(userId, forest);
-  const writable = (await scope.isSysAdmin(userId)) ? null : new Set(await scope.custodyItemIdsOf(userId));
+  const writable = (await scope.isSysAdmin(userId)) ? null : new Set(await scope.writableItemIdsOf(userId));
 
   const excluded = new Set(subtreeIds(forest.index, excludeSubtreeIds));
 
@@ -458,6 +501,71 @@ export async function containers(userId: string, categoryId: string, excludeSubt
   });
 }
 
+/**
+ * Candidate TRANSFER destinations (Track 3, `GET /resources/transfers/destinations`)
+ * — deliberately the opposite of `containers()` above: a transfer's whole point is a
+ * destination OUTSIDE the requester's own custody, so this has no `writable` filter
+ * and no `computeScopedIds` visibility filter either (the requester may have never
+ * seen the receiving department's register at all). What still applies:
+ *  - custody of the SOURCE item(s) being transferred, the same floor requesting a
+ *    transfer itself requires;
+ *  - placement-legal for EVERY selected item's category, same as a real transfer
+ *    would enforce at apply time;
+ *  - the destination's current org node must be active.
+ * A non-empty, ≥2-character search query is required and results are capped — this
+ * is a narrow "name the place you already have in mind" search, never a full
+ * cross-university browse/dump (see the plan's own §6.5 for why, and the possible
+ * alternative flagged there).
+ */
+export async function transferDestinations(userId: string, itemIds: string[], q: string): Promise<TransferDestinationDto[]> {
+  const query = q.trim();
+  if (query.length < 2) throw new HttpError(400, "Type at least 2 characters to search.");
+  if (!itemIds.length) throw new HttpError(400, "Choose at least one resource to transfer.");
+  // Track 5 — transfers are pulled from University resources now; searching for a
+  // place to SEND something is only the store keeper's handover.
+  const roles = await scope.rolesOf(userId);
+  if (!roles.includes("STORE_KEEPER") && !roles.includes("SYS_ADMIN")) {
+    throw new HttpError(403, "Only the store keeper hands resources over to another unit — request what you need from University resources instead.");
+  }
+  await scope.assertCanMutate(userId, itemIds);
+
+  const forest = await loadForest();
+  const sourceItems = itemIds.map((id) => forest.index.byId.get(id)).filter((i): i is NonNullable<typeof i> => i != null);
+  if (sourceItems.length !== itemIds.length) throw new HttpError(400, "One or more of these resources no longer exist.");
+
+  const excluded = new Set(subtreeIds(forest.index, itemIds));
+  const needle = query.toLowerCase();
+
+  const activeNodes = await prisma.orgNode.findMany({ where: { active: true }, select: { id: true, name: true } });
+  const nodeNameById = new Map(activeNodes.map((n) => [n.id, n.name]));
+
+  const candidates = forest.items
+    .filter((item) => !excluded.has(item.id))
+    .filter((item) => item.name.toLowerCase().includes(needle))
+    .filter((item) => nodeNameById.has(item.currentOrgNodeId))
+    .filter((item) => sourceItems.every((source) => canPlace(forest.categories, source.categoryId, item.categoryId)))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 25);
+  const custodians = await prisma.user.findMany({ where: { id: { in: [...new Set(candidates.map((i) => i.custodianId))] } }, select: { id: true, name: true } });
+  const custodianNameById = new Map(custodians.map((u) => [u.id, u.name]));
+
+  return candidates.map((item) => {
+    const category = forest.categories[item.categoryId];
+    return {
+      id: item.id,
+      name: item.name,
+      categoryId: item.categoryId,
+      categoryName: category?.name ?? item.categoryId,
+      categoryIconKey: category?.iconKey ?? "Package",
+      path: pathOf(forest.index, item.id),
+      orgNodeId: item.currentOrgNodeId,
+      orgNodeName: nodeNameById.get(item.currentOrgNodeId) ?? "",
+      custodianId: item.custodianId,
+      custodianName: custodianNameById.get(item.custodianId) ?? "",
+    };
+  });
+}
+
 /** Out-of-scope returns 404, not 403 — a 403 would confirm the row exists. No
  *  `extraFilters` parameter — a saved view query narrows LISTS, exactly like the
  *  ordinary core-field filters already do; it has never gated a direct point read by
@@ -468,16 +576,38 @@ export async function getOne(userId: string, id: string, scopeOverride?: ScopeOv
   const item = forest.index.byId.get(id);
   if (!item) throw new HttpError(404, "Resource not found");
 
-  const [{ base }, lookups, images] = await Promise.all([
+  const [{ base, closed }, lookups, images] = await Promise.all([
     computeScopedIds(userId, forest, scopeOverride),
     nameLookups(),
     prisma.itemImage.findMany({ where: { itemId: id }, orderBy: { sortOrder: "asc" } }),
   ]);
   const row = toRowDto(item, forest, lookups, !base.has(id));
+
+  // Direct children only, in the SAME visibility a list read would grant them —
+  // closed (base + ancestor-closure) rather than the unfiltered index, so clicking
+  // one to navigate never lands on a 404 the child's own visibility would refuse.
+  const children = (forest.index.childrenOf.get(id) ?? [])
+    .filter((c) => closed.has(c.id))
+    .map((c) => {
+      const category = forest.categories[c.categoryId];
+      return {
+        id: c.id,
+        name: c.name,
+        categoryId: c.categoryId,
+        categoryName: category?.name ?? c.categoryId,
+        categoryIconKey: category?.iconKey ?? "Package",
+        effectiveStatus: statusOf(forest.statuses, c.id),
+        critical: c.critical,
+        readOnlyContext: !base.has(c.id),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return {
     ...row,
     images: images.map((img) => ({ id: img.id, url: `/api/resources/images/${img.storageKey}`, caption: img.caption, sortOrder: img.sortOrder })),
     customProps: item.customProps ?? {},
+    children,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

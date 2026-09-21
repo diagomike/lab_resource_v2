@@ -26,6 +26,7 @@ export function PeopleTable({
   sorting,
   onSortingChange,
   isAdmin,
+  canManage,
   onManage,
   onResendInvite,
 }: {
@@ -33,9 +34,14 @@ export function PeopleTable({
   sorting: SortingState;
   onSortingChange: (s: SortingState) => void;
   isAdmin: boolean;
+  /** Admin, or a department head managing their own staff (F-014 of the
+   *  2026-09-15 campaign) — defaults to `isAdmin` so any other caller of this
+   *  table keeps today's behaviour unchanged. */
+  canManage?: boolean;
   onManage: (p: PersonDto) => void;
   onResendInvite: (p: PersonDto) => void;
 }) {
+  const showManage = canManage ?? isAdmin;
   const columns = useMemo(() => {
     // v9's `getCanSort()` hard-requires `accessorFn` (rowSortingFeature.utils.ts:
     // `!!column.accessorFn`) — a `.display()` column can never be sortable no matter
@@ -112,7 +118,7 @@ export function PeopleTable({
           return (
             <div className="flex items-center gap-6 justify-end">
               {p.status !== "DISABLED" && p.status === "INVITED" && <Button onClick={() => onResendInvite(p)}>Resend invite</Button>}
-              {isAdmin && (
+              {showManage && (
                 <Button variant="primary" onClick={() => onManage(p)}>
                   Manage
                 </Button>
@@ -123,7 +129,7 @@ export function PeopleTable({
       }),
     ];
     return cols;
-  }, [isAdmin, onManage, onResendInvite]);
+  }, [showManage, onManage, onResendInvite]);
 
   const table = useTable({
     features,

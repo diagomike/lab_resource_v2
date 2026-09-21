@@ -17,3 +17,6 @@ apps/api/prisma/*.db-journal
 # if set, else this default.
 .local-storage/
 neon.env
+
+# E2E lifecycle walkthrough fixture state (prisma/e2e-workflow-fixture.ts)
+prisma/.e2e-fixture-state.json

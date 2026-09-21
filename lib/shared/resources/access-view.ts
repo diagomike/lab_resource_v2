@@ -50,7 +50,7 @@ const ViewAudienceInput = z.discriminatedUnion("type", [
 
 export const UpsertAccessViewInput = z.object({
   id: z.string().optional(),
-  name: z.string().min(1),
+  name: z.string().trim().min(1).max(160),
   description: z.string().optional(),
   scope: ScopeModeSchema,
   explicitNodeIds: z.array(z.string()).default([]),

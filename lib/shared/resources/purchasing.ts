@@ -6,12 +6,15 @@
  * Items moving through the ordinary applyChange path.
  *
  * Three separate things, kept separate: a NEED (informal, never auto-converted), a
- * PURCHASE REQUEST (the department's formal ask, walking Head → Dean → CMD → AVP →
- * Procurement), and the PROCUREMENT PIPELINE (what purchasing reports afterward —
- * recorded, not decided).
+ * PURCHASE REQUEST (the department's formal ask, walking the org chart itself —
+ * owning unit's head, then every ancestor up to the university root, then
+ * Procurement — see Track 4's plan for why this is dynamic rather than a fixed
+ * named sequence), and the PROCUREMENT PIPELINE (what purchasing reports
+ * afterward — recorded, not decided).
  */
 import { z } from "zod";
 import { NeedStatusSchema, PurchaseStageSchema } from "./enums";
+import { ChainStepDto } from "./approvals";
 
 export const NeedLineDto = z.object({
   id: z.string(),
@@ -31,6 +34,9 @@ export const NeedLineDto = z.object({
   handledAt: z.string().nullable(),
   note: z.string().nullable(),
   purchaseLineId: z.string().nullable(),
+  /** The request this need was carried into, so whoever raised it can follow it. */
+  purchaseReference: z.string().nullable(),
+  purchaseStage: PurchaseStageSchema.nullable(),
 });
 export type NeedLineDto = z.infer<typeof NeedLineDto>;
 
@@ -47,6 +53,17 @@ export const DeclineNeedInput = z.object({
   note: z.string().min(1),
 });
 export type DeclineNeedInput = z.infer<typeof DeclineNeedInput>;
+
+/** `note` is optional for the raiser's own withdrawal (while APPROVING/REVISING) but
+ *  required once procurement is cancelling an order already placed (F-047 of the
+ *  2026-09-15 campaign) — enforced server-side, not by this schema, since which one
+ *  applies depends on who's asking and the request's own stage. */
+export const CancelPurchaseRequestInput = z
+  .object({
+    note: z.string().min(1).optional(),
+  })
+  .default({}); // the raiser's own withdrawal sends no body at all
+export type CancelPurchaseRequestInput = z.infer<typeof CancelPurchaseRequestInput>;
 
 export const PurchaseLineDto = z.object({
   id: z.string(),
@@ -87,6 +104,11 @@ export const PurchaseRequestDto = z.object({
   history: z.array(PurchaseEventDto),
   /** The last feedback from an approver who sent it back. */
   feedback: z.string().nullable(),
+  /** The chain this request is walking — the owning unit's head, then every
+   *  ancestor up to the university root, then the Procurement Office. Empty
+   *  outside APPROVING (a request that never left DRAFT, or one already
+   *  settled/rejected/revised, has no live chain to show). */
+  steps: z.array(ChainStepDto),
 });
 export type PurchaseRequestDto = z.infer<typeof PurchaseRequestDto>;
 

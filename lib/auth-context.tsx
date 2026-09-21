@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import type { MeContextDto, SessionUserDto } from "@/lib/shared";
 import { api, ApiError } from "./api";
 
@@ -20,20 +21,31 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+/** F-057: the public portal is for signed-out outsiders — probing /auth/me from it only
+ *  produced a 401 per visit. */
+const isPublicPath = (pathname: string | null) => pathname === "/portal" || (pathname?.startsWith("/portal/") ?? false);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeContextDto | null>(null);
   const [loading, setLoading] = useState(true);
+  const publicPage = isPublicPath(usePathname());
 
   // `loading` exists because session validation is async on mount: every authenticated
   // screen therefore has an initial indeterminate state, which the shell renders as a
   // content-pane SessionCheck rather than a full-page spinner.
   useEffect(() => {
+    if (publicPage) {
+      setLoading(false);
+      return;
+    }
+    // Arriving from the portal (client-side navigation) starts a fresh session check.
+    setLoading(true);
     api
       .get<MeContextDto>("/auth/me")
       .then(setMe)
       .catch(() => setMe(null))
       .finally(() => setLoading(false));
-  }, []);
+  }, [publicPage]);
 
   async function login(email: string, password: string): Promise<MeContextDto> {
     // /auth/login itself only returns the session user (see auth.controller.ts) — scope

@@ -230,7 +230,7 @@ function ChangeLogPageInner() {
         )}
       </Panel>
 
-      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={() => {}} />
+      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={() => {}} onNavigate={setInspectId} />
     </Screen>
   );
 }

@@ -12,6 +12,7 @@
 import { z } from "zod";
 import { RoleKindSchema } from "../enums";
 import { CountingModeSchema, ItemChangeKindSchema, PolicyOutcomeSchema, RequestStatusSchema, StepSelectorTypeSchema, StepStatusSchema } from "./enums";
+import { ItemChangeResultDto, TransferItemChange } from "./item";
 
 // ── Selectors ────────────────────────────────────────────────────────────
 
@@ -122,3 +123,18 @@ export const DecideStepInput = z.object({
   note: z.string().optional(),
 });
 export type DecideStepInput = z.infer<typeof DecideStepInput>;
+
+// ── Track 3 — requesting a transfer ─────────────────────────────────────
+
+export const RequestTransferInput = z.object({ input: TransferItemChange });
+export type RequestTransferInput = z.infer<typeof RequestTransferInput>;
+
+/** `requestTransfer`'s result: either the policy resolved AUTO (or every chain step
+ *  turned out to be the requester's own post, so it was applied on the spot — see
+ *  lib/domain/approvals.ts's "requester holds this post — skipped" rule) and the
+ *  transfer already happened, or it resolved CHAIN and now waits as a `ChangeRequest`. */
+export const RequestTransferResultDto = z.discriminatedUnion("outcome", [
+  z.object({ outcome: z.literal("APPLIED"), result: ItemChangeResultDto }),
+  z.object({ outcome: z.literal("ROUTED"), request: ChangeRequestDto }),
+]);
+export type RequestTransferResultDto = z.infer<typeof RequestTransferResultDto>;

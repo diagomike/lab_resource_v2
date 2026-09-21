@@ -15,6 +15,7 @@ import { FilterBar } from "./FilterBar";
 import { Inspector } from "./Inspector";
 import { AddModal } from "./AddModal";
 import { BulkPropModal } from "./BulkPropModal";
+import { TransferModal } from "./TransferModal";
 
 const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
 
@@ -23,6 +24,7 @@ function RegisterPageInner() {
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [propField, setPropField] = useState<CategoryFieldDto | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const allExpanded = state.expanded === true;
   const options = useEditOptions();
@@ -38,6 +40,9 @@ function RegisterPageInner() {
   const activeViewId = useActiveViewId();
   const views = me?.views ?? [];
   const canEdit = views.length === 0 || (views.find((v) => v.id === activeViewId) ?? views[0])?.canEdit !== false;
+  // Transfers are pulled from University resources (Track 5); pushing stock out is the
+  // store keeper's handover only.
+  const canHandOver = Boolean(me?.user.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));
 
   useEffect(() => {
     api
@@ -52,6 +57,20 @@ function RegisterPageInner() {
   });
 
   const selectedIds = state.selectedItemIds;
+  /** Ticking a row ticks everything inside it too; a move or transfer is about the
+   *  top-most of those only — their contents travel with them (the server collapses
+   *  the selection the same way). */
+  const selectedRootIds = useMemo(() => {
+    const chosen = new Set(selectedIds);
+    return selectedIds.filter((id) => {
+      let parentId = state.byId.get(id)?.parentId ?? null;
+      while (parentId) {
+        if (chosen.has(parentId)) return false;
+        parentId = state.byId.get(parentId)?.parentId ?? null;
+      }
+      return true;
+    });
+  }, [selectedIds, state.byId]);
   const selectedRows = useMemo(() => selectedIds.map((id) => state.byId.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r)), [selectedIds, state.byId]);
 
   /** "Move to…"'s own options — the same container-picker endpoint AddModal's "Into"
@@ -109,9 +128,9 @@ function RegisterPageInner() {
     if (!rawValue) return; // the picker's own placeholder, not a real choice
     const value = rawValue === MOVE_TOP_LEVEL ? null : rawValue;
     request({
-      input: { kind: "moveInTree", itemIds: selectedIds, value },
+      input: { kind: "moveInTree", itemIds: selectedRootIds, value },
       title: "Relocation",
-      message: `Move ${selectedIds.length} selected resources to ${value ? "the chosen destination" : "the top level"}?`,
+      message: `Move ${selectedRootIds.length} selected resource${selectedRootIds.length === 1 ? "" : "s"} (with everything inside them) to ${value ? "the chosen destination" : "the top level"}?`,
       tone: "warn",
     });
   }
@@ -286,6 +305,7 @@ function RegisterPageInner() {
                 ))}
               </select>
             )}
+            {canHandOver && <Button onClick={() => setTransferOpen(true)}>Hand over…</Button>}
             <button onClick={bulkDelete} className="text-10.5 text-bad ml-auto">
               Delete selected
             </button>
@@ -327,7 +347,7 @@ function RegisterPageInner() {
         )}
       </Panel>
 
-      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} readOnly={!canEdit} />
+      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} onNavigate={setInspectId} readOnly={!canEdit} />
 
       {canEdit && <AddModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={state.refetch} />}
 
@@ -338,6 +358,19 @@ function RegisterPageInner() {
           onClose={() => setPropField(null)}
           onApplied={() => {
             setPropField(null);
+            state.setSelection({});
+            state.refetch();
+          }}
+        />
+      )}
+
+      {transferOpen && selectedRootIds.length > 0 && (
+        <TransferModal
+          itemIds={selectedRootIds}
+          label={selectedRootIds.length === 1 ? `"${state.byId.get(selectedRootIds[0])?.name ?? "1 resource"}"` : `${selectedRootIds.length} resources`}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => {
+            setTransferOpen(false);
             state.setSelection({});
             state.refetch();
           }}

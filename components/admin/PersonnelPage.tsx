@@ -35,8 +35,12 @@ const ALL_ROLE_KINDS: RoleKind[] = [
 const MANAGER_INVITABLE: RoleKind[] = ["CUSTODIAN", "STAFF"];
 
 export default function PersonnelPage() {
-  const { user } = useAuth();
+  const { user, me } = useAuth();
   const isAdmin = (user?.roles ?? []).includes("SYS_ADMIN");
+  // Occupancy, not the MANAGER role (F-017 of the 2026-09-15 campaign) — a head who
+  // occupies a node manages their own staff (F-014) even without that role label.
+  const isHead = Boolean(me?.scope?.isOccupant);
+  const canManageStaff = isAdmin || isHead;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -85,8 +89,26 @@ export default function PersonnelPage() {
   }
   useEffect(reload, []);
   useEffect(() => {
-    if (isAdmin) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(() => setNodes([]));
-  }, [isAdmin]);
+    if (isAdmin || isHead) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(() => setNodes([]));
+  }, [isAdmin, isHead]);
+
+  /** F-018: the units a head may add people into — the nodes they occupy plus everything beneath them
+   *  (the same subtree the server checks, `scope.visibleNodeIds`). Admins pick from the whole chart. */
+  const inviteNodes = useMemo(() => {
+    if (isAdmin) return nodes;
+    const reach = new Set(nodes.filter((n) => n.active && n.occupant?.id === user?.id).map((n) => n.id));
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const n of nodes) {
+        if (!n.active || reach.has(n.id)) continue;
+        if (n.parentIds.some((p) => reach.has(p))) {
+          reach.add(n.id);
+          grew = true;
+        }
+      }
+    }
+    return nodes.filter((n) => n.active && reach.has(n.id));
+  }, [nodes, isAdmin, user?.id]);
 
   async function deactivate(p: PersonDto) {
     if (!confirm(`Deactivate ${p.name}? They will no longer be able to sign in.`)) return;
@@ -126,6 +148,15 @@ export default function PersonnelPage() {
     }
   }
 
+  async function moveHomeNode(personId: string, nodeId: string | null) {
+    try {
+      await api.post(`/people/${personId}/home-node`, { nodeId, reason: "Moved via admin console" });
+      reload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not move this person's department");
+    }
+  }
+
   async function updateRoles(personId: string, roles: RoleKind[]) {
     try {
       await api.post(`/people/${personId}/roles`, { roles });
@@ -147,7 +178,7 @@ export default function PersonnelPage() {
         {showForm && (
           <PersonForm
             isAdmin={isAdmin}
-            nodes={nodes}
+            nodes={inviteNodes}
             onDone={(inviteUrl) => {
               setShowForm(false);
               setInviteLink(inviteUrl);
@@ -207,6 +238,7 @@ export default function PersonnelPage() {
               sorting={sorting}
               onSortingChange={setSorting}
               isAdmin={isAdmin}
+              canManage={canManageStaff}
               onManage={(p) => setManageId(p.id)}
               onResendInvite={resendInvite}
             />
@@ -218,10 +250,12 @@ export default function PersonnelPage() {
         <PersonManageModal
           person={managing}
           nodes={nodes}
+          isAdmin={isAdmin}
           isSelf={managing.id === user?.id}
           onClose={() => setManageId(null)}
           onSaveRoles={(roles) => updateRoles(managing.id, roles)}
           onAssignNode={(nodeId) => assignNode(managing.id, nodeId)}
+          onMoveHomeNode={(nodeId) => moveHomeNode(managing.id, nodeId)}
           onDeactivate={() => deactivate(managing)}
           onReactivate={() => reactivate(managing)}
           onError={setError}
@@ -323,26 +357,34 @@ function RoleChip({
 function PersonManageModal({
   person,
   nodes,
+  isAdmin,
   isSelf,
   onClose,
   onSaveRoles,
   onAssignNode,
+  onMoveHomeNode,
   onDeactivate,
   onReactivate,
   onError,
 }: {
   person: PersonDto;
   nodes: OrgNodeDto[];
+  isAdmin: boolean;
   isSelf: boolean;
   onClose: () => void;
   onSaveRoles: (roles: RoleKind[]) => void;
   onAssignNode: (nodeId: string | null) => void;
+  onMoveHomeNode: (nodeId: string | null) => void;
   onDeactivate: () => void;
   onReactivate: () => void;
   onError: (m: string) => void;
 }) {
   const [roleDraft, setRoleDraft] = useState<RoleKind[]>(person.roles);
   const rolesDirty = JSON.stringify([...roleDraft].sort()) !== JSON.stringify([...person.roles].sort());
+  // A head sees and may only ever set CUSTODIAN/STAFF — the server enforces the
+  // identical floor (F-014 of the 2026-09-15 campaign); this just keeps the UI from
+  // offering a control that would only 403.
+  const editableRoles = isAdmin ? ALL_ROLE_KINDS : MANAGER_INVITABLE;
 
   function toggleRole(r: RoleKind) {
     if (isSelf && r === "SYS_ADMIN") return;
@@ -364,7 +406,7 @@ function PersonManageModal({
       <div>
         <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Roles</div>
         <div className="flex flex-wrap gap-8">
-          {ALL_ROLE_KINDS.map((r) => (
+          {editableRoles.map((r) => (
             <RoleChip
               key={r}
               role={r}
@@ -385,19 +427,43 @@ function PersonManageModal({
         </div>
       </div>
 
-      <div>
-        <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Occupies node</div>
-        <div className="mb-8 text-11 text-dim">
-          {person.occupiesNodeName ? <span className="text-text">{person.occupiesNodeName}</span> : <span className="text-faint">headless — occupies nothing</span>}
+      {/* Node occupancy stays an admin-only act (F-014's own scoping note) — a head
+          manages their staff's roles and standing, never who holds a post. */}
+      {isAdmin && (
+        <div>
+          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Occupies node</div>
+          <div className="mb-8 text-11 text-dim">
+            {person.occupiesNodeName ? <span className="text-text">{person.occupiesNodeName}</span> : <span className="text-faint">headless — occupies nothing</span>}
+          </div>
+          <EntityPicker
+            options={nodes.filter((n) => n.active).map((n) => ({ id: n.id, label: n.name, sublabel: n.kind }))}
+            value={person.occupiesNodeId}
+            onSelect={(nodeId) => onAssignNode(nodeId)}
+            placeholder="Assign a node…"
+            clearLabel="Vacate this person's node"
+          />
         </div>
-        <EntityPicker
-          options={nodes.filter((n) => n.active).map((n) => ({ id: n.id, label: n.name, sublabel: n.kind }))}
-          value={person.occupiesNodeId}
-          onSelect={(nodeId) => onAssignNode(nodeId)}
-          placeholder="Assign a node…"
-          clearLabel="Vacate this person's node"
-        />
-      </div>
+      )}
+
+      {/* F-015 of the 2026-09-15 campaign — moving a person's home DEPARTMENT
+          (membership), distinct from occupancy above. There was previously no way
+          to do this at all short of a direct DB edit. Refused server-side while
+          they hold custody, an open need or an open staged draft. */}
+      {isAdmin && (
+        <div>
+          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Home department</div>
+          <div className="mb-8 text-11 text-dim">
+            {person.homeNodeName ? <span className="text-text">{person.homeNodeName}</span> : <span className="text-faint">none</span>}
+          </div>
+          <EntityPicker
+            options={nodes.filter((n) => n.active).map((n) => ({ id: n.id, label: n.name, sublabel: n.kind }))}
+            value={person.homeNodeId}
+            onSelect={(nodeId) => onMoveHomeNode(nodeId)}
+            placeholder="Move to a department…"
+            clearLabel="Clear this person's home department"
+          />
+        </div>
+      )}
 
       <div className="pt-4 border-t border-border">
         {person.status === "DISABLED" ? (
@@ -459,7 +525,7 @@ function PersonForm({
         email: email.trim(),
         phone: phone.trim() || undefined,
         roles,
-        homeNodeId: isAdmin && homeNodeId ? homeNodeId : undefined,
+        homeNodeId: homeNodeId || undefined,
       });
       onDone(result.inviteUrl);
     } catch (e) {
@@ -484,9 +550,9 @@ function PersonForm({
           <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Phone (optional)</span>
           <input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent" />
         </label>
-        {isAdmin && (
+        {(isAdmin || nodes.length > 1) && (
           <label className="block">
-            <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Home department (optional)</span>
+            <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Home department{isAdmin ? " (optional)" : ""}</span>
             <select value={homeNodeId} onChange={(e) => setHomeNodeId(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-6 text-11.5 outline-none focus:border-accent">
               <option value="">—</option>
               {nodes.map((n) => (

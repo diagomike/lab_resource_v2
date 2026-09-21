@@ -141,6 +141,9 @@ function filterWhere(query: ChangeLogQuery): Prisma.ItemChangeWhereInput {
  *  a batch's rows contiguous within a page, which is what lets the client group them
  *  into one visual operation instead of unrelated rows that happen to share a badge. */
 export async function browse(userId: string, query: ChangeLogQuery, page = 1, pageSize = 50): Promise<ChangeLogPage> {
+  // F-031 of the 2026-09-15 campaign — the change log is register history, the
+  // same surface items.ts's own computeScopedIds gates.
+  await scope.assertMayBrowseRegister(userId);
   const scopeWhere = await changeLogScopeWhere(userId);
   const where: Prisma.ItemChangeWhereInput = { AND: [scopeWhere, filterWhere(query)] };
 

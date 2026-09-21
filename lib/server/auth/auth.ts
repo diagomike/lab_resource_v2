@@ -26,6 +26,15 @@ import { generateToken, hashIp, hashToken } from "./token";
 
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7);
 const PASSWORD_RESET_TTL_HOURS = 2;
+// F-010 of the 2026-09-15 campaign — neither login nor forgot-password had any
+// throttle at all. Both are table-counted (the same serverless-safe technique
+// external/requests.ts's submission throttle already uses), locked per ACCOUNT
+// (emailLower), not per IP: an attacker spread across many IPs is the realistic
+// threat model, and an IP-keyed lock would take out a whole shared-NAT lab instead.
+const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60_000;
+const MAX_LOGIN_FAILURES_PER_WINDOW = 5;
+const PASSWORD_RESET_WINDOW_MS = 60 * 60_000;
+const MAX_PASSWORD_RESETS_PER_WINDOW = 3;
 // Renamed from WEB_ORIGIN: same purpose (the app's own public origin, for absolute
 // links in emails), no longer double-duty as "the frontend dev server's CORS origin"
 // now that everything is same-origin.
@@ -39,18 +48,35 @@ export async function login(
   input: LoginInput,
   meta: { ip?: string; userAgent?: string },
 ): Promise<{ token: string; user: SessionUserDto }> {
+  const emailLower = input.email.toLowerCase();
+  const ipHash = hashIp(meta.ip);
+
+  const since = new Date(Date.now() - LOGIN_LOCKOUT_WINDOW_MS);
+  const recentFailures = await prisma.loginAttempt.count({ where: { emailLower, succeeded: false, createdAt: { gte: since } } });
+  if (recentFailures >= MAX_LOGIN_FAILURES_PER_WINDOW) {
+    throw new HttpError(401, "Too many failed attempts on this account — wait 15 minutes and try again.");
+  }
+
   const user = await prisma.user.findUnique({
-    where: { emailLower: input.email.toLowerCase() },
+    where: { emailLower },
     include: { roles: true },
   });
 
   // One message for "no such user" and "wrong password" alike — a distinct error would
   // turn the login form into an account-enumeration oracle.
-  if (!user || !user.passwordHash) throw new HttpError(401, "Invalid email or password");
-  if (user.status === "DISABLED") throw new HttpError(401, "Account disabled");
-  if (!(await argon2.verify(user.passwordHash, input.password))) {
+  if (!user || !user.passwordHash) {
+    await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: false } });
     throw new HttpError(401, "Invalid email or password");
   }
+  if (user.status === "DISABLED") {
+    await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: false } });
+    throw new HttpError(401, "Account disabled");
+  }
+  if (!(await argon2.verify(user.passwordHash, input.password))) {
+    await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: false } });
+    throw new HttpError(401, "Invalid email or password");
+  }
+  await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: true } });
 
   const raw = generateToken();
   await prisma.session.create({
@@ -82,6 +108,17 @@ export async function register(input: RegisterInput): Promise<{ email: string }>
 
   const user = await prisma.user.findUnique({ where: { emailLower: invitation.emailLower } });
   if (!user) throw new HttpError(400, "No account matches this invitation");
+  // F-012 of the 2026-09-15 campaign: a DISABLED account (deactivated after being
+  // invited, before ever accepting) must not be reactivated by consuming a leftover
+  // token — `people.deactivate` now also expires every open invitation for the same
+  // reason, so this is the second, independent half of the same fix, not a
+  // duplicate: whichever of the two a future code path forgets, the other still
+  // holds. status is the identity check that actually matters here; "INVITED" vs.
+  // "ACTIVE" is not (re-accepting an already-active account is refused by the
+  // invitation's own consumedAt check above in the normal case, but a person could
+  // in principle be re-invited without a status change — status ACTIVE/INVITED are
+  // both fine to proceed from, only DISABLED is not).
+  if (user.status === "DISABLED") throw new HttpError(400, "This account has been disabled — contact an administrator.");
 
   const passwordHash = await argon2.hash(input.password);
   await prisma.$transaction([
@@ -107,7 +144,21 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<void> 
   const user = await prisma.user.findUnique({
     where: { emailLower: input.email.toLowerCase() },
   });
-  if (!user || user.status === "DISABLED") return;
+  // F-009 of the 2026-09-15 campaign: an account with no password yet — INVITED, or
+  // any other state that never completed register() — has no password to reset. A
+  // reset link for one silently became a second, un-expiring onboarding path that
+  // bypassed the invitation's own 7-day expiry and never changed status off INVITED,
+  // so `login`'s "invalid email or password" gate was the only thing (accidentally)
+  // stopping it from signing in immediately. Still returns silently either way — the
+  // same account-enumeration reasoning as everywhere else in this file.
+  if (!user || user.status === "DISABLED" || !user.passwordHash) return;
+
+  // F-010: at most 3 reset emails per account per hour — unthrottled, this could
+  // flood any mailbox and, on the shared Gmail SMTP relay, exhaust the daily sending
+  // quota, after which invitations and quote emails silently stop going out too.
+  const since = new Date(Date.now() - PASSWORD_RESET_WINDOW_MS);
+  const recent = await prisma.passwordReset.count({ where: { userId: user.id, createdAt: { gte: since } } });
+  if (recent >= MAX_PASSWORD_RESETS_PER_WINDOW) return;
 
   const raw = generateToken();
   await prisma.passwordReset.create({

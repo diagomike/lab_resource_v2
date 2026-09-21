@@ -556,7 +556,7 @@ export function AddModal({
           <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
             {selectedCategory.fields.map((f) => (
               <label key={f.key} className="block">
-                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">{f.unit ? `${f.label} (${f.unit})` : f.label}</div>
+                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">{f.unit ? `${f.label} (${f.unit})` : f.label}{f.required ? " *" : ""}</div>
                 <PropInput field={f} value={propDrafts[f.key] ?? ""} onChange={(v) => setPropDrafts((d) => ({ ...d, [f.key]: v }))} onCommit={() => {}} />
               </label>
             ))}
