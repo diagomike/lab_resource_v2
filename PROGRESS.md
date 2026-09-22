@@ -4069,6 +4069,21 @@ its model that make porting it as-is the wrong move.
 
   **Fix campaign complete** — all 57 findings are Fixed or Decided. Stopping here for review.
 
+- **2026-09-22 (manual test plan — docs only, no product changes)** — Wrote
+  `docs/manual-test-plan-2026-09-22.md`, an ordered, click-by-click acceptance plan for the
+  user's four asks: set up CSE + SE lab data, the draft-mode status-approval flow, the full
+  purchase path (need → compile → dean/AVP/procurement → pipeline → store receipt → handover
+  to lab), and bookings by own-department staff, other-department staff and external
+  requesters (portal → forward to both departments → holds → quote → split/wrong/manual
+  payments). Findings from preparing it: **CSE does not exist in any seed** — the plan creates
+  it through Org Studio under CoEEC, with its head/custodian/staff invited in-app; a fresh
+  seed has **no bookable category** (the E2E clone's `Lab`=ROOM/public was set by the suites),
+  so the plan sets Lab/Computer booking modes first; the seeded `SE Lab X — Software Lab 3` is
+  IMPAIRED (switch down) and thus unbookable — used as the repair-through-approval test; the
+  dev DB `lrms_v2` is polluted with `__test-*` org nodes and its real Procurement Office is
+  INACTIVE, so the plan runs on a freshly rebuilt `lrms_v2_e2e` clone instead. Nothing was
+  executed against either database.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
@@ -4078,3 +4093,59 @@ its model that make porting it as-is the wrong move.
 - Be cautious about live-testing mutations in the browser when there's
   evidence the user is concurrently using the app themselves (watch for org
   data changing that this session didn't cause).
+
+- **2026-09-22 (manual-test feedback → fix plan; docs only, no product changes)** — The user's first
+  run of `docs/manual-test-plan-2026-09-22.md` stopped before Part 1D with ten comments. Each was
+  traced to its cause and planned as a workstream in `docs/fix-plan-2026-09-22.md`:
+  - **WS-1** password reset and one-time sign-in links. `lrms_v2_e2e` has zero `PasswordReset`
+    rows, so `forgotPassword` returned early. The likely cause is the F-009 silent no-op for an
+    INVITED account. Reproduce first.
+  - **WS-2** copy invite link and admin-issued reset link in People → Manage.
+  - **WS-3** a shared indented tree picker replacing the six `" / "`-joined selects.
+  - **WS-4** no-flicker saves: `useRegisterState`'s refetch does `setRows(null)`, which swaps the
+    table for a skeleton.
+  - **WS-5** bulk create: `createItem` always passes `startIndex = 1`. The plan adds sibling-unique
+    names, lowest-free-number gap fill, a pre-filled Name field and a preview modal.
+  - **WS-6** all lucide icons in a searchable picker.
+  - **WS-7** a Grouped register mode, the default on University resources.
+  - **WS-8** draft mode auto-stages edits instead of the 403 from `assertDraftWorkflowNotBlocking`.
+  - **WS-9** a Lab states page with tabs Current / Draft overlay / Ideal / Approvals.
+
+  Six decisions (D1–D6) wait on the user. The manual test plan was revised in place: WS-tagged
+  new and changed tests (AUTH-01–05, SET-01a, SET-04a, SET-08a–d, UI-01/02, REG-01/02, and a
+  rewritten 1D and STA-03–07), plus a run-1 results log. The plan says to restart from a fresh
+  Part 0 once the fixes land.
+
+- **2026-09-22 (fix round from manual-test feedback: Phase A, A1–A7)** — The approved plan is
+  `~/.claude/plans/sorry-i-have-put-wobbly-clarke.md`, superseding `docs/fix-plan-2026-09-22.md`'s
+  first draft. User decisions: heads don't edit resources; Draft and Ideal become full named item
+  trees copied from current and linked to it (Draft merges on approval, Ideal only drives
+  purchasing stats); names are unique per sibling set (top-level: per owning unit); no one-time
+  sign-in links; real CSE data and a people clean slate (Phase C); an end-to-end purchase cycle on
+  real need (Phase D). One commit per step:
+  - **A1 `6d17318`** The reset root cause: forgot-password silently ignored INVITED accounts. It
+    now re-sends their invitation, throttled. People → Manage gets Sign-in help: copy invite link,
+    email a reset link, or set a temporary password. New `User.mustChangePassword` (migration
+    `20260922160000`): `session.ts` refuses everything except me/logout/change-password until it
+    is changed, and ProtectedRoute shows `ForcedPasswordChange`. `changePassword` keeps the
+    current session.
+  - **A2 `b8e735c`** The MANAGER write carve-out is removed from `assertCanMutate` and
+    `assertCanCreateRoot`. MANAGER alone is no longer an eligible custodian. The register hides
+    edit controls unless the person holds CUSTODIAN, STORE_KEEPER or SYS_ADMIN.
+  - **A3 `876e550`** Refetch keeps rows on screen (a `refreshing` flag), `autoResetExpanded:
+    false`, and the Inspector reloads quietly after its own save. Verified: 0 skeleton frames,
+    expansion kept.
+  - **A4 `3e792fb`** New `components/TreePicker.tsx`. The container and destination DTOs carry
+    `ancestorIds`, and unit pickers nest along the org chart via `useEditOptions().unitTree`.
+    It replaces every `" / "` select.
+  - **A5 `01fcbb8`** The icon picker covers the full lucide set (a lazy chunk), with name and
+    synonym search ("curtain" → Blinds). The server validates against the full set.
+  - **A6 `6159e26`** `lib/domain/naming.ts`: gap-filling, continuing numbering, and sibling
+    uniqueness on create, rename and move, under a per-destination advisory lock. The dry run
+    returns `plannedNames`. AddModal pre-fills the name and shows a Preview step.
+  - **A7 `b585012`** A Grouped register mode (`groupRows` in tree.ts, a GroupByBar, a
+    `group=` URL param). University resources defaults to grouped by owning unit.
+
+  Tooling: `e2e/mint-one.ts` mints a session for one account on the clone, so the in-app
+  browser can act as any person without typing a password. The `e2e/` folder stays untracked,
+  as it was before this round.
