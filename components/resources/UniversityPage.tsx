@@ -2,6 +2,7 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
+import { GroupByBar } from "./GroupByBar";
 import { NEEDS_ATTENTION } from "@/lib/domain/status";
 import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button } from "@/components/ui";
@@ -11,7 +12,7 @@ import { FilterBar } from "./FilterBar";
 import { Inspector } from "./Inspector";
 import { PullTransferModal } from "./PullTransferModal";
 
-const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
+const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
 /**
  * "Does any department already have one of these, and is it working?" — the surface
@@ -38,7 +39,7 @@ const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
  * from here directly.
  */
 function UniversityPageInner() {
-  const state = useRegisterState({ scope: "UNIVERSITY" });
+  const state = useRegisterState({ scope: "UNIVERSITY", defaultMode: "grouped", defaultGroupBy: ["owner"] });
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [pullOpen, setPullOpen] = useState(false);
   const allExpanded = state.expanded === true;
@@ -80,42 +81,6 @@ function UniversityPageInner() {
     <Screen>
       {state.error && <ErrorNote>{state.error}</ErrorNote>}
       <Panel
-        title="Rollup by owning unit × category"
-        actions={<span className="text-10.5 text-faint">Counts reflect the filters below</span>}
-      >
-        {state.loading ? (
-          <PanelLoading rows={4} />
-        ) : rollup.length === 0 ? (
-          <div className="px-14 py-14 text-11.5 text-dim">No resources match the current filters.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-11">
-              <thead>
-                <tr className="text-9.5 uppercase tracking-label text-faint font-semibold border-b border-border">
-                  <th className="text-left px-14 py-8">Owning unit</th>
-                  <th className="text-left px-14 py-8">Category</th>
-                  <th className="text-right px-14 py-8">Working</th>
-                  <th className="text-right px-14 py-8">Needs attention</th>
-                  <th className="text-right px-14 py-8">On loan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rollup.map((r) => (
-                  <tr key={r.key} className="border-b border-border last:border-0">
-                    <td className="px-14 py-6">{r.unit}</td>
-                    <td className="px-14 py-6 text-dim">{r.category}</td>
-                    <td className="px-14 py-6 text-right font-mono">{r.working}</td>
-                    <td className={`px-14 py-6 text-right font-mono ${r.needsAttention > 0 ? "text-warn" : ""}`}>{r.needsAttention}</td>
-                    <td className={`px-14 py-6 text-right font-mono ${r.onLoan > 0 ? "text-accent" : "text-faint"}`}>{r.onLoan}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-
-      <Panel
         title="University resources"
         actions={
           <div className="flex items-center gap-10">
@@ -149,6 +114,7 @@ function UniversityPageInner() {
         }
       >
         <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} scope="UNIVERSITY" />
+        {state.mode === "grouped" && <GroupByBar value={state.groupBy} onChange={state.setGroupBy} />}
 
         {state.selectedItemIds.length > 0 && (
           <div className="flex items-center gap-8 px-14 py-7 border-b border-border bg-panel2">
@@ -178,6 +144,42 @@ function UniversityPageInner() {
             showPath={state.mode === "flat"}
             selectable
           />
+        )}
+      </Panel>
+
+      <Panel
+        title="Totals by owning unit × category"
+        actions={<span className="text-10.5 text-faint">Counts reflect the filters below</span>}
+      >
+        {state.loading ? (
+          <PanelLoading rows={4} />
+        ) : rollup.length === 0 ? (
+          <div className="px-14 py-14 text-11.5 text-dim">No resources match the current filters.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-11">
+              <thead>
+                <tr className="text-9.5 uppercase tracking-label text-faint font-semibold border-b border-border">
+                  <th className="text-left px-14 py-8">Owning unit</th>
+                  <th className="text-left px-14 py-8">Category</th>
+                  <th className="text-right px-14 py-8">Working</th>
+                  <th className="text-right px-14 py-8">Needs attention</th>
+                  <th className="text-right px-14 py-8">On loan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rollup.map((r) => (
+                  <tr key={r.key} className="border-b border-border last:border-0">
+                    <td className="px-14 py-6">{r.unit}</td>
+                    <td className="px-14 py-6 text-dim">{r.category}</td>
+                    <td className="px-14 py-6 text-right font-mono">{r.working}</td>
+                    <td className={`px-14 py-6 text-right font-mono ${r.needsAttention > 0 ? "text-warn" : ""}`}>{r.needsAttention}</td>
+                    <td className={`px-14 py-6 text-right font-mono ${r.onLoan > 0 ? "text-accent" : "text-faint"}`}>{r.onLoan}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Panel>
 

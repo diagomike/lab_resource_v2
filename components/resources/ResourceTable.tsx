@@ -30,8 +30,9 @@ const features = tableFeatures({
 const helper = createColumnHelper<typeof features, RowNode>();
 
 const isCluster = (r: RowNode): r is Extract<RowNode, { kind: "cluster" }> => r.kind === "cluster";
-const idsOf = (r: RowNode): string[] => (isCluster(r) ? r.memberIds : [r.item.id]);
-const membersOf = (r: RowNode) => (isCluster(r) ? r.members : [r.item]);
+const isGroup = (r: RowNode): r is Extract<RowNode, { kind: "group" }> => r.kind === "group";
+const idsOf = (r: RowNode): string[] => (r.kind === "item" ? [r.item.id] : r.memberIds);
+const membersOf = (r: RowNode) => (r.kind === "item" ? [r.item] : r.members);
 
 export interface ResourceTableProps {
   rows: RowNode[];
@@ -85,6 +86,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         id: "photo",
         header: "",
         cell: ({ row }) => {
+          if (isGroup(row.original)) return null;
           const first = rowOf(idsOf(row.original)[0]);
           return first ? <ItemThumb row={first} /> : null;
         },
@@ -97,6 +99,16 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           const r = row.original;
           const first = rowOf(idsOf(r)[0]);
           const canExpand = row.getCanExpand();
+          if (isGroup(r)) {
+            return (
+              <div className="flex items-center gap-6" style={{ paddingLeft: row.depth * 16 }}>
+                <span className="w-14 h-14 flex-none flex items-center justify-center text-9.5 text-dim">{row.getIsExpanded() ? "▾" : "▸"}</span>
+                {r.iconKey && <CategoryIcon iconKey={r.iconKey} className="w-13 h-13 flex-none text-dim" />}
+                <span className="truncate text-11.5 font-semibold">{r.label}</span>
+                <span className="text-9.5 font-mono text-faint flex-none">{r.members.length}</span>
+              </div>
+            );
+          }
           return (
             <div className="flex items-center gap-6" style={{ paddingLeft: row.depth * 16 }}>
               <button
@@ -133,7 +145,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           header: "Location",
           cell: ({ row }) => {
             const r = row.original;
-            if (isCluster(r)) return null;
+            if (r.kind !== "item") return null;
             const path = rowOf(r.item.id)?.path ?? [];
             return <span className="text-10.5 text-dim">{path.length ? path.join(" › ") : "—"}</span>;
           },
@@ -145,7 +157,13 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
       helper.display({
         id: "category",
         header: "Category",
-        cell: ({ row }) => <span className="text-10.5 text-dim">{rowOf(idsOf(row.original)[0])?.categoryName ?? "—"}</span>,
+        cell: ({ row }) => {
+          if (isGroup(row.original)) {
+            const agg = nameAgg(row.original.members.map((m) => rowOf(m.id)?.categoryName));
+            return <span className="text-10.5 text-faint">{describeAgg(agg)}</span>;
+          }
+          return <span className="text-10.5 text-dim">{rowOf(idsOf(row.original)[0])?.categoryName ?? "—"}</span>;
+        },
       }),
 
       helper.display({
@@ -154,7 +172,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         cell: ({ row }) => {
           const r = row.original;
           const members = membersOf(r).map((m) => rowOf(m.id)).filter((m): m is ItemRowDto => Boolean(m));
-          if (isCluster(r)) {
+          if (isCluster(r) || isGroup(r)) {
             const counts = new Map<string, number>();
             for (const m of members) counts.set(m.effectiveStatus, (counts.get(m.effectiveStatus) ?? 0) + 1);
             const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
@@ -180,6 +198,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         cell: ({ row }) => {
           const r = row.original;
           const first = rowOf(idsOf(r)[0]);
+          if (isGroup(r)) return <span className="text-10.5 font-mono text-faint" title="Top-level resources in this group">×{r.members.length}</span>;
           if (isCluster(r)) {
             if (first?.countingMode === "BULK") {
               const total = r.members.reduce((a, m) => a + m.qty, 0);
@@ -265,7 +284,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
               onClick={() => {
                 if (row.getCanExpand()) row.toggleExpanded();
               }}
-              className={`border-b border-border ${isCluster(row.original) ? "bg-panel2" : ""} ${row.getIsSelected() ? "bg-sel" : ""} ${row.getCanExpand() ? "cursor-pointer" : ""}`}
+              className={`border-b border-border ${isGroup(row.original) ? "bg-panel2 font-medium" : isCluster(row.original) ? "bg-panel2" : ""} ${row.getIsSelected() ? "bg-sel" : ""} ${row.getCanExpand() ? "cursor-pointer" : ""}`}
             >
               {row.getAllCells().map((cell) => (
                 <td key={cell.id} className="px-8 py-6 align-middle">

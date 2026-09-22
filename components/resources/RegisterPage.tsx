@@ -17,8 +17,9 @@ import { Inspector } from "./Inspector";
 import { AddModal } from "./AddModal";
 import { BulkPropModal } from "./BulkPropModal";
 import { TransferModal } from "./TransferModal";
+import { GroupByBar } from "./GroupByBar";
 
-const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
+const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
 function RegisterPageInner() {
   const state = useRegisterState();
@@ -203,6 +204,7 @@ function RegisterPageInner() {
         }
       >
         <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} />
+        {state.mode === "grouped" && <GroupByBar value={state.groupBy} onChange={state.setGroupBy} />}
 
         {selectedIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-8 px-14 py-9 border-b border-border bg-soft">

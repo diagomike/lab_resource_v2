@@ -30,7 +30,90 @@ export interface ClusterRow {
   depth: number;
 }
 
-export type RowNode = ItemRow | ClusterRow;
+/** A heading above whole resources — "Computer Science and Engineering", "Hanna
+ *  Bekele" — in the grouped view. Never an item: `members` are the top-level resources
+ *  it gathers (each still carries its own nested contents as children, somewhere
+ *  below). */
+export interface GroupRow {
+  kind: "group";
+  id: string;
+  label: string;
+  iconKey?: string;
+  members: Item[];
+  memberIds: string[];
+  children: RowNode[];
+  depth: number;
+}
+
+export type RowNode = ItemRow | ClusterRow | GroupRow;
+
+/** One step of a grouping path — `id` identifies the group, `label` names it. */
+export interface GroupKey {
+  id: string;
+  label: string;
+  iconKey?: string;
+}
+
+/**
+ * Gathers already-built top-level rows (each lab with its own subtree) under headings.
+ * Each level maps an item to a PATH of keys, not a single key, so a level can itself be
+ * a hierarchy — "Owning unit" nests ASTU › CoEEC › CSE rather than listing CSE flat.
+ * The resources' own containment is never flattened: a row keeps its children.
+ */
+export function groupRows(rows: RowNode[], levels: Array<(item: Item) => GroupKey[]>): RowNode[] {
+  if (!levels.length) return rows;
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  interface Bucket { key: GroupKey; path: string; buckets: Map<string, Bucket>; rows: RowNode[] }
+  const top: Bucket = { key: { id: "", label: "" }, path: "g", buckets: new Map(), rows: [] };
+
+  for (const row of rows) {
+    const item = row.kind === "item" ? row.item : row.kind === "cluster" ? row.members[0] : null;
+    if (!item) continue;
+    const keys = levels.flatMap((f) => {
+      const k = f(item);
+      return k.length ? k : [{ id: "__none", label: "—" }];
+    });
+    let b = top;
+    for (const k of keys) {
+      let next = b.buckets.get(k.id);
+      if (!next) {
+        next = { key: k, path: `${b.path}/${k.id}`, buckets: new Map(), rows: [] };
+        b.buckets.set(k.id, next);
+      }
+      b = next;
+    }
+    b.rows.push(row);
+  }
+
+  const itemsOf = (b: Bucket): Item[] => [
+    ...b.rows.flatMap((r) => (r.kind === "item" ? [r.item] : r.kind === "cluster" ? r.members : r.members)),
+    ...[...b.buckets.values()].flatMap(itemsOf),
+  ];
+  const emit = (b: Bucket, depth: number): RowNode[] => {
+    const groups = [...b.buckets.values()]
+      .sort((x, y) => collator.compare(x.key.label, y.key.label))
+      .map((child): GroupRow => {
+        const members = itemsOf(child);
+        return {
+          kind: "group",
+          id: child.path,
+          label: child.key.label,
+          iconKey: child.key.iconKey,
+          members,
+          memberIds: members.map((m) => m.id),
+          children: emit(child, depth + 1),
+          depth,
+        };
+      });
+    const own = [...b.rows].sort((x, y) => collator.compare(labelOf(x), labelOf(y)));
+    return [...groups, ...own];
+  };
+  return emit(top, 0);
+}
+
+function labelOf(r: RowNode): string {
+  return r.kind === "item" ? r.item.name : r.kind === "group" ? r.label : (r.members[0]?.name ?? "");
+}
 
 export interface TreeIndex {
   byId: Map<string, Item>;

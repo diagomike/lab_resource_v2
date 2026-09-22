@@ -3,28 +3,109 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ExpandedState, RowSelectionState } from "@tanstack/react-table";
-import { buildRollup, buildSearchList, buildTree, indexItems, type RowNode } from "@/lib/domain/tree";
+import { buildRollup, buildSearchList, buildTree, groupRows, indexItems, type GroupKey, type RowNode } from "@/lib/domain/tree";
+import type { Item } from "@/lib/domain/types";
 import type { FilterRule } from "@/lib/domain/filters";
 import { api, ApiError } from "@/lib/api";
-import { filterOperators, type ItemRowDto } from "@/lib/shared";
+import { filterOperators, type ItemRowDto, type OrgNodeDto, type ResourceCategoryDto } from "@/lib/shared";
 import { toDomainItem } from "./adapt";
 import { useActiveViewId } from "./active-view";
 
-export type RegisterMode = "tree" | "rollup" | "flat";
+export type RegisterMode = "grouped" | "tree" | "rollup" | "flat";
 
 export const MODE_LABEL: Record<RegisterMode, string> = {
+  grouped: "Grouped",
   tree: "Hierarchy",
   rollup: "Inventory summary",
   flat: "Search list",
 };
 
 export const MODE_HELP: Record<RegisterMode, string> = {
+  grouped: "Resources gathered under headings — by unit, custodian, category… — each keeping its own contents",
   tree: "Physical containment — what is inside what",
   rollup: "Each place's whole subtree grouped by category",
   flat: "Every matching item as a flat list with its location",
 };
 
-const MODES: RegisterMode[] = ["tree", "rollup", "flat"];
+const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
+
+/** What the grouped view can gather by. Units nest along the org chart. */
+export const GROUP_BY_OPTIONS = [
+  { key: "owner", label: "Owning unit" },
+  { key: "department", label: "Department" },
+  { key: "current", label: "Current unit" },
+  { key: "custodian", label: "Custodian" },
+  { key: "category", label: "Category" },
+  { key: "categoryGroup", label: "Category group" },
+  { key: "status", label: "Status" },
+] as const;
+export type GroupByKey = (typeof GROUP_BY_OPTIONS)[number]["key"];
+const GROUP_KEYS = GROUP_BY_OPTIONS.map((o) => o.key) as string[];
+
+function readGroupBy(sp: URLSearchParams, fallback: GroupByKey[]): GroupByKey[] {
+  const raw = sp.get("group");
+  if (raw === null) return fallback;
+  return raw.split(",").filter((k): k is GroupByKey => GROUP_KEYS.includes(k)).slice(0, 3);
+}
+
+const KIND_ICON: Record<string, string> = { UNIVERSITY: "Landmark", COLLEGE: "Building2", DEPARTMENT: "Building", OFFICE: "Briefcase" };
+
+/** One level function per chosen grouping — item → its path of group keys. */
+function levelFunctions(
+  levels: GroupByKey[],
+  byId: Map<string, ItemRowDto>,
+  orgNodes: OrgNodeDto[],
+  categories: ResourceCategoryDto[],
+): Array<(item: Item) => GroupKey[]> {
+  const nodeById = new Map(orgNodes.map((n) => [n.id, n]));
+  const unitChain = (id: string, fallbackName: string): GroupKey[] => {
+    const out: GroupKey[] = [];
+    const seen = new Set<string>();
+    let cur: string | undefined = id;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const n = nodeById.get(cur);
+      if (!n) break;
+      out.unshift({ id: `u:${n.id}`, label: n.name, iconKey: KIND_ICON[n.kind] });
+      cur = n.parentIds[0];
+    }
+    return out.length ? out : [{ id: `u:${id}`, label: fallbackName }];
+  };
+  const department = (id: string, fallbackName: string): GroupKey[] => {
+    const seen = new Set<string>();
+    let cur: string | undefined = id;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const n = nodeById.get(cur);
+      if (!n) break;
+      if (n.kind === "DEPARTMENT") return [{ id: `d:${n.id}`, label: n.name, iconKey: "Building" }];
+      cur = n.parentIds[0];
+    }
+    return [{ id: `d:${id}`, label: nodeById.get(id)?.name ?? fallbackName, iconKey: "Building" }];
+  };
+  const catById = new Map(categories.map((c) => [c.id, c]));
+  return levels.map((level) => (item: Item): GroupKey[] => {
+    const row = byId.get(item.id);
+    switch (level) {
+      case "owner":
+        return unitChain(item.ownerOrgNodeId, row?.ownerOrgNodeName ?? "Unknown unit");
+      case "current":
+        return unitChain(item.currentOrgNodeId, row?.currentOrgNodeName ?? "Unknown unit");
+      case "department":
+        return department(item.ownerOrgNodeId, row?.ownerOrgNodeName ?? "Unknown unit");
+      case "custodian":
+        return [{ id: `p:${item.custodianId}`, label: row?.custodianName ?? "Unknown custodian", iconKey: "User" }];
+      case "category":
+        return [{ id: `c:${item.categoryId}`, label: row?.categoryName ?? "Unknown category", iconKey: row?.categoryIconKey }];
+      case "categoryGroup": {
+        const c = catById.get(item.categoryId);
+        return [{ id: `cg:${c?.groupId ?? "none"}`, label: c?.groupName ?? "Ungrouped", iconKey: "Layers3" }];
+      }
+      case "status":
+        return [{ id: `s:${row?.effectiveStatus ?? item.status}`, label: (row?.effectiveStatus ?? item.status).replace(/_/g, " ").toLowerCase() }];
+    }
+  });
+}
 
 /**
  * Core fields (status/category/owner/currentOrg/custodian) stay their own readable
@@ -58,9 +139,9 @@ export const EMPTY_FILTERS: RegisterFilters = {
   join: "and",
 };
 
-function readMode(sp: URLSearchParams): RegisterMode {
+function readMode(sp: URLSearchParams, fallback: RegisterMode): RegisterMode {
   const raw = sp.get("mode");
-  return (MODES as string[]).includes(raw ?? "") ? (raw as RegisterMode) : "tree";
+  return (MODES as string[]).includes(raw ?? "") ? (raw as RegisterMode) : fallback;
 }
 
 /** A hand-edited URL can carry anything under `?rules=`; the server re-validates it
@@ -109,7 +190,7 @@ function appendFilterParams(qp: URLSearchParams, filters: RegisterFilters): void
 
 function toQueryString(mode: RegisterMode, filters: RegisterFilters, extra?: Record<string, string>): string {
   const qp = new URLSearchParams();
-  if (mode !== "tree") qp.set("mode", mode);
+  qp.set("mode", mode);
   appendFilterParams(qp, filters);
   if (extra) for (const [k, v] of Object.entries(extra)) if (v) qp.set(k, v);
   const s = qp.toString();
@@ -155,7 +236,13 @@ const PAGE_SIZE = 50;
  * `resolveEffectiveView`) exactly like `scope=UNIVERSITY` already does; this hook
  * never decides what the view actually grants, only which id to ask for.
  */
-export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: RegisterMode }) {
+export function useRegisterState(opts?: {
+  scope?: "UNIVERSITY";
+  fixedMode?: RegisterMode;
+  /** What this page opens in when the URL doesn't say (University resources: grouped). */
+  defaultMode?: RegisterMode;
+  defaultGroupBy?: GroupByKey[];
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -163,7 +250,50 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
   const activeViewId = useActiveViewId();
   const viewId = scope ? null : activeViewId;
 
-  const mode = opts?.fixedMode ?? readMode(searchParams);
+  const defaultMode = opts?.defaultMode ?? "tree";
+  const mode = opts?.fixedMode ?? readMode(searchParams, defaultMode);
+  const defaultGroupBy = opts?.defaultGroupBy ?? ["owner"];
+  const groupByParam = searchParams.get("group");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groupBy = useMemo(() => readGroupBy(searchParams, defaultGroupBy), [groupByParam]);
+  const storageKey = `lrms.register.view:${pathname}`;
+  /** Filter/page changes keep the chosen grouping in the URL. */
+  const keepGroup: Record<string, string> = groupByParam !== null ? { group: groupByParam } : {};
+
+  // The grouped view needs the org chart (units nest) and category groups — fetched
+  // once, only when that view is actually used.
+  const [orgNodes, setOrgNodes] = useState<OrgNodeDto[]>([]);
+  const [categoryList, setCategoryList] = useState<ResourceCategoryDto[]>([]);
+  const needsGroupData = mode === "grouped";
+  useEffect(() => {
+    if (!needsGroupData || orgNodes.length) return;
+    api.get<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(() => setOrgNodes([]));
+    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(() => setCategoryList([]));
+  }, [needsGroupData, orgNodes.length]);
+
+  // No mode in the URL: reopen this page the way it was last left (per browser).
+  useEffect(() => {
+    if (opts?.fixedMode || searchParams.get("mode")) return;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(storageKey) ?? "null") as { mode?: RegisterMode; group?: string } | null;
+      if (saved?.mode && (MODES as string[]).includes(saved.mode) && saved.mode !== defaultMode) {
+        const qp = new URLSearchParams(searchParams.toString());
+        qp.set("mode", saved.mode);
+        if (saved.group !== undefined) qp.set("group", saved.group);
+        router.replace(`${pathname}?${qp.toString()}`);
+      }
+    } catch {
+      // storage unavailable — the page default stands
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const remember = (m: RegisterMode, g: GroupByKey[]) => {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify({ mode: m, group: g.join(",") }));
+    } catch {
+      // per-browser convenience only
+    }
+  };
   const filters = useMemo(() => readFilters(searchParams), [searchParams]);
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
 
@@ -228,28 +358,42 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
 
   const setFilters = useCallback(
     (patch: Partial<RegisterFilters>) => {
-      router.replace(`${pathname}${toQueryString(mode, { ...filters, ...patch })}`);
+      router.replace(`${pathname}${toQueryString(mode, { ...filters, ...patch }, keepGroup)}`);
     },
-    [router, pathname, mode, filters],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [router, pathname, mode, filters, groupByParam],
   );
 
   const clearFilters = useCallback(() => {
-    router.replace(`${pathname}${toQueryString(mode, EMPTY_FILTERS)}`);
-  }, [router, pathname, mode]);
+    router.replace(`${pathname}${toQueryString(mode, EMPTY_FILTERS, keepGroup)}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, pathname, mode, groupByParam]);
 
   const setMode = useCallback(
     (next: RegisterMode) => {
       setExpanded({});
-      router.replace(`${pathname}${toQueryString(next, filters)}`);
+      remember(next, groupBy);
+      router.replace(`${pathname}${toQueryString(next, filters, next === "grouped" ? { group: groupBy.join(",") } : undefined)}`);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [router, pathname, filters, groupBy],
+  );
+
+  const setGroupBy = useCallback(
+    (next: GroupByKey[]) => {
+      remember("grouped", next);
+      router.replace(`${pathname}${toQueryString("grouped", filters, { group: next.join(",") || "none" })}`);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [router, pathname, filters],
   );
 
   const setPage = useCallback(
     (next: number) => {
-      router.replace(`${pathname}${toQueryString(mode, filters, { page: String(next) })}`);
+      router.replace(`${pathname}${toQueryString(mode, filters, { ...keepGroup, page: String(next) })}`);
     },
-    [router, pathname, mode, filters],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [router, pathname, mode, filters, groupByParam],
   );
 
   const domainItems = useMemo(() => (rows ?? []).map(toDomainItem), [rows]);
@@ -268,8 +412,30 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
         depth: 0,
       }));
     }
+    if (mode === "grouped") return groupRows(buildTree(index, null), levelFunctions(groupBy, byId, orgNodes, categoryList));
     return mode === "rollup" ? buildRollup(index, null) : buildTree(index, null);
-  }, [mode, rows, domainItems, index]);
+  }, [mode, rows, domainItems, index, groupBy, byId, orgNodes, categoryList]);
+
+  // The grouped view opens with its headings expanded (the hierarchy is the point) and
+  // each resource's own contents collapsed — once per grouping, never fighting a
+  // person's own collapsing afterwards.
+  const autoExpandedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode !== "grouped" || rows === null) return;
+    const key = `${queryKey}|${groupBy.join(",")}|${orgNodes.length > 0}`;
+    if (autoExpandedFor.current === key) return;
+    autoExpandedFor.current = key;
+    const open: Record<string, boolean> = {};
+    const walk = (nodes: RowNode[]) => {
+      for (const n of nodes) {
+        if (n.kind !== "group") continue;
+        open[n.id] = true;
+        walk(n.children);
+      }
+    };
+    walk(rowNodes);
+    setExpanded(open);
+  }, [mode, rows, rowNodes, queryKey, groupBy, orgNodes.length]);
 
   /** Real item ids the current TanStack row selection speaks for — a cluster row's
    *  `memberIds` are every item behind it, so selecting one selected row can resolve
@@ -294,6 +460,8 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
   return {
     mode,
     setMode,
+    groupBy,
+    setGroupBy,
     filters,
     setFilters,
     clearFilters,
