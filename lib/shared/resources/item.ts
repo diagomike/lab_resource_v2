@@ -108,6 +108,9 @@ export const ContainerOptionDto = z.object({
   /** Slash-joined names from the containment root down to (not including) this row —
    *  same shape as ItemRowDto.path, for the same "where is this, exactly" purpose. */
   path: z.array(z.string()),
+  /** The ids behind `path`, index for index — what lets a picker nest options as a
+   *  tree (two containers can share a name). */
+  ancestorIds: z.array(z.string()),
 });
 export type ContainerOptionDto = z.infer<typeof ContainerOptionDto>;
 
@@ -124,6 +127,7 @@ export const TransferDestinationDto = z.object({
   categoryName: z.string(),
   categoryIconKey: z.string(),
   path: z.array(z.string()),
+  ancestorIds: z.array(z.string()),
   orgNodeId: z.string(),
   orgNodeName: z.string(),
   /** Who answers for the destination — the person a store handover hands custody to. */

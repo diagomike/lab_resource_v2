@@ -256,6 +256,21 @@ export function ancestorsOf(index: TreeIndex, id: string): Item[] {
   return out;
 }
 
+/** Ids of `id`'s containers, root first — aligned index-for-index with `pathOf`, so a
+ *  picker can nest options by id (names are not unique) while still labelling them. */
+export function ancestorIdsOf(index: TreeIndex, id: string): string[] {
+  const out: string[] = [];
+  let cur = index.byId.get(id);
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    out.unshift(cur.id);
+    cur = cur.parentId ? index.byId.get(cur.parentId) : undefined;
+  }
+  out.pop();
+  return out;
+}
+
 export function pathOf(index: TreeIndex, id: string): string[] {
   const out: string[] = [];
   let cur = index.byId.get(id);

@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import type { CategoryFieldDto, ContainerOptionDto, ResourceCategoryDto } from "@/lib/shared";
+import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { useEditOptions } from "@/lib/register/useEditOptions";
@@ -236,54 +237,35 @@ function RegisterPageInner() {
                 </option>
               ))}
             </select>
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                bulkRequestSelect("setOwnerOrg", e.target.value, "Ownership transfer");
-                e.target.value = "";
-              }}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
-            >
-              <option value="">Set owning unit…</option>
-              {options.owner.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                bulkRequestSelect("setCurrentOrg", e.target.value, "Current unit change");
-                e.target.value = "";
-              }}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
-            >
-              <option value="">Set current unit…</option>
-              {options.currentOrg.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                bulkMove(e.target.value);
-                e.target.value = "";
-              }}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
-            >
-              <option value="">Move to…</option>
-              {selectedRows.every((r) => categories.find((c) => c.id === r.categoryId)?.canBeRoot) && (
-                <option value={MOVE_TOP_LEVEL}>Top level</option>
-              )}
-              {moveTargets.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {[...c.path, c.name].join(" / ")}
-                </option>
-              ))}
-            </select>
+            <div className="w-[170px]">
+              <TreePicker
+                options={options.unitTree(options.owner)}
+                value=""
+                onChange={(id) => id && bulkRequestSelect("setOwnerOrg", id, "Ownership transfer")}
+                placeholder="Set owning unit…"
+              />
+            </div>
+            <div className="w-[170px]">
+              <TreePicker
+                options={options.unitTree(options.currentOrg)}
+                value=""
+                onChange={(id) => id && bulkRequestSelect("setCurrentOrg", id, "Current unit change")}
+                placeholder="Set current unit…"
+              />
+            </div>
+            <div className="w-[190px]">
+              <TreePicker
+                options={[
+                  ...(selectedRows.every((r) => categories.find((c) => c.id === r.categoryId)?.canBeRoot)
+                    ? [{ id: MOVE_TOP_LEVEL, label: "Top level", iconKey: "Layers3", ancestors: [] }]
+                    : []),
+                  ...containerTreeOptions(moveTargets),
+                ]}
+                value=""
+                onChange={(id) => id && bulkMove(id)}
+                placeholder="Move to…"
+              />
+            </div>
             <input
               placeholder="Rename to…"
               onKeyDown={(e) => {

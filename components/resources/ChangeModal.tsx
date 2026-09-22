@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ContainerOptionDto, ItemDetailDto, PersonSummaryDto } from "@/lib/shared";
+import { TreePicker, containerTreeOptions, type TreeOption } from "@/components/TreePicker";
 import { itemStatuses } from "@/lib/shared";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
@@ -136,8 +137,17 @@ export function ChangeModal({
           : kind === "setCurrentOrg"
             ? options.currentOrg
             : kind === "moveInTree"
-              ? [{ value: "", label: "Top level" }, ...moveTargets.map((c) => ({ value: c.id, label: [...c.path, c.name].join(" / ") }))]
+              ? moveTargets.map((c) => ({ value: c.id, label: c.name }))
               : [];
+  // Places and units are hierarchies — pick them from a tree, not a flat list.
+  const treeOptions: TreeOption[] | null =
+    kind === "moveInTree"
+      ? containerTreeOptions(moveTargets)
+      : kind === "setOwnerOrg"
+        ? options.unitTree(options.owner)
+        : kind === "setCurrentOrg"
+          ? options.unitTree(options.currentOrg)
+          : null;
 
   const currentLabel = currentLabelFor(kind, item);
   const newLabel = kind === "deleteItem" ? "Delete this resource and its contents" : (selectOptions.find((o) => o.value === value)?.label ?? "—");
@@ -196,6 +206,8 @@ export function ChangeModal({
         <span className="text-10.5 font-medium">New {active.label.toLowerCase()}</span>
         {kind === "deleteItem" ? (
           <div className="rounded-2 border border-bad bg-badbg px-10 py-8 text-10.5 text-bad">This removes every descendant of this resource as well. It cannot be undone.</div>
+        ) : treeOptions ? (
+          <TreePicker options={treeOptions} value={value} onChange={setValue} placeholder="Select…" />
         ) : (
           <select value={value} onChange={(e) => setValue(e.target.value)} className="h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent">
             <option value="">Select…</option>

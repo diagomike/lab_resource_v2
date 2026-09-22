@@ -16,7 +16,7 @@ import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { computeStatuses, statusOf } from "@/lib/domain/status";
 import { canPlace } from "@/lib/domain/placement";
-import { descendantCategories, indexItems, pathOf, subtreeIds, type TreeIndex } from "@/lib/domain/tree";
+import { ancestorIdsOf, descendantCategories, indexItems, pathOf, subtreeIds, type TreeIndex } from "@/lib/domain/tree";
 import {
   buildFilterFields,
   customPropFilterFields,
@@ -497,6 +497,7 @@ export async function containers(userId: string, categoryId: string, excludeSubt
       categoryName: category?.name ?? item.categoryId,
       categoryIconKey: category?.iconKey ?? "Package",
       path: pathOf(forest.index, item.id),
+      ancestorIds: ancestorIdsOf(forest.index, item.id),
     };
   });
 }
@@ -558,6 +559,7 @@ export async function transferDestinations(userId: string, itemIds: string[], q:
       categoryName: category?.name ?? item.categoryId,
       categoryIconKey: category?.iconKey ?? "Package",
       path: pathOf(forest.index, item.id),
+      ancestorIds: ancestorIdsOf(forest.index, item.id),
       orgNodeId: item.currentOrgNodeId,
       orgNodeName: nodeNameById.get(item.currentOrgNodeId) ?? "",
       custodianId: item.custodianId,

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ChainStepDto, ContainerOptionDto, RequestTransferResultDto } from "@/lib/shared";
+import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { api, ApiError } from "@/lib/api";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 
@@ -114,18 +115,7 @@ export function PullTransferModal({
         ) : targets.length === 0 ? (
           <span className="text-10.5 text-bad">You don't hold a lab or container these resources may be placed in.</span>
         ) : (
-          <select
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
-            className="h-28 px-6 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
-          >
-            <option value="">Choose where it should go…</option>
-            {targets.map((t) => (
-              <option key={t.id} value={t.id}>
-                {[...t.path, t.name].join(" / ")}
-              </option>
-            ))}
-          </select>
+          <TreePicker options={containerTreeOptions(targets)} value={targetId} onChange={setTargetId} placeholder="Choose where it should go…" />
         )}
       </div>
 

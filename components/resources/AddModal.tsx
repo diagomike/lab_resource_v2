@@ -13,6 +13,7 @@ import { Modal, Button, ErrorNote } from "@/components/ui";
 import { submitChange } from "@/lib/register/useItemChange";
 import { CustomPropInput, PropInput } from "./Inspector";
 import { CategoryIcon } from "./IconPicker";
+import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 
 /** How many rows one instantiation of this category actually produces, parts
  *  included — the wire-DTO-shaped twin of lib/domain/edit-impact.ts's
@@ -354,6 +355,7 @@ export function AddModal({
   }, [open, categoryId]);
 
   const selectedCategory = categories.find((c) => c.id === categoryId) ?? null;
+  const containerOptions = useMemo(() => containerTreeOptions(containers), [containers]);
   const canOfferRoot = Boolean(selectedCategory?.canBeRoot) && canAttemptRoot;
   const isRootCreate = parent === "" && canOfferRoot;
 
@@ -470,26 +472,14 @@ export function AddModal({
       {categoryId && (
         <label className="block">
           <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Into</div>
-          <select
+          <TreePicker
+            options={containerOptions}
             value={parent}
-            onChange={(e) => setParent(e.target.value)}
-            disabled={containersLoading}
-            className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-          >
-            {canOfferRoot && <option value="">Top level (a new lab, store, building…)</option>}
-            {/* Always a placeholder when root isn't offered — a native <select> with a
-             *  controlled empty value and no matching <option> falls back to visually
-             *  showing the first real option as selected while React's `parent` state
-             *  stays "", leaving `canSubmit` false with no visible reason why. Keeping
-             *  this option present (even when containers.length === 1) forces an
-             *  explicit choice and keeps the DOM in sync with state. */}
-            {!canOfferRoot && <option value="">Choose…</option>}
-            {containers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {[...c.path, c.name].join(" / ")}
-              </option>
-            ))}
-          </select>
+            onChange={setParent}
+            loading={containersLoading}
+            noneLabel={canOfferRoot ? "Top level (a new lab, store, building…)" : undefined}
+            placeholder="Choose where it goes…"
+          />
           {!containersLoading && !canOfferRoot && containers.length === 0 && (
             <div className="text-10.5 text-warn mt-4">You have no container in your custody that this category may be placed into.</div>
           )}
@@ -506,18 +496,7 @@ export function AddModal({
             <>
               <label className="block">
                 <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Owning unit</div>
-                <select
-                  value={ownerOrgNodeId}
-                  onChange={(e) => setOwnerOrgNodeId(e.target.value)}
-                  className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-                >
-                  <option value="">Choose…</option>
-                  {editOptions.owner.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                <TreePicker options={editOptions.unitTree(editOptions.owner)} value={ownerOrgNodeId} onChange={setOwnerOrgNodeId} placeholder="Choose a unit…" />
               </label>
               <label className="block">
                 <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Custodian</div>

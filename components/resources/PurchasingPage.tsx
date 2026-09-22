@@ -10,6 +10,7 @@ import type {
   PurchaseRequestDto,
   ResourceCategoryDto,
 } from "@/lib/shared";
+import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { PURCHASE_UNITS } from "@/lib/shared";
 import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished } from "@/lib/domain/purchasing";
 import { suggestedLines } from "@/lib/domain/purchasables";
@@ -776,14 +777,15 @@ function RequestCard({
                   </label>
                   <label className="flex flex-col gap-3">
                     <span className={labelCls}>Into</span>
-                    <select value={f.storeParentId} onChange={(e) => updateReceive(l.id, l.categoryId, { storeParentId: e.target.value })} className={`${inputCls} min-w-[180px]`} disabled={!f.categoryId}>
-                      <option value="">Choose a store…</option>
-                      {f.containers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {[...c.path, c.name].join(" / ")}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="min-w-[220px]">
+                      <TreePicker
+                        options={containerTreeOptions(f.containers)}
+                        value={f.storeParentId}
+                        onChange={(id) => updateReceive(l.id, l.categoryId, { storeParentId: id })}
+                        disabled={!f.categoryId}
+                        placeholder="Choose a store…"
+                      />
+                    </div>
                   </label>
                   <Button variant="primary" onClick={() => receive(l.id, l.categoryId)} disabled={busy || !f.qty || !f.categoryId || !f.storeParentId}>
                     Register arrived stock

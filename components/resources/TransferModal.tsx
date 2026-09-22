@@ -138,7 +138,7 @@ export function TransferModal({
                 <div>{o.name}</div>
                 <div className="text-9.5 text-faint">
                   {o.orgNodeName}
-                  {o.path.length > 0 ? ` · ${o.path.join(" / ")}` : ""}
+                  {o.path.length > 0 ? ` · in ${o.path.join(" › ")}` : ""}
                   {o.custodianName ? ` · held by ${o.custodianName}` : ""}
                 </div>
               </button>
