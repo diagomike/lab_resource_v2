@@ -121,9 +121,8 @@ describe("images — upload-session authorization", () => {
     expect(row.requestedById).toBe(seCustodianId);
   });
 
-  it("lets a MANAGER create an upload session for an item in their own department, even without custody of it (2026-09-04 policy widening)", async () => {
-    const session = await images.createUploadSession(seHeadId, seItemId);
-    expect(session.uploadSessionId).toBeTruthy();
+  it("refuses a MANAGER an upload session in their own department without custody (2026-09-22)", async () => {
+    await expect(images.createUploadSession(seHeadId, seItemId)).rejects.toMatchObject({ status: 404 });
   });
 
   it("still refuses a MANAGER from a DIFFERENT department — the widening is subtree-scoped, not blanket", async () => {

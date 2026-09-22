@@ -633,8 +633,8 @@ async function assertSubtreeInScope(actorId: string, subtree: PrismaItem[]): Pro
  *  the batched check has already failed, so the actor demonstrably has SOME standing
  *  over this subtree (the batched call above already lets a fully-authorized delete
  *  through cheaply; this is the failure-path cost only). One `assertCanMutate` call
- *  per row reuses the exact same authorization rule (custody walk AND a MANAGER's
- *  owned-subtree reach) rather than re-deriving it, so the two never drift apart. */
+ *  per row reuses the exact same authorization rule (the write-custody walk) rather
+ *  than re-deriving it, so the two never drift apart. */
 async function foreignAccountabilityBlockers(actorId: string, subtree: PrismaItem[]): Promise<PrismaItem[]> {
   if (await scope.isSysAdmin(actorId)) return [];
   const blockers: PrismaItem[] = [];

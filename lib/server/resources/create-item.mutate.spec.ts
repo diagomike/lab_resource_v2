@@ -286,18 +286,18 @@ describe("applyCreateItem — name and props at creation", () => {
     expect(items.map((i) => i.name)).toEqual(["Named Batch 01", "Named Batch 02"]);
   });
 
-  it("lets a MANAGER create a root in their own department without custody of anything (2026-09-04 policy widening)", async () => {
-    const result = await applyChange(seHeadId, {
-      kind: "createItem",
-      parentId: null,
-      categoryId: labLikeCategoryId,
-      count: 1,
-      name: "Head-Created Lab",
-      ownerOrgNodeId: seNodeId,
-      custodianId: seCustodianId,
-    });
-    createdItemIds.push(...result.itemIds);
-    expect(result.applied).toBe(1);
+  it("refuses a MANAGER creating a root even in their own department — heads approve, custodians edit (2026-09-22)", async () => {
+    await expect(
+      applyChange(seHeadId, {
+        kind: "createItem",
+        parentId: null,
+        categoryId: labLikeCategoryId,
+        count: 1,
+        name: "Head-Created Lab",
+        ownerOrgNodeId: seNodeId,
+        custodianId: seCustodianId,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
   });
 
   it("still refuses a MANAGER from a different department creating a root owned by SE", async () => {
@@ -314,20 +314,19 @@ describe("applyCreateItem — name and props at creation", () => {
     ).rejects.toMatchObject({ status: 403 });
   });
 
-  it("lets a MANAGER create beneath an existing parent in their own department that they do not personally custody", async () => {
-    // seParentItemId is custodied by seCustodianId, NOT seHeadId — this is the
+  it("refuses a MANAGER creating beneath a parent in their own department they do not custody (2026-09-22)", async () => {
+    // seParentItemId is custodied by seCustodianId, NOT seHeadId — the
     // create-BENEATH-a-parent path (assertAuthorized → scope.assertCanMutate on the
-    // parent), distinct from the root-creation path (assertCanCreateRoot) the two
-    // tests above exercise.
-    const result = await applyChange(seHeadId, {
-      kind: "createItem",
-      parentId: seParentItemId,
-      categoryId: partCategoryId,
-      count: 1,
-      name: "Head-Added Part",
-    });
-    createdItemIds.push(...result.itemIds);
-    expect(result.applied).toBe(1);
+    // parent), distinct from the root-creation path above.
+    await expect(
+      applyChange(seHeadId, {
+        kind: "createItem",
+        parentId: seParentItemId,
+        categoryId: partCategoryId,
+        count: 1,
+        name: "Head-Added Part",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("still refuses a MANAGER from a different department creating beneath that same SE parent", async () => {

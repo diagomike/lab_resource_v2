@@ -579,7 +579,7 @@ export async function moveHomeNode(actorUserId: string, targetUserId: string, in
 export async function custodians(q: string | undefined): Promise<PersonSummaryDto[]> {
   const rows = await prisma.user.findMany({
     where: {
-      roles: { some: { kind: { in: ["CUSTODIAN", "STORE_KEEPER", "MANAGER"] } } },
+      roles: { some: { kind: { in: ["CUSTODIAN", "STORE_KEEPER"] } } },
       status: "ACTIVE",
       ...(q?.trim() ? { name: { contains: q.trim(), mode: "insensitive" as const } } : {}),
     },

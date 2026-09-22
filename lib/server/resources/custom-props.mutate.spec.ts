@@ -222,20 +222,18 @@ describe("custom properties — version conflicts, authorization, and scope", ()
     expect(result.applied).toBe(1);
   });
 
-  it("lets a MANAGER add a custom property on an item in their own department, even without custody of it (2026-09-04 policy widening)", async () => {
+  it("refuses a MANAGER adding a custom property in their own department without custody (2026-09-22)", async () => {
     const before = await getOne(sysAdminId, seItemId);
-    const result = await applyChange(seHeadId, {
-      kind: "addCustomProperty",
-      itemIds: [seItemId],
-      key: "Head Write Test",
-      type: "TEXT",
-      value: "x",
-      expectedVersions: { [seItemId]: before.version },
-    });
-    expect(result.applied).toBe(1);
-
-    const after = await getOne(sysAdminId, seItemId);
-    expect(after.customProps["Head Write Test"]?.value).toBe("x");
+    await expect(
+      applyChange(seHeadId, {
+        kind: "addCustomProperty",
+        itemIds: [seItemId],
+        key: "Head Write Test",
+        type: "TEXT",
+        value: "x",
+        expectedVersions: { [seItemId]: before.version },
+      }),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("still refuses a MANAGER from a DIFFERENT department — the widening is subtree-scoped, not blanket", async () => {

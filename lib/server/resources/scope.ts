@@ -225,16 +225,19 @@ export async function writableItemIdsOf(userId: string): Promise<string[]> {
 }
 
 /** Custody may only ever be handed to someone who can actually answer for what they'd
- *  hold: an ACTIVE account carrying CUSTODIAN, STORE_KEEPER, MANAGER or SYS_ADMIN (the seeded administrator itself custodies real resources) — the identical
+ *  hold: an ACTIVE account carrying CUSTODIAN, STORE_KEEPER or SYS_ADMIN (the seeded
+ *  administrator itself custodies real resources). MANAGER alone no longer qualifies
+ *  (2026-09-22, by product direction: "only custodians change resources — the head
+ *  manages personnel and approves"); a head who also runs a lab carries CUSTODIAN too. The identical
  *  set `people.custodians()` already offers as candidates. A student or a disabled
  *  account failing this floor is F-024 from the same campaign; every write path that
  *  assigns custody (direct setCustodian, createItem, transfer/handover settlement)
  *  must call this before writing `custodianId`. */
 export async function assertEligibleCustodian(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { roles: true } });
-  const eligibleRole = user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "MANAGER" || r.kind === "SYS_ADMIN");
+  const eligibleRole = user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "SYS_ADMIN");
   if (!user || user.status !== "ACTIVE" || !eligibleRole) {
-    throw new HttpError(400, "Choose an active custodian, store keeper or department head.");
+    throw new HttpError(400, "Choose an active custodian or store keeper.");
   }
 }
 
@@ -264,17 +267,10 @@ export async function assertMayBrowseRegister(userId: string): Promise<void> {
 // directly custody or that sits beneath something they custody — being able to see a
 // lab, even university-wide, is not being its owner.
 //
-// **MANAGER is the one deliberate exception** (2026-09-04, by explicit product
-// direction — "let department heads edit"): a department head may act directly on
-// anything owned-or-currently-held within their own visible subtree, not just what
-// they personally custody. A head answers for their whole department, not only the
-// specific rows someone happened to assign them as custodian of — unlike custody,
-// which is a narrow, per-item fact, headship is a standing authority over the unit.
-// This mirrors `assertCanCreateRoot`'s own MANAGER branch below, which already
-// granted this same reach for root creation; ordinary mutation was the one write
-// path that hadn't caught up. Every OTHER role's part in a mutation is still to
-// approve one once Phase 12's chain exists, not to make it directly — this carve-out
-// is MANAGER-only, not a general widening.
+// **Department heads do not write** (2026-09-22, by product direction, reversing the
+// 2026-09-04 "let department heads edit" carve-out): custodians make every change to
+// resources; a head manages personnel and approves — lab commits, transfers,
+// purchases — through the approval flows, never by editing the register directly.
 
 export async function isSysAdmin(userId: string): Promise<boolean> {
   const hit = await prisma.userRole.findFirst({ where: { userId, kind: "SYS_ADMIN" } });
@@ -289,11 +285,8 @@ export async function isSysAdmin(userId: string): Promise<boolean> {
  * needs its own special case.
  *
  * Custody is `writableItemIdsOf`, not `custodyItemIdsOf` — see that function's own
- * header. The MANAGER branch below checks `ownerOrgNodeId` ONLY, never
- * `currentOrgNodeId`: a head answers for what their unit OWNS, not for whatever
- * happens to be sitting inside it on loan (F-021 of the 2026-09-15 campaign — a host
- * head could otherwise rename or re-own a borrowed item just because it was
- * physically parked in their department's lab).
+ * header. There is no org-reach branch: holding a post (a head, a dean) grants no
+ * write access of its own — see the section note above.
  */
 export async function assertCanMutate(userId: string, itemIds: string[]): Promise<void> {
   if (!itemIds.length) return;
@@ -301,18 +294,6 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
   const writableIds = new Set(await writableItemIdsOf(userId));
   const remaining = itemIds.filter((id) => !writableIds.has(id));
   if (!remaining.length) return;
-
-  const roles = await rolesOf(userId);
-  if (roles.includes("MANAGER")) {
-    const visible = await orgScope.visibleNodeIds(userId);
-    // deletedAt: null (F-025 of the 2026-09-15 campaign) — a soft-deleted item's
-    // row still exists, so without this a MANAGER's reach would silently extend
-    // to editing something that's supposed to be gone; excluding it here makes
-    // it count as missing, the same "not found" a hard delete used to produce.
-    const rows = await prisma.item.findMany({ where: { id: { in: remaining }, deletedAt: null }, select: { id: true, ownerOrgNodeId: true } });
-    const stillOut = rows.length !== remaining.length || rows.some((r) => !visible.includes(r.ownerOrgNodeId));
-    if (!stillOut) return;
-  }
 
   throw new HttpError(404, "Resource not found");
 }
@@ -323,8 +304,6 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
  * variant of `assertCanMutate`). Deliberately narrower than ordinary read scope, and
  * different in shape from create-beneath-a-parent:
  *  - SYS_ADMIN — anywhere.
- *  - MANAGER — a root owned by any unit inside their OWN visible subtree (a
- *    department head registering their department's first lab).
  *  - CUSTODIAN / STORE_KEEPER — a root owned by their OWN home unit specifically,
  *    with THEMSELVES as its custodian (a lab assistant registering their own lab) —
  *    never an arbitrary unit, and never naming someone else as custodian on their
@@ -343,10 +322,6 @@ export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeI
   if (await isSysAdmin(userId)) return;
 
   const roles = await rolesOf(userId);
-  if (roles.includes("MANAGER")) {
-    const visible = await orgScope.visibleNodeIds(userId);
-    if (visible.includes(input.ownerOrgNodeId)) return;
-  }
   if (roles.includes("CUSTODIAN") || roles.includes("STORE_KEEPER")) {
     const own = await orgScope.ownNodeId(userId);
     if (own && own === input.ownerOrgNodeId && input.custodianId === userId) return;

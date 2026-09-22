@@ -260,8 +260,8 @@ function CategoryCombobox({
  * "Top level" is offered only when the chosen category's own `canBeRoot` allows it AND
  * this person has some plausible path to `scope.ts`'s `assertCanCreateRoot` (widened
  * past SYS_ADMIN-only in 10a of ~/.claude/plans/wait-i-want-gentle-haven.md): SYS_ADMIN
- * anywhere, a MANAGER within their own visible subtree, a CUSTODIAN/STORE_KEEPER at
- * their own home unit with themselves as custodian. The server re-checks all of this
+ * anywhere, a CUSTODIAN/STORE_KEEPER at their own home unit with themselves as
+ * custodian. A department head doesn't create resources (2026-09-22). The server re-checks all of this
  * regardless — this is a UI hint to avoid offering a choice that would just 403, not
  * the authority.
  */
@@ -300,10 +300,9 @@ export function AddModal({
 
   const roles = user?.roles ?? [];
   const isSysAdmin = roles.includes("SYS_ADMIN");
-  const isManager = roles.includes("MANAGER");
   const isCustodianLike = roles.includes("CUSTODIAN") || roles.includes("STORE_KEEPER");
   const ownNodeId = me?.scope?.nodeId ?? null;
-  const canAttemptRoot = isSysAdmin || isManager || (isCustodianLike && Boolean(ownNodeId));
+  const canAttemptRoot = isSysAdmin || (isCustodianLike && Boolean(ownNodeId));
 
   useEffect(() => {
     if (!open) return;
@@ -362,7 +361,7 @@ export function AddModal({
 
   const canSubmit =
     Boolean(categoryId) &&
-    (parent !== "" || (canOfferRoot && (isCustodianLike && !isManager && !isSysAdmin ? true : Boolean(ownerOrgNodeId) && Boolean(custodianId))));
+    (parent !== "" || (canOfferRoot && (isCustodianLike && !isSysAdmin ? true : Boolean(ownerOrgNodeId) && Boolean(custodianId))));
 
   /** Same raw-string → typed-value coercion Inspector's own `commitProp` uses for a
    *  follow-up edit — a blank draft means "leave it unset", never sent at all (an
@@ -499,7 +498,7 @@ export function AddModal({
       {isRootCreate && (
         <div className="flex flex-col gap-8 rounded-2 border border-border2 p-10">
           <div className="text-9.5 uppercase tracking-label text-faint font-semibold">A new top-level resource needs</div>
-          {isCustodianLike && !isManager && !isSysAdmin ? (
+          {isCustodianLike && !isSysAdmin ? (
             <p className="text-10.5 text-dim">
               Owning unit: <strong className="text-text">{ownerNodeName}</strong> · Custodian: <strong className="text-text">you</strong>
             </p>

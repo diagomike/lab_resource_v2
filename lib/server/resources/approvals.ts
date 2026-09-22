@@ -305,8 +305,8 @@ async function isReturnShape(destinationUnitId: string, items: Array<{ ownerOrgN
 }
 
 /**
- * Either side of a loan may ask for it back: the lender (their ordinary custody/
- * MANAGER write reach over the item itself) or the host (they currently physically
+ * Either side of a loan may ask for it back: the lender (their ordinary write
+ * custody over the item itself) or the host (they currently physically
  * hold it, via the READ-side containment walk — `custodyItemIdsOf`, unchanged by
  * the 2026-09-20 write-custody fix — even though that same fix means the host may
  * no longer WRITE the item directly; asking for it to leave is not writing it).

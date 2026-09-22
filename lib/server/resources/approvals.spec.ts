@@ -538,7 +538,7 @@ describe("F-042 — a pull always asks both the owning and the receiving end, re
     expect(preview.steps?.find((s) => s.selector === "TARGET_HEAD")?.approverId).toBe(storeHeadId);
   });
 
-  it("a dean's pull into another unit's lab asks that lab's own custodian and head, not just the dean's own receipt", async () => {
+  it("a dean can no longer pull into a unit's store they don't custody — only custodians move resources (2026-09-22)", async () => {
     const deanId = await makeUser("f042-dean", ["MANAGER"]);
     const seHeadId = await makeUser("f042-se-head", ["MANAGER"]);
     const seCustodianId = await makeUser("f042-se-custodian", ["CUSTODIAN"]);
@@ -562,12 +562,13 @@ describe("F-042 — a pull always asks both the owning and the receiving end, re
       ],
     });
 
-    const preview = await approvals.previewTransfer(deanId, transferInput([whiteboardId], chemStoreId, chemNodeId));
+    await expect(approvals.previewTransfer(deanId, transferInput([whiteboardId], chemStoreId, chemNodeId))).rejects.toMatchObject({ status: 404 });
+
+    // The store's own custodian pulling the same item still asks the owning side.
+    const preview = await approvals.previewTransfer(chemCustodianId, transferInput([whiteboardId], chemStoreId, chemNodeId));
     expect(preview.outcome).toBe("ROUTED");
-    expect(preview.steps?.map((s) => s.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_CUSTODIAN", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
     expect(preview.steps?.find((s) => s.selector === "ITEM_CUSTODIAN")?.approverId).toBe(seCustodianId);
     expect(preview.steps?.find((s) => s.selector === "OWNER_HEAD")?.approverId).toBe(seHeadId);
-    expect(preview.steps?.find((s) => s.selector === "TARGET_CUSTODIAN")?.approverId).toBe(chemCustodianId);
     expect(preview.steps?.find((s) => s.selector === "TARGET_HEAD")?.approverId).toBe(chemHeadId);
   });
 });

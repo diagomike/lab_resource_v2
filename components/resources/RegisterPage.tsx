@@ -39,7 +39,11 @@ function RegisterPageInner() {
   const { me } = useAuth();
   const activeViewId = useActiveViewId();
   const views = me?.views ?? [];
-  const canEdit = views.length === 0 || (views.find((v) => v.id === activeViewId) ?? views[0])?.canEdit !== false;
+  const viewAllowsEdit = views.length === 0 || (views.find((v) => v.id === activeViewId) ?? views[0])?.canEdit !== false;
+  // Only custodians (and store keepers, and the admin) change resources — a head reads
+  // the register and approves through Lab states / Approvals (scope.ts's own note).
+  const holdsWriteRole = Boolean(me?.user.roles.some((r) => r === "CUSTODIAN" || r === "STORE_KEEPER" || r === "SYS_ADMIN"));
+  const canEdit = viewAllowsEdit && holdsWriteRole;
   // Transfers are pulled from University resources (Track 5); pushing stock out is the
   // store keeper's handover only.
   const canHandOver = Boolean(me?.user.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));
