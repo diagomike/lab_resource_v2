@@ -87,8 +87,79 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
 
 export const CATEGORY_ICON_OPTIONS = Object.keys(CATEGORY_ICONS).sort();
 
-/** Falls back to a generic package icon for a key not in the curated set — a category
- *  editor should never render a blank glyph. */
+/** The curated set's fast path (static imports, no lazy chunk) — a key outside it
+ *  gets the generic package glyph here; `CategoryIcon` (components/resources/
+ *  IconPicker.tsx) then resolves any other lucide icon lazily. */
 export function categoryIconFor(iconKey?: string): LucideIcon {
   return (iconKey && CATEGORY_ICONS[iconKey]) || Package;
+}
+
+/** Everyday words people reach for that aren't in an icon's own name — lucide-react
+ *  ships names only, no tags. Keyed by icon name; searched alongside the name's words. */
+export const ICON_SYNONYMS: Record<string, string[]> = {
+  Blinds: ["curtain", "curtains", "shade", "window"],
+  Waves: ["water", "sea", "wave", "liquid"],
+  Droplet: ["water", "liquid", "drop"],
+  Droplets: ["water", "liquid", "humidity"],
+  Monitor: ["screen", "display", "computer", "pc"],
+  Laptop: ["computer", "notebook", "pc"],
+  PcCase: ["computer", "tower", "desktop", "cpu case"],
+  Armchair: ["chair", "seat", "sofa"],
+  Sofa: ["couch", "seat"],
+  Table2: ["table", "grid", "spreadsheet"],
+  Presentation: ["whiteboard", "board", "projector screen"],
+  Projector: ["beamer", "presentation"],
+  Printer: ["print"],
+  Server: ["rack", "switch"],
+  Network: ["switch", "lan"],
+  Router: ["wifi", "network"],
+  Plug: ["socket", "outlet", "power"],
+  PlugZap: ["socket", "outlet", "power", "electric"],
+  Cable: ["wire", "cord"],
+  Lightbulb: ["lamp", "light", "bulb"],
+  Lamp: ["light"],
+  Fan: ["air", "ventilation", "cooling"],
+  AirVent: ["air conditioner", "ac", "ventilation"],
+  Refrigerator: ["fridge", "freezer", "cold"],
+  Microscope: ["lab", "science"],
+  FlaskConical: ["lab", "chemical", "science", "beaker"],
+  TestTubes: ["lab", "sample"],
+  Beaker: ["lab", "glassware"],
+  Thermometer: ["temperature", "heat"],
+  FireExtinguisher: ["safety", "fire"],
+  Shield: ["safety", "security"],
+  Lock: ["security", "locker"],
+  DoorOpen: ["door", "room", "entrance"],
+  Warehouse: ["store", "storage", "stock"],
+  Package: ["box", "item", "parcel"],
+  Wrench: ["tool", "repair", "maintenance"],
+  Hammer: ["tool"],
+  Camera: ["cctv", "photo"],
+  Cctv: ["camera", "security"],
+  Speaker: ["audio", "sound"],
+  Headphones: ["audio", "headset"],
+  Keyboard: ["input", "typing"],
+  Mouse: ["input", "pointer"],
+  HardDrive: ["disk", "storage", "hdd", "ssd"],
+  MemoryStick: ["ram", "memory"],
+  Cpu: ["processor", "chip"],
+  CircuitBoard: ["motherboard", "pcb", "board"],
+  BookOpen: ["book", "library"],
+  Bookshelf: ["shelf", "books"],
+  Archive: ["cabinet", "files", "drawer"],
+  Trash2: ["bin", "waste", "rubbish"],
+  Recycle: ["waste", "bin"],
+  Car: ["vehicle"],
+  Bus: ["vehicle", "transport"],
+  Bed: ["dormitory", "sleep"],
+  Utensils: ["kitchen", "cafeteria"],
+  Microwave: ["oven", "kitchen"],
+  CookingPot: ["kitchen", "pot"],
+};
+
+/** Lower-cased search text for one icon name: its words ("MemoryStick" → "memory
+ *  stick") plus any synonyms. */
+export function iconSearchText(name: string): string {
+  const words = name.replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/([0-9])([A-Za-z])/g, "$1 $2").toLocaleLowerCase();
+  return `${name.toLocaleLowerCase()} ${words} ${(ICON_SYNONYMS[name] ?? []).join(" ")}`;
 }

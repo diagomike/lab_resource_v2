@@ -5,7 +5,7 @@ import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { categoryImpact, coerces } from "@/lib/domain/edit-impact";
 import { canPlace } from "@/lib/domain/placement";
-import { CATEGORY_ICONS } from "@/lib/domain/icons";
+import { icons as LUCIDE_ICONS } from "lucide-react";
 import type { Category } from "@/lib/domain/types";
 import { toDomainCategory, toDomainCategoryMap, toDomainItem } from "./adapt";
 import { wouldCreateTemplateCycle } from "./template-cycle";
@@ -188,7 +188,7 @@ function assertBookableCountingMode(bookingMode: string | undefined, countingMod
 
 /** F-030: an unknown icon key silently rendered the fallback glyph; refuse it at the door. */
 function assertKnownIcon(iconKey: string | undefined): void {
-  if (iconKey !== undefined && !Object.prototype.hasOwnProperty.call(CATEGORY_ICONS, iconKey)) {
+  if (iconKey !== undefined && !Object.prototype.hasOwnProperty.call(LUCIDE_ICONS, iconKey)) {
     throw new HttpError(400, "Unknown icon \"" + iconKey + "\" — pick one from the icon list.");
   }
 }

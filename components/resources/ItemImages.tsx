@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import type { ItemDetailDto, ItemRowDto, ResourceCategoryDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
-import { categoryIconFor } from "@/lib/domain/icons";
+import { CategoryIcon } from "./IconPicker";
 import { Button } from "@/components/ui";
 
 /**
@@ -80,14 +80,13 @@ function fallbackUrl(category: ResourceCategoryDto | null | undefined): string |
 /** Small square for a table cell — read-only, no upload/remove affordance. */
 export function ItemThumb({ row, category, className = "" }: { row: ItemRowDto; category?: ResourceCategoryDto | null; className?: string }) {
   const url = row.thumbnailUrl ?? fallbackUrl(category);
-  const Icon = categoryIconFor(row.categoryIconKey);
   return (
     <span className={`grid place-items-center size-24 flex-none overflow-hidden rounded-2 border border-border2 bg-panel2 ${className}`}>
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element -- served from our own API route, never optimizable by next/image's remote-pattern allowlist without naming every storage backend.
         <img src={url} alt="" className="size-full object-cover" loading="lazy" />
       ) : (
-        <Icon className="size-13 text-faint" />
+        <CategoryIcon iconKey={row.categoryIconKey} className="size-13 text-faint" />
       )}
     </span>
   );

@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-table";
 import type { ItemRowDto } from "@/lib/shared";
 import { aggregate, describeAgg, type RowNode } from "@/lib/domain/tree";
-import { categoryIconFor } from "@/lib/domain/icons";
+import { CategoryIcon } from "./IconPicker";
 import { StatusChip } from "./StatusChip";
 import { ItemThumb } from "./ItemImages";
 
@@ -97,7 +97,6 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           const r = row.original;
           const first = rowOf(idsOf(r)[0]);
           const canExpand = row.getCanExpand();
-          const Icon = categoryIconFor(first?.categoryIconKey);
           return (
             <div className="flex items-center gap-6" style={{ paddingLeft: row.depth * 16 }}>
               <button
@@ -109,7 +108,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
               >
                 {row.getIsExpanded() ? "▾" : "▸"}
               </button>
-              <Icon className="w-13 h-13 flex-none text-dim" />
+              <CategoryIcon iconKey={first?.categoryIconKey} className="w-13 h-13 flex-none text-dim" />
               <button
                 onClick={(e) => {
                   e.stopPropagation();

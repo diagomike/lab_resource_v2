@@ -11,3 +11,12 @@ describe("categoryIconFor", () => {
     expect(categoryIconFor(undefined)).toBe(Package);
   });
 });
+
+describe("iconSearchText", () => {
+  it("splits an icon name into words and adds synonyms, so 'curtain' finds Blinds", async () => {
+    const { iconSearchText } = await import("./icons");
+    expect(iconSearchText("Blinds")).toContain("curtain");
+    expect(iconSearchText("MemoryStick")).toContain("memory stick");
+    expect(iconSearchText("Building2")).toContain("building 2");
+  });
+});
