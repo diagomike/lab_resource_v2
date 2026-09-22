@@ -17,6 +17,9 @@ interface AuthState {
    *  context state to settle — see landingPathFor(roles). */
   login: (email: string, password: string) => Promise<MeContextDto>;
   logout: () => Promise<void>;
+  /** Re-reads /auth/me — after something about this account changed (a forced password
+   *  change clearing `mustChangePassword`). */
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -68,7 +71,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  return <AuthContext.Provider value={{ user: me?.user ?? null, me, loading, login, logout }}>{children}</AuthContext.Provider>;
+  async function refresh() {
+    setMe(await api.get<MeContextDto>("/auth/me"));
+  }
+
+  return <AuthContext.Provider value={{ user: me?.user ?? null, me, loading, login, logout, refresh }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

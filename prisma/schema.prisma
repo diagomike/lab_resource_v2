@@ -73,6 +73,9 @@ model User {
   title        String?
   /// EXTERNAL only — which body they are here on behalf of.
   organisation String?
+  /// Set when an administrator issues a temporary password — the person must choose
+  /// their own before anything else works (session.ts refuses every other API).
+  mustChangePassword Boolean @default(false)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

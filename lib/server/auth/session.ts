@@ -7,6 +7,8 @@ import { hashToken } from "./token";
 
 export const SESSION_COOKIE = "lrms_session";
 
+const PASSWORD_CHANGE_ALLOWED = new Set(["/api/auth/me", "/api/auth/logout", "/api/auth/change-password"]);
+
 export interface AuthedUser {
   id: string;
   email: string;
@@ -35,6 +37,11 @@ export async function requireSession(request: NextRequest): Promise<AuthedUser> 
   }
   if (session.user.status === "DISABLED") {
     throw new HttpError(401, "Account disabled");
+  }
+  // An administrator-issued temporary password must be replaced before the account
+  // can do anything else — only the three calls the change screen itself needs pass.
+  if (session.user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(request.nextUrl.pathname)) {
+    throw new HttpError(403, "Choose a new password before continuing.", { code: "PASSWORD_CHANGE_REQUIRED", message: "Choose a new password before continuing.", statusCode: 403 });
   }
 
   return {

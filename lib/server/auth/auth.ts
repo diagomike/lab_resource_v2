@@ -22,6 +22,7 @@ import * as mail from "../mail/mail";
 import * as scope from "../org/scope";
 import * as itemScope from "../resources/scope";
 import { listSummariesForPerson } from "../resources/views";
+import { issueInvitation } from "../people/people";
 import { generateToken, hashIp, hashToken } from "./token";
 
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7);
@@ -151,12 +152,22 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<void> 
   // so `login`'s "invalid email or password" gate was the only thing (accidentally)
   // stopping it from signing in immediately. Still returns silently either way — the
   // same account-enumeration reasoning as everywhere else in this file.
-  if (!user || user.status === "DISABLED" || !user.passwordHash) return;
+  if (!user || user.status === "DISABLED") return;
+
+  const since = new Date(Date.now() - PASSWORD_RESET_WINDOW_MS);
+  if (!user.passwordHash) {
+    // Still INVITED: there's no password to reset, so send the invitation again —
+    // the same neutral response either way, and the same per-hour throttle (counted
+    // on invitations issued for this address).
+    const recentInvites = await prisma.invitation.count({ where: { emailLower: user.emailLower, createdAt: { gte: since } } });
+    if (recentInvites >= MAX_PASSWORD_RESETS_PER_WINDOW) return;
+    await issueInvitation(user, null);
+    return;
+  }
 
   // F-010: at most 3 reset emails per account per hour — unthrottled, this could
   // flood any mailbox and, on the shared Gmail SMTP relay, exhaust the daily sending
   // quota, after which invitations and quote emails silently stop going out too.
-  const since = new Date(Date.now() - PASSWORD_RESET_WINDOW_MS);
   const recent = await prisma.passwordReset.count({ where: { userId: user.id, createdAt: { gte: since } } });
   if (recent >= MAX_PASSWORD_RESETS_PER_WINDOW) return;
 
@@ -197,18 +208,26 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   ]);
 }
 
-export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+  keepSessionToken?: string,
+): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user?.passwordHash) throw new HttpError(400, "Account has no password set");
   if (!(await argon2.verify(user.passwordHash, currentPassword))) {
     throw new HttpError(400, "Current password is incorrect");
   }
+  if (currentPassword === newPassword) throw new HttpError(400, "Choose a password different from the current one");
   const passwordHash = await argon2.hash(newPassword);
   // Changing a password invalidates every OTHER session — a password change is how you
   // respond to a suspected compromise, so leaving old cookies alive would defeat it.
+  // The session making the change survives, so the person isn't signed out mid-flow.
+  const keep = keepSessionToken ? hashToken(keepSessionToken) : undefined;
   await prisma.$transaction([
-    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
-    prisma.session.deleteMany({ where: { userId } }),
+    prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false } }),
+    prisma.session.deleteMany({ where: { userId, ...(keep ? { tokenHash: { not: keep } } : {}) } }),
   ]);
 }
 
@@ -248,6 +267,7 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
       phone: row.phone,
       status: row.status,
       roles: user.roles,
+      mustChangePassword: row.mustChangePassword,
     },
     scope: node
       ? {
@@ -283,7 +303,7 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
 }
 
 function toDto(
-  user: { id: string; email: string; name: string; phone: string | null; status: string },
+  user: { id: string; email: string; name: string; phone: string | null; status: string; mustChangePassword: boolean },
   roles: RoleKind[],
 ): SessionUserDto {
   return {
@@ -293,6 +313,7 @@ function toDto(
     phone: user.phone,
     status: user.status as SessionUserDto["status"],
     roles,
+    mustChangePassword: user.mustChangePassword,
   };
 }
 

@@ -42,6 +42,9 @@ export const SessionUserDto = z.object({
   phone: z.string().nullable(),
   status: UserStatusSchema,
   roles: z.array(RoleKindSchema),
+  /** True after an administrator set a temporary password — the shell shows only the
+   *  change-password screen until it is replaced. */
+  mustChangePassword: z.boolean(),
 });
 export type SessionUserDto = z.infer<typeof SessionUserDto>;
 

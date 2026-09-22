@@ -465,6 +465,8 @@ function PersonManageModal({
         </div>
       )}
 
+      {!isSelf && person.status !== "DISABLED" && <SignInHelp person={person} onError={onError} />}
+
       <div className="pt-4 border-t border-border">
         {person.status === "DISABLED" ? (
           <Button variant="primary" onClick={onReactivate}>
@@ -486,6 +488,116 @@ function PersonManageModal({
         )}
       </div>
     </Modal>
+  );
+}
+
+type HelpAction = "invite" | "reset" | "temp";
+
+/**
+ * Helping someone who can't sign in, from inside Manage. An invited person gets a fresh
+ * invite link to copy (the old one stops working). A registered person gets either a
+ * reset link emailed to them — the actor never sees it — or a temporary password shown
+ * here once, which they must replace at their next sign-in. The server applies the same
+ * reach as every other staff action.
+ */
+function SignInHelp({ person, onError }: { person: PersonDto; onError: (m: string) => void }) {
+  const [confirming, setConfirming] = useState<HelpAction | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const invited = person.status === "INVITED";
+
+  async function run(action: HelpAction) {
+    setBusy(true);
+    setNotice(null);
+    setCopied(false);
+    try {
+      if (action === "invite") {
+        const r = await api.post<{ inviteUrl: string }>(`/people/${person.id}/resend-invite`);
+        setInviteUrl(r.inviteUrl);
+      } else if (action === "reset") {
+        await api.post(`/people/${person.id}/send-reset`);
+        setNotice(`A reset link was emailed to ${person.email}. It expires in 2 hours.`);
+      } else {
+        const r = await api.post<{ temporaryPassword: string }>(`/people/${person.id}/temp-password`);
+        setTempPassword(r.temporaryPassword);
+      }
+      setConfirming(null);
+    } catch (e) {
+      onError(e instanceof ApiError ? e.message : "That didn't work — try again");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      // The value stays selectable in the field below.
+    }
+  }
+
+  const QUESTION: Record<HelpAction, string> = {
+    invite: "Issue a fresh invite link? The previous link stops working, and the new one is emailed too.",
+    reset: `Email a password reset link to ${person.email}?`,
+    temp: "Replace their password with a temporary one? They'll be signed out everywhere and must choose a new password at their next sign-in.",
+  };
+
+  const shown = inviteUrl ?? tempPassword;
+
+  return (
+    <div>
+      <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Sign-in help</div>
+      {confirming ? (
+        <div className="rounded-2 border border-border2 bg-panel2 p-10 flex flex-col gap-8">
+          <div className="text-11">{QUESTION[confirming]}</div>
+          <div className="flex gap-6">
+            <Button variant="primary" disabled={busy} onClick={() => run(confirming)}>
+              {busy ? "Working…" : "Confirm"}
+            </Button>
+            <Button disabled={busy} onClick={() => setConfirming(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-6">
+          {invited ? (
+            <Button onClick={() => setConfirming("invite")}>Copy invite link…</Button>
+          ) : (
+            <>
+              <Button onClick={() => setConfirming("reset")}>Email reset link…</Button>
+              <Button onClick={() => setConfirming("temp")}>Set temporary password…</Button>
+            </>
+          )}
+        </div>
+      )}
+      {notice && <div className="mt-8 text-10.5 text-good">{notice}</div>}
+      {shown && (
+        <div className="mt-8">
+          <div className="text-10.5 text-dim mb-4">
+            {inviteUrl
+              ? "Emailed to them as well. Send this link over any other channel if the email doesn't arrive."
+              : "Shown only once. Give it to them directly; they'll choose their own password when they sign in."}
+          </div>
+          <div className="flex items-center gap-6">
+            <input
+              readOnly
+              value={shown}
+              onFocus={(e) => e.target.select()}
+              className="flex-1 h-26 px-8 rounded-2 border border-border2 bg-panel text-10.5 font-mono outline-none"
+            />
+            <Button variant="primary" onClick={() => copy(shown)}>
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

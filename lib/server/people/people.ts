@@ -10,6 +10,8 @@ import type {
   RoleKind,
   UpdatePersonRolesInput,
 } from "@/lib/shared";
+import crypto from "node:crypto";
+import * as argon2 from "@node-rs/argon2";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
@@ -18,6 +20,7 @@ import * as mail from "../mail/mail";
 import { generateToken, hashToken } from "../auth/token";
 
 const INVITATION_TTL_DAYS = 7;
+const PASSWORD_RESET_TTL_HOURS = 2;
 // Renamed from WEB_ORIGIN — see auth.ts's own note.
 const APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:3000";
 /** A MANAGER inviting into their own department may only bring in the people who actually
@@ -341,8 +344,22 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
     }
   }
 
+  const inviteUrl = await issueInvitation(user, actorUserId);
+  return { inviteUrl };
+}
+
+/**
+ * Issues a fresh invitation for a not-yet-registered account and emails it, expiring
+ * every older one first. Shared by `resendInvite` and by auth.ts's `forgotPassword`
+ * (an invited person who asks for a reset gets their invitation again — they have no
+ * password to reset).
+ */
+export async function issueInvitation(
+  user: { id: string; email: string; emailLower: string; name: string; homeNodeId: string | null },
+  invitedById: string | null,
+): Promise<string> {
   const raw = generateToken();
-  const intendedRole = (await prisma.userRole.findFirst({ where: { userId: id } }))?.kind ?? "STAFF";
+  const intendedRole = (await prisma.userRole.findFirst({ where: { userId: user.id } }))?.kind ?? "STAFF";
   // F-013 of the 2026-09-15 campaign: the email this same call sends says "the
   // previous one, if any, no longer works" — it didn't; both old and new tokens
   // stayed live, so a link sent to the wrong address or forwarded on kept working
@@ -356,7 +373,7 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
         tokenHash: hashToken(raw),
         intendedRole,
         orgNodeId: user.homeNodeId,
-        invitedById: actorUserId,
+        invitedById,
         expiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 86_400_000),
       },
     }),
@@ -369,7 +386,68 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
            <p>Here is a fresh invitation link — the previous one, if any, no longer works. This link expires in ${INVITATION_TTL_DAYS} days.</p>
            <p><a href="${inviteUrl}">Accept your invitation and set a password</a></p>`,
   });
-  return { inviteUrl };
+  return inviteUrl;
+}
+
+/** Helping a locked-out, already-registered person — same reach as every other
+ *  staff-management action (`assertMayManageStaff`): an admin for anyone, a head for
+ *  the custodians and staff in their own subtree. */
+async function loadRegisteredForHelp(actorUserId: string, actorRoles: RoleKind[], id: string) {
+  const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
+  if (!user) throw new HttpError(404, "Person not found");
+  await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
+  if (user.status === "DISABLED") throw new HttpError(400, "This account is deactivated — reactivate it first.");
+  if (!user.passwordHash) throw new HttpError(400, "This person hasn't registered yet — send their invite link instead.");
+  return user;
+}
+
+/** Emails the person a reset link. The link itself is never shown to the actor. */
+export async function sendPasswordReset(actorUserId: string, actorRoles: RoleKind[], id: string): Promise<void> {
+  const user = await loadRegisteredForHelp(actorUserId, actorRoles, id);
+  const raw = generateToken();
+  await prisma.passwordReset.create({
+    data: { userId: user.id, tokenHash: hashToken(raw), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_HOURS * 3_600_000) },
+  });
+  await mail.send({
+    to: user.email,
+    subject: "Reset your ASTU Lab Resources password",
+    html: `<p>Hello ${escapeHtml(user.name)},</p>
+           <p>An administrator sent you a password reset link. It expires in ${PASSWORD_RESET_TTL_HOURS} hours.</p>
+           <p><a href="${APP_ORIGIN}/reset-password?token=${raw}">Choose a new password</a></p>
+           <p>If you did not ask for this, you can ignore this email — your password will not change.</p>`,
+  });
+}
+
+/**
+ * Sets a random temporary password, returned ONCE to the actor to hand over. Every
+ * existing session dies, and the account must choose its own password before anything
+ * else works (`mustChangePassword`, enforced in session.ts). The person is emailed that
+ * this happened — never the password itself.
+ */
+export async function setTemporaryPassword(actorUserId: string, actorRoles: RoleKind[], id: string): Promise<{ temporaryPassword: string }> {
+  const user = await loadRegisteredForHelp(actorUserId, actorRoles, id);
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await argon2.hash(temporaryPassword);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash, mustChangePassword: true } }),
+    prisma.session.deleteMany({ where: { userId: user.id } }),
+    prisma.passwordReset.updateMany({ where: { userId: user.id, consumedAt: null }, data: { consumedAt: new Date() } }),
+  ]);
+  await mail.send({
+    to: user.email,
+    subject: "Your ASTU Lab Resources password was reset",
+    html: `<p>Hello ${escapeHtml(user.name)},</p>
+           <p>An administrator set a temporary password on your account. They will give it to you directly — you'll be asked to choose your own the first time you sign in.</p>
+           <p>If you weren't expecting this, contact your administrator.</p>`,
+  });
+  return { temporaryPassword };
+}
+
+/** 12 characters from an alphabet without look-alikes (0/O, 1/l/I). */
+function generateTemporaryPassword(): string {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = crypto.randomBytes(12);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
 /**

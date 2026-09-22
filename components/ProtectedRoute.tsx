@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAuth } from "@/lib/auth-context";
+import ForcedPasswordChange from "@/components/ForcedPasswordChange";
 
 export default function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -20,5 +21,8 @@ export default function ProtectedRoute({ children }: { children: ReactNode }) {
       </div>
     );
   }
+  // A temporary password set by an administrator: nothing else renders (and the server
+  // refuses every other call) until the person chooses their own.
+  if (user.mustChangePassword) return <ForcedPasswordChange />;
   return <>{children}</>;
 }

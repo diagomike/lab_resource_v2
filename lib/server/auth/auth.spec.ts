@@ -54,19 +54,28 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.loginAttempt.deleteMany({ where: { emailLower: { startsWith: testKey } } });
   await prisma.passwordReset.deleteMany({ where: { userId: { in: createdUserIds } } });
+  await prisma.invitation.deleteMany({ where: { emailLower: { startsWith: testKey } } });
   await prisma.session.deleteMany({ where: { userId: { in: createdUserIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
   await prisma.$disconnect();
 });
 
-describe("F-009 — forgot-password skips accounts that never set a password", () => {
-  it("sends nothing for an INVITED account with no passwordHash", async () => {
-    const { email } = await makeUser("invited", { status: "INVITED", withPassword: false });
+describe("F-009 — forgot-password never resets an account that never set a password", () => {
+  it("re-sends the invitation (not a reset) to an INVITED account with no passwordHash", async () => {
+    const { email, emailLower } = await makeUser("invited", { status: "INVITED", withPassword: false });
     const before = sent.length;
     await auth.forgotPassword({ email });
-    expect(sent.length).toBe(before); // no email sent
+    expect(sent.slice(before)).toEqual([{ to: email, subject: "Your ASTU Lab Resources invitation" }]);
     const resets = await prisma.passwordReset.count({ where: { user: { emailLower: email } } });
     expect(resets).toBe(0);
+    expect(await prisma.invitation.count({ where: { emailLower, consumedAt: null, expiresAt: { gt: new Date() } } })).toBe(1);
+  });
+
+  it("throttles invitation re-sends through forgot-password at 3 an hour", async () => {
+    const { email } = await makeUser("invited-throttle", { status: "INVITED", withPassword: false });
+    const before = sent.length;
+    for (let i = 0; i < 4; i++) await expect(auth.forgotPassword({ email })).resolves.toBeUndefined();
+    expect(sent.length).toBe(before + 3);
   });
 
   it("still sends for an ACTIVE account with a password", async () => {
@@ -76,6 +85,49 @@ describe("F-009 — forgot-password skips accounts that never set a password", (
     expect(sent.length).toBe(before + 1);
     const resets = await prisma.passwordReset.count({ where: { userId: id } });
     expect(resets).toBe(1);
+  });
+});
+
+describe("administrator sign-in help (temporary password, emailed reset)", () => {
+  it("a temporary password forces a change, ends every session, and is cleared by changePassword", async () => {
+    const { id, email } = await makeUser("temp-pw");
+    await prisma.session.create({ data: { userId: id, tokenHash: `${testKey}-old-${id}`, expiresAt: new Date(Date.now() + 86_400_000) } });
+    const people = await import("../people/people");
+    const before = sent.length;
+    const { temporaryPassword } = await people.setTemporaryPassword("admin-actor", ["SYS_ADMIN"], id);
+    expect(temporaryPassword).toMatch(/^[A-Za-z2-9]{12}$/);
+    expect(sent.slice(before)).toEqual([{ to: email, subject: "Your ASTU Lab Resources password was reset" }]);
+    let user = await prisma.user.findUniqueOrThrow({ where: { id } });
+    expect(user.mustChangePassword).toBe(true);
+    expect(await prisma.session.count({ where: { userId: id } })).toBe(0);
+
+    const { token } = await auth.login({ email, password: temporaryPassword }, {});
+    const { user: dto } = await auth.login({ email, password: temporaryPassword }, {});
+    expect(dto.mustChangePassword).toBe(true);
+    await expect(auth.changePassword(id, temporaryPassword, temporaryPassword, token)).rejects.toMatchObject({ status: 400 });
+    await auth.changePassword(id, temporaryPassword, "my-own-password-1", token);
+    user = await prisma.user.findUniqueOrThrow({ where: { id } });
+    expect(user.mustChangePassword).toBe(false);
+    // The session that made the change survives; the other one does not.
+    const { hashToken } = await import("./token");
+    expect(await prisma.session.findMany({ where: { userId: id }, select: { tokenHash: true } })).toEqual([{ tokenHash: hashToken(token) }]);
+  });
+
+  it("an emailed reset link never reaches the actor, and a head without a post may not send one", async () => {
+    const { id, email } = await makeUser("send-reset");
+    const people = await import("../people/people");
+    const before = sent.length;
+    await expect(people.sendPasswordReset("admin-actor", ["SYS_ADMIN"], id)).resolves.toBeUndefined();
+    expect(sent.slice(before)).toEqual([{ to: email, subject: "Reset your ASTU Lab Resources password" }]);
+    expect(await prisma.passwordReset.count({ where: { userId: id } })).toBe(1);
+    const { id: actorId } = await makeUser("postless-manager");
+    await expect(people.sendPasswordReset(actorId, ["MANAGER"], id)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("refuses a temporary password for someone who has not registered yet", async () => {
+    const { id } = await makeUser("temp-invited", { status: "INVITED", withPassword: false });
+    const people = await import("../people/people");
+    await expect(people.setTemporaryPassword("admin-actor", ["SYS_ADMIN"], id)).rejects.toMatchObject({ status: 400 });
   });
 });
 
