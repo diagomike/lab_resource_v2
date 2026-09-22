@@ -1,46 +1,91 @@
 /**
- * Track 2 — lab draft/visible/ideal states. See
- * ~/.claude/plans/lets-merge-the-work-memoized-journal.md §5 for the full design.
+ * Lab states — Current, Draft and Ideal as whole named trees (2026-09-22 rework; see
+ * lib/domain/version-ops.ts and lib/server/resources/lab-versions.ts).
  *
- * A custodian free-edits their own lab in DRAFT; submitting a batch creates one
- * `LabCommitRequest`, decided by exactly the lab's owning department's head (no
- * multi-office chain — that machinery, `approvals.ts`, is reserved for Track 3's
- * transfers and Track 4's procurement review). Approval to VISIBLE applies every
- * staged operation through the existing write door (`applyChange`); approval to
- * IDEAL instead upserts `LabIdealTarget` rows — never an `Item` write at all.
+ * The custodian edits a DRAFT (a copy of the lab's live tree) or an IDEAL_PROPOSAL (a
+ * copy of the approved Ideal, or of Current when there is none) and submits it; the
+ * owning department's head approves or rejects one `LabCommitRequest`. An approved
+ * Draft merges into the live register; an approved proposal becomes the Ideal —
+ * what purchasing measures the lab against.
  */
 import { z } from "zod";
-import { DraftTargetKindSchema, DraftChangeStatusSchema, RequestStatusSchema } from "./enums";
-import { ItemChangeInput } from "./item";
+import { DraftTargetKindSchema, EffectiveStatusSchema, ItemStatusSchema, LabVersionKindSchema, LabVersionStatusSchema, RequestStatusSchema, CustomPropTypeSchema } from "./enums";
+import { CustomProps, ItemPropValue } from "./item";
 
-/** VISIBLE stages one ordinary ItemChangeInput-shaped operation — the exact
- *  vocabulary mutate.ts's write door already validates. IDEAL stages a proposed
- *  target quantity for one category — never reaches `applyChange` at all, so it is
- *  deliberately NOT unioned into `ItemChangeInput` itself. */
-export const StageDraftChangeInput = z.discriminatedUnion("targetKind", [
-  z.object({ targetKind: z.literal("VISIBLE"), change: ItemChangeInput }),
-  z.object({ targetKind: z.literal("IDEAL"), categoryId: z.string(), qty: z.number().int().min(0) }),
+const ids = z.array(z.string()).min(1);
+
+/** One edit to a version. Ids name the version's own rows — or, from the register,
+ *  real item ids, which the server maps to the rows copied from them. */
+export const VersionOpInput = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("createItem"), parentId: z.string(), categoryId: z.string(), count: z.number().int().min(1).max(200), name: z.string().trim().max(160).optional(), props: z.record(z.string(), ItemPropValue).optional() }),
+  z.object({ kind: z.literal("setName"), itemIds: ids, value: z.string().trim().min(1).max(160) }),
+  z.object({ kind: z.literal("setStatus"), itemIds: ids, value: ItemStatusSchema }),
+  z.object({ kind: z.literal("setQuantity"), itemIds: ids, value: z.number().min(0) }),
+  z.object({ kind: z.literal("setProperty"), itemIds: ids, propKey: z.string(), value: ItemPropValue }),
+  z.object({ kind: z.literal("addCustomProperty"), itemIds: ids, key: z.string().min(1).max(50), type: CustomPropTypeSchema, value: ItemPropValue }),
+  z.object({ kind: z.literal("setCustomProperty"), itemIds: ids, key: z.string(), value: ItemPropValue }),
+  z.object({ kind: z.literal("removeCustomProperty"), itemIds: ids, key: z.string() }),
+  z.object({ kind: z.literal("deleteItem"), itemIds: ids }),
+  z.object({ kind: z.literal("moveInTree"), itemIds: ids, value: z.string() }),
 ]);
-export type StageDraftChangeInput = z.infer<typeof StageDraftChangeInput>;
+export type VersionOpInput = z.infer<typeof VersionOpInput>;
 
-export const ItemDraftChangeDto = z.object({
+/** One row of a tree shown on the Lab states page — a live item (Current) or a
+ *  version row. `sourceItemId` is the real item behind it (equal to `id` for Current;
+ *  null for something added in a version). */
+export const LabTreeNodeDto = z.object({
   id: z.string(),
-  labItemId: z.string(),
-  authorId: z.string(),
-  authorName: z.string(),
-  targetKind: DraftTargetKindSchema,
-  /** Either an `ItemChangeInput` (VISIBLE) or `{categoryId, categoryName, qty}`
-   *  (IDEAL) — rendered by the client's own diff view per `targetKind`, never
-   *  re-parsed as one fixed shape. */
-  payload: z.unknown(),
-  status: DraftChangeStatusSchema,
-  batchId: z.string().nullable(),
-  createdAt: z.string(),
+  parentId: z.string().nullable(),
+  sourceItemId: z.string().nullable(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  name: z.string(),
+  qty: z.number(),
+  status: ItemStatusSchema,
+  effectiveStatus: EffectiveStatusSchema,
+  critical: z.boolean(),
+  props: z.record(z.string(), ItemPropValue),
+  customProps: CustomProps,
 });
-export type ItemDraftChangeDto = z.infer<typeof ItemDraftChangeDto>;
+export type LabTreeNodeDto = z.infer<typeof LabTreeNodeDto>;
 
-export const SubmitDraftInput = z.object({ targetKind: DraftTargetKindSchema });
-export type SubmitDraftInput = z.infer<typeof SubmitDraftInput>;
+export const DiffEntryDto = z.object({
+  kind: z.enum(["added", "removed", "changed"]),
+  versionItemId: z.string().nullable(),
+  sourceItemId: z.string().nullable(),
+  name: z.string(),
+  categoryId: z.string(),
+  lines: z.array(z.string()),
+  markerItemId: z.string().nullable(),
+});
+export type DiffEntryDto = z.infer<typeof DiffEntryDto>;
+
+export const LabVersionDto = z.object({
+  id: z.string(),
+  kind: LabVersionKindSchema,
+  status: LabVersionStatusSchema,
+  rejectionNote: z.string().nullable(),
+  createdByName: z.string(),
+  updatedAt: z.string(),
+  nodes: z.array(LabTreeNodeDto),
+  /** Against Current (DRAFT) or against the approved Ideal (IDEAL_PROPOSAL). */
+  diff: z.array(DiffEntryDto),
+});
+export type LabVersionDto = z.infer<typeof LabVersionDto>;
+
+export const IdealStatRowDto = z.object({
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  idealCount: z.number().int(),
+  currentCount: z.number().int(),
+  gap: z.number().int(),
+  /** Of the current ones, how many need attention (broken, maintenance, impaired…). */
+  needsAttention: z.number().int(),
+  missing: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+export type IdealStatRowDto = z.infer<typeof IdealStatRowDto>;
 
 export const LabCommitRequestDto = z.object({
   id: z.string(),
@@ -49,20 +94,17 @@ export const LabCommitRequestDto = z.object({
   targetKind: DraftTargetKindSchema,
   requesterId: z.string(),
   requesterName: z.string(),
-  batchId: z.string(),
+  versionId: z.string().nullable(),
   status: RequestStatusSchema,
+  /** What it changes, readable — kept on the request after the version is gone. */
+  summary: z.array(z.object({ kind: z.enum(["added", "removed", "changed"]), name: z.string(), lines: z.array(z.string()) })),
   note: z.string().nullable(),
   decidedById: z.string().nullable(),
   decidedByName: z.string().nullable(),
   decidedAt: z.string().nullable(),
   resolution: z.string().nullable(),
   createdAt: z.string(),
-  /** The staged operations this request covers — the diff a department head reviews
-   *  before deciding. */
-  changes: z.array(ItemDraftChangeDto),
-  /** Whether the signed-in caller may actually decide this one right now — re-derived
-   *  live server-side (the department head, or nobody if the post is vacant), never
-   *  a frozen flag. */
+  /** The signed-in caller may decide it right now (the lab's live department head). */
   canDecide: z.boolean(),
 });
 export type LabCommitRequestDto = z.infer<typeof LabCommitRequestDto>;
@@ -72,6 +114,54 @@ export const DecideCommitInput = z.object({
   note: z.string().optional(),
 });
 export type DecideCommitInput = z.infer<typeof DecideCommitInput>;
+
+/** Everything the Lab states page shows for one lab. */
+export const LabStatesDto = z.object({
+  lab: z.object({
+    id: z.string(),
+    name: z.string(),
+    ownerOrgNodeId: z.string(),
+    ownerOrgNodeName: z.string(),
+    custodianId: z.string(),
+    custodianName: z.string(),
+    headName: z.string().nullable(),
+    draftWorkflowEnabled: z.boolean(),
+  }),
+  /** The caller is this lab's custodian (or the admin) and may edit its versions. */
+  canEdit: z.boolean(),
+  /** The caller is the lab's department head and decides its commits. */
+  isHead: z.boolean(),
+  current: z.array(LabTreeNodeDto),
+  draft: LabVersionDto.nullable(),
+  ideal: LabVersionDto.nullable(),
+  idealProposal: LabVersionDto.nullable(),
+  /** Approved Ideal vs Current (empty when there is no approved Ideal). */
+  idealStats: z.array(IdealStatRowDto),
+  /** The proposal vs Current, when there is one — what the lab would need if approved. */
+  proposalStats: z.array(IdealStatRowDto),
+  commits: z.array(LabCommitRequestDto),
+});
+export type LabStatesDto = z.infer<typeof LabStatesDto>;
+
+/** One lab in the Lab states list. */
+export const LabSummaryDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryIconKey: z.string(),
+  ownerOrgNodeId: z.string(),
+  ownerOrgNodeName: z.string(),
+  custodianName: z.string(),
+  draft: LabVersionStatusSchema.nullable(),
+  draftChanges: z.number().int(),
+  hasIdeal: z.boolean(),
+  proposal: LabVersionStatusSchema.nullable(),
+  pendingCommits: z.number().int(),
+});
+export type LabSummaryDto = z.infer<typeof LabSummaryDto>;
+
+/** Register markers: real item id → the pending (drafted) change lines touching it. */
+export const PendingMarkersDto = z.record(z.string(), z.object({ labItemId: z.string(), lines: z.array(z.string()) }));
+export type PendingMarkersDto = z.infer<typeof PendingMarkersDto>;
 
 export const IdealVsActualRowDto = z.object({
   categoryId: z.string(),

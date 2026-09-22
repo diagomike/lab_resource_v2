@@ -110,7 +110,7 @@ model User {
   purchaseStepsDecided       PurchaseStep[]              @relation("PurchaseStepDecidedBy")
   labCommitsRequested        LabCommitRequest[]          @relation("LabCommitRequester")
   labCommitsDecided          LabCommitRequest[]          @relation("LabCommitDecidedBy")
-  labDraftItemsStaged        ItemDraftChange[]           @relation("DraftChangeAuthor")
+  labVersionsCreated         LabVersion[]                @relation("LabVersionCreatedBy")
   scheduleSeriesCreated      ScheduleSeries[]            @relation("ScheduleSeriesCreatedBy")
   scheduleExceptionsCreated  ScheduleSeriesException[]   @relation("ScheduleSeriesExceptionCreatedBy")
   reservationsRequested      Reservation[]               @relation("ReservationRequestedBy")
@@ -426,7 +426,6 @@ model ResourceCategory {
   templateAsChild  CategoryTemplateChild[] @relation("TemplateChild")
   needLines        NeedLine[]
   purchaseLines    PurchaseLine[]
-  labIdealTargets  LabIdealTarget[]
 
   /// This category's own allow-list when its OWN placement is ONLY_LISTED — the
   /// categories it may be placed directly inside.
@@ -568,9 +567,8 @@ model Item {
   /// Track 2 — lab draft/visible/ideal states. Populated only when this item is itself
   /// a lab root (a draft change/commit request/ideal target is always keyed by the LAB,
   /// never by an arbitrary descendant item) — nothing here for an ordinary item.
-  labDraftChanges   ItemDraftChange[]  @relation("LabDraftChanges")
+  labVersions       LabVersion[]       @relation("LabVersions")
   labCommitRequests LabCommitRequest[] @relation("LabCommitRequestLab")
-  labIdealTargets   LabIdealTarget[]   @relation("LabIdealTargets")
 
   /// Track 6 — scheduling. A room's own series/reservations (keyed by the ROOM whose
   /// custodian decides), and every reservation line claiming this exact item.
@@ -1126,77 +1124,104 @@ model PurchaseStep {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Track 2 — lab draft/visible/ideal states. See
-// ~/.claude/plans/lets-merge-the-work-memoized-journal.md §5 for the full design.
+// Lab states — Current, Draft, Ideal (2026-09-22 rework; replaces Track 2's
+// ItemDraftChange/LabIdealTarget rows).
 //
-// A custodian free-edits their own lab in DRAFT (ItemDraftChange rows — no approval
-// needed to stage). Submitting a batch creates ONE LabCommitRequest, decided by
-// exactly the lab's owning department's head (no multi-office chain — the generic
-// ApprovalPolicy/ChainStep engine elsewhere in this schema is reserved for Track 3's
-// transfers and Track 4's procurement review, which genuinely need a walked chain).
-// Approval to VISIBLE applies every staged operation through mutate.ts's existing,
-// unmodified applyChange — one write door, still. Approval to IDEAL instead upserts
-// LabIdealTarget rows directly (not an Item write at all).
+// Current is the live register (Item rows). Draft and Ideal are COMPLETE named trees
+// of the same lab — a LabVersion with its VersionItem rows — started as a copy of the
+// lab's current tree, each copied row linked back to its real Item (`sourceItemId`).
+// Only the lab's custodian edits a version; the owning department's head approves:
+//  - DRAFT approved  -> its difference from Current is MERGED into the live register
+//    through mutate.ts's write door (a status update: broken, under maintenance,
+//    consumed, renamed, added, removed…), then the draft is discarded.
+//  - IDEAL_PROPOSAL approved -> it REPLACES the lab's IDEAL (what the lab should
+//    hold). Ideal never touches the live register; purchasing's gap statistics are
+//    computed from it.
 // ─────────────────────────────────────────────────────────────────────────
 
 enum DraftTargetKind {
-  /// The custodian's default: "here is what my lab actually now has."
+  /// A draft of the lab's real state — merges into Current on approval.
   VISIBLE
-  /// The custodian's explicit alternative: "this is what my lab's target/optimal
-  /// state should be" — never applied to a live Item, only to LabIdealTarget.
+  /// A proposal for the lab's ideal state — replaces its Ideal on approval.
   IDEAL
 }
 
-enum DraftChangeStatus {
-  /// Staged, not yet part of any submitted batch. Freely edited/withdrawn.
-  OPEN
-  /// Part of a batch a LabCommitRequest is deciding. Reset to OPEN on rejection —
-  /// never deleted, never silently discarded (the user's own explicit choice).
+enum LabVersionKind {
+  /// The custodian's pending update to the live register.
+  DRAFT
+  /// The approved target state — what purchasing measures the lab against.
+  IDEAL
+  /// A proposed replacement for IDEAL, awaiting the head.
+  IDEAL_PROPOSAL
+}
+
+enum LabVersionStatus {
+  /// Being edited by the custodian.
+  EDITING
+  /// Sent to the head — frozen until decided (or withdrawn).
   SUBMITTED
-  /// The covering LabCommitRequest was approved and this row's payload was applied.
-  APPLIED
+  /// IDEAL only: the approved ideal.
+  APPROVED
 }
 
-/// One staged, not-yet-applied operation against a lab's own subtree. `payload`'s
-/// shape depends on `targetKind`: VISIBLE stores an ItemChangeInput-shaped operation
-/// (the exact vocabulary mutate.ts's write door already validates — createItem,
-/// setStatus, setProperty, deleteItem, setQuantity, ...); IDEAL stores a
-/// `{ categoryId, qty }` pair for `getIdealVsActual`'s target table. Deliberately NOT
-/// unioned into ItemChangeInput itself — an ideal-target proposal never reaches
-/// applyChange, so it has no business in that door's own vocabulary.
-model ItemDraftChange {
-  id         String            @id @default(cuid())
-  labItemId  String
-  authorId   String
-  targetKind DraftTargetKind
-  payload    Json
-  status     DraftChangeStatus @default(OPEN)
-  /// Set when submitted — groups every row one submission covers. Null while OPEN.
-  batchId    String?
-  createdAt  DateTime          @default(now())
+model LabVersion {
+  id           String           @id @default(cuid())
+  labItemId    String
+  kind         LabVersionKind
+  status       LabVersionStatus @default(EDITING)
+  /// Each copied Item's `version` at copy time, keyed by item id — the staleness
+  /// guard when a DRAFT merges (an item changed since must not be silently
+  /// overwritten).
+  baseVersions Json             @default("{}")
+  /// Why the head last sent it back, shown to the custodian until resubmitted.
+  rejectionNote String?
+  createdById  String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
-  lab    Item @relation("LabDraftChanges", fields: [labItemId], references: [id], onDelete: Cascade)
-  author User @relation("DraftChangeAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  lab       Item          @relation("LabVersions", fields: [labItemId], references: [id], onDelete: Cascade)
+  createdBy User          @relation("LabVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  items     VersionItem[]
 
-  @@index([labItemId, status])
-  @@index([batchId])
+  @@unique([labItemId, kind])
 }
 
-/// The one decision a submitted draft batch needs — the lab's owning department's
-/// head, resolved live via the org chart (never a frozen id; a vacant post BLOCKS,
-/// exactly like the generic chain engine's own already-proven invariant, just applied
-/// to a single step here instead of a walked one).
+/// One row of a version's tree. The lab itself is a row too (its root). No owner,
+/// current unit or custodian: those are the lab's own and cannot be staged.
+model VersionItem {
+  id           String     @id @default(cuid())
+  versionId    String
+  /// Another VersionItem in the same version (null only for the lab's own row).
+  parentId     String?
+  /// The real Item this row stands for; null for something added in this version.
+  sourceItemId String?
+  categoryId   String
+  name         String
+  qty          Decimal    @default(1) @db.Decimal(18, 4)
+  status       ItemStatus @default(WORKING)
+  critical     Boolean    @default(false)
+  props        Json       @default("{}")
+  customProps  Json       @default("{}")
+
+  version LabVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@index([sourceItemId])
+}
+
+/// The one decision a submitted version needs — the lab's owning department's head,
+/// resolved live via the org chart (a vacant post BLOCKS).
 model LabCommitRequest {
   id           String          @id @default(cuid())
   labItemId    String
   targetKind   DraftTargetKind
   requesterId  String
-  /// The ItemDraftChange rows this request covers (their shared batchId).
-  batchId      String
+  /// The DRAFT or IDEAL_PROPOSAL version being decided (null once it is merged away).
+  versionId    String?
   status       RequestStatus   @default(PENDING)
-  /// Reuses mutate.ts's own expectedVersions shape verbatim — keyed by item id,
-  /// re-checked at approval time by the SAME assertVersionsMatch a direct edit uses.
-  baseVersions Json
+  /// Readable summary of the change at submission time, kept after the version is
+  /// merged or replaced so the request's history still says what it did.
+  summary      Json            @default("[]")
   note         String?
   decidedById  String?
   decidedAt    DateTime?
@@ -1209,23 +1234,6 @@ model LabCommitRequest {
 
   @@index([labItemId, status])
   @@index([requesterId])
-  @@index([batchId])
-}
-
-/// The APPROVED (committed) ideal target for one category within one lab — "this lab
-/// should have 8 Computers." A PROPOSAL to change one is just another
-/// ItemDraftChange row (targetKind: IDEAL); this table only ever holds what a
-/// department head has actually approved.
-model LabIdealTarget {
-  id         String @id @default(cuid())
-  labItemId  String
-  categoryId String
-  idealQty   Int
-
-  lab      Item             @relation("LabIdealTargets", fields: [labItemId], references: [id], onDelete: Cascade)
-  category ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-
-  @@unique([labItemId, categoryId])
 }
 
 // ── Scheduling (Track 6 of ~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md)

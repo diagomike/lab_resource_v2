@@ -118,14 +118,20 @@ export const stepStatuses = ["PENDING", "WAITING", "APPROVED", "REJECTED", "SKIP
 export const StepStatusSchema = z.enum(stepStatuses);
 export type StepStatus = (typeof stepStatuses)[number];
 
-// ── Track 2: lab draft/visible/ideal ────────────────────────────────────
+// ── Lab states: Current / Draft / Ideal ─────────────────────────────────
+/** What a lab commit decides: VISIBLE merges a Draft into Current; IDEAL replaces the
+ *  lab's Ideal with a proposal. */
 export const draftTargetKinds = ["VISIBLE", "IDEAL"] as const;
 export const DraftTargetKindSchema = z.enum(draftTargetKinds);
 export type DraftTargetKind = (typeof draftTargetKinds)[number];
 
-export const draftChangeStatuses = ["OPEN", "SUBMITTED", "APPLIED"] as const;
-export const DraftChangeStatusSchema = z.enum(draftChangeStatuses);
-export type DraftChangeStatus = (typeof draftChangeStatuses)[number];
+export const labVersionKinds = ["DRAFT", "IDEAL", "IDEAL_PROPOSAL"] as const;
+export const LabVersionKindSchema = z.enum(labVersionKinds);
+export type LabVersionKind = (typeof labVersionKinds)[number];
+
+export const labVersionStatuses = ["EDITING", "SUBMITTED", "APPROVED"] as const;
+export const LabVersionStatusSchema = z.enum(labVersionStatuses);
+export type LabVersionStatus = (typeof labVersionStatuses)[number];
 
 /** Which selector produced a ChainStep, so it can say how to re-resolve itself.
  *  Authorization must not hang off display text. */

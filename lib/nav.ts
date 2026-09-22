@@ -58,6 +58,9 @@ export const NAV: NavGroup[] = [
       // Track 7 — outside institutions' requests. The service decides what each person
       // sees (all of them for the AVP's office, their department's for heads/custodians).
       { key: "external-requests", label: "External requests", icon: "⇲", path: "/external-requests", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN"] },
+      // Each lab's Current, Draft and Ideal side by side — custodians edit drafts and
+      // ideals there, heads approve them (lib/server/resources/lab-versions.ts).
+      { key: "lab-states", label: "Lab states", icon: "⧉", path: "/lab-states", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN", "STORE_KEEPER"] },
       { key: "approvals", label: "Approvals", icon: "✓", path: "/approvals" },
       {
         key: "purchasing",
@@ -97,6 +100,7 @@ export const META: Record<string, [string, string, string]> = {
   university: ["", "University resources", "Every unit's resources — find what you need and request it into your lab"],
   schedule: ["", "Schedule", "Lab calendars — weekly classes, and booking a room or machine"],
   "external-requests": ["", "External requests", "Workshops and trainings outside institutions have asked the university to host"],
+  "lab-states": ["", "Lab states", "Each lab as it is, as drafted, and as it should be — edit, submit and approve"],
   approvals: ["", "Approvals", "Requests routed to you, and what you have asked for yourself"],
   purchasing: ["", "Purchasing", "Needs raised, purchase requests, and what has arrived"],
   "change-log": ["", "Change log", "Every applied change, who made it, and when"],

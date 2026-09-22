@@ -34,7 +34,7 @@ function categoryLabel(category: ResourceCategoryDto): string {
  * fits the existing modal rather than introducing a second visual system. The input
  * is both the trigger and the search field: opening it shows every category, typing
  * narrows by category or group, and keyboard users can arrow/enter through results. */
-function CategoryCombobox({
+export function CategoryCombobox({
   categories,
   value,
   loading,

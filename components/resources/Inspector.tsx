@@ -15,7 +15,8 @@ import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
 import { TransferModal } from "./TransferModal";
 import { PullTransferModal } from "./PullTransferModal";
-import { LabDraftPanel } from "./LabDraftPanel";
+import Link from "next/link";
+import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 import { ChangeModal } from "./ChangeModal";
 import { CategoryIcon } from "./IconPicker";
 
@@ -84,7 +85,10 @@ export function Inspector({
   const [transferOpen, setTransferOpen] = useState(false);
   const [pullOpen, setPullOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
-  const [showDraftPanel, setShowDraftPanel] = useState(false);
+  /** Set when this panel's own last edit went into the lab's Draft (the department
+   *  uses drafts) instead of the register. */
+  const [stagedIn, setStagedIn] = useState<{ labItemId: string; labName: string } | null>(null);
+  const { markers, refresh: refreshMarkers } = usePendingMarkers();
   const { user } = useAuth();
   const canHandOver = Boolean(user?.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));
 
@@ -130,10 +134,14 @@ export function Inspector({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => load(), [itemId]);
 
-  const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange(() => {
+  const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange((result) => {
+    setStagedIn(result.staged ?? null);
     onChanged();
+    refreshMarkers();
     load({ quiet: true });
   });
+  useEffect(() => setStagedIn(null), [itemId]);
+  const pendingHere = itemId ? markers[itemId] : undefined;
 
   const fieldsByKey = useMemo(() => new Map((category?.fields ?? []).map((f) => [f.key, f])), [category]);
   const expectedVersions = item ? { [item.id]: item.version } : {};
@@ -353,19 +361,31 @@ export function Inspector({
                 refused.
               </div>
             )}
-            {/* Track 2 — only for a lab root (no parent) the signed-in account itself
-                custodies. If the department hasn't turned on draft mode, staging
-                still just refuses with a clear message; the button is not hidden
-                pre-emptively on that basis (readOnlyContext already covers the case
-                where this item genuinely isn't theirs). */}
-            {!item.readOnlyContext && item.parentId === null && item.custodianId === user?.id && (
-              <button
-                type="button"
-                onClick={() => setShowDraftPanel(true)}
-                className="self-start text-10.5 text-accent border border-accent rounded-2 px-8 py-4"
-              >
-                Manage draft…
-              </button>
+            {stagedIn && (
+              <div className="text-10.5 bg-soft border border-accent rounded-2 px-8 py-6">
+                Staged in <strong>{stagedIn.labName}</strong>&apos;s draft — the register changes once the department head approves.{" "}
+                <Link href={`/lab-states?lab=${stagedIn.labItemId}&tab=draft&item=${item.id}`} className="text-accent hover:underline">
+                  Review &amp; submit →
+                </Link>
+              </div>
+            )}
+            {pendingHere && !stagedIn && (
+              <div className="text-10.5 bg-warnbg border border-warn rounded-2 px-8 py-6">
+                <div className="font-medium text-warn mb-2">* Pending in the lab&apos;s draft</div>
+                {pendingHere.lines.map((l, i) => (
+                  <div key={i} className="text-dim">
+                    {l}
+                  </div>
+                ))}
+                <Link href={`/lab-states?lab=${pendingHere.labItemId}&tab=draft&item=${item.id}`} className="text-accent hover:underline">
+                  Open the draft →
+                </Link>
+              </div>
+            )}
+            {item.parentId === null && (
+              <Link href={`/lab-states?lab=${item.id}`} className="self-start text-10.5 text-accent border border-accent rounded-2 px-8 py-4">
+                Lab states — current · draft · ideal →
+              </Link>
             )}
             {inlineError && <ErrorNote>{inlineError}</ErrorNote>}
 
@@ -605,16 +625,6 @@ export function Inspector({
         />
       )}
 
-      {showDraftPanel && item && (
-        <LabDraftPanel
-          labItemId={item.id}
-          labName={item.name}
-          onClose={() => {
-            setShowDraftPanel(false);
-            load();
-          }}
-        />
-      )}
     </>
   );
 }

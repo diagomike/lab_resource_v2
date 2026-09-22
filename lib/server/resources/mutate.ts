@@ -77,6 +77,15 @@ export async function applyChange(
     cleanupKeys?: string[];
   },
 ): Promise<ItemChangeResultDto> {
+  // A department using drafts: an ordinary edit to one of its labs goes into that
+  // lab's Draft instead of the register (lab-versions.ts) — never for the calls that
+  // ARE the approved outcome of a draft or a transfer, which pass the flags below.
+  if (!opts?.tx && !opts?.bypassDraftWorkflowBlock && !opts?.viaApprovalEngine) {
+    const { stageFromRegister } = await import("./lab-versions");
+    await assertViewAllowsEdit(actorId, opts?.viewId);
+    const staged = await stageFromRegister(actorId, input, { dryRun: opts?.dryRun });
+    if (staged) return staged;
+  }
   await assertAuthorized(actorId, input, opts?.viewId, opts?.bypassDraftWorkflowBlock, opts?.viaApprovalEngine);
   // Computed once, against committed state, alongside assertAuthorized's own check —
   // threaded into performChange only for createItem, which is the one write kind
@@ -283,7 +292,8 @@ async function assertAuthorized(
  * have draft mode on.
  */
 async function assertDraftWorkflowNotBlocking(input: ItemChangeInput): Promise<void> {
-  if (input.kind === "transferItem") return;
+  // Photos are not part of a lab's state; transfers have their own approval chain.
+  if (input.kind === "transferItem" || input.kind === "addImage" || input.kind === "removeImage") return;
   const ids = input.kind === "createItem" ? (input.parentId ? [input.parentId] : []) : input.itemIds;
   if (!ids.length) return;
   const rows = await prisma.item.findMany({ where: { id: { in: ids } }, select: { ownerOrgNodeId: true } });
@@ -398,6 +408,62 @@ async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cl
     default:
       return applyFieldChange(tx, actorId, at, input);
   }
+}
+
+/**
+ * Creates items exactly as a merged Draft describes them — names, statuses, parts and
+ * properties as given, no template re-expansion — under `parentId`, inheriting its
+ * owner, current unit and custodian. Only the top row's name is checked against its
+ * new siblings (the rest were built inside the draft). Returns version row id → new
+ * item id. Called by lab-versions.ts inside its own merge transaction.
+ */
+export async function createExactItems(
+  tx: Tx,
+  actorId: string,
+  parentId: string,
+  rows: Array<{ id: string; parentId: string | null; categoryId: string; name: string; qty: number; status: PrismaItem["status"]; critical: boolean; props: Record<string, unknown>; customProps: Record<string, unknown> }>,
+): Promise<Map<string, string>> {
+  const parent = await tx.item.findUnique({ where: { id: parentId } });
+  if (!parent || parent.deletedAt) throw new HttpError(409, "The place these were added to no longer exists.");
+  const categories = await loadAllCategoriesDomain(tx);
+  const top = rows[0];
+  assertPlacementAllowed(categories, top.categoryId, parent.categoryId);
+  const siblings = await lockAndLoadSiblingNames(tx, parent.id, parent.ownerOrgNodeId);
+  if (findNameClash([top.name], siblings)) throw new HttpError(409, `"${top.name}" already exists in ${parent.name}.`);
+
+  const idMap = new Map(rows.map((r) => [r.id, newId()]));
+  const at = new Date();
+  await tx.item.createMany({
+    data: rows.map((r) => ({
+      id: idMap.get(r.id)!,
+      parentId: r.id === top.id ? parent.id : idMap.get(r.parentId!)!,
+      categoryId: r.categoryId,
+      name: r.name,
+      countingMode: categories[r.categoryId]?.countingMode ?? "SERIALIZED",
+      qty: new Prisma.Decimal(r.qty),
+      status: r.status,
+      critical: r.critical,
+      props: r.props as Prisma.InputJsonValue,
+      customProps: r.customProps as Prisma.InputJsonValue,
+      ownerOrgNodeId: parent.ownerOrgNodeId,
+      currentOrgNodeId: parent.currentOrgNodeId,
+      custodianId: parent.custodianId,
+    })),
+  });
+  await tx.itemChange.create({
+    data: {
+      at,
+      actorId,
+      kind: "createItem",
+      targetKind: "ITEM",
+      itemId: idMap.get(top.id)!,
+      itemName: top.name,
+      categoryId: top.categoryId,
+      note: "Added through an approved lab draft",
+      ...scopeSnapshot(parent),
+    },
+  });
+  return idMap;
 }
 
 async function loadAllCategoriesDomain(tx: Tx): Promise<Record<string, Category>> {
@@ -713,13 +779,13 @@ async function liveDependentBlockers(tx: Tx, subtreeIds: string[]): Promise<stri
     tx.$queryRaw<{ summary: string }[]>`
       SELECT summary FROM "ChangeRequest" WHERE status = 'PENDING' AND payload -> 'itemIds' ?| ${subtreeIds}::text[] LIMIT 5
     `,
-    tx.itemDraftChange.findMany({ where: { status: { in: ["OPEN", "SUBMITTED"] }, labItemId: { in: subtreeIds } }, select: { id: true }, take: 5 }),
+    tx.labVersion.findMany({ where: { status: "SUBMITTED", labItemId: { in: subtreeIds } }, select: { id: true }, take: 5 }),
   ]);
   const blockers: string[] = [];
   if (reservations.length) blockers.push(`${reservations.length} upcoming booking(s) (e.g. "${reservations[0].title}")`);
   if (series.length) blockers.push(`${series.length} active class timetable(s) (e.g. "${series[0].title}")`);
   if (transfers.length) blockers.push(`${transfers.length} pending transfer request(s) (e.g. "${transfers[0].summary}")`);
-  if (drafts.length) blockers.push(`${drafts.length} staged draft change(s) awaiting submission or approval`);
+  if (drafts.length) blockers.push(`${drafts.length} lab draft or ideal proposal(s) awaiting the department head`);
   return blockers;
 }
 

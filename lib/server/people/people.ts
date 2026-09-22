@@ -548,12 +548,12 @@ export async function moveHomeNode(actorUserId: string, targetUserId: string, in
   const [custodyCount, openNeeds, openDrafts] = await Promise.all([
     prisma.item.count({ where: { custodianId: targetUserId } }),
     prisma.needLine.count({ where: { raisedById: targetUserId, status: "OPEN" } }),
-    prisma.itemDraftChange.count({ where: { authorId: targetUserId, status: "OPEN" } }),
+    prisma.labVersion.count({ where: { createdById: targetUserId, kind: { not: "IDEAL" } } }),
   ]);
   const blockers: string[] = [];
   if (custodyCount > 0) blockers.push(`is custodian of ${custodyCount} resource(s)`);
   if (openNeeds > 0) blockers.push(`has ${openNeeds} open purchasing need(s)`);
-  if (openDrafts > 0) blockers.push(`has ${openDrafts} open staged draft change(s)`);
+  if (openDrafts > 0) blockers.push(`has ${openDrafts} open lab draft(s) or ideal proposal(s)`);
   if (blockers.length > 0) {
     throw new HttpError(400, `Cannot move "${target.name}" — they ${blockers.join("; ")}. Resolve these first, or move them after they're cleared.`);
   }

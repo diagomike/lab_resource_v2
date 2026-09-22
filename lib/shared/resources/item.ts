@@ -382,6 +382,9 @@ export const ItemChangeResultDto = z.object({
   plannedNames: z.array(z.string()).optional(),
   /** createItem only: every row created, template parts included. */
   rows: z.number().int().optional(),
+  /** Set when the department uses drafts: the edit went into this lab's Draft for the
+   *  head's approval instead of the register. */
+  staged: z.object({ labItemId: z.string(), labName: z.string() }).optional(),
 });
 export type ItemChangeResultDto = z.infer<typeof ItemChangeResultDto>;
 

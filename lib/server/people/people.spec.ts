@@ -57,7 +57,7 @@ afterAll(async () => {
   await prisma.homeNodeChange.deleteMany({ where: { userId: { in: createdUserIds } } });
   await prisma.invitation.deleteMany({ where: { emailLower: { startsWith: testKey } } });
   await prisma.needLine.deleteMany({ where: { raisedById: { in: createdUserIds } } });
-  await prisma.itemDraftChange.deleteMany({ where: { authorId: { in: createdUserIds } } });
+  await prisma.labVersion.deleteMany({ where: { createdById: { in: createdUserIds } } });
   await prisma.userRole.deleteMany({ where: { userId: { in: createdUserIds } } });
   await prisma.orgNode.deleteMany({ where: { id: { in: createdNodeIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { parseBody } from "@/lib/server/validate";
 import { errorResponse } from "@/lib/server/http-error";
 import { requireSession, requireRole } from "@/lib/server/auth/session";
-import { setDraftWorkflowEnabled } from "@/lib/server/resources/lab-drafts";
+import { setDraftWorkflowEnabled } from "@/lib/server/resources/lab-versions";
 
 type Params = { params: Promise<{ id: string }> };
 

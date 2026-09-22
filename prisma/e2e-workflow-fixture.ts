@@ -54,7 +54,7 @@ interface FixtureState {
   storeKeeper: { id: string; created: boolean; priorStatus: string | null; priorPasswordHash: string | null };
   sePriorDraftWorkflowEnabled: boolean;
   mainStore: { id: string; priorCustodianId: string };
-  priorIdealTargetIds: string[];
+  priorVersionIds: string[];
 }
 
 async function nodeByName(name: string) {
@@ -84,7 +84,7 @@ async function setup() {
   ]);
   const mainStore = await prisma.item.findFirstOrThrow({ where: { name: MAIN_STORE, parentId: null, deletedAt: null } });
   const existingKeeper = await prisma.user.findUnique({ where: { emailLower: EMAIL.storeKeeper } });
-  const priorIdealTargets = await prisma.labIdealTarget.findMany({ select: { id: true } });
+  const priorVersions = await prisma.labVersion.findMany({ select: { id: true } });
   const passwordHash = await argon2.hash(PASSWORD);
   const startedAt = new Date();
 
@@ -129,7 +129,7 @@ async function setup() {
     storeKeeper: { id: keeperId, created: !existingKeeper, priorStatus: existingKeeper?.status ?? null, priorPasswordHash: existingKeeper?.passwordHash ?? null },
     sePriorDraftWorkflowEnabled: se.draftWorkflowEnabled,
     mainStore: { id: mainStore.id, priorCustodianId: mainStore.custodianId },
-    priorIdealTargetIds: priorIdealTargets.map((t) => t.id),
+    priorVersionIds: priorVersions.map((v) => v.id),
   };
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   console.log(`Set up at ${state.startedAt}. State recorded to ${STATE_FILE}.`);
@@ -169,8 +169,7 @@ async function teardown() {
     await tx.needLine.deleteMany({ where: { createdAt: { gte: since } } });
     await tx.changeRequest.deleteMany({ where: { createdAt: { gte: since } } }); // cascades chain steps
     await tx.labCommitRequest.deleteMany({ where: { createdAt: { gte: since } } });
-    await tx.itemDraftChange.deleteMany({ where: { createdAt: { gte: since } } });
-    await tx.labIdealTarget.deleteMany({ where: { id: { notIn: state.priorIdealTargetIds } } });
+    await tx.labVersion.deleteMany({ where: { id: { notIn: state.priorVersionIds ?? [] } } });
     if (doomedIds.length) await tx.item.updateMany({ where: { id: { in: doomedIds } }, data: { deletedAt: new Date() } });
 
     await tx.item.update({ where: { id: state.mainStore.id }, data: { custodianId: state.mainStore.priorCustodianId, version: { increment: 1 } } });
@@ -201,17 +200,17 @@ async function teardown() {
 // ── report ───────────────────────────────────────────────────────────────────
 
 async function counts() {
-  const [items, purchaseRequests, needs, changeRequests, labCommits, drafts, idealTargets] = await Promise.all([
+  const [items, purchaseRequests, needs, changeRequests, labCommits, drafts, ideals] = await Promise.all([
     prisma.item.count({ where: { deletedAt: null } }),
     prisma.purchaseRequest.count(),
     prisma.needLine.count(),
     prisma.changeRequest.count(),
     prisma.labCommitRequest.count(),
-    prisma.itemDraftChange.count(),
-    prisma.labIdealTarget.count(),
+    prisma.labVersion.count({ where: { kind: { not: "IDEAL" } } }),
+    prisma.labVersion.count({ where: { kind: "IDEAL" } }),
   ]);
   const se = await prisma.orgNode.findFirst({ where: { name: NODE.se }, select: { draftWorkflowEnabled: true } });
-  return { items, purchaseRequests, needs, changeRequests, labCommits, drafts, idealTargets, seDraftWorkflow: se?.draftWorkflowEnabled };
+  return { items, purchaseRequests, needs, changeRequests, labCommits, drafts, ideals, seDraftWorkflow: se?.draftWorkflowEnabled };
 }
 
 async function report() {
@@ -237,8 +236,8 @@ async function report() {
   const since = new Date(state.startedAt);
   const labCommits = await prisma.labCommitRequest.findMany({ where: { createdAt: { gte: since } }, include: { lab: { select: { name: true } } }, orderBy: { createdAt: "asc" } });
   for (const c of labCommits) console.log(`  lab-commit  ${c.lab.name} ${c.targetKind} ${c.status}${c.resolution ? ` "${c.resolution}"` : ""}`);
-  const targets = await prisma.labIdealTarget.findMany({ include: { lab: { select: { name: true } }, category: { select: { name: true } } } });
-  for (const t of targets) console.log(`  ideal  ${t.lab.name} · ${t.category.name} = ${t.idealQty}`);
+  const ideals = await prisma.labVersion.findMany({ where: { kind: "IDEAL" }, include: { lab: { select: { name: true } }, _count: { select: { items: true } } } });
+  for (const v of ideals) console.log(`  ideal  ${v.lab.name}: ${v._count.items - 1} items`);
   const transfers = await prisma.changeRequest.findMany({ where: { createdAt: { gte: since } }, include: { steps: { orderBy: { order: "asc" } } }, orderBy: { createdAt: "asc" } });
   for (const t of transfers) console.log(`  transfer  ${t.status.padEnd(9)} ${t.summary} [${t.steps.map((s) => `${s.label}:${s.status}`).join(" → ")}]${t.resolution ? ` "${t.resolution}"` : ""}`);
   const prs = await prisma.purchaseRequest.findMany({ where: { createdAt: { gte: since } }, include: { lines: true, events: { orderBy: { at: "asc" } } }, orderBy: { createdAt: "asc" } });

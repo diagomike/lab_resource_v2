@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { LabCommitRequestDto } from "@/lib/shared";
 import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
-import { listForActor } from "@/lib/server/resources/lab-drafts";
+import { listForActor } from "@/lib/server/resources/lab-versions";
 
 /** `?box=inbox` — every PENDING commit request this signed-in account may decide
  *  right now (re-derived live against the org chart, never a stored flag).

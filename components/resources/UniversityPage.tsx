@@ -3,6 +3,7 @@
 import { Suspense, useMemo, useState } from "react";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { GroupByBar } from "./GroupByBar";
+import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 import { NEEDS_ATTENTION } from "@/lib/domain/status";
 import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button } from "@/components/ui";
@@ -44,6 +45,7 @@ function UniversityPageInner() {
   const [pullOpen, setPullOpen] = useState(false);
   const allExpanded = state.expanded === true;
   const { user } = useAuth();
+  const { markers } = usePendingMarkers();
 
   /** A tree selection ticks a row's whole subtree; a transfer is about the top-most of
    *  those (the server collapses it the same way). Anything already in the viewer's own
@@ -143,6 +145,7 @@ function UniversityPageInner() {
             onInspect={setInspectId}
             showPath={state.mode === "flat"}
             selectable
+            pending={markers}
           />
         )}
       </Panel>

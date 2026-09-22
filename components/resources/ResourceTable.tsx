@@ -12,7 +12,8 @@ import {
   type ExpandedState,
   type RowSelectionState,
 } from "@tanstack/react-table";
-import type { ItemRowDto } from "@/lib/shared";
+import Link from "next/link";
+import type { ItemRowDto, PendingMarkersDto } from "@/lib/shared";
 import { aggregate, describeAgg, type RowNode } from "@/lib/domain/tree";
 import { CategoryIcon } from "./IconPicker";
 import { StatusChip } from "./StatusChip";
@@ -54,9 +55,12 @@ export interface ResourceTableProps {
    *  just inert but actively misleading (it would suggest a selection does
    *  something). Defaults to `true`, unchanged from before this prop existed. */
   selectable?: boolean;
+  /** Items a pending lab Draft would change — shown with a `*` that explains the change
+   *  on hover and opens the draft on click. */
+  pending?: PendingMarkersDto;
 }
 
-export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true }: ResourceTableProps) {
+export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true, pending }: ResourceTableProps) {
   const columns = useMemo(() => {
     const rowOf = (id: string) => byId.get(id);
     const nameAgg = (values: (string | undefined)[]) => aggregate(values.map((v) => v ?? null));
@@ -131,6 +135,17 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
               >
                 {isCluster(r) ? (first?.categoryName ?? "—") : r.item.name}
               </button>
+              {!isCluster(r) && pending?.[r.item.id] && (
+                <Link
+                  href={`/lab-states?lab=${pending[r.item.id].labItemId}&tab=draft&item=${r.item.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  title={["Pending in the lab's draft:", ...pending[r.item.id].lines, "", "Click to open the draft"].join("\n")}
+                  className="flex-none text-12 font-bold leading-none text-warn hover:text-accent"
+                  aria-label="Has pending draft changes"
+                >
+                  *
+                </Link>
+              )}
               {isCluster(r) && <span className="text-9.5 font-mono text-faint flex-none">×{r.members.length}</span>}
             </div>
           );
@@ -240,7 +255,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
     );
 
     return cols;
-  }, [byId, showPath, onInspect, selectable]);
+  }, [byId, showPath, onInspect, selectable, pending]);
 
   const table = useTable({
     features,

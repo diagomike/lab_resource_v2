@@ -18,6 +18,7 @@ import { AddModal } from "./AddModal";
 import { BulkPropModal } from "./BulkPropModal";
 import { TransferModal } from "./TransferModal";
 import { GroupByBar } from "./GroupByBar";
+import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 
 const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
@@ -30,6 +31,12 @@ function RegisterPageInner() {
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const allExpanded = state.expanded === true;
   const options = useEditOptions();
+  const { markers, refresh: refreshMarkers } = usePendingMarkers();
+  /** After any edit: the table, and the draft markers (the edit may have been staged). */
+  const afterChange = () => {
+    state.refetch();
+    refreshMarkers();
+  };
 
   // "Look but do not touch" — the currently active access view's own canEdit flag
   // (Track 1 of ~/.claude/plans/lets-merge-the-work-memoized-journal.md), mirrored
@@ -59,7 +66,7 @@ function RegisterPageInner() {
 
   const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange(() => {
     state.setSelection({});
-    state.refetch();
+    afterChange();
   });
 
   const selectedIds = state.selectedItemIds;
@@ -315,6 +322,7 @@ function RegisterPageInner() {
               onInspect={setInspectId}
               showPath={state.mode === "flat"}
               selectable={canEdit}
+              pending={markers}
             />
 
             {state.mode === "flat" && state.total > state.pageSize && (
@@ -336,9 +344,9 @@ function RegisterPageInner() {
         )}
       </Panel>
 
-      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={state.refetch} onNavigate={setInspectId} readOnly={!canEdit} />
+      <Inspector itemId={inspectId} onClose={() => setInspectId(null)} onChanged={afterChange} onNavigate={setInspectId} readOnly={!canEdit} />
 
-      {canEdit && <AddModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={state.refetch} />}
+      {canEdit && <AddModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={afterChange} />}
 
       {propField && (
         <BulkPropModal
@@ -348,7 +356,7 @@ function RegisterPageInner() {
           onApplied={() => {
             setPropField(null);
             state.setSelection({});
-            state.refetch();
+            afterChange();
           }}
         />
       )}

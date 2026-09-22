@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { HistoryTimeline } from "./PurchasingPage";
+import { LabCommitCard } from "./LabCommitCard";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
 
@@ -37,127 +38,12 @@ function TabBar({ tab, onChange }: { tab: "inbox" | "mine"; onChange: (t: "inbox
   );
 }
 
-// ── Track 2 — lab commits (draft → visible/ideal, one decider: the lab's head) ────
-
-function describeChange(payload: unknown, targetKind: string, categoryName: (id: string) => string): string {
-  if (targetKind === "IDEAL") {
-    const p = payload as { categoryId: string; qty: number };
-    return `Ideal target → ${p.qty} × ${categoryName(p.categoryId)}`;
-  }
-  const p = payload as ItemChangeInput;
-  const label = CHANGE_LABEL[p.kind] ?? p.kind;
-  if (p.kind === "createItem") return `${label} → ${p.count} × ${p.name ? `"${p.name}" (${categoryName(p.categoryId)})` : categoryName(p.categoryId)}`;
-  if (p.kind === "setName") return `${label} → "${p.value}"`;
-  if (p.kind === "setStatus") return `${label} → ${STATUS_LABEL[p.value as keyof typeof STATUS_LABEL] ?? p.value}`;
-  if (p.kind === "setQuantity") return `${label} → ${p.value}`;
-  return label;
-}
-
-function LabCommitCard({ request, onDecided, canAct, categoryName }: { request: LabCommitRequestDto; onDecided: () => void; canAct: boolean; categoryName: (id: string) => string }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | null>(null);
-  const [note, setNote] = useState("");
-
-  async function decide(decision: "APPROVE" | "REJECT") {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post(`/resources/lab-commits/${request.id}/decide`, { decision, note: note || undefined });
-      setConfirming(null);
-      setNote("");
-      onDecided();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not record this decision");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="border border-border rounded-3 p-12 flex flex-col gap-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-11.5 font-medium">{request.labName}</div>
-          <div className="text-10.5 text-dim">
-            {request.targetKind === "IDEAL" ? "Ideal target" : "Visible register"} · by {request.requesterName} ·{" "}
-            {new Date(request.createdAt).toLocaleString()}
-          </div>
-        </div>
-        <Tag tone={STATUS_TONE[request.status] ?? "neutral"}>{request.status}</Tag>
-      </div>
-
-      <div className="flex flex-col gap-4">
-        {request.changes.map((c) => (
-          <div key={c.id} className="text-10.5 text-dim">
-            {describeChange(c.payload, c.targetKind, categoryName)}
-          </div>
-        ))}
-      </div>
-
-      {request.resolution && <div className="text-10.5 text-dim italic">"{request.resolution}"</div>}
-      {error && <ErrorNote>{error}</ErrorNote>}
-
-      {request.status === "PENDING" && canAct && (
-        <div className="flex items-center gap-8 pt-4">
-          <Button variant="primary" onClick={() => setConfirming("APPROVE")} disabled={busy}>
-            Approve
-          </Button>
-          <Button variant="danger" onClick={() => setConfirming("REJECT")} disabled={busy}>
-            Reject
-          </Button>
-        </div>
-      )}
-      {request.status === "PENDING" && !canAct && (
-        <div className="text-10.5 text-faint">Waiting on {request.labName}'s department head.</div>
-      )}
-
-      {confirming && (
-        <ConfirmDialog
-          title={confirming === "APPROVE" ? "Approve this commit" : "Reject this commit"}
-          tone={confirming === "APPROVE" ? "primary" : "danger"}
-          confirmLabel={confirming === "APPROVE" ? "Approve" : "Reject"}
-          busy={busy}
-          error={null}
-          message={
-            <div className="flex flex-col gap-8">
-              <span>
-                {confirming === "APPROVE"
-                  ? request.targetKind === "IDEAL"
-                    ? "Applies these target quantities for the lab."
-                    : "Applies every staged change to the live register, exactly as a direct edit would."
-                  : "The custodian's draft stays intact — they can revise and resubmit."}
-              </span>
-              <input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Optional note"
-                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
-              />
-            </div>
-          }
-          onConfirm={() => decide(confirming)}
-          onCancel={() => setConfirming(null)}
-        />
-      )}
-    </div>
-  );
-}
+// ── Lab commits (a Draft to merge, or an Ideal proposal — one decider: the lab's head) ────
 
 function LabCommitsPanel() {
   const [tab, setTab] = useState<"inbox" | "mine">("inbox");
   const [rows, setRows] = useState<LabCommitRequestDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
-
-  useEffect(() => {
-    api
-      .get<ResourceCategoryDto[]>("/resources/categories")
-      .then(setCategories)
-      .catch(() => setCategories([]));
-  }, []);
-
-  const categoryName = (id: string) => categories.find((c) => c.id === id)?.name ?? "this category";
 
   function load() {
     setRows(null);
@@ -183,7 +69,7 @@ function LabCommitsPanel() {
         ) : (
           <div className="p-12 flex flex-col gap-10">
             {rows.map((r) => (
-              <LabCommitCard key={r.id} request={r} onDecided={load} canAct={tab === "inbox"} categoryName={categoryName} />
+              <LabCommitCard key={r.id} request={r} onDecided={load} />
             ))}
           </div>
         )}
