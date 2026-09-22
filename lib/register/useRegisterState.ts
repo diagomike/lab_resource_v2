@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ExpandedState, RowSelectionState } from "@tanstack/react-table";
 import { buildRollup, buildSearchList, buildTree, indexItems, type RowNode } from "@/lib/domain/tree";
@@ -178,10 +178,20 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
    *  nor filters actually changed, so nothing else would re-trigger the effect). */
   const [reloadToken, setReloadToken] = useState(0);
   const refetch = useCallback(() => setReloadToken((t) => t + 1), []);
+  /** True while a `refetch()` is in flight — the table keeps showing the previous rows
+   *  (expanded rows, selection and scroll intact) and swaps the new ones in when they
+   *  arrive, rather than blanking to a skeleton after every save. */
+  const [refreshing, setRefreshing] = useState(false);
+  /** Identity of what is being shown. Only a change here (a different mode, filter,
+   *  page, scope or view) clears the table; a bare reload keeps it on screen. */
+  const queryKey = JSON.stringify([mode, filters, page, scope ?? null, viewId ?? null]);
+  const shownKey = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setRows(null);
+    const sameQuery = shownKey.current === queryKey;
+    if (sameQuery) setRefreshing(true);
+    else setRows(null);
     setError(null);
     const apiParams = toApiParams(filters, scope, viewId);
 
@@ -195,19 +205,26 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
     request
       .then((r) => {
         if (cancelled) return;
+        shownKey.current = queryKey;
         setRows(r.items);
         setTotal(r.total);
       })
       .catch((e) => {
         if (cancelled) return;
         setError(e instanceof ApiError ? e.message : "Could not load the register");
-        setRows([]);
-        setTotal(0);
+        if (!sameQuery) {
+          setRows([]);
+          setTotal(0);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRefreshing(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [mode, filters, page, reloadToken, scope, viewId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, reloadToken]);
 
   const setFilters = useCallback(
     (patch: Partial<RegisterFilters>) => {
@@ -295,6 +312,7 @@ export function useRegisterState(opts?: { scope?: "UNIVERSITY"; fixedMode?: Regi
     setPage,
     pageSize: PAGE_SIZE,
     loading: rows === null,
+    refreshing,
     error,
     expanded,
     setExpanded,

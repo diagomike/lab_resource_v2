@@ -166,6 +166,7 @@ function RegisterPageInner() {
         title="Register"
         actions={
           <div className="flex items-center gap-10">
+            {state.refreshing && <span className="text-10 text-faint">Updating…</span>}
             {canEdit && (
               <Button variant="primary" onClick={() => setAddOpen(true)}>
                 + Add resources

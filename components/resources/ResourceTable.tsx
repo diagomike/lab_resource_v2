@@ -237,6 +237,10 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
     // v9 does not default this the way v8 did: without it the expanded row model
     // returns the un-flattened model and sub-rows never reach getRowModel().
     paginateExpandedRows: true,
+    // A refetch after a save hands the table new `rows` — which by default resets
+    // expansion, collapsing the tree the person was working in. Expansion is owned by
+    // useRegisterState and cleared there when the query itself changes.
+    autoResetExpanded: false,
   });
 
   const modelRows = table.getRowModel().rows;

@@ -88,11 +88,16 @@ export function Inspector({
   const { user } = useAuth();
   const canHandOver = Boolean(user?.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));
 
-  function load() {
+  /** `quiet` — a refresh after this panel's own save: keep showing the current item
+   *  until the new one arrives instead of blanking to a skeleton (the "whole page
+   *  reloads on every field change" glitch from manual testing). */
+  function load(opts?: { quiet?: boolean }) {
     if (!itemId) return;
-    setItem(null);
-    setChanges(null);
-    setCategory(null);
+    if (!opts?.quiet) {
+      setItem(null);
+      setChanges(null);
+      setCategory(null);
+    }
     setError(null);
     const scopeParam = scope === "UNIVERSITY" ? "?scope=UNIVERSITY" : (() => {
       const viewId = getActiveViewId();
@@ -114,6 +119,7 @@ export function Inspector({
         setNewCustomType("TEXT");
         setNewCustomValue("");
         setInlineError(null);
+        if (opts?.quiet && category?.id === i.categoryId) return;
         api
           .get<ResourceCategoryDto[]>("/resources/categories")
           .then((cats) => setCategory(cats.find((c) => c.id === i.categoryId) ?? null))
@@ -122,11 +128,11 @@ export function Inspector({
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load this resource"));
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, [itemId]);
+  useEffect(() => load(), [itemId]);
 
   const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange(() => {
     onChanged();
-    load();
+    load({ quiet: true });
   });
 
   const fieldsByKey = useMemo(() => new Map((category?.fields ?? []).map((f) => [f.key, f])), [category]);
