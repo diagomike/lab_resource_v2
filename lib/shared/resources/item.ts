@@ -377,6 +377,11 @@ export type PreviewItemChangeInput = z.infer<typeof PreviewItemChangeInput>;
 export const ItemChangeResultDto = z.object({
   applied: z.number().int(),
   itemIds: z.array(z.string()),
+  /** createItem only: the top-level names given to the new items, in order — what a
+   *  dry run shows in the "preview before creating" step. */
+  plannedNames: z.array(z.string()).optional(),
+  /** createItem only: every row created, template parts included. */
+  rows: z.number().int().optional(),
 });
 export type ItemChangeResultDto = z.infer<typeof ItemChangeResultDto>;
 

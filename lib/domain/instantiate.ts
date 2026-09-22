@@ -87,7 +87,7 @@ export function instantiateMany(
   ctx: InstantiateCtx,
   critical = false,
   startIndex = 1,
-  overrides?: { baseName?: string; props?: Record<string, PropValue> },
+  overrides?: { baseName?: string; props?: Record<string, PropValue>; rootNames?: string[] },
 ): Item[] {
   const cat = categories[categoryId];
   if (!cat) return [];
@@ -95,7 +95,10 @@ export function instantiateMany(
   const baseName = overrides?.baseName?.trim() || cat.name;
   for (let i = 0; i < count; i++) {
     const n = startIndex + i;
-    const name = count > 1 || startIndex > 1 ? `${baseName} ${String(n).padStart(2, "0")}` : baseName;
+    // `rootNames` — names already allocated against the destination's live siblings
+    // (lib/domain/naming.ts); what the write door passes, so a second batch continues
+    // the numbering instead of restarting at 01.
+    const name = overrides?.rootNames?.[i] ?? (count > 1 || startIndex > 1 ? `${baseName} ${String(n).padStart(2, "0")}` : baseName);
     const rootIndex = out.length;
     buildSubtree(categories, categoryId, parentId, name, critical, ctx, out);
     if (overrides?.props) Object.assign(out[rootIndex].props, overrides.props);

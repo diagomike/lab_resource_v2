@@ -4,13 +4,13 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
-import type { ContainerOptionDto, CustomProps, CustomPropType, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
+import type { ContainerOptionDto, CustomProps, CustomPropType, ItemChangeInput, ItemChildDto, ItemDetailDto, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
 import { CUSTOM_PROP_KEY_PATTERN, customPropTypes } from "@/lib/shared";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useEditOptions } from "@/lib/register/useEditOptions";
 import { Modal, Button, ErrorNote } from "@/components/ui";
-import { submitChange } from "@/lib/register/useItemChange";
+import { previewItemChange, submitChange } from "@/lib/register/useItemChange";
 import { CustomPropInput, PropInput } from "./Inspector";
 import { CategoryIcon } from "./IconPicker";
 import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
@@ -290,10 +290,14 @@ export function AddModal({
   const [ownerOrgNodeId, setOwnerOrgNodeId] = useState("");
   const [currentOrgNodeId, setCurrentOrgNodeId] = useState("");
   const [custodianId, setCustodianId] = useState("");
-  /** Optional — blank keeps the server's own auto-numbered default ("Lab 01", …).
-   *  Reset whenever the category changes, same as `propDrafts` below: a name/value
-   *  typed for one category has no meaning once a different one is chosen. */
+  /** Defaults to the category's own name, editable. The server numbers it against
+   *  what is already in the destination ("Workstation 21…" after 01–20, gaps first —
+   *  lib/domain/naming.ts). Reset whenever the category changes, same as `propDrafts`
+   *  below: a name typed for one category has no meaning once another is chosen. */
   const [name, setName] = useState("");
+  /** The "see it before it's created" step: the names the server would give, shown
+   *  among what's already there. Null while editing the form. */
+  const [preview, setPreview] = useState<{ names: string[]; rows: number; existing: ItemChildDto[]; input: ItemChangeInput } | null>(null);
   const [propDrafts, setPropDrafts] = useState<Record<string, string>>({});
   const [customPropDrafts, setCustomPropDrafts] = useState<Array<{ id: string; key: string; type: CustomPropType; value: string }>>([]);
   const [busy, setBusy] = useState(false);
@@ -312,6 +316,7 @@ export function AddModal({
     setContainers([]);
     setCount(1);
     setName("");
+    setPreview(null);
     setPropDrafts({});
     setCustomPropDrafts([]);
     setError(null);
@@ -331,9 +336,10 @@ export function AddModal({
   // filled in against — never leave one sitting stale once a different category is
   // chosen, the same discipline the "Into" picker's own reset already follows.
   useEffect(() => {
-    setName("");
+    setName(categories.find((c) => c.id === categoryId)?.name ?? "");
     setPropDrafts({});
     setCustomPropDrafts([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId]);
 
   useEffect(() => {
@@ -359,7 +365,7 @@ export function AddModal({
   const canOfferRoot = Boolean(selectedCategory?.canBeRoot) && canAttemptRoot;
   const isRootCreate = parent === "" && canOfferRoot;
 
-  const preview = categoryId ? templateSize(categories, categoryId) : 0;
+  const templateRows = categoryId ? templateSize(categories, categoryId) : 0;
 
   const canSubmit =
     Boolean(categoryId) &&
@@ -413,35 +419,60 @@ export function AddModal({
     return { data };
   }
 
-  async function submit() {
-    if (!categoryId || !canSubmit) return;
-    setBusy(true);
-    setError(null);
+  function buildInput(): { input?: ItemChangeInput; message?: string } {
     const props = buildProps();
     const customProps = buildCustomProps();
-    if (customProps.message) {
-      setBusy(false);
-      setError(customProps.message);
-      return;
+    if (customProps.message) return { message: customProps.message };
+    return {
+      input: {
+        kind: "createItem",
+        parentId: parent || null,
+        categoryId,
+        count,
+        ...(name.trim() ? { name: name.trim() } : {}),
+        ...(props ? { props } : {}),
+        ...(customProps.data ? { customProps: customProps.data } : {}),
+        ...(isRootCreate
+          ? {
+              ownerOrgNodeId,
+              currentOrgNodeId: currentOrgNodeId || ownerOrgNodeId,
+              custodianId,
+            }
+          : {}),
+      },
+    };
+  }
+
+  /** Step 1 — a dry run: the server validates everything and reports the names it
+   *  would give; nothing is created. */
+  async function showPreview() {
+    if (!categoryId || !canSubmit) return;
+    const built = buildInput();
+    if (!built.input) return setError(built.message ?? "Check the form.");
+    setBusy(true);
+    setError(null);
+    const r = await previewItemChange(built.input);
+    let existing: ItemChildDto[] = [];
+    if (r.ok && parent) {
+      existing = await api
+        .get<ItemDetailDto>(`/resources/items/${parent}`)
+        .then((d) => d.children)
+        .catch(() => []);
     }
-    const r = await submitChange({
-      kind: "createItem",
-      parentId: parent || null,
-      categoryId,
-      count,
-      ...(name.trim() ? { name: name.trim() } : {}),
-      ...(props ? { props } : {}),
-      ...(customProps.data ? { customProps: customProps.data } : {}),
-      ...(isRootCreate
-        ? {
-            ownerOrgNodeId,
-            currentOrgNodeId: currentOrgNodeId || ownerOrgNodeId,
-            custodianId,
-          }
-        : {}),
-    });
+    setBusy(false);
+    if (!r.ok) return setError(r.message);
+    setPreview({ names: r.result.plannedNames ?? [], rows: r.result.rows ?? 0, existing, input: built.input });
+  }
+
+  /** Step 2 — apply exactly what was previewed. */
+  async function apply() {
+    if (!preview) return;
+    setBusy(true);
+    setError(null);
+    const r = await submitChange(preview.input);
     setBusy(false);
     if (!r.ok) {
+      setPreview(null);
       setError(r.message);
       return;
     }
@@ -450,6 +481,28 @@ export function AddModal({
   }
 
   if (!open) return null;
+
+  if (preview) {
+    const destinationName = parent ? (containers.find((c) => c.id === parent)?.name ?? "the chosen place") : "the top level";
+    return (
+      <Modal title="Preview — Add resources" onClose={onClose} width="480px">
+        {error && <ErrorNote>{error}</ErrorNote>}
+        <p className="text-10.5 text-dim">
+          Adds <strong className="text-text">{preview.names.length}</strong> × {selectedCategory?.name} to <strong className="text-text">{destinationName}</strong>
+          {preview.rows > preview.names.length ? ` — ${preview.rows} rows in total, parts included` : ""}. New rows are highlighted among what&apos;s already there.
+        </p>
+        <PreviewList existing={preview.existing} added={preview.names} iconKey={selectedCategory?.iconKey} />
+        <div className="flex items-center gap-8">
+          <Button variant="primary" disabled={busy} onClick={apply}>
+            {busy ? "Creating…" : `Apply — create ${preview.names.length}`}
+          </Button>
+          <Button onClick={() => setPreview(null)} disabled={busy}>
+            Back
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
 
   const ownerNodeName = editOptions.owner.find((o) => o.value === ownNodeId)?.label ?? "your unit";
 
@@ -637,21 +690,45 @@ export function AddModal({
       {categoryId && (
         <p className="text-10.5 text-dim">
           Creates {count} × {categories.find((c) => c.id === categoryId)?.name}
-          {preview > 1 && (
+          {templateRows > 1 && (
             <>
-              , each with its full default subtree — <strong className="text-text font-mono">{count * preview}</strong> rows in total.
+              , each with its full default subtree — <strong className="text-text font-mono">{count * templateRows}</strong> rows in total.
             </>
           )}
         </p>
       )}
       <div className="flex items-center gap-8">
-        <Button variant="primary" disabled={!canSubmit || busy} onClick={submit}>
-          {busy ? "Creating…" : "Confirm & create"}
+        <Button variant="primary" disabled={!canSubmit || busy} onClick={showPreview}>
+          {busy ? "Checking…" : "Preview…"}
         </Button>
         <Button onClick={onClose} disabled={busy}>
           Cancel
         </Button>
       </div>
     </Modal>
+  );
+}
+
+/** The destination's contents after the change: existing children as they are, the new
+ *  names highlighted, all in natural order ("Workstation 2" before "Workstation 10"). */
+function PreviewList({ existing, added, iconKey }: { existing: ItemChildDto[]; added: string[]; iconKey?: string }) {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const rows = [
+    ...existing.map((c) => ({ key: c.id, name: c.name, iconKey: c.categoryIconKey, isNew: false })),
+    ...added.map((n, i) => ({ key: `new-${i}`, name: n, iconKey, isNew: true })),
+  ].sort((a, b) => collator.compare(a.name, b.name));
+  return (
+    <div className="max-h-[320px] overflow-y-auto rounded-2 border border-border2">
+      {rows.map((r) => (
+        <div
+          key={r.key}
+          className={`flex items-center gap-7 border-b border-border px-9 py-5 text-11 last:border-0 ${r.isNew ? "bg-goodbg text-text" : "text-dim"}`}
+        >
+          <CategoryIcon iconKey={r.iconKey} className="size-12 flex-none" />
+          <span className="min-w-0 flex-1 truncate">{r.name}</span>
+          {r.isNew && <span className="text-9.5 font-semibold uppercase tracking-label text-good">new</span>}
+        </div>
+      ))}
+    </div>
   );
 }

@@ -29,6 +29,7 @@ type MutateModule = typeof import("./mutate");
 type PrismaModule = typeof import("../prisma");
 
 let applyChange: MutateModule["applyChange"];
+let previewChange: MutateModule["previewChange"];
 let prisma: PrismaModule["prisma"];
 
 let sysAdminId: string;
@@ -50,7 +51,7 @@ let seParentItemId: string;
 let createdItemIds: string[] = [];
 
 beforeAll(async () => {
-  ({ applyChange } = await import("./mutate"));
+  ({ applyChange, previewChange } = await import("./mutate"));
   ({ prisma } = await import("../prisma"));
 
   const [sysAdmin, seCustodian, seHead, chemHead, seNode] = await Promise.all([
@@ -124,13 +125,13 @@ describe("applyCreateItem — name and props at creation", () => {
       parentId: null,
       categoryId: labLikeCategoryId,
       count: 1,
-      name: "Software Laboratory — B509-R7",
+      name: "Given-Name Test Laboratory — Bx-Ry",
       ownerOrgNodeId: seNodeId,
       custodianId: seCustodianId,
     });
     createdItemIds.push(...result.itemIds);
     const item = await prisma.item.findUniqueOrThrow({ where: { id: result.itemIds[0] } });
-    expect(item.name).toBe("Software Laboratory — B509-R7");
+    expect(item.name).toBe("Given-Name Test Laboratory — Bx-Ry");
   });
 
   it("applies given props, validated against each field's own type", async () => {
@@ -339,5 +340,50 @@ describe("applyCreateItem — name and props at creation", () => {
         name: "Should Not Create",
       }),
     ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("sibling names — continued numbering, gap filling, uniqueness (2026-09-22)", () => {
+  const namesUnder = async () =>
+    (await prisma.item.findMany({ where: { parentId: seParentItemId, deletedAt: null, categoryId: partCategoryId }, select: { name: true } })).map((i) => i.name).sort();
+  const add = async (count: number, dryRun = false) => {
+    const input = { kind: "createItem" as const, parentId: seParentItemId, categoryId: partCategoryId, count, name: "Seat" };
+    const result = dryRun ? await previewChange(sysAdminId, input) : await applyChange(sysAdminId, input);
+    if (!dryRun) createdItemIds.push(...result.itemIds);
+    return result;
+  };
+
+  it("a second batch continues the numbering, and a deleted number is filled first", async () => {
+    await add(3);
+    await add(2);
+    expect(await namesUnder()).toEqual(["Seat 01", "Seat 02", "Seat 03", "Seat 04", "Seat 05"]);
+
+    const seat02 = await prisma.item.findFirstOrThrow({ where: { parentId: seParentItemId, name: "Seat 02", deletedAt: null } });
+    await applyChange(sysAdminId, { kind: "deleteItem", itemIds: [seat02.id] });
+    const preview = await add(2, true);
+    expect(preview.plannedNames).toEqual(["Seat 02", "Seat 06"]);
+    expect(await namesUnder()).not.toContain("Seat 06"); // a dry run creates nothing
+    await add(2);
+    expect(await namesUnder()).toEqual(["Seat 01", "Seat 02", "Seat 03", "Seat 04", "Seat 05", "Seat 06"]);
+  });
+
+  it("refuses renaming onto a sibling's name, whatever the case or spacing", async () => {
+    const seat03 = await prisma.item.findFirstOrThrow({ where: { parentId: seParentItemId, name: "Seat 03", deletedAt: null } });
+    await expect(applyChange(sysAdminId, { kind: "setName", itemIds: [seat03.id], value: "Seat 04" })).rejects.toMatchObject({ status: 409 });
+    await expect(applyChange(sysAdminId, { kind: "setName", itemIds: [seat03.id], value: " seat   04 " })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("numbers several siblings renamed to one name instead of duplicating it", async () => {
+    const two = await prisma.item.findMany({ where: { parentId: seParentItemId, name: { in: ["Seat 05", "Seat 06"] }, deletedAt: null } });
+    await applyChange(sysAdminId, { kind: "setName", itemIds: two.map((i) => i.id), value: "Spare" });
+    const names = await namesUnder();
+    expect(names).toContain("Spare 01");
+    expect(names).toContain("Spare 02");
+  });
+
+  it("refuses an explicitly numbered name that already exists", async () => {
+    await expect(
+      applyChange(sysAdminId, { kind: "createItem", parentId: seParentItemId, categoryId: partCategoryId, count: 1, name: "Seat 01" }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });

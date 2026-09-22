@@ -4,6 +4,7 @@ import type { CustomPropType, ItemChangeInput, ItemChangeResultDto, ItemPropValu
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { instantiateMany, newId } from "@/lib/domain/instantiate";
+import { allocateNames, findNameClash } from "@/lib/domain/naming";
 import type { Category } from "@/lib/domain/types";
 import * as scope from "./scope";
 import * as orgScope from "../org/scope";
@@ -516,6 +517,21 @@ async function applyCreateItem(
 
   const categories = await loadAllCategoriesDomain(tx);
   assertPlacementAllowed(categories, input.categoryId, parent?.categoryId ?? null);
+
+  // Names are allocated against the destination's LIVE siblings, under a lock on that
+  // one destination, so two batches added at the same moment can't both take "21".
+  const base = input.name?.trim() || category.name;
+  const siblings = await lockAndLoadSiblingNames(tx, input.parentId ?? null, ownerOrgNodeId);
+  let rootNames: string[];
+  if (input.count === 1 && /\s\d+$/.test(base)) {
+    // An explicitly numbered name ("Workstation 10") is taken as given — never
+    // renumbered into "Workstation 10 01" — but it may not repeat a sibling.
+    if (findNameClash([base], siblings)) throw new HttpError(409, `"${base}" already exists here — choose another name.`);
+    rootNames = [base];
+  } else {
+    rootNames = allocateNames(base, siblings, input.count);
+  }
+
   const created = instantiateMany(
     categories,
     input.categoryId,
@@ -524,7 +540,7 @@ async function applyCreateItem(
     { ownerOrgNodeId, currentOrgNodeId, custodianId, now: at.toISOString() },
     false,
     1,
-    { baseName: input.name, props: Object.keys(initialProps).length ? initialProps : undefined },
+    { baseName: input.name, props: Object.keys(initialProps).length ? initialProps : undefined, rootNames },
   );
   if (!created.length) throw new HttpError(400, "Nothing to create.");
 
@@ -555,7 +571,24 @@ async function applyCreateItem(
     })),
   });
 
-  return { applied: roots.length, itemIds: roots.map((r) => r.id) };
+  return { applied: roots.length, itemIds: roots.map((r) => r.id), plannedNames: rootNames, rows: created.length };
+}
+
+/** Takes a transaction-scoped lock on one sibling set (a parent's children, or one
+ *  owning unit's top-level items) and returns its live names. Every write that adds
+ *  or renames a name in that set takes the same lock first. */
+async function lockAndLoadSiblingNames(tx: Tx, parentId: string | null, ownerOrgNodeId: string, excludeIds: string[] = []): Promise<string[]> {
+  const key = parentId ? `names:${parentId}` : `names:root:${ownerOrgNodeId}`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+  const rows = await tx.item.findMany({
+    where: {
+      deletedAt: null,
+      ...(parentId ? { parentId } : { parentId: null, ownerOrgNodeId }),
+      ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
+    },
+    select: { name: true },
+  });
+  return rows.map((r) => r.name);
 }
 
 /** Every descendant of the given ids, self included, deepest-first — the order a
@@ -896,6 +929,18 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
   const categories = await loadAllCategoriesDomain(tx);
   for (const root of roots) assertPlacementAllowed(categories, root.categoryId, target?.categoryId ?? null);
 
+  // Sibling names stay unique at the destination (lib/domain/naming.ts).
+  const arriving = roots.filter((r) => r.parentId !== (target?.id ?? null));
+  if (arriving.length) {
+    const owners = target ? [target.ownerOrgNodeId] : [...new Set(arriving.map((r) => r.ownerOrgNodeId))];
+    for (const owner of owners) {
+      const group = target ? arriving : arriving.filter((r) => r.ownerOrgNodeId === owner);
+      const siblings = await lockAndLoadSiblingNames(tx, target?.id ?? null, owner, group.map((r) => r.id));
+      const clash = findNameClash(group.map((r) => r.name), siblings);
+      if (clash) throw new HttpError(409, `Something named "${clash}" is already there — rename one of them first.`);
+    }
+  }
+
   // `moveInTree` never touches `currentOrgNodeId` — it is reordering WITHIN a unit's
   // own containment tree, never a relocation between units (that is `transferItem`'s
   // job, routed through approvals). For a non-admin, refuse crossing a unit boundary
@@ -1213,9 +1258,35 @@ async function applyFieldChange(
     if (!node?.active) throw new HttpError(400, "Choose an organization unit.");
   }
 
+  const newNames = input.kind === "setName" ? await planRenames(tx, items, input.value) : null;
+
   const applied: string[] = [];
   const batchId = items.length > 1 ? newId("b") : undefined;
   for (const item of items) {
+    if (newNames) {
+      const name = newNames.get(item.id)!;
+      if (name === item.name) continue;
+      await tx.item.update({ where: { id: item.id }, data: { name, version: { increment: 1 } } });
+      await tx.itemChange.create({
+        data: {
+          at,
+          actorId,
+          kind: "setName",
+          targetKind: "ITEM",
+          itemId: item.id,
+          itemName: item.name,
+          categoryId: item.categoryId,
+          field: "name",
+          before: jsonOrNull(item.name),
+          after: jsonOrNull(name),
+          batchId,
+          note: input.note,
+          ...scopeSnapshot(item),
+        },
+      });
+      applied.push(item.id);
+      continue;
+    }
     if (input.kind === "setQuantity" && item.countingMode === "SERIALIZED" && input.value !== 1) {
       throw new HttpError(400, "Serialized items always have a quantity of 1.");
     }
@@ -1254,6 +1325,32 @@ async function applyFieldChange(
     applied.push(item.id);
   }
   return { applied: applied.length, itemIds: applied };
+}
+
+/** New name per item for a rename. One item takes the name as typed but may not repeat
+ *  a sibling; several items renamed to the same name inside ONE sibling set are
+ *  numbered ("Chair 01", "Chair 02", …) rather than all becoming identical. */
+async function planRenames(tx: Tx, items: PrismaItem[], value: string): Promise<Map<string, string>> {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) throw new HttpError(400, "A name can't be blank.");
+  const groups = new Map<string, PrismaItem[]>();
+  for (const item of items) {
+    const key = item.parentId ? `p:${item.parentId}` : `r:${item.ownerOrgNodeId}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  const out = new Map<string, string>();
+  for (const group of groups.values()) {
+    const first = group[0];
+    const siblings = await lockAndLoadSiblingNames(tx, first.parentId, first.ownerOrgNodeId, group.map((i) => i.id));
+    if (group.length === 1) {
+      if (findNameClash([trimmed], siblings)) throw new HttpError(409, `"${trimmed}" already exists here — choose another name.`);
+      out.set(first.id, trimmed);
+    } else {
+      const names = allocateNames(trimmed, siblings, group.length);
+      group.forEach((item, i) => out.set(item.id, names[i]));
+    }
+  }
+  return out;
 }
 
 const FIELD_FOR_KIND: Record<"setName" | "setStatus" | "setQuantity" | "setCustodian" | "setOwnerOrg" | "setCurrentOrg", string> = {
