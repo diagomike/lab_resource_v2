@@ -20,7 +20,7 @@ export interface EditOptions {
 
 const KIND_ICON: Record<string, string> = { UNIVERSITY: "Landmark", COLLEGE: "Building2", DEPARTMENT: "Building", OFFICE: "Briefcase" };
 
-function makeUnitTree(nodes: OrgNodeDto[]): (units: EditOption[]) => TreeOption[] {
+export function makeUnitTree(nodes: OrgNodeDto[]): (units: EditOption[]) => TreeOption[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   // The org chart is a DAG (a department can sit under two colleges) — a picker needs
   // one line of ancestry, so it follows each node's first parent.

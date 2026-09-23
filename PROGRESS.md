@@ -4289,3 +4289,19 @@ its model that make porting it as-is the wrong move.
     - adding Ali Kibret → 40 (32 working, 8 impaired);
     - removing only the Computer chip kept the custodian filter → 614.
   - 515/515 tests, and the build is clean.
+
+- **2026-09-23 (register filter dropdowns become type-to-filter pickers)** — The five core
+  filters (category, status, owning unit, current unit, custodian) and the "+ Add filter"
+  field list now use `TreePicker` instead of native selects. You type to narrow the list,
+  and the arrow keys and Enter choose.
+  - Categories show their icon, with the group as a hint. Units nest College → Department
+    (`makeUnitTree`, now exported from `useEditOptions`). Add-filter fields sit under their
+    category or group as greyed headings.
+  - A closed picker still says what it filters ("Custodian: Yohannes Alemu"), via a new
+    `prefix` prop.
+  - The rule-value multi-select gets a search box once it has more than 8 options.
+  - TreePicker changes that every picker benefits from: the panel is at least 300px wide,
+    clamped to the window, and typing a heading's name ("RAM", a lab, a college) lists
+    everything under it.
+  - Checked on :3000: "yoh" → Yohannes Alemu; "comp" → Computer (IT); "ram" → RAM ›
+    DDR type, Size; the unit tree nests. 515/515 tests, and the build is clean.

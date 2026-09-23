@@ -85,6 +85,7 @@ export function TreePicker({
   loading = false,
   disabled = false,
   id,
+  prefix,
 }: {
   options: TreeOption[];
   value: string;
@@ -95,6 +96,9 @@ export function TreePicker({
   loading?: boolean;
   disabled?: boolean;
   id?: string;
+  /** A short label shown inside the trigger ("Custodian"), for a row of pickers whose
+   *  chosen values would otherwise not say which is which. */
+  prefix?: string;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -134,13 +138,14 @@ export function TreePicker({
     const needle = query.trim().toLocaleLowerCase();
     const out: Array<{ node: Node; match: boolean }> = [];
     const matches = (n: Node): boolean => n.label.toLocaleLowerCase().includes(needle) || (n.hint?.toLocaleLowerCase().includes(needle) ?? false);
-    const keep = (n: Node): boolean => (n.selectable && matches(n)) || n.children.some(keep);
-    const walk = (nodes: Node[]) => {
+    // Typing a heading's name ("RAM", a college) lists everything under it.
+    const keep = (n: Node, underMatch: boolean): boolean => (n.selectable && (underMatch || matches(n))) || n.children.some((c) => keep(c, underMatch || matches(n)));
+    const walk = (nodes: Node[], underMatch = false) => {
       for (const n of nodes) {
         if (needle) {
-          if (!keep(n)) continue;
-          out.push({ node: n, match: n.selectable && matches(n) });
-          walk(n.children);
+          if (!keep(n, underMatch)) continue;
+          out.push({ node: n, match: n.selectable && (underMatch || matches(n)) });
+          walk(n.children, underMatch || matches(n));
         } else {
           out.push({ node: n, match: true });
           if (!collapsed.has(n.id)) walk(n.children);
@@ -174,9 +179,12 @@ export function TreePicker({
       const r = rootRef.current?.getBoundingClientRect();
       if (!r) return;
       const below = window.innerHeight - r.bottom - 12;
+      // At least 300px wide so long unit names don't truncate, and never past the window.
+      const width = Math.min(Math.max(r.width, 300), window.innerWidth - 16);
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
       const above = r.top - 12;
-      if (below >= 160 || below >= above) setPos({ top: r.bottom + 3, left: r.left, width: r.width, maxHeight: Math.max(120, Math.min(320, below)) });
-      else setPos({ bottom: window.innerHeight - r.top + 3, left: r.left, width: r.width, maxHeight: Math.max(120, Math.min(320, above)) });
+      if (below >= 160 || below >= above) setPos({ top: r.bottom + 3, left, width, maxHeight: Math.max(120, Math.min(320, below)) });
+      else setPos({ bottom: window.innerHeight - r.top + 3, left, width, maxHeight: Math.max(120, Math.min(320, above)) });
     }
     place();
     window.addEventListener("resize", place);
@@ -223,6 +231,7 @@ export function TreePicker({
   return (
     <div ref={rootRef} className="relative" id={id}>
       <div className={`flex items-center rounded-2 border bg-panel ${open ? "border-accent" : "border-border2"} ${disabled ? "opacity-50" : ""}`}>
+        {prefix && <span className="flex-none whitespace-nowrap pl-8 text-10.5 text-faint">{prefix}:</span>}
         {!open && selected?.iconKey && <CategoryIcon iconKey={selected.iconKey} className="ml-7 size-12 flex-none text-dim" />}
         <input
           ref={inputRef}

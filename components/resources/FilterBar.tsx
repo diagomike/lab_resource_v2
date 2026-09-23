@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ItemFilterFieldDef, FilterVariant, ItemRowDto } from "@/lib/shared";
+import type { ItemFilterFieldDef, FilterVariant, ItemRowDto, OrgNodeDto, ResourceCategoryDto } from "@/lib/shared";
+import { TreePicker, type TreeOption } from "@/components/TreePicker";
+import { makeUnitTree } from "@/lib/register/useEditOptions";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { opsFor, OP_LABEL, VALUELESS_OPS, newRule, type FilterOp, type FilterRule } from "@/lib/domain/filters";
 import { api } from "@/lib/api";
@@ -55,10 +57,16 @@ function MultiSelectPopover({
   onChange: (values: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [needle, setNeedle] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const searchable = options.length > 8;
+  const shown = needle.trim() ? options.filter((o) => o.label.toLocaleLowerCase().includes(needle.trim().toLocaleLowerCase())) : options;
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setNeedle("");
+      return;
+    }
     function onDocMouseDown(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
@@ -90,8 +98,20 @@ function MultiSelectPopover({
         {summary}
       </button>
       {open && (
-        <div className="absolute z-50 top-full left-0 mt-2 min-w-[160px] max-h-[220px] overflow-y-auto rounded-2 border border-border2 bg-panel py-2">
-          {options.map((o) => (
+        <div className="absolute z-50 top-full left-0 mt-2 min-w-[180px] max-h-[260px] overflow-y-auto rounded-2 border border-border2 bg-panel py-2">
+          {searchable && (
+            <div className="sticky top-0 bg-panel px-6 pb-4 pt-2">
+              <input
+                autoFocus
+                value={needle}
+                onChange={(e) => setNeedle(e.target.value)}
+                placeholder="Type to filter…"
+                className="h-22 w-full rounded-2 border border-border2 bg-panel px-6 text-10.5 outline-none focus:border-accent"
+              />
+            </div>
+          )}
+          {shown.length === 0 && <div className="px-8 py-4 text-10.5 text-faint">Nothing matches.</div>}
+          {shown.map((o) => (
             <label key={o.value} className="flex items-center gap-6 px-8 py-4 text-10.5 whitespace-nowrap cursor-pointer hover:bg-panel2">
               <input type="checkbox" checked={selected.includes(o.value)} onChange={() => toggle(o.value)} />
               {o.label}
@@ -111,6 +131,17 @@ function AddRuleForm({ fields, onAdd }: { fields: ItemFilterFieldDef[]; onAdd: (
 
   const field = fields.find((f) => f.id === fieldId);
   const ops = field ? opsFor(kindOf(field.variant)) : [];
+  // Grouped as before (Core · each category's properties · Custom properties); the group
+  // is a greyed heading in the picker, and typing filters across all of them.
+  const fieldOptions = useMemo<TreeOption[]>(
+    () =>
+      fields.map((f) => {
+        const group = f.id.startsWith("prop:") || f.id.startsWith("desc:") ? f.label.split(" · ")[0] : f.id.startsWith("custom:") ? "Custom properties" : "Core";
+        const label = f.label.includes(" · ") ? f.label.split(" · ").slice(1).join(" · ") : f.label;
+        return { id: f.id, label, ancestors: [{ id: `group:${group}`, label: group }] };
+      }),
+    [fields],
+  );
 
   // The available fields shrink whenever the active category changes (or clears) —
   // most visibly on "Clear filters", which drops categoryId and so every prop:/desc:
@@ -150,28 +181,14 @@ function AddRuleForm({ fields, onAdd }: { fields: ItemFilterFieldDef[]; onAdd: (
 
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <select
-        value={fieldId}
-        onChange={(e) => pickField(e.target.value)}
-        className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
-      >
-        <option value="">+ Add filter…</option>
-        {Object.entries(
-          fields.reduce<Record<string, ItemFilterFieldDef[]>>((groups, f) => {
-            const group = f.id.startsWith("prop:") || f.id.startsWith("desc:") ? f.label.split(" · ")[0] : f.id.startsWith("custom:") ? "Custom properties" : "Core";
-            (groups[group] ??= []).push(f);
-            return groups;
-          }, {}),
-        ).map(([group, groupFields]) => (
-          <optgroup key={group} label={group}>
-            {groupFields.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
+      <div className="w-[210px]">
+        <TreePicker
+          options={fieldOptions}
+          value={fieldId}
+          onChange={pickField}
+          placeholder="+ Add filter…"
+        />
+      </div>
       {field && (
         <>
           <select
@@ -262,6 +279,12 @@ export function FilterBar({
   scope?: "UNIVERSITY";
 }) {
   const [fields, setFields] = useState<ItemFilterFieldDef[]>([]);
+  const [categoryList, setCategoryList] = useState<ResourceCategoryDto[]>([]);
+  const [orgNodes, setOrgNodes] = useState<OrgNodeDto[]>([]);
+  useEffect(() => {
+    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(() => setCategoryList([]));
+    api.get<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(() => setOrgNodes([]));
+  }, []);
 
   useEffect(() => {
     const qp = new URLSearchParams();
@@ -288,6 +311,23 @@ export function FilterBar({
   }, [draft]);
 
   const fieldsById = useMemo(() => new Map(fields.map((f) => [f.id, f])), [fields]);
+  /** Each core filter as searchable picker options — categories with their icon and
+   *  group, units nested along the org chart, the rest as a plain list. */
+  const pickerOptions = useMemo(() => {
+    const catById = new Map(categoryList.map((c) => [c.id, c]));
+    const unitTree = makeUnitTree(orgNodes);
+    const plain = (id: string): TreeOption[] => (fieldsById.get(id)?.options ?? []).map((o) => ({ id: o.value, label: o.label, ancestors: [] }));
+    return {
+      category: (fieldsById.get("category")?.options ?? []).map((o) => {
+        const c = catById.get(o.value);
+        return { id: o.value, label: o.label, iconKey: c?.iconKey, hint: c?.groupName, ancestors: [] };
+      }),
+      status: plain("status"),
+      owner: unitTree(fieldsById.get("owner")?.options ?? []),
+      currentOrg: unitTree(fieldsById.get("currentOrg")?.options ?? []),
+      custodian: plain("custodian"),
+    } as Record<string, TreeOption[]>;
+  }, [fieldsById, categoryList, orgNodes]);
   const advancedFields = useMemo(() => fields.filter((f) => !CORE_FIELD_IDS.has(f.id)), [fields]);
   const active = Boolean(filters.q || filters.categoryId || filters.status || filters.ownerOrgNodeId || filters.currentOrgNodeId || filters.custodianId || filters.rules.length);
 
@@ -332,19 +372,17 @@ export function FilterBar({
         {CORE_FIELDS.map(({ id, key }) => {
           const field = fieldsById.get(id);
           return (
-            <select
-              key={id}
-              value={filters[key]}
-              onChange={(e) => onChange({ [key]: e.target.value } as Partial<RegisterFilters>)}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
-            >
-              <option value="">{field?.label ?? id}: any</option>
-              {(field?.options ?? []).map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <div key={id} className={id === "status" ? "w-[170px]" : "w-[230px]"}>
+              <TreePicker
+                prefix={field?.label ?? id}
+                options={pickerOptions[id] ?? []}
+                value={filters[key]}
+                onChange={(v) => onChange({ [key]: v } as Partial<RegisterFilters>)}
+                noneLabel="any"
+                placeholder="any"
+                loading={!field}
+              />
+            </div>
           );
         })}
         <AddRuleForm fields={advancedFields} onAdd={addRule} />
