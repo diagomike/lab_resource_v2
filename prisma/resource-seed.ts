@@ -29,6 +29,7 @@ import type { Category, Item as DomainItem } from "../lib/domain/types";
 import { toDomainCategoryMap } from "../lib/server/resources/adapt";
 import { sniffImage } from "../lib/server/resources/image-sniff";
 import { REAL_CATEGORY_SPECS, REAL_GROUP_NAMES, loadOrCreateRealPeople, buildRealDataItems } from "./real-data-seed";
+import { buildCseLabItems, loadOrCreateCseAras } from "./cse-lab-data";
 
 const prisma = new PrismaClient();
 
@@ -164,7 +165,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
     defaultChildren: [
       { key: "ram", qty: 1, critical: true },
       { key: "storage", qty: 1, critical: true },
-      { key: "gpu", qty: 1, critical: false },
+      // No GPU by default — ASTU's lab PCs have none (a GPU can still be added to one).
     ],
   },
   {
@@ -333,39 +334,39 @@ async function createCategories(): Promise<{ categories: Record<string, Category
 
 interface SeedIds {
   university: string;
-  se: string;
+  cse: string;
   chem: string;
   adminId: string;
-  seCustodianId: string;
+  storeKeeperId: string;
   chemCustodianId: string;
 }
 
 async function loadSeedIds(): Promise<SeedIds> {
-  const [university, se, chem, admin, seCustodian, chemCustodian] = await Promise.all([
+  const [university, cse, chem, admin, storeKeeper, chemCustodian] = await Promise.all([
     prisma.orgNode.findUnique({ where: { code: "ASTU" } }),
-    prisma.orgNode.findUnique({ where: { code: "SE" } }),
+    prisma.orgNode.findUnique({ where: { code: "CSE" } }),
     prisma.orgNode.findUnique({ where: { code: "CHEM" } }),
     prisma.user.findUnique({ where: { emailLower: "admin@astu.edu.et" } }),
-    prisma.user.findUnique({ where: { emailLower: "custodian.se@astu.edu.et" } }),
+    prisma.user.findUnique({ where: { emailLower: "store.keeper@astu.edu.et" } }),
     prisma.user.findUnique({ where: { emailLower: "custodian.chem@astu.edu.et" } }),
   ]);
   const missing = [
     !university && "OrgNode(code=ASTU)",
-    !se && "OrgNode(code=SE)",
+    !cse && "OrgNode(code=CSE)",
     !chem && "OrgNode(code=CHEM)",
     !admin && "User(admin@astu.edu.et)",
-    !seCustodian && "User(custodian.se@astu.edu.et)",
+    !storeKeeper && "User(store.keeper@astu.edu.et)",
     !chemCustodian && "User(custodian.chem@astu.edu.et)",
   ].filter(Boolean);
   if (missing.length) {
-    throw new Error(`resource-seed.ts needs the org/auth fixture first — missing: ${missing.join(", ")}. Run "npm run prisma:seed" before this script.`);
+    throw new Error(`resource-seed.ts needs the org/people seed first — missing: ${missing.join(", ")}. Run "npm run prisma:seed" before this script.`);
   }
   return {
     university: university!.id,
-    se: se!.id,
+    cse: cse!.id,
     chem: chem!.id,
     adminId: admin!.id,
-    seCustodianId: seCustodian!.id,
+    storeKeeperId: storeKeeper!.id,
     chemCustodianId: chemCustodian!.id,
   };
 }
@@ -388,117 +389,12 @@ function buildItems(categories: Record<string, Category>, ids: SeedIds, idByKey:
     return created[0];
   }
 
-  // ── SE Lab ──────────────────────────────────────────────────────────────
-  const seCtx: InstantiateCtx = { ownerOrgNodeId: ids.se, custodianId: ids.seCustodianId, now };
-  const lab = add("lab", null, "SE Lab X — Software Lab 3", seCtx);
-  lab.props.room = "IT-204";
-  lab.props.seats = 7;
-  lab.props.purpose = "Software Engineering instruction";
-  lab.props.source = "ASTU capital budget 2019";
-
-  const setups = instantiateMany(categories, catId("setup"), lab.id, 7, seCtx, false);
-  items.push(...setups);
-
-  const rack = add("switchrack", lab.id, "Switch Rack", seCtx, true);
-  add("whiteboard", lab.id, "Whiteboard", seCtx);
-
-  const brands = ["Dell", "HP", "Lenovo"] as const;
-  const models: Record<string, string[]> = {
-    Dell: ["OptiPlex 7090", "OptiPlex 5000", "Vostro 3710"],
-    HP: ["ProDesk 400 G7", "EliteDesk 800 G6"],
-    Lenovo: ["ThinkCentre M70q", "ThinkCentre M90t"],
-  };
-
-  const setupRoots = setups.filter((s) => s.categoryId === catId("setup"));
-  const computers: DomainItem[] = [];
-  setupRoots.forEach((setup, idx) => {
-    const pc = child(setup.id, "computer");
-    if (!pc) return;
-    computers.push(pc);
-    const brand = brands[idx % brands.length];
-    pc.props.brand = brand;
-    pc.props.model = models[brand][idx % models[brand].length];
-    pc.props.serial = `ASTU-SE-${String(1001 + idx)}`;
-    pc.name = `Computer ${String(idx + 1).padStart(2, "0")}`;
-
-    const mb = child(pc.id, "motherboard");
-    if (mb) {
-      mb.props.model = ["B460M", "H510M", "A520M", "Q470"][idx % 4];
-      const ram = child(mb.id, "ram");
-      if (ram) {
-        ram.props.ddrType = idx % 5 === 0 ? "DDR5" : "DDR4";
-        ram.props.sizeGB = [8, 8, 16, 16, 32][idx % 5];
-      }
-      const st = child(mb.id, "storage");
-      if (st) {
-        st.props.kind = idx % 3 === 0 ? "HDD" : "SSD";
-        st.props.sizeGB = [256, 512, 512, 1024][idx % 4];
-      }
-      // Only a couple of machines actually have a discrete GPU — the rest have the
-      // template's GPU row stripped entirely, the same "remove a nested part that
-      // doesn't apply" case temp_works' own seed exercises.
-      const gpu = child(mb.id, "gpu");
-      if (gpu) {
-        if (idx === 0 || idx === 2) {
-          gpu.props.model = ["GTX 1650", "RTX 3050"][idx % 2];
-          gpu.props.memGB = idx === 0 ? 4 : 6;
-        } else {
-          const at = items.findIndex((i) => i.id === gpu.id);
-          if (at >= 0) items.splice(at, 1);
-        }
-      }
-    }
-
-    const mon = child(pc.id, "monitor");
-    if (mon) {
-      mon.props.brand = ["Dell", "HP", "Samsung", "LG"][idx % 4];
-      mon.props.sizeIn = [19, 21, 21, 24][idx % 4];
-    }
-    for (const c of childrenOfCat(pc.id, "cable")) {
-      c.props.kind = c.name.endsWith("1") ? "Power" : "HDMI";
-    }
-  });
-
-  childrenOfCat(rack.id, "netswitch").forEach((sw, i) => {
-    sw.props.model = "Cisco SG350-28";
-    sw.props.ports = 28;
-    sw.name = `Network Switch ${i + 1}`;
-  });
-  childrenOfCat(rack.id, "outlet").forEach((o, i) => {
-    o.name = `Outlet ${String(i + 1).padStart(2, "0")}`;
-  });
-
-  // ── Seeded stories, so derived impairment is visible the moment the register
-  //    opens — one per level of the containment chain, plus a non-critical control.
-  const pcOf = (n: number) => child(setupRoots[n - 1].id, "computer")!;
-
-  // 1. Setup 1 stays fully healthy — the control most rows should look like.
-  // 2. A cracked monitor — Monitor is CRITICAL, so its Computer and Setup impair.
-  const mon2 = child(pcOf(2).id, "monitor");
-  if (mon2) mon2.status = "BROKEN";
-  // 3. Three levels deep: broken RAM impairs its Motherboard, which impairs the PC,
-  //    which impairs the Setup — the multi-level chain lib/domain/status.ts computes.
-  const ram3 = child(child(pcOf(3).id, "motherboard")!.id, "ram");
-  if (ram3) ram3.status = "BROKEN";
-  // 4. A broken MOUSE — NOT critical, so its Computer stays perfectly working. The
-  //    control case proving ANY_CRITICAL is actually discriminating, not blanket.
-  const mouse4 = child(pcOf(4).id, "mouse");
-  if (mouse4) mouse4.status = "BROKEN";
-  // 5. A machine with its own stored status set directly (not derived).
-  pcOf(5).status = "UNDER_MAINTENANCE";
-  // 6 & 7 stay healthy.
-  // One switch down → rack impaired → the whole Lab impaired — the seed's own
-  // authoritative "Lab is ANY_CRITICAL with a critical switch rack" story (see
-  // PROGRESS.md's replatforming-Phase-3 note on the sandbox README's superseded claim).
-  const sw1 = childrenOfCat(rack.id, "netswitch")[0];
-  if (sw1) sw1.status = "BROKEN";
-
-  // ── ASTU Main Store — university-owned stock, outside either department, for
-  //    testing SYS_ADMIN-only (university-wide) visibility. ────────────────────
-  const mainStore = add("store", null, "ASTU Main Store", { ownerOrgNodeId: ids.university, custodianId: ids.adminId, now });
+  // ── ASTU Main Store — university-owned, held by the store keeper; purchased stock
+  //    is received here before it is handed over to a lab. ─────────────────────
+  const mainStore = add("store", null, "ASTU Main Store", { ownerOrgNodeId: ids.university, custodianId: ids.storeKeeperId, now });
   mainStore.props.room = "Central stores building";
   mainStore.props.level = "Central";
-  const stockCtx: InstantiateCtx = { ownerOrgNodeId: ids.university, custodianId: ids.adminId, now };
+  const stockCtx: InstantiateCtx = { ownerOrgNodeId: ids.university, custodianId: ids.storeKeeperId, now };
   instantiateMany(categories, catId("table"), mainStore.id, 3, stockCtx).forEach((i) => items.push(i));
   instantiateMany(categories, catId("chair"), mainStore.id, 3, stockCtx).forEach((i) => items.push(i));
 
@@ -547,26 +443,6 @@ function buildItems(categories: Record<string, Category>, ids: SeedIds, idByKey:
     it.props.type = type;
     it.props.volumeMl = vol;
     it.qty = qty;
-  }
-
-  // ── The borrowing case — SE's 7th workstation sits physically in Chemical
-  //    Engineering's lab. `currentOrgNodeId` says so for the whole subtree; SE still
-  //    owns it and Girma Wolde (SE's custodian) is still answerable for it. Position
-  //    moved, accountability did not — the case the owner/current split exists for. ──
-  const loanedSetup = setupRoots[6];
-  const childrenOf = new Map<string, DomainItem[]>();
-  for (const it of items) {
-    if (!it.parentId) continue;
-    const list = childrenOf.get(it.parentId);
-    if (list) list.push(it);
-    else childrenOf.set(it.parentId, [it]);
-  }
-  loanedSetup.parentId = chemLab.id;
-  const stack = [loanedSetup];
-  while (stack.length) {
-    const it = stack.pop()!;
-    it.currentOrgNodeId = ids.chem;
-    stack.push(...(childrenOf.get(it.id) ?? []));
   }
 
   return items;
@@ -669,9 +545,18 @@ async function main(): Promise<void> {
   const { categories, idByKey } = await createCategories();
   const items = buildItems(categories, ids, idByKey);
 
-  const peopleIdByEmail = await loadOrCreateRealPeople(prisma, { se: ids.se, chem: ids.chem });
-  const realItems = buildRealDataItems(categories, { se: ids.se, chem: ids.chem, peopleIdByEmail }, idByKey);
+  const peopleIdByEmail = await loadOrCreateRealPeople(prisma, { chem: ids.chem });
+  const realItems = buildRealDataItems(categories, { chem: ids.chem, peopleIdByEmail }, idByKey);
   items.push(...realItems);
+
+  // Computer Science and Engineering — the 31 real labs of docs/cse_labs.md.
+  const araIdByEmail = await loadOrCreateCseAras(prisma, ids.cse);
+  const cse = buildCseLabItems(categories, (key) => {
+    const id = idByKey.get(key);
+    if (!id) throw new Error(`Unknown seeded category key "${key}"`);
+    return id;
+  }, ids.cse, araIdByEmail);
+  items.push(...cse.items);
 
   await prisma.item.createMany({ data: items.map((i) => itemCreateData(i, categories)) });
   const imageCount = await persistRealImages(items);
@@ -692,12 +577,22 @@ async function main(): Promise<void> {
       })),
   });
 
+  // From here on CSE's lab changes go through its custodians' drafts and the head's
+  // approval (Lab states); the load above is the initial register import.
+  await prisma.orgNode.update({ where: { id: ids.cse }, data: { draftWorkflowEnabled: true } });
+
   const roots = items.filter((i) => i.parentId === null).length;
   console.log(`  ${ALL_CATEGORY_SPECS.length} categories across ${ALL_GROUP_NAMES.length} groups`);
   console.log(`  ${items.length} items (${roots} roots), ${imageCount} real equipment photographs`);
-  console.log(`  ${Object.keys(peopleIdByEmail).length} real named custodians (11 Software Engineering, 3 Chemical Engineering)`);
-  console.log(`  1 loan: SE's 7th workstation sits in Chemistry Engineering's lab, owned/custodied by SE`);
-  console.log(`  Real data: 15 SE lab rooms (electricity/network survey), 4 named ChemE labs with real equipment (equipment list), 1 expired-chemical store (51 containers)`);
+  console.log(`  ${Object.keys(peopleIdByEmail).length} Chemical Engineering lab custodians; ${Object.keys(araIdByEmail).length} CSE lab custodians (ARAs)`);
+  console.log(`  Chemical Engineering: 4 named labs with real equipment, 1 expired-chemical store; ASTU Main Store (store keeper)`);
+  console.log(`  Computer Science and Engineering: ${cse.summary.length} labs (drafts ON)`);
+  const pcs = cse.summary.reduce((a, l) => a + l.present, 0);
+  const broken = cse.summary.reduce((a, l) => a + l.brokenPcs.length, 0);
+  console.log(`    ${pcs} workstations, ${broken} broken PCs, ${cse.summary.reduce((a, l) => a + l.brokenChairs, 0)} broken chairs, ${cse.summary.length * 20} outlets`);
+  for (const l of cse.summary) {
+    console.log(`    ${l.name.padEnd(38)} ${l.custodian.padEnd(30)} need ${String(l.required).padStart(2)}: ${l.present} PCs, ${l.brokenPcs.length} broken${l.brokenPcs.length ? ` (${l.brokenPcs.map((b) => `${b.workstation.slice(-2)}:${b.cause}`).join(" ")})` : ""}, ${l.brokenChairs} chairs broken, ${l.outlets} outlets`);
+  }
 }
 
 main()

@@ -9,7 +9,8 @@
  * documents the departments produced themselves (temp_works' `real_data/`,
  * git-ignored there and never copied here — only their extracted content is):
  *
- *   · the Software Engineering electricity/network repair survey (CSV)
+ *   · (formerly the Software Engineering electricity/network survey — its rooms are now
+ *     CSE's real labs, seeded from docs/cse_labs.md by prisma/cse-lab-data.ts)
  *   · the Chemical Engineering laboratory equipment list (DOCX) — extracted
  *     mechanically into prisma/chem-lab-data.ts, ported verbatim; see that file's
  *     own header
@@ -35,26 +36,14 @@ const DEMO_PASSWORD = "astu1234";
 interface RealPersonSpec {
   email: string;
   name: string;
-  homeNode: "se" | "chem";
+  homeNode: "chem";
   title: string;
 }
 
-/** 11 Software Engineering lab custodians + 3 Chemical Engineering ones — the exact
- *  names, emails and titles the department's own survey/equipment-list submissions
- *  carried. Two SE submissions in the source survey differed only in spacing and the
- *  final phone digit; email identified them as one person, so there is one row here,
- *  not two. */
+/** The 3 Chemical Engineering lab responsibles — the exact names, emails and titles
+ *  the department's equipment-list submission carried. (The Software Engineering survey
+ *  people are now CSE's lab custodians — prisma/cse-lab-data.ts, 2026-09-22.) */
 const REAL_PEOPLE: RealPersonSpec[] = [
-  { email: "shambel.lemma@astu.edu.et", name: "Shambel Lemma Gadisa", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "mfirduma@gmail.com", name: "Milki Muleta", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "birhanudamessa@gmail.com", name: "Birhanu Damessa Dibaba", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "ephremtesema92@gmail.com", name: "Ephrem Tesema", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "kabetagane22@gmail.com", name: "Kebede Tegene Alemu", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "alikibretmuhamed@gmail.com", name: "Ali Kibret Muhamed", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "birukteferahunde@gmail.com", name: "Biruk Tefera Hunde", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "alemufikadu22@gmail.com", name: "Fikadu Alemu Dadi", homeNode: "se", title: "SARA laboratory responsible" },
-  { email: "berhanuendesha28@gmail.com", name: "Berhanu Endesha Bekele", homeNode: "se", title: "ARA/SARA laboratory responsible" },
-  { email: "12hach2006@gmail.com", name: "Hachalu Bekele", homeNode: "se", title: "ARA/SARA laboratory responsible" },
   { email: "amsaluaddisu@gmail.com", name: "Addisu Amsalu", homeNode: "chem", title: "Laboratory responsible person" },
   { email: "altewba@gmail.com", name: "Seid Hassen", homeNode: "chem", title: "Laboratory responsible person" },
   { email: "ebogizaw21@gmail.com", name: "Ebisa Gizachew", homeNode: "chem", title: "Laboratory responsible person" },
@@ -64,7 +53,7 @@ const REAL_PEOPLE: RealPersonSpec[] = [
  *  does not also re-run `prisma:seed` (which is the whole point of splitting item
  *  wipe from org/auth wipe). A second run must not try to INSERT the same email
  *  again and fail the unique constraint. */
-export async function loadOrCreateRealPeople(prisma: PrismaClient, nodeIdByKey: { se: string; chem: string }): Promise<Record<string, string>> {
+export async function loadOrCreateRealPeople(prisma: PrismaClient, nodeIdByKey: { chem: string }): Promise<Record<string, string>> {
   const passwordHash = await argon2.hash(DEMO_PASSWORD);
   const idByEmail: Record<string, string> = {};
   for (const p of REAL_PEOPLE) {
@@ -145,35 +134,6 @@ export const REAL_CATEGORY_SPECS: CategorySpec[] = [
       { key: "source", label: "Source", type: "TEXT" },
     ],
   },
-];
-
-interface SurveyLab {
-  room: string;
-  email: string;
-}
-
-/** The Software Engineering electricity/network repair survey's own room list — 15
- *  distinct rooms across two buildings (B508/B509/B510), each with the custodian who
- *  submitted that room's survey response. This survey was about electrical/network
- *  REPAIRS, not an equipment inventory, so these labs seed as real rooms with real
- *  custodians and no equipment inside — still real, still useful demo content: every
- *  SE lab a survey named, each with its actual responsible person attached. */
-const SURVEY_LABS: SurveyLab[] = [
-  { room: "B509-R7", email: "shambel.lemma@astu.edu.et" },
-  { room: "B510-R2", email: "mfirduma@gmail.com" },
-  { room: "B509-R6", email: "birhanudamessa@gmail.com" },
-  { room: "B510-R14", email: "ephremtesema92@gmail.com" },
-  { room: "B510-R15", email: "ephremtesema92@gmail.com" },
-  { room: "B510-R13", email: "kabetagane22@gmail.com" },
-  { room: "B508-R11", email: "shambel.lemma@astu.edu.et" },
-  { room: "B510-R8", email: "alikibretmuhamed@gmail.com" },
-  { room: "B510-R16", email: "birukteferahunde@gmail.com" },
-  { room: "B510-R12", email: "alemufikadu22@gmail.com" },
-  { room: "B510-R9", email: "alikibretmuhamed@gmail.com" },
-  { room: "B509-R4", email: "alemufikadu22@gmail.com" },
-  { room: "B510-R4", email: "berhanuendesha28@gmail.com" },
-  { room: "B510-R11", email: "12hach2006@gmail.com" },
-  { room: "B509-R2", email: "12hach2006@gmail.com" },
 ];
 
 interface ChemLabSpec {
@@ -279,7 +239,6 @@ function labFor(labCategory: string): string | undefined {
 }
 
 export interface RealDataIds {
-  se: string;
   chem: string;
   peopleIdByEmail: Record<string, string>;
 }
@@ -304,18 +263,11 @@ export function buildRealDataItems(categories: Record<string, Category>, ids: Re
     items.push(...made);
     return made[0];
   };
-  const ctxFor = (email: string, node: "se" | "chem"): InstantiateCtx => ({
-    ownerOrgNodeId: node === "se" ? ids.se : ids.chem,
+  const ctxFor = (email: string, _node: "chem"): InstantiateCtx => ({
+    ownerOrgNodeId: ids.chem,
     custodianId: ids.peopleIdByEmail[email],
     now,
   });
-
-  // ── Software Engineering — 15 real lab rooms, each with its real custodian ──────
-  for (const s of SURVEY_LABS) {
-    const lab = add("lab", null, `Software Laboratory — ${s.room}`, ctxFor(s.email, "se"));
-    lab.props.room = s.room;
-    lab.props.source = "Electricity and Network Repair Survey";
-  }
 
   // ── Chemical Engineering — 4 named labs, populated with the department's real
   //    equipment register (names, descriptions, experiments, conditions, photos) ──

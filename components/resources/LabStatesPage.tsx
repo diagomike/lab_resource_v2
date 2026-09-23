@@ -312,7 +312,7 @@ function StatsTable({ rows, empty }: { rows: IdealStatRowDto[]; empty: string })
               <td className={`px-10 py-6 text-right font-mono ${r.gap > 0 ? "text-bad font-semibold" : "text-faint"}`}>{r.gap}</td>
               <td className={`px-10 py-6 text-right font-mono ${r.needsAttention > 0 ? "text-warn" : "text-faint"}`}>{r.needsAttention}</td>
               <td className="px-14 py-6 text-10.5 text-dim">
-                {r.missing.length ? `${r.missing.slice(0, 6).map((m) => m.name).join(", ")}${r.missing.length > 6 ? ` +${r.missing.length - 6}` : ""}` : "—"}
+                {r.missing.length ? summarizeNames(r.missing.map((m) => m.name)) : "—"}
               </td>
             </tr>
           ))}
@@ -924,4 +924,12 @@ export default function LabStatesPage() {
       <LabStatesInner />
     </Suspense>
   );
+}
+
+/** "Computer ×5, Workstation 21, Workstation 22 +3": identical names collapse into a count. */
+function summarizeNames(names: string[]): string {
+  const counts = new Map<string, number>();
+  for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+  const parts = [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n));
+  return parts.length > 6 ? `${parts.slice(0, 6).join(", ")} +${parts.length - 6}` : parts.join(", ");
 }

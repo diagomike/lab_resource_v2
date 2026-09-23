@@ -1,23 +1,25 @@
 /**
- * Seeds the minimum needed to sign in and start building the org chart: one SYS_ADMIN and
- * the single UNIVERSITY root node — PLUS a small scoping fixture (two colleges, two
- * departments, a department head and a custodian per department) so cross-department
- * scope enforcement (ScopeService) has something real to exercise.
+ * Seeds the org chart and the people who run it — a CLEAN SLATE (2026-09-22): the
+ * administrator, the Chemical Engineering people, and one clearly named role account
+ * per post the purchase and approval chains need. The 17 CSE lab custodians (ARAs) are
+ * real people and are seeded with their labs by prisma/cse-lab-data.ts (run through
+ * resource-seed.ts); rename any role account to the real person later from
+ * People & roles.
  *
- * The rest of the org chart (further colleges, departments, offices, personnel) is created
- * through the app itself, by design — see PROGRESS.md. This used to also seed a resource
- * register slice (a Lab category, three labs); that module was deleted — see
- * ~/.claude/plans/wait-i-want-gentle-haven.md — and its replacement will bring its own
- * seed data when it lands.
+ *   ASTU (AVP)
+ *   ├─ College of Electrical Engineering and Computing (CoEEC dean)
+ *   │   ├─ Software Engineering (SE head — cross-department checks only)
+ *   │   └─ Computer Science and Engineering (CSE head)
+ *   ├─ College of Mechanical, Chemical and Materials Engineering
+ *   │   └─ Chemical Engineering (head.chem)
+ *   └─ Procurement Office, code PROC (procurement officer)
  *
- * Idempotent by wipe-and-rebuild: every run clears the tables it owns and regenerates ids.
- * That wipe (every User, UserRole, OrgNode, Session, ...) is exactly why this refuses to
- * run against production below — run against a real database, it would delete every
- * real custodian account. `prisma/bootstrap.ts` is the production-safe equivalent: an
- * idempotent upsert that creates nothing but the first SYS_ADMIN and the UNIVERSITY
- * root, never deletes anything, and is safe to re-run.
+ * Idempotent by wipe-and-rebuild: every run clears the tables it owns and regenerates
+ * ids. That wipe (every User, UserRole, OrgNode, Session, ...) is exactly why this
+ * refuses to run against production below. `prisma/bootstrap.ts` is the
+ * production-safe equivalent (creates only the first SYS_ADMIN and the root).
  */
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type RoleKind } from "@prisma/client";
 // @node-rs/argon2 — see lib/server/auth/auth.ts's own note on why, not the `argon2`
 // package.
 import * as argon2 from "@node-rs/argon2";
@@ -31,11 +33,10 @@ if (process.env.NODE_ENV === "production") {
 const prisma = new PrismaClient();
 
 const SEED_PASSWORD = "astu1234";
-const SYS_ADMIN = { name: "System Administrator", email: "admin@astu.edu.et" };
 const UNIVERSITY_NAME = "Adama Science and Technology University";
 
 async function main() {
-  console.log("Seeding lab_resource_v2…");
+  console.log("Seeding lab_resource_v2 (org chart + people, clean slate)…");
 
   await prisma.orgNodeAssignment.deleteMany({});
   await prisma.orgClosure.deleteMany({});
@@ -43,6 +44,8 @@ async function main() {
   await prisma.session.deleteMany({});
   await prisma.invitation.deleteMany({});
   await prisma.passwordReset.deleteMany({});
+  await prisma.loginAttempt.deleteMany({});
+  await prisma.homeNodeChange.deleteMany({});
   // OrgNode.userId must be released before users can go.
   await prisma.orgNode.updateMany({ data: { userId: null } });
   await prisma.orgNode.deleteMany({});
@@ -50,103 +53,60 @@ async function main() {
   await prisma.user.deleteMany({});
 
   const passwordHash = await argon2.hash(SEED_PASSWORD);
-  const admin = await prisma.user.create({
-    data: {
-      email: SYS_ADMIN.email,
-      emailLower: SYS_ADMIN.email.toLowerCase(),
-      name: SYS_ADMIN.name,
-      passwordHash,
-      status: "ACTIVE",
-      roles: { create: [{ kind: "SYS_ADMIN" }] },
-    },
-  });
+  const person = (email: string, name: string, roles: RoleKind[], homeNodeId: string | null, title?: string) =>
+    prisma.user.create({
+      data: { email, emailLower: email.toLowerCase(), name, title, passwordHash, status: "ACTIVE", homeNodeId, roles: { create: roles.map((kind) => ({ kind })) } },
+    });
 
-  const university = await prisma.orgNode.create({
-    data: { name: UNIVERSITY_NAME, level: 0, kind: "UNIVERSITY", code: "ASTU" },
-  });
+  const admin = await person("admin@astu.edu.et", "System Administrator", ["SYS_ADMIN"], null);
 
-  // ── A small org chart to scope against ─────────────────────────────────────
-  const college = await prisma.orgNode.create({
-    data: { name: "College of Electrical Engineering and Computing", level: 1, kind: "COLLEGE", code: "COEEC" },
-  });
-  const comcme = await prisma.orgNode.create({
-    data: { name: "College of Mechanical, Chemical and Materials Engineering", level: 1, kind: "COLLEGE", code: "COMCME" },
-  });
-  const se = await prisma.orgNode.create({
-    data: { name: "Software Engineering", level: 2, kind: "DEPARTMENT", code: "SE" },
-  });
-  const chem = await prisma.orgNode.create({
-    data: { name: "Chemical Engineering", level: 2, kind: "DEPARTMENT", code: "CHEM" },
-  });
+  // ── Org chart ────────────────────────────────────────────────────────────
+  const node = (name: string, level: number, kind: "UNIVERSITY" | "COLLEGE" | "DEPARTMENT" | "OFFICE", code: string) =>
+    prisma.orgNode.create({ data: { name, level, kind, code } });
+  const university = await node(UNIVERSITY_NAME, 0, "UNIVERSITY", "ASTU");
+  const coeec = await node("College of Electrical Engineering and Computing", 1, "COLLEGE", "COEEC");
+  const comcme = await node("College of Mechanical, Chemical and Materials Engineering", 1, "COLLEGE", "COMCME");
+  const proc = await node("Procurement Office", 1, "OFFICE", "PROC");
+  const se = await node("Software Engineering", 2, "DEPARTMENT", "SE");
+  const cse = await node("Computer Science and Engineering", 2, "DEPARTMENT", "CSE");
+  const chem = await node("Chemical Engineering", 2, "DEPARTMENT", "CHEM");
 
   const edges = [
-    { parentId: university.id, childId: college.id },
+    { parentId: university.id, childId: coeec.id },
     { parentId: university.id, childId: comcme.id },
-    { parentId: college.id, childId: se.id },
+    { parentId: university.id, childId: proc.id },
+    { parentId: coeec.id, childId: se.id },
+    { parentId: coeec.id, childId: cse.id },
     { parentId: comcme.id, childId: chem.id },
   ];
   await prisma.orgEdge.createMany({ data: edges });
+  await prisma.orgClosure.createMany({ data: computeClosureRows([university.id, coeec.id, comcme.id, proc.id, se.id, cse.id, chem.id], edges) });
 
-  const closureRows = computeClosureRows([university.id, college.id, comcme.id, se.id, chem.id], edges);
-  await prisma.orgClosure.createMany({ data: closureRows });
+  // ── Posts: role accounts (rename to the real person later) + ChemE's own ─────
+  const occupy = async (nodeId: string, userId: string) => {
+    await prisma.orgNode.update({ where: { id: nodeId }, data: { userId } });
+    await prisma.orgNodeAssignment.create({ data: { nodeId, userId, assignedById: admin.id, reason: "Seeded" } });
+  };
+  const avp = await person("avp@astu.edu.et", "Academic Vice President (AVP)", ["MANAGER"], null, "Academic Vice President");
+  const dean = await person("coeec.dean@astu.edu.et", "CoEEC Dean", ["MANAGER"], coeec.id, "Dean, College of Electrical Engineering and Computing");
+  const cseHead = await person("cse.head@astu.edu.et", "CSE Department Head", ["MANAGER", "STAFF"], cse.id, "Head, Computer Science and Engineering");
+  const seHead = await person("se.head@astu.edu.et", "SE Department Head", ["MANAGER", "STAFF"], se.id, "Head, Software Engineering");
+  const procurement = await person("procurement@astu.edu.et", "Procurement Officer", ["PROCUREMENT"], proc.id, "Procurement Office");
+  await person("store.keeper@astu.edu.et", "Main Store Keeper", ["STORE_KEEPER", "STAFF"], university.id, "ASTU Main Store");
+  const chemHead = await person("head.chem@astu.edu.et", "Head, Chemical Engineering", ["MANAGER", "STAFF"], chem.id);
+  await person("custodian.chem@astu.edu.et", "Hanna Bekele", ["CUSTODIAN", "STAFF"], chem.id);
 
-  // ── A department head + a custodian per department, so items have somewhere to be
-  //    owned and someone to answer for them ──────────────────────────────────
-  const seHead = await prisma.user.create({
-    data: {
-      email: "head.se@astu.edu.et",
-      emailLower: "head.se@astu.edu.et",
-      name: "Head, Software Engineering",
-      passwordHash,
-      status: "ACTIVE",
-      homeNodeId: se.id,
-      roles: { create: [{ kind: "MANAGER" }, { kind: "STAFF" }] },
-    },
-  });
-  await prisma.orgNode.update({ where: { id: se.id }, data: { userId: seHead.id } });
+  await occupy(university.id, avp.id);
+  await occupy(coeec.id, dean.id);
+  await occupy(cse.id, cseHead.id);
+  await occupy(se.id, seHead.id);
+  await occupy(proc.id, procurement.id);
+  await occupy(chem.id, chemHead.id);
 
-  const chemHead = await prisma.user.create({
-    data: {
-      email: "head.chem@astu.edu.et",
-      emailLower: "head.chem@astu.edu.et",
-      name: "Head, Chemical Engineering",
-      passwordHash,
-      status: "ACTIVE",
-      homeNodeId: chem.id,
-      roles: { create: [{ kind: "MANAGER" }, { kind: "STAFF" }] },
-    },
-  });
-  await prisma.orgNode.update({ where: { id: chem.id }, data: { userId: chemHead.id } });
-
-  const seCustodian = await prisma.user.create({
-    data: {
-      email: "custodian.se@astu.edu.et",
-      emailLower: "custodian.se@astu.edu.et",
-      name: "Girma Wolde",
-      passwordHash,
-      status: "ACTIVE",
-      homeNodeId: se.id,
-      roles: { create: [{ kind: "CUSTODIAN" }, { kind: "STAFF" }] },
-    },
-  });
-
-  const chemCustodian = await prisma.user.create({
-    data: {
-      email: "custodian.chem@astu.edu.et",
-      emailLower: "custodian.chem@astu.edu.et",
-      name: "Hanna Bekele",
-      passwordHash,
-      status: "ACTIVE",
-      homeNodeId: chem.id,
-      roles: { create: [{ kind: "CUSTODIAN" }, { kind: "STAFF" }] },
-    },
-  });
-
-  console.log(`  1 SYS_ADMIN (${SYS_ADMIN.email} / ${SEED_PASSWORD})`);
-  console.log(`  1 UNIVERSITY root node ("${UNIVERSITY_NAME}")`);
-  console.log(`  2 colleges, 2 departments (SE, ChemE)`);
-  console.log(`  2 department heads, 2 custodians (all / ${SEED_PASSWORD})`);
-  console.log(`  admin user id: ${admin.id}`);
+  console.log(`  7 org nodes: ASTU > CoEEC > {SE, CSE}; CoMCME > ChemE; Procurement Office (PROC)`);
+  console.log(`  admin@astu.edu.et, avp@, coeec.dean@, cse.head@, se.head@, procurement@, store.keeper@ (all / ${SEED_PASSWORD})`);
+  console.log(`  Chemical Engineering: head.chem@, custodian.chem@ (Hanna Bekele)`);
+  console.log(`  The 17 CSE lab custodians come with their labs — run prisma/resource-seed.ts next.`);
 }
 
 main()
