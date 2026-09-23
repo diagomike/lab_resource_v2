@@ -147,16 +147,19 @@ One `npm run dev` at the repo root (Next.js, Turbopack) — there is no
 second process any more; the old NestJS API and Vite dev server are gone.
 Postgres db `lrms_v2`.
 
-Seed data (`prisma/seed.ts`): one SYS_ADMIN (`admin@astu.edu.et` /
-`astu1234`) + one UNIVERSITY root OrgNode ("Adama Science and Technology
-University"), plus a scoping fixture — 2 colleges, 2 departments (SE / ChemE,
-each with a `code`), a department head + a custodian per department
-(`head.se@astu.edu.et` / `head.chem@astu.edu.et` / `custodian.se@astu.edu.et`
-/ `custodian.chem@astu.edu.et`, all `astu1234`) — enough to exercise
-cross-department scoping live. **The resource-register Phase 1 half of this
-seed (the `Lab` category and 3 seeded labs) is being deleted along with the
-Phase-1 resource module itself** (replatforming Phase 1, see the
-architecture section above); the auth/org half of the seed is untouched.
+Seed data (rewritten 2026-09-22/23, fix round Phase C). The chain is `prisma/seed.ts`
+→ `prisma/resource-seed.ts` → `prisma/seed-policies.ts --apply`:
+- **Org:** ASTU → CoEEC → {SE, CSE}; ASTU → CoMCME → ChemE; ASTU → Procurement Office
+  (active).
+- **Role accounts** (placeholders to rename later): `avp@`, `coeec.dean@`, `cse.head@`,
+  `se.head@`, `procurement@`, `store.keeper@astu.edu.et`. ChemE keeps `head.chem@`,
+  `custodian.chem@` and its 3 real lab responsibles. All passwords are `astu1234`.
+- **Data:** the 17 real CSE ARAs and their 31 labs (`prisma/cse-lab-data.ts`, from
+  `docs/cse_labs.md`), current state only. CSE drafts are ON. ChemE's real data, and the
+  ASTU Main Store (the store keeper's).
+- **No ideals are seeded.** Custodians propose them on Lab states.
+- **Mail:** 11 ARAs carry real addresses, so notification-triggering tests belong on the
+  E2E clone (:3100, mail sink), never the dev DB with real SMTP.
 
 `.env` (repo root) has real dev credentials copied from the user's own
 sibling project (`DATABASE_URL`, Gmail `SMTP_*`, `MAIL_FROM`) — this is the
@@ -4149,3 +4152,58 @@ its model that make porting it as-is the wrong move.
   Tooling: `e2e/mint-one.ts` mints a session for one account on the clone, so the in-app
   browser can act as any person without typing a password. The `e2e/` folder stays untracked,
   as it was before this round.
+
+- **2026-09-22 (fix round Phase B: lab versions, `2850f81`)** — Draft and Ideal became whole
+  named trees:
+  - `LabVersion` (DRAFT, IDEAL, IDEAL_PROPOSAL) and `VersionItem` hold a copy of the lab's
+    tree, each row linked to its real item. Migration `20260922200000` drops
+    `ItemDraftChange` and `LabIdealTarget`.
+  - Pure `lib/domain/version-ops.ts` handles edits, the diff against Current, and the
+    Ideal-vs-Current stats.
+  - `lib/server/resources/lab-versions.ts`: only the lab's custodian edits a version, and
+    the owning head decides. An approved Draft merges through the write door as the
+    custodian (`createExactItems`), or goes STALE naming whatever changed since the copy.
+    An approved proposal replaces the Ideal, and purchasables read the Ideal tree.
+  - With drafts on, `applyChange` stages register edits into the lab's Draft (`staged`
+    in the result) instead of refusing them. SYS_ADMIN still applies directly.
+  - New `/lab-states` page with tabs Current / Draft / Ideal / Approvals. Register rows
+    with a pending draft change show a `*`.
+
+- **2026-09-23 (fix round Phase C: real CSE data, `41c7c23`)** — New
+  `prisma/cse-lab-data.ts` (17 ARAs, 31 labs):
+  - each lab is built for 20 workstations and 20 outlets;
+  - broken PCs number `max(0, required − 5)`, capped at 20, each with one broken RAM,
+    Storage or Monitor;
+  - 11–15 broken chairs per lab, drawn from a room-seeded PRNG.
+
+  `seed.ts` adds CSE and the purchase-chain role accounts. The synthetic SE lab, the SE
+  survey labs and the `*@e2e.test` seed cast are dropped. The Motherboard template has no
+  GPU. The Lab states Missing column now collapses repeats ("Computer ×5"). The seeds
+  were applied to the **E2E clone only**. The dev DB `lrms_v2` has a backup
+  (`backups/lrms_v2-2026-09-22-before-clean-slate.dump`) but **has not been reset**:
+  Prisma needs explicit chat confirmation for that, and the user hasn't given it yet.
+
+- **2026-09-23 (fix round Phase D: end-to-end cycle on :3100; docs only, no product
+  changes beyond C)** — Ali Kibret's two labs went through the in-app browser (ideal,
+  draft, handover, acceptance, decisions). The other 29 labs and the purchase chain went
+  through `e2e/drive-cse-cycle.ts`, which calls the app's own API with minted sessions.
+  It gained `--only <lab>` and `--what <batches>`, and it skips items already in a pending
+  handover.
+  - Ideals: 31 approved at 25 workstations and 25 outlets.
+  - Ali's draft: Monitor broken, chair to maintenance; merged and credited to him.
+  - Purchasables matched an independent DB count: gap WS 151 / outlets 155; broken
+    RAM 60, Storage 56, Monitor 74, Chair 412.
+  - PR-2026-001 went dean → AVP → procurement → pipeline, was received in partial
+    receipts, and closed. Every lab's share was handed over and accepted.
+  - Ali's repair via draft (RAM swap) turned that PC Working.
+  - Final: gap 0 in all 31 labs.
+
+  Findings R2-1…R2-6 are in the manual test plan's results log. The main one is R2-1: an
+  item in a pending handover can be put into a second one, and it only fails at apply
+  time. `docs/manual-test-plan-2026-09-22.md` was rewritten around the real data and the
+  decisions, and `docs/fix-plan-2026-09-22.md` is marked superseded.
+
+  Tooling note: the in-app browser pane doesn't draw while hidden, and its tab jumps back
+  to `/dashboard` from time to time. Drive it with DOM scripts inside one
+  `javascript_tool` call per page, and set sessions by `document.cookie` from
+  `e2e/mint-one.ts`.
