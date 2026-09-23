@@ -4234,3 +4234,30 @@ its model that make porting it as-is the wrong move.
   tests. tsc and build are clean. Checked in the browser on :3100 as the store keeper:
   the naming suggestion, the ⇄ markers, and the refusal in both the modal and the API
   (409). The test request was cancelled afterwards.
+
+- **2026-09-23 (dev DB rebuilt with the real CSE data; tests moved off the dev DB)** — The
+  user found `lrms_v2` full of `__test-*` org nodes, users and categories, and none of the
+  new CSE data.
+  - **Cause:** the DB-backed specs fell back to `.env`'s DATABASE_URL, which is the dev
+    DB. Interrupted runs left their fixtures behind: 97 test nodes, 115 test/e2e users,
+    51 test categories and 19 groups. Phase C had also been applied to the E2E clone only.
+  - **Tests now use `lrms_v2_test`.** `vitest.config.ts` sets `env.DATABASE_URL` to it.
+    `test/global-setup.ts` creates it, migrates it, and seeds it with `prisma/seed.ts`
+    plus `test/seed-fixture.ts` (the old `head.se@` and `custodian.se@` the specs expect,
+    kept out of the real seed). 515/515, and a full run leaves `lrms_v2`'s counts
+    unchanged.
+  - **`lrms_v2` rebuilt** at the user's explicit instruction ("don't worry about removing
+    everything"). Backup first: `backups/lrms_v2-2026-09-23-before-cse-rebuild.dump`.
+    Then drop, migrate, `seed.ts`, `resource-seed.ts`, `seed-policies.ts --apply`.
+  - **Chemical Engineering** was snapshotted before and after: all 105 items identical.
+    It had no app edits.
+  - **Result:** 7 org nodes; 29 users (admin, 6 role accounts, 5 ChemE, the 17 CSE ARAs
+    with the user's emails and `fname.lname@astu.edu.et` for the other six); 40
+    categories; no test data.
+  - **Ideals** created through the app on the **dev-nomail** server (:3000, no outgoing
+    mail): every custodian proposed 25 workstations and 25 outlets, and the CSE head
+    approved all 31. `e2e/drive-cse-cycle.ts` and `e2e/mint-one.ts` take `--dev` for
+    this.
+  - **Totals match `docs/cse_labs.md`:** sum of required 340 = 189 broken PCs + 151
+    missing workstations. Broken parts: RAM 60, Storage 56, Monitor 73. Chairs: 412
+    broken.

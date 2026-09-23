@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { testDatabaseUrl } from "./test/db";
 
 /**
  * One config for every pure-logic test in the app — the same "test pure logic only"
@@ -38,5 +39,10 @@ export default defineConfig({
     // CPU-bound, so the loss is real but not dramatic) in exchange for the whole
     // suite being deterministic instead of occasionally, spuriously red.
     fileParallelism: false,
+    // Never the dev database: every DB-backed spec runs against lrms_v2_test, created,
+    // migrated and seeded by test/global-setup.ts (2026-09-23 — `__test-*` fixtures from
+    // interrupted runs had piled up in lrms_v2).
+    globalSetup: ["./test/global-setup.ts"],
+    env: { DATABASE_URL: testDatabaseUrl(), DIRECT_URL: testDatabaseUrl() },
   },
 });
