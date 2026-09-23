@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customPropFilterFields, EMPTY_FILTERS, matchItems, type FilterCtx, type FilterState } from "./filters";
+import { customPropFilterFields, EMPTY_FILTERS, matchItems, parseSearch, type FilterCtx, type FilterState } from "./filters";
 import { computeStatuses } from "./status";
 import { descendantCategories, indexItems } from "./tree";
 import type { Category, Item } from "./types";
@@ -140,5 +140,60 @@ describe("customPropFilterFields", () => {
     const anItem = item("x", "computer", null, { customProps: { secret: { type: "TEXT", value: "x" } } });
     expect(customPropFilterFields([])).toEqual([]);
     expect(customPropFilterFields([anItem]).map((f) => f.id)).toEqual(["custom:secret"]);
+  });
+});
+
+describe("search @key terms", () => {
+  const categories = {
+    computer: category("computer", "IT", "ANY_CRITICAL", [
+      { key: "serial", label: "Serial no.", type: "text" },
+      { key: "brand", label: "Brand", type: "text" },
+    ]),
+    chair: category("chair", "Furniture", "NEVER"),
+  };
+  const items = [
+    item("pc-a", "computer", null, { name: "Computer 01", props: { serial: "EXNDSF-001", brand: "Dell" } }),
+    item("pc-b", "computer", null, { name: "Computer 02", props: { serial: "ABC-9", brand: "HP" } }),
+    item("pc-c", "computer", null, { name: "Computer 03", props: { brand: "Dell" } }),
+    item("chair-a", "chair", null, { name: "Chair 01", customProps: { asset_tag: { type: "TEXT", value: "T-77" } } as Item["customProps"] }),
+  ];
+  const ctx = contextFor(items, categories);
+  const search = (q: string) => [...matchItems(items, { ...EMPTY_FILTERS, search: q }, ctx)].sort();
+
+  it("parses terms and leaves the rest as a phrase", () => {
+    expect(parseSearch('@serial:EXN dell  @brand @tag:"A B"')).toEqual({
+      text: "dell",
+      terms: [
+        { key: "serial", value: "EXN" },
+        { key: "brand", value: null },
+        { key: "tag", value: "A B" },
+      ],
+    });
+    expect(parseSearch("@serial:").terms).toEqual([{ key: "serial", value: null }]);
+  });
+
+  it("@key alone matches items that have the field filled in", () => {
+    expect(search("@serial")).toEqual(["pc-a", "pc-b"]);
+  });
+
+  it("@key:value matches a case-insensitive part of the value", () => {
+    expect(search("@serial:exndsf")).toEqual(["pc-a"]);
+    expect(search("@serial:nothing")).toEqual([]);
+  });
+
+  it("keys match the field's label too, ignoring case, spaces and punctuation", () => {
+    expect(search("@SerialNo")).toEqual(["pc-a", "pc-b"]);
+  });
+
+  it("custom properties and the built-ins answer too", () => {
+    expect(search("@asset_tag:t-7")).toEqual(["chair-a"]);
+    expect(search("@category:chair")).toEqual(["chair-a"]);
+    expect(search("@name:computer 02")).toEqual(["pc-b"]); // a bare word after a term is free text
+    expect(search('@name:"Computer 0"')).toEqual(["pc-a", "pc-b", "pc-c"]);
+  });
+
+  it("terms combine with each other and with free text", () => {
+    expect(search("@brand:dell @serial")).toEqual(["pc-a"]);
+    expect(search("@brand:dell 03")).toEqual(["pc-c"]);
   });
 });

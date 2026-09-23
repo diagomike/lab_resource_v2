@@ -5,7 +5,8 @@ import type { ItemFilterFieldDef, FilterVariant, ItemRowDto, OrgNodeDto, Resourc
 import { TreePicker, type TreeOption } from "@/components/TreePicker";
 import { makeUnitTree } from "@/lib/register/useEditOptions";
 import { STATUS_LABEL } from "@/lib/domain/status";
-import { opsFor, OP_LABEL, VALUELESS_OPS, newRule, type FilterOp, type FilterRule } from "@/lib/domain/filters";
+import { opsFor, OP_LABEL, VALUELESS_OPS, newRule, normalizeKey, parseSearch, type FilterOp, type FilterRule } from "@/lib/domain/filters";
+import { KeySearchInput, type SearchKey } from "./KeySearchInput";
 import { api } from "@/lib/api";
 import { Button, Tag } from "@/components/ui";
 import type { RegisterFilters } from "@/lib/register/useRegisterState";
@@ -250,7 +251,8 @@ function BreakdownLine({ label, counts }: { label: string; counts: Map<string, n
 
 function tally(rows: ItemRowDto[], key: (r: ItemRowDto) => string): Map<string, number> {
   const m = new Map<string, number>();
-  for (const r of rows) m.set(key(r), (m.get(key(r)) ?? 0) + (r.countingMode === "BULK" ? r.qty : 1));
+  // One per matching item: summing bulk quantities would add grams to millilitres.
+  for (const r of rows) m.set(key(r), (m.get(key(r)) ?? 0) + 1);
   return m;
 }
 
@@ -303,14 +305,54 @@ export function FilterBar({
   // elsewhere (Clear filters, back/forward navigation).
   const [draft, setDraft] = useState(filters.q);
   useEffect(() => setDraft(filters.q), [filters.q]);
+
+  const fieldsById = useMemo(() => new Map(fields.map((f) => [f.id, f])), [fields]);
+  /** What `@…` in the search box can name: every category field (grouped by key, with
+   *  the categories that use it), custom properties, and the built-ins. */
+  const searchKeys = useMemo<SearchKey[]>(() => {
+    const byKey = new Map<string, { key: string; label: string; cats: string[]; values: Set<string> }>();
+    for (const c of categoryList) {
+      for (const f of c.fields) {
+        const nk = normalizeKey(f.key);
+        const entry = byKey.get(nk) ?? { key: f.key, label: f.label, cats: [], values: new Set<string>() };
+        entry.cats.push(c.name);
+        for (const o of f.options ?? []) entry.values.add(o);
+        byKey.set(nk, entry);
+      }
+    }
+    const out: SearchKey[] = [
+      { key: "name", label: "Name", hint: "built-in" },
+      { key: "category", label: "Category", hint: "built-in", values: categoryList.map((c) => c.name).sort() },
+      { key: "status", label: "Status", hint: "built-in", values: ["working", "impaired", "broken", "under maintenance", "lost", "consumed"] },
+    ];
+    for (const e of [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key))) {
+      const cats = e.cats.length > 3 ? `${e.cats.slice(0, 3).join(", ")} +${e.cats.length - 3}` : e.cats.join(", ");
+      out.push({ key: e.key, label: e.label, hint: cats, values: e.values.size ? [...e.values].sort() : undefined });
+    }
+    for (const f of fields) {
+      if (!f.id.startsWith("custom:")) continue;
+      const key = f.id.slice("custom:".length);
+      if (!byKey.has(normalizeKey(key))) out.push({ key, label: key, hint: "custom property", values: f.options?.map((o) => o.label) });
+    }
+    return out;
+  }, [categoryList, fields]);
+
+  // A search naming a key nothing has (mid-typing "@se", or a typo) is held back instead
+  // of emptying the register, and said so beside the box.
+  const unknownKeys = useMemo(() => {
+    const known = new Set(searchKeys.map((k) => normalizeKey(k.key)));
+    for (const k of searchKeys) known.add(normalizeKey(k.label));
+    const unknown = parseSearch(draft).terms.map((t) => t.key).filter((k) => !known.has(normalizeKey(k)));
+    // A bare "@" is a key still being typed — hold the search back for it too.
+    return /(^|\s)@(\s|$)/.test(draft) ? [...unknown, ""] : unknown;
+  }, [draft, searchKeys]);
   useEffect(() => {
-    if (draft === filters.q) return;
+    if (draft === filters.q || unknownKeys.length) return;
     const t = setTimeout(() => onChange({ q: draft }), 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
+  }, [draft, unknownKeys.length]);
 
-  const fieldsById = useMemo(() => new Map(fields.map((f) => [f.id, f])), [fields]);
   /** Each core filter as searchable picker options — categories with their icon and
    *  group, units nested along the org chart, the rest as a plain list. */
   const pickerOptions = useMemo(() => {
@@ -344,7 +386,12 @@ export function FilterBar({
   // One removable chip per active filter — the search, each core dropdown, each rule —
   // so a single one can be dropped without clearing the rest.
   const chips: Array<{ id: string; text: string; remove: () => void }> = [];
-  if (filters.q) chips.push({ id: "q", text: `Search: "${filters.q}"`, remove: () => onChange({ q: "" }) });
+  if (filters.q) {
+    // `@key` terms read as what they ask: "serial contains "EXN"", "has brand".
+    const { text, terms } = parseSearch(filters.q);
+    const parts = [...(text ? [`search "${text}"`] : []), ...terms.map((t) => (t.value === null ? `has ${t.key}` : `${t.key} contains "${t.value}"`))];
+    chips.push({ id: "q", text: parts.join(", ").replace(/^./, (c) => c.toUpperCase()), remove: () => onChange({ q: "" }) });
+  }
   for (const { id, key } of CORE_FIELDS) {
     if (!filters[key]) continue;
     const field = fieldsById.get(id);
@@ -357,18 +404,18 @@ export function FilterBar({
   for (const r of filters.rules) chips.push({ id: r.id, text: describeRule(fieldsById.get(r.field), r), remove: () => removeRule(r.id) });
   const joinWord = filters.join === "and" ? " and " : " or ";
 
-  const count = matches ? matches.reduce((a, r) => a + (r.countingMode === "BULK" ? r.qty : 1), 0) : matchCount;
+  const count = matches ? matches.length : matchCount;
   const kinds = matches ? tally(matches, (r) => r.categoryName) : null;
 
   return (
     <div className="flex flex-col gap-6 px-14 py-9 border-b border-border bg-panel2">
       <div className="flex flex-wrap items-center gap-8">
-        <input
-          placeholder="Search…"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent w-[200px]"
-        />
+        <KeySearchInput value={draft} onChange={setDraft} keys={searchKeys} />
+        {unknownKeys.length > 0 && categoryList.length > 0 && (
+          <span className="text-10 text-warn">
+            {unknownKeys.some(Boolean) ? `No field called ${unknownKeys.filter(Boolean).map((k) => `@${k}`).join(", ")}` : "Type a field name after @"}
+          </span>
+        )}
         {CORE_FIELDS.map(({ id, key }) => {
           const field = fieldsById.get(id);
           return (

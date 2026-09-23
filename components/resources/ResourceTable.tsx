@@ -256,7 +256,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           if (filtering && (isGroup(r) || isCluster(r) || isContext(r))) {
             const hits = aggRowsOf(r);
             if (!hits.length) return <span className="text-10.5 font-mono text-faint">—</span>;
-            const count = hits.reduce((a, h) => a + (h.countingMode === "BULK" ? h.qty : 1), 0);
+            const count = hits.length; // matching items — bulk amounts in mixed units don't add up
             const kinds = new Set(hits.map((h) => h.categoryName));
             const label = kinds.size === 1 ? [...kinds][0] : "matches";
             return (

@@ -322,14 +322,91 @@ function matchRule(item: Item, rule: FilterRule, ctx: FilterCtx): boolean {
   }
 }
 
+// ── Search: free text plus `@key` / `@key:value` field terms ─────────────────────
+//
+// `@serial` — the item has a serial filled in. `@serial:EXN` — its serial contains
+// "EXN" (case-insensitive). `@serial:"AB 12"` — a value with spaces. Keys match an
+// item's own category fields (by key or label, ignoring case, spaces and punctuation:
+// `@serialno` finds "Serial no."), its custom properties, and three built-ins: `@name`,
+// `@category`, `@status`. Every term must hold; the remaining words are matched as
+// one phrase against the name, category and every field value, exactly as before.
+
+export interface SearchTerm {
+  key: string;
+  /** null: only "has this field filled in". */
+  value: string | null;
+}
+
+/** Built-in keys every item answers, whatever its category. */
+export const SEARCH_BUILTIN_KEYS = ["name", "category", "status"] as const;
+
+export function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+export function parseSearch(search: string): { text: string; terms: SearchTerm[] } {
+  const terms: SearchTerm[] = [];
+  const words: string[] = [];
+  const re = /@([^\s:"]+)(?::(?:"([^"]*)"?|(\S*)))?|(\S+)/g;
+  for (const m of search.matchAll(re)) {
+    if (m[4] !== undefined) {
+      // A lone "@" is a key still being typed, not text to search for.
+      if (m[4] !== "@") words.push(m[4]);
+      continue;
+    }
+    const raw = m[2] ?? m[3];
+    const value = raw === undefined || raw.trim() === "" ? null : raw.trim();
+    terms.push({ key: m[1], value });
+  }
+  return { text: words.join(" "), terms };
+}
+
+/** Every value an item holds under a search key — empty when it has no such field. */
+function valuesForKey(item: Item, key: string, ctx: FilterCtx): string[] {
+  const k = normalizeKey(key);
+  if (!k) return [];
+  const category = ctx.categories[item.categoryId];
+  if (k === "name") return [item.name];
+  if (k === "category") return category ? [category.name] : [];
+  if (k === "status") {
+    const s = statusOf(ctx.statuses, item.id);
+    return [s, s.replace(/_/g, " ")];
+  }
+  const out: string[] = [];
+  const push = (v: unknown) => {
+    if (v !== null && v !== undefined && v !== "") out.push(String(v));
+  };
+  const fieldKeys = new Set<string>();
+  for (const f of category?.fields ?? []) {
+    if (normalizeKey(f.key) === k || normalizeKey(f.label) === k) {
+      fieldKeys.add(f.key);
+      push(item.props[f.key]);
+    }
+  }
+  // A stored property whose field definition was renamed or removed still answers by key.
+  for (const [pk, v] of Object.entries(item.props)) if (!fieldKeys.has(pk) && normalizeKey(pk) === k) push(v);
+  for (const [ck, entry] of Object.entries(item.customProps ?? {})) if (normalizeKey(ck) === k) push(entry.value);
+  return out;
+}
+
 function matchSearch(item: Item, search: string, ctx: FilterCtx): boolean {
-  const text = search.trim().toLowerCase();
-  if (!text) return true;
+  if (!search.trim()) return true;
+  const { text, terms } = parseSearch(search);
+  for (const t of terms) {
+    const values = valuesForKey(item, t.key, ctx);
+    if (!values.length) return false;
+    if (t.value !== null) {
+      const needle = t.value.toLowerCase();
+      if (!values.some((v) => v.toLowerCase().includes(needle))) return false;
+    }
+  }
+  const phrase = text.trim().toLowerCase();
+  if (!phrase) return true;
   const customValues = Object.values(item.customProps ?? {}).map((c) => (c.value == null ? "" : String(c.value)));
   const hay = [item.name, ctx.categories[item.categoryId]?.name ?? "", ...Object.values(item.props).map((v) => (v == null ? "" : String(v))), ...customValues]
     .join(" ")
     .toLowerCase();
-  return hay.includes(text);
+  return hay.includes(phrase);
 }
 
 export function matchItems(

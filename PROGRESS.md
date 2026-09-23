@@ -4305,3 +4305,29 @@ its model that make porting it as-is the wrong move.
     everything under it.
   - Checked on :3000: "yoh" → Yohannes Alemu; "comp" → Computer (IT); "ram" → RAM ›
     DDR type, Size; the unit tree nests. 515/515 tests, and the build is clean.
+
+- **2026-09-23 (search: `@key` field terms, with suggestions)** — The register's search box
+  takes field terms alongside plain words:
+  - **Syntax:** `@serial` (has a serial), `@serial:EXN` (serial contains EXN,
+    case-insensitive), `@brand:"HP Inc"`.
+  - **Keys** match an item's own category fields by key or label (ignoring case, spaces
+    and punctuation: `@serialno` finds "Serial no."), its custom properties, and the
+    built-ins `@name`, `@category`, `@status`. Every term must hold, and the leftover
+    words are the old phrase search.
+  - `parseSearch` and `valuesForKey` live in `lib/domain/filters.ts` (`matchSearch`), so
+    the tree, search list and dashboard all get it.
+  - **Suggestions:** new `components/resources/KeySearchInput.tsx`. `@` lists the keys
+    with the categories that use them; after `@key:` it lists that field's fixed options
+    (or categories and statuses). Arrows move, Enter or Tab picks, Esc closes.
+  - **Held back:** an unknown or half-typed key (`@se`, a lone `@`) isn't applied, and
+    the bar says "No field called @se" or "Type a field name after @", so the register
+    doesn't flash empty.
+  - **Chip:** the search chip reads its terms ("Hazard contains "Flammable"", "has
+    brand").
+  - Summaries and match counts now count **items**, since summing bulk quantities had
+    added grams to millilitres ("7,700 × Chemical" → 3).
+  - 6 new unit tests (521/521), and the build is clean.
+  - Checked on :3000 as admin: `@ser` → @serial; `@hazard:` → its options;
+    `@hazard:Flammable` → 3 chemicals in Chemistry Store C-12; `@category:ram` → 624. The
+    seed sets no serial numbers or RAM DDR types, so `@serial` and `@ddrtype` correctly
+    match nothing yet.
