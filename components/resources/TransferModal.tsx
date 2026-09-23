@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ChainStepDto, RequestTransferResultDto, TransferDestinationDto } from "@/lib/shared";
+import type { ChainStepDto, RequestTransferResultDto, TransferDestinationDto, TransferNamingDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 
-type Preview = { outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] };
+type Preview = { outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[]; naming?: TransferNamingDto };
 
 /**
  * The main store handing stock over to a department — the one transfer that is still
@@ -39,6 +39,11 @@ export function TransferModal({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<RequestTransferResultDto | null>(null);
+  // R2-3: what the items are called once they arrive. `null` = not chosen yet (the
+  // destination's own name for this kind is filled in from the preview); "" = keep
+  // their store names.
+  const [renameAs, setRenameAs] = useState<string | null>(null);
+  const [debouncedRename, setDebouncedRename] = useState<string | null>(null);
   const idsParam = itemIds.join(",");
 
   useEffect(() => {
@@ -60,24 +65,44 @@ export function TransferModal({
   }, [query, selected, idsParam]);
 
   useEffect(() => {
+    const t = setTimeout(() => setDebouncedRename(renameAs), 300);
+    return () => clearTimeout(t);
+  }, [renameAs]);
+
+  useEffect(() => {
     if (!selected) {
       setPreview(null);
+      setRenameAs(null);
       return;
     }
-    setPreview(null);
+    let live = true;
     setPreviewError(null);
     api
-      .post<Preview>("/resources/transfers/preview", { input: transferInput(selected) })
-      .then(setPreview)
-      .catch((e) => setPreviewError(e instanceof ApiError ? e.message : "Could not resolve this transfer"));
+      .post<Preview>("/resources/transfers/preview", { input: transferInput(selected, debouncedRename) })
+      .then((p) => {
+        if (!live) return;
+        setPreview(p);
+        if (renameAs === null && p.naming?.suggested) setRenameAs(p.naming.suggested);
+      })
+      .catch((e) => live && setPreviewError(e instanceof ApiError ? e.message : "Could not resolve this transfer"));
+    return () => {
+      live = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+  }, [selected, debouncedRename]);
 
-  function transferInput(destination: TransferDestinationDto) {
+  function transferInput(destination: TransferDestinationDto, name: string | null = renameAs) {
+    const rename = name?.trim();
     return {
       kind: "transferItem" as const,
       itemIds,
-      transfer: { targetParentId: destination.id, targetOrgNodeId: destination.orgNodeId, targetCustodianId: destination.custodianId, transferOwnership: true },
+      transfer: {
+        targetParentId: destination.id,
+        targetOrgNodeId: destination.orgNodeId,
+        targetCustodianId: destination.custodianId,
+        transferOwnership: true,
+        ...(rename ? { renameAs: rename } : {}),
+      },
     };
   }
 
@@ -170,6 +195,28 @@ export function TransferModal({
               Needs approval: {preview.steps?.filter((s) => s.status !== "SKIPPED").map((s) => s.label).join(" → ")}
             </span>
           )}
+        </div>
+      )}
+
+      {selected && preview?.naming && preview.outcome !== "DENIED" && (
+        <div className="flex flex-col gap-6">
+          <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Name them there as</label>
+          <input
+            value={renameAs ?? ""}
+            onChange={(e) => setRenameAs(e.target.value)}
+            placeholder="Keep their store names"
+            className="h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
+          />
+          <div className="text-10.5 text-dim">
+            {renameAs?.trim() && preview.naming.planned.length
+              ? `Arrive as ${preview.naming.planned.length > 4 ? `${preview.naming.planned.slice(0, 2).join(", ")} … ${preview.naming.planned.at(-1)}` : preview.naming.planned.join(", ")} — the next free numbers there.`
+              : "They keep the names they have in the store."}
+            {preview.naming.suggested && renameAs !== preview.naming.suggested && (
+              <button type="button" onClick={() => setRenameAs(preview.naming!.suggested)} className="ml-6 text-accent hover:underline">
+                Use &quot;{preview.naming.suggested}&quot;
+              </button>
+            )}
+          </div>
         </div>
       )}
 

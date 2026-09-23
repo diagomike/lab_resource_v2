@@ -45,7 +45,7 @@ function UniversityPageInner() {
   const [pullOpen, setPullOpen] = useState(false);
   const allExpanded = state.expanded === true;
   const { user } = useAuth();
-  const { markers } = usePendingMarkers();
+  const { markers, transfers: transferMarkers } = usePendingMarkers();
 
   /** A tree selection ticks a row's whole subtree; a transfer is about the top-most of
    *  those (the server collapses it the same way). Anything already in the viewer's own
@@ -146,6 +146,7 @@ function UniversityPageInner() {
             showPath={state.mode === "flat"}
             selectable
             pending={markers}
+            pendingTransfers={transferMarkers}
           />
         )}
       </Panel>

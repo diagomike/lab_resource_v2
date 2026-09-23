@@ -257,7 +257,8 @@ export interface DiffEntry {
   sourceItemId: string | null;
   name: string;
   categoryId: string;
-  /** Readable, e.g. "Status: Working → Broken", "Added in Block 510 R8 (with 11 parts)". */
+  /** Readable, e.g. "Status: Working → Broken", "Added in Block 510 R8 (with 11 parts)",
+   *  "Moved from Block 510 R8 into Workstation 20 › Computer › Motherboard". */
   lines: string[];
   /** Where a marker belongs in the live register: the item itself, or for an addition
    *  its nearest real ancestor. */
@@ -295,6 +296,19 @@ export function diffVersion(
     }
     return null;
   };
+  // Where something sits, as a path below the lab ("Workstation 20 › Computer ›
+  // Motherboard") — R2-5 of the 2026-09-23 run: "Moved into Motherboard" didn't say
+  // which of 25 workstations. The lab itself is named only when it IS the place.
+  const pathIn = (id: string | null, byId: Map<string, { name: string; parentId: string | null }>): string => {
+    const names: string[] = [];
+    let cur = id ? byId.get(id) : undefined;
+    while (cur) {
+      if (cur.parentId === null && names.length) break;
+      names.unshift(cur.name);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return names.join(" › ") || "—";
+  };
   const countBelow = (rootId: string, rows: Array<{ id: string; parentId: string | null }>): number => {
     let n = 0;
     const stack = [rootId];
@@ -316,7 +330,7 @@ export function diffVersion(
         sourceItemId: null,
         name: v.name,
         categoryId: v.categoryId,
-        lines: [`Added${parent ? ` in ${parent.name}` : ""}${parts ? ` (with ${parts} part${parts === 1 ? "" : "s"})` : ""}`],
+        lines: [`Added${parent ? ` in ${pathIn(parent.id, vById)}` : ""}${parts ? ` (with ${parts} part${parts === 1 ? "" : "s"})` : ""}`],
         markerItemId: realAncestor(v),
       });
       continue;
@@ -341,7 +355,7 @@ export function diffVersion(
     const vParent = v.parentId ? vById.get(v.parentId) : undefined;
     const newParentReal = vParent?.sourceItemId ?? null;
     if (v.parentId && newParentReal !== l.parentId) {
-      lines.push(`Moved into ${vParent?.name ?? "—"}`);
+      lines.push(`Moved from ${pathIn(l.parentId, liveById)} into ${pathIn(v.parentId, vById)}`);
     }
     if (lines.length) {
       out.push({ kind: "changed", versionItemId: v.id, sourceItemId: l.id, name: v.name, categoryId: v.categoryId, lines, markerItemId: l.id });
@@ -360,7 +374,7 @@ export function diffVersion(
       sourceItemId: id,
       name: l.name,
       categoryId: l.categoryId,
-      lines: [`Removed${parts ? ` (with ${parts} part${parts === 1 ? "" : "s"})` : ""}`],
+      lines: [`Removed${l.parentId ? ` from ${pathIn(l.parentId, liveById)}` : ""}${parts ? ` (with ${parts} part${parts === 1 ? "" : "s"})` : ""}`],
       markerItemId: id,
     });
   }

@@ -13,7 +13,7 @@ import {
   type RowSelectionState,
 } from "@tanstack/react-table";
 import Link from "next/link";
-import type { ItemRowDto, PendingMarkersDto } from "@/lib/shared";
+import type { ItemRowDto, PendingMarkersDto, PendingTransferMarkersDto } from "@/lib/shared";
 import { aggregate, describeAgg, type RowNode } from "@/lib/domain/tree";
 import { CategoryIcon } from "./IconPicker";
 import { StatusChip } from "./StatusChip";
@@ -58,9 +58,12 @@ export interface ResourceTableProps {
   /** Items a pending lab Draft would change — shown with a `*` that explains the change
    *  on hover and opens the draft on click. */
   pending?: PendingMarkersDto;
+  /** Items a pending transfer or handover will move — shown with a `⇄` (a count on a
+   *  cluster row) so nobody promises them a second time. */
+  pendingTransfers?: PendingTransferMarkersDto;
 }
 
-export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true, pending }: ResourceTableProps) {
+export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true, pending, pendingTransfers }: ResourceTableProps) {
   const columns = useMemo(() => {
     const rowOf = (id: string) => byId.get(id);
     const nameAgg = (values: (string | undefined)[]) => aggregate(values.map((v) => v ?? null));
@@ -146,7 +149,26 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
                   *
                 </Link>
               )}
+              {!isCluster(r) && pendingTransfers?.[r.item.id] && (
+                <Link
+                  href="/approvals"
+                  onClick={(e) => e.stopPropagation()}
+                  title={[pendingTransfers[r.item.id].line, "", "It can't be handed over or transferred again until that request is decided. Click to open Approvals."].join("\n")}
+                  className="flex-none text-11 leading-none text-warn hover:text-accent"
+                  aria-label="In a pending transfer"
+                >
+                  ⇄
+                </Link>
+              )}
               {isCluster(r) && <span className="text-9.5 font-mono text-faint flex-none">×{r.members.length}</span>}
+              {isCluster(r) && pendingTransfers && (() => {
+                const promised = idsOf(r).filter((id) => pendingTransfers[id]).length;
+                return promised ? (
+                  <span className="flex-none text-9.5 text-warn" title={`${promised} of these are in a pending transfer or handover — the rest are free to hand over.`}>
+                    ⇄ {promised} promised
+                  </span>
+                ) : null;
+              })()}
             </div>
           );
         },
@@ -255,7 +277,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
     );
 
     return cols;
-  }, [byId, showPath, onInspect, selectable, pending]);
+  }, [byId, showPath, onInspect, selectable, pending, pendingTransfers]);
 
   const table = useTable({
     features,

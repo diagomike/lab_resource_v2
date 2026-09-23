@@ -18,7 +18,9 @@ describe("allocateNames", () => {
   });
 
   it("matches existing names regardless of case, spacing and padding", () => {
-    expect(allocateNames("Workstation", ["workstation 1", "WORKSTATION   2", "Workstation 003"], 1)).toEqual(["Workstation 04"]);
+    // Numbers are read through any case, spacing and padding; the new name follows the
+    // padding a sibling already uses ("003" → "004").
+    expect(allocateNames("Workstation", ["workstation 1", "WORKSTATION   2", "Workstation 003"], 1)).toEqual(["Workstation 004"]);
   });
 
   it("treats a bare base name as slot 1", () => {
@@ -36,6 +38,20 @@ describe("allocateNames", () => {
   it("widens the padding once the set passes 99, leaving existing names alone", () => {
     const names = allocateNames("Chair", range("Chair", 1, 99), 2);
     expect(names).toEqual(["Chair 100", "Chair 101"]);
+  });
+
+  it("R2-2: a second batch past 99 keeps the siblings' padding instead of re-padding the whole batch", () => {
+    const names = allocateNames("Workstation Setup", range("Workstation Setup", 1, 75), 76);
+    expect(names.slice(0, 2)).toEqual(["Workstation Setup 76", "Workstation Setup 77"]);
+    expect(names.slice(23, 25)).toEqual(["Workstation Setup 99", "Workstation Setup 100"]);
+    expect(names.at(-1)).toBe("Workstation Setup 151");
+  });
+
+  it("a fresh batch is padded to fit its own largest number, and later batches keep that width", () => {
+    const first = allocateNames("Chair", [], 151);
+    expect([first[0], first.at(-1)]).toEqual(["Chair 001", "Chair 151"]);
+    expect(allocateNames("Chair", first, 2)).toEqual(["Chair 152", "Chair 153"]);
+    expect(allocateNames("Chair", first.filter((n) => n !== "Chair 007"), 1)).toEqual(["Chair 007"]);
   });
 
   it("ignores names that merely start with the base", () => {

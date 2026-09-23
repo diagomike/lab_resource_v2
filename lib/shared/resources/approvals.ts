@@ -138,3 +138,14 @@ export const RequestTransferResultDto = z.discriminatedUnion("outcome", [
   z.object({ outcome: z.literal("ROUTED"), request: ChangeRequestDto }),
 ]);
 export type RequestTransferResultDto = z.infer<typeof RequestTransferResultDto>;
+
+/** Register markers for pending transfers: the top-most items a pending transfer or
+ *  handover will move → which request, and a readable line ("In a pending handover to
+ *  Switch Rack in Software Laboratory — B510-R11"). */
+export const PendingTransferMarkersDto = z.record(z.string(), z.object({ requestId: z.string(), line: z.string() }));
+export type PendingTransferMarkersDto = z.infer<typeof PendingTransferMarkersDto>;
+
+/** A store handover's naming at the destination (R2-3): the name the destination already
+ *  uses for this category, if any, and the names the items would take. */
+export const TransferNamingDto = z.object({ suggested: z.string().nullable(), planned: z.array(z.string()) });
+export type TransferNamingDto = z.infer<typeof TransferNamingDto>;

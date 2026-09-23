@@ -87,7 +87,7 @@ describe("diffVersion", () => {
     expect(diff.map((d) => [d.kind, d.name, d.lines[0]])).toEqual([
       ["changed", "Computer", "Status: Working → Broken"],
       ["added", "Workstation 04", "Added in Block 510 R8 (with 2 parts)"],
-      ["removed", "Workstation 03", "Removed (with 2 parts)"],
+      ["removed", "Workstation 03", "Removed from Block 510 R8 (with 2 parts)"],
     ]);
     // Markers land on real items: the change on itself, the addition on the lab.
     expect(diff.map((d) => d.markerItemId)).toEqual(["pc1", "lab", "ws3"]);
@@ -103,7 +103,14 @@ describe("diffVersion", () => {
     expect(() => applyVersionOp(base, { kind: "moveInTree", itemIds: ["ch1"], value: "ws2" }, ctx)).toThrow(/already in/);
     const renamed = applyVersionOp(base, { kind: "setName", itemIds: ["ch1"], value: "Spare chair" }, ctx).items;
     const { items } = applyVersionOp(renamed, { kind: "moveInTree", itemIds: ["ch1"], value: "ws2" }, ctx);
-    expect(diffVersion(items, current, baseIds, labels)[0].lines).toEqual(["Name: Chair → Spare chair", "Moved into Workstation 02"]);
+    expect(diffVersion(items, current, baseIds, labels)[0].lines).toEqual(["Name: Chair → Spare chair", "Moved from Workstation 01 into Workstation 02"]);
+  });
+
+  it("names nested places by their path inside the lab, not just the nearest container", () => {
+    const { items } = applyVersionOp(base, { kind: "deleteItem", itemIds: ["pc1"] }, ctx);
+    expect(diffVersion(items, current, baseIds, labels)[0].lines).toEqual(["Removed from Workstation 01"]);
+    const added = applyVersionOp(base, { kind: "createItem", parentId: "pc1", categoryId: "chair", count: 1, name: "Stool" }, ctx).items;
+    expect(diffVersion(added, current, baseIds, labels)[0].lines[0]).toBe("Added in Workstation 01 › Computer");
   });
 });
 

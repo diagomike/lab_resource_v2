@@ -289,6 +289,11 @@ export const TransferItemChange = Base.extend({
     targetOrgNodeId: z.string(),
     targetCustodianId: z.string().nullable(),
     transferOwnership: z.boolean().optional(),
+    /** Store handovers only (R2-3 of the 2026-09-23 run): name what arrives the way the
+     *  destination already names that kind of thing. Received stock carries the order
+     *  line's name ("Workstation Setup 147"); with `renameAs: "Workstation"` it lands as
+     *  the next free "Workstation NN" beside the lab's own. */
+    renameAs: z.string().trim().min(1).max(120).optional(),
   }),
 });
 

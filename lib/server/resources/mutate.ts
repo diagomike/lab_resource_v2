@@ -887,6 +887,20 @@ async function applyTransferItem(
   const categories = await loadAllCategoriesDomain(tx);
   for (const root of roots) assertPlacementAllowed(categories, root.categoryId, destination.categoryId);
 
+  // R2-3 of the 2026-09-23 run: received stock is named after the order line
+  // ("Workstation Setup 147"). A handover may name it the way the destination already
+  // does, taking the next free numbers there ("Workstation 21…"), under the same
+  // sibling-name lock every create and rename takes.
+  const newNames = new Map<string, string>();
+  if (input.transfer.renameAs) {
+    if (!transferOwnership) throw new HttpError(400, "Only a store handover can rename what it hands over.");
+    if (new Set(roots.map((r) => r.categoryId)).size > 1) throw new HttpError(400, "Name one kind of resource at a time — this selection mixes categories.");
+    const siblings = await lockAndLoadSiblingNames(tx, targetParentId, targetOrgNodeId, roots.map((r) => r.id));
+    const ordered = [...roots].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const names = allocateNames(input.transfer.renameAs, siblings, ordered.length);
+    ordered.forEach((r, i) => newNames.set(r.id, names[i]));
+  }
+
   for (const root of roots) {
     if (root.id === targetParentId || (await isWithinSubtree(tx, root.id, targetParentId))) {
       continue; // a resource cannot be moved inside itself — skipped, not an abort
@@ -901,6 +915,7 @@ async function applyTransferItem(
         where: { id: node.id },
         data: {
           parentId: node.id === root.id ? targetParentId : node.parentId,
+          ...(node.id === root.id && newNames.has(root.id) ? { name: newNames.get(root.id) } : {}),
           currentOrgNodeId: targetOrgNodeId,
           ownerOrgNodeId: transferOwnership ? targetOrgNodeId : node.ownerOrgNodeId,
           custodianId: targetCustodianId ?? node.custodianId,
@@ -933,7 +948,9 @@ async function applyTransferItem(
       currentOrgNodeId: targetOrgNodeId,
       custodianId: targetCustodianId ?? root.custodianId,
     };
-    const accountability: Array<{ kind: "setOwnerOrg" | "setCustodian"; field: string; before: string; after: string }> = [];
+    const accountability: Array<{ kind: "setOwnerOrg" | "setCustodian" | "setName"; field: string; before: string; after: string }> = [];
+    const renamed = newNames.get(root.id);
+    if (renamed && renamed !== root.name) accountability.push({ kind: "setName", field: "name", before: root.name, after: renamed });
     if (transferOwnership && root.ownerOrgNodeId !== targetOrgNodeId) {
       accountability.push({ kind: "setOwnerOrg", field: "ownerOrgNodeId", before: root.ownerOrgNodeId, after: targetOrgNodeId });
     }

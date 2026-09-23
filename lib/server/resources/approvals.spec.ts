@@ -506,6 +506,159 @@ describe("store handover — the main store hands stock over to a department", (
   });
 });
 
+describe("R2-1 (2026-09-23 run) — an item already in a pending transfer can't be promised again", () => {
+  function handoverInput(itemIds: string[], targetParentId: string, targetOrgNodeId: string, targetCustodianId: string) {
+    return { kind: "transferItem" as const, itemIds, transfer: { targetParentId, targetOrgNodeId, targetCustodianId, transferOwnership: true } };
+  }
+
+  async function makeChild(parentId: string, name: string) {
+    const parent = await prisma.item.findUniqueOrThrow({ where: { id: parentId } });
+    const item = await prisma.item.create({
+      data: { categoryId, name, countingMode: "SERIALIZED", status: "WORKING", parentId, ownerOrgNodeId: parent.ownerOrgNodeId, currentOrgNodeId: parent.currentOrgNodeId, custodianId: parent.custodianId },
+    });
+    createdItemIds.push(item.id);
+    return item.id;
+  }
+
+  /** A store, two receiving labs in two departments, and a keeper — fresh per test. */
+  async function stage(tag: string) {
+    const keeperId = await makeUser(`${tag}-keeper`, ["STORE_KEEPER", "STAFF"]);
+    const heads = [await makeUser(`${tag}-head-1`, ["MANAGER"]), await makeUser(`${tag}-head-2`, ["MANAGER"])];
+    const custodians = [await makeUser(`${tag}-cust-1`, ["CUSTODIAN"]), await makeUser(`${tag}-cust-2`, ["CUSTODIAN"])];
+    const storeNodeId = await makeNode(`${tag}-store`, null);
+    const depts = [await makeNode(`${tag}-dept-1`, heads[0]), await makeNode(`${tag}-dept-2`, heads[1])];
+    const labs = [await makeItem(depts[0], custodians[0], `${tag} Lab One`), await makeItem(depts[1], custodians[1], `${tag} Lab Two`)];
+    const toLab = (i: 0 | 1, itemIds: string[], target = labs[i]) => handoverInput(itemIds, target, depts[i], custodians[i]);
+    const request = async (input: ReturnType<typeof handoverInput>) => {
+      const r = await approvals.requestTransfer(keeperId, input);
+      if (r.outcome !== "ROUTED") throw new Error("expected ROUTED");
+      createdRequestIds.push(r.request.id);
+      return r.request;
+    };
+    return { keeperId, heads, custodians, storeNodeId, depts, labs, toLab, request };
+  }
+
+  beforeAll(async () => {
+    await makePolicy({ id: `${testKey}-chain-storekeeper-r21`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }] });
+  });
+
+  it("a second handover of the same item is refused (409) naming the item and where it is already promised; the preview says so first", async () => {
+    const s = await stage("r21-same");
+    const stock = await makeItem(s.storeNodeId, s.keeperId, "R21 Stock 147");
+    const other = await makeItem(s.storeNodeId, s.keeperId, "R21 Stock 071");
+    await s.request(s.toLab(0, [stock]));
+
+    const preview = await approvals.previewTransfer(s.keeperId, s.toLab(1, [stock, other]));
+    expect(preview.outcome).toBe("DENIED");
+    expect(preview.reason).toMatch(/"R21 Stock 147" is already in a pending handover to r21-same Lab One/);
+
+    const second = approvals.requestTransfer(s.keeperId, s.toLab(1, [stock, other]));
+    await expect(second).rejects.toMatchObject({ status: 409 });
+    await expect(second).rejects.toThrow(/R21 Stock 147/);
+    expect(await prisma.changeRequest.count({ where: { status: "PENDING", requesterId: s.keeperId } })).toBe(1);
+
+    // Something not promised is still free to go.
+    await s.request(s.toLab(1, [other]));
+  });
+
+  it("the subtree counts both ways: a part of a promised item, and a container of one, are refused too", async () => {
+    const s = await stage("r21-tree");
+    const computer = await makeItem(s.storeNodeId, s.keeperId, "R21 Computer");
+    const ram = await makeChild(computer, "R21 RAM");
+    const box = await makeItem(s.storeNodeId, s.keeperId, "R21 Box");
+    const cable = await makeChild(box, "R21 Cable");
+
+    await s.request(s.toLab(0, [computer]));
+    await expect(approvals.requestTransfer(s.keeperId, s.toLab(1, [ram]))).rejects.toMatchObject({ status: 409 });
+
+    await s.request(s.toLab(0, [cable]));
+    await expect(approvals.requestTransfer(s.keeperId, s.toLab(1, [box]))).rejects.toThrow(/"R21 Box" is already in a pending handover/);
+  });
+
+  it("once the pending request is rejected, the item is free again", async () => {
+    const s = await stage("r21-freed");
+    const stock = await makeItem(s.storeNodeId, s.keeperId, "R21 Freed Stock");
+    const first = await s.request(s.toLab(0, [stock]));
+    await approvals.decideStep(s.heads[0], first.id, "REJECT", "wrong lab");
+    const second = await s.request(s.toLab(1, [stock]));
+    expect(second.status).toBe("PENDING");
+  });
+
+  it("two simultaneous requests for the same item: exactly one is created", async () => {
+    const s = await stage("r21-race");
+    const stock = await makeItem(s.storeNodeId, s.keeperId, "R21 Race Stock");
+    const results = await Promise.allSettled([approvals.requestTransfer(s.keeperId, s.toLab(0, [stock])), approvals.requestTransfer(s.keeperId, s.toLab(1, [stock]))]);
+    for (const r of results) if (r.status === "fulfilled" && r.value.outcome === "ROUTED") createdRequestIds.push(r.value.request.id);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ status: 409 });
+  });
+
+  it("names the lab when the destination sits inside one (R2-4), and marks the promised items for the register", async () => {
+    const s = await stage("r21-label");
+    const rack = await makeChild(s.labs[0], "R21 Switch Rack");
+    const outlet = await makeItem(s.storeNodeId, s.keeperId, "R21 Outlet");
+    const req = await s.request(s.toLab(0, [outlet], rack));
+    expect(req.summary).toBe("Store handover: R21 Outlet → R21 Switch Rack in r21-label Lab One");
+
+    const markers = await approvals.pendingTransferMarkers(sysAdminId);
+    expect(markers[outlet]).toEqual({ requestId: req.id, line: "In a pending handover to R21 Switch Rack in r21-label Lab One" });
+  });
+});
+
+describe("R2-3 (2026-09-23 run) — a handover can name what arrives the way the lab does", () => {
+  beforeAll(async () => {
+    await makePolicy({ id: `${testKey}-chain-storekeeper-r23`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }] });
+  });
+
+  it("suggests the lab's own name, previews the next free numbers, and renames on arrival (logged)", async () => {
+    const keeperId = await makeUser("r23-keeper", ["STORE_KEEPER", "STAFF"]);
+    const headId = await makeUser("r23-head", ["MANAGER"]);
+    const custodianId = await makeUser("r23-cust", ["CUSTODIAN"]);
+    const storeNodeId = await makeNode("r23-store", null);
+    const deptId = await makeNode("r23-dept", headId);
+    const labId = await makeItem(deptId, custodianId, "R23 Lab");
+    for (const n of ["Workstation 01", "Workstation 02", "Workstation 04"]) {
+      const it = await prisma.item.create({ data: { categoryId, name: n, countingMode: "SERIALIZED", status: "WORKING", parentId: labId, ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId } });
+      createdItemIds.push(it.id);
+    }
+    const stock = [await makeItem(storeNodeId, keeperId, "Workstation Setup 148"), await makeItem(storeNodeId, keeperId, "Workstation Setup 147")];
+    const input = (renameAs?: string) => ({
+      kind: "transferItem" as const,
+      itemIds: stock,
+      transfer: { targetParentId: labId, targetOrgNodeId: deptId, targetCustodianId: custodianId, transferOwnership: true, ...(renameAs ? { renameAs } : {}) },
+    });
+
+    const preview = await approvals.previewTransfer(keeperId, input());
+    expect(preview.naming).toEqual({ suggested: "Workstation", planned: ["Workstation 03", "Workstation 05"] });
+
+    const r = await approvals.requestTransfer(keeperId, input("Workstation"));
+    if (r.outcome !== "ROUTED") throw new Error("expected ROUTED");
+    createdRequestIds.push(r.request.id);
+    await approvals.decideStep(headId, r.request.id, "APPROVE");
+    expect((await approvals.decideStep(custodianId, r.request.id, "APPROVE")).status).toBe("APPLIED");
+
+    // In store-name order: 147 takes the first free number.
+    const after = await prisma.item.findMany({ where: { id: { in: stock } }, select: { id: true, name: true, parentId: true } });
+    expect(after.find((i) => i.id === stock[1])!.name).toBe("Workstation 03");
+    expect(after.find((i) => i.id === stock[0])!.name).toBe("Workstation 05");
+    expect(after.every((i) => i.parentId === labId)).toBe(true);
+    const log = await prisma.itemChange.findFirstOrThrow({ where: { itemId: stock[1], kind: "setName" } });
+    expect([log.before, log.after]).toEqual(["Workstation Setup 147", "Workstation 03"]);
+  });
+
+  it("a pull (not a handover) may not rename, and is told so before any chain starts", async () => {
+    const requesterId = await makeUser("r23-puller", ["CUSTODIAN"]);
+    const lenderId = await makeUser("r23-lender", ["CUSTODIAN"]);
+    const ownerNodeId = await makeNode("r23-owner", null);
+    const targetNodeId = await makeNode("r23-target", null);
+    const destLabId = await makeItem(targetNodeId, requesterId, "R23 Pull Dest");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "R23 Pull Source");
+    const input = { kind: "transferItem" as const, itemIds: [sourceId], transfer: { targetParentId: destLabId, targetOrgNodeId: targetNodeId, targetCustodianId: null, renameAs: "Mine" } };
+    await expect(approvals.requestTransfer(requesterId, input)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
 describe("F-042 — a pull always asks both the owning and the receiving end, regardless of the requester's role", () => {
   beforeAll(async () => {
     // The exact chain pol-store-transfer uses for a genuine HANDOVER — seeded here

@@ -373,7 +373,10 @@ function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill:
                   <th className="text-right px-8 py-6">Ideal</th>
                   <th className="text-right px-8 py-6">Current</th>
                   <th className="text-right px-8 py-6">Gap</th>
-                  <th className="text-right px-8 py-6">Broken</th>
+                  {/* R2-6 of the 2026-09-23 run: this counts every unit that needs attention, not only BROKEN ones. */}
+                  <th className="text-right px-8 py-6" title="Broken, impaired, under maintenance or lost — every unit that needs attention">
+                    Not working
+                  </th>
                   <th className="text-left px-8 py-6">By lab</th>
                 </tr>
               </thead>
@@ -386,7 +389,7 @@ function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill:
                     <td className={`px-8 py-6 text-right font-mono ${r.gap > 0 ? "text-warn" : ""}`}>{r.gap}</td>
                     <td className={`px-8 py-6 text-right font-mono ${r.brokenCount > 0 ? "text-bad" : ""}`}>{r.brokenCount}</td>
                     <td className="px-8 py-6 text-10 text-dim">
-                      {r.labs.map((l) => `${l.labName}: ${l.actualCount}/${l.idealQty}${l.brokenCount ? ` (${l.brokenCount} broken)` : ""}`).join(" · ")}
+                      {r.labs.map((l) => `${l.labName}: ${l.actualCount}/${l.idealQty}${l.brokenCount ? ` (${l.brokenCount} not working)` : ""}`).join(" · ")}
                     </td>
                   </tr>
                 ))}
@@ -396,7 +399,7 @@ function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill:
           <div className="flex flex-wrap items-center gap-10">
             <label className="flex items-center gap-6 text-10.5">
               <input type="checkbox" checked={includeBroken} onChange={(e) => setIncludeBroken(e.target.checked)} />
-              Include replacements for broken units
+              Include replacements for units that aren&apos;t working (broken, impaired, under maintenance or lost)
             </label>
             <Button variant="primary" onClick={fill} disabled={suggestionCount === 0}>
               Fill request lines ({suggestionCount})

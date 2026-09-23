@@ -4207,3 +4207,30 @@ its model that make porting it as-is the wrong move.
   to `/dashboard` from time to time. Drive it with DOM scripts inside one
   `javascript_tool` call per page, and set sessions by `document.cookie` from
   `e2e/mint-one.ts`.
+
+- **2026-09-23 (run-2 findings R2-1…R2-6 fixed)** — Each finding is in the results log of
+  `docs/manual-test-plan-2026-09-22.md`.
+  - **R2-1:** `approvals.ts` gets `findPendingClash`, which refuses a transfer or handover
+    over items already in a PENDING request. `baseVersions` holds only the top-most
+    items, so the check compares both ways along the tree: the item, its subtree, and its
+    ancestors. The preview returns DENIED with the reason, so TransferModal shows it
+    before submit. The request is refused with 409, before an auto-apply too, and again
+    inside the create transaction under a global advisory lock.
+    New `GET /api/resources/transfers/pending` (`pendingTransferMarkers`) feeds a `⇄`
+    marker in Register and University resources, and "⇄ N promised" on cluster rows.
+  - **R2-2:** `allocateNames` keeps the siblings' established padding, so a batch past 99
+    reads 76…99, 100…151 instead of 076…151. A fresh batch is still padded to fit.
+  - **R2-3:** store handovers accept `transfer.renameAs`. The preview returns `naming`
+    (the name the destination already uses, from its numbered siblings, and the planned
+    names). On apply, the items are renamed under the sibling-name lock and logged as
+    `setName`. Pulls may not rename.
+  - **R2-4:** new request summaries name the lab ("Switch Rack in Software Laboratory —
+    B510-R11").
+  - **R2-5:** draft diff lines give paths ("Moved from … into Workstation 20 › Computer ›
+    Motherboard", "Removed from …").
+  - **R2-6:** the purchasables column is "Not working", with what it counts.
+
+  Tests: 515/515, including 7 new DB tests in `approvals.spec.ts` and new naming and diff
+  tests. tsc and build are clean. Checked in the browser on :3100 as the store keeper:
+  the naming suggestion, the ⇄ markers, and the refusal in both the modal and the API
+  (409). The test request was cancelled afterwards.

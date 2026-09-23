@@ -31,7 +31,7 @@ function RegisterPageInner() {
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const allExpanded = state.expanded === true;
   const options = useEditOptions();
-  const { markers, refresh: refreshMarkers } = usePendingMarkers();
+  const { markers, transfers: transferMarkers, refresh: refreshMarkers } = usePendingMarkers();
   /** After any edit: the table, and the draft markers (the edit may have been staged). */
   const afterChange = () => {
     state.refetch();
@@ -323,6 +323,7 @@ function RegisterPageInner() {
               showPath={state.mode === "flat"}
               selectable={canEdit}
               pending={markers}
+              pendingTransfers={transferMarkers}
             />
 
             {state.mode === "flat" && state.total > state.pageSize && (
@@ -370,6 +371,7 @@ function RegisterPageInner() {
             setTransferOpen(false);
             state.setSelection({});
             state.refetch();
+            refreshMarkers();
           }}
         />
       )}

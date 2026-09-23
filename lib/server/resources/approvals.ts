@@ -1,12 +1,13 @@
 import "server-only";
 import type { Prisma, ChainStep as PrismaChainStep } from "@prisma/client";
-import type { ChangeRequestDto, ChainStepDto, ItemChangeInput, RequestTransferResultDto } from "@/lib/shared";
+import type { ChangeRequestDto, ChainStepDto, ItemChangeInput, PendingTransferMarkersDto, RequestTransferResultDto, TransferNamingDto } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
-import { applyChange, topMostItemIds } from "./mutate";
+import { applyChange, topMostItemIds, type Tx } from "./mutate";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { canPlace } from "@/lib/domain/placement";
+import { allocateNames } from "@/lib/domain/naming";
 import {
   activate,
   buildChain,
@@ -274,9 +275,103 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   return { outcome: "ROUTED", reason: routed.reason, steps };
 }
 
-function summarize(ctx: TransferContext, input: TransferInput): string {
+function summarize(ctx: TransferContext, input: TransferInput, destination: string): string {
   const subject = ctx.items.length === 1 ? ctx.items[0].name : `${ctx.items.length} resources`;
-  return `${input.transfer.transferOwnership ? "Store handover" : "Transfer between units"}: ${subject} → ${ctx.destination.name}`;
+  return `${input.transfer.transferOwnership ? "Store handover" : "Transfer between units"}: ${subject} → ${destination}`;
+}
+
+/** "Switch Rack in Software Laboratory — B510-R11": a destination inside a lab is named
+ *  together with the lab (R2-4 of the 2026-09-23 run), because with 31 labs "→ Switch
+ *  Rack" alone can't be told apart. */
+async function destinationLabel(db: Tx, destinationId: string): Promise<string> {
+  const chain = await db.$queryRaw<{ name: string; parentId: string | null }[]>`
+    WITH RECURSIVE up AS (
+      SELECT id, "parentId", name, 0 AS depth FROM "Item" WHERE id = ${destinationId}
+      UNION ALL
+      SELECT i.id, i."parentId", i.name, u.depth + 1 FROM "Item" i INNER JOIN up u ON i.id = u."parentId"
+    )
+    SELECT name, "parentId" FROM up ORDER BY depth
+  `;
+  if (!chain.length) return "a removed destination";
+  const root = chain[chain.length - 1];
+  return chain.length > 1 ? `${chain[0].name} in ${root.name}` : chain[0].name;
+}
+
+// ── One promise per item ─────────────────────────────────────────────────────────
+//
+// R2-1 of the 2026-09-23 run: nothing stopped the store keeper from handing the same
+// store items to two labs. The second request was only refused at apply time (stale),
+// after both heads and custodians had been asked. A request's `baseVersions` names the
+// TOP-MOST items it moves; each one's subtree travels with it. So a new request clashes
+// with a pending one when it names one of those items, something inside one (it would
+// be pulled out), or something that contains one (it would be carried off).
+
+/** Why these items can't be asked for right now, or null when none is promised. */
+async function findPendingClash(db: Tx, itemIds: string[]): Promise<string | null> {
+  if (!itemIds.length) return null;
+  const pending = await db.changeRequest.findMany({
+    where: { status: "PENDING" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, baseVersions: true, payload: true, createdAt: true, requester: { select: { name: true } } },
+  });
+  if (!pending.length) return null;
+  const promisedBy = new Map<string, (typeof pending)[number]>();
+  for (const r of pending) for (const id of Object.keys((r.baseVersions ?? {}) as Record<string, number>)) promisedBy.set(id, r);
+
+  const related = await db.$queryRaw<{ root: string; id: string }[]>`
+    WITH RECURSIVE down AS (
+      SELECT id AS root, id FROM "Item" WHERE id = ANY(${itemIds})
+      UNION ALL
+      SELECT d.root, i.id FROM "Item" i INNER JOIN down d ON i."parentId" = d.id WHERE i."deletedAt" IS NULL
+    ), up AS (
+      SELECT id AS root, "parentId" AS id FROM "Item" WHERE id = ANY(${itemIds})
+      UNION ALL
+      SELECT u.root, i."parentId" FROM "Item" i INNER JOIN up u ON i.id = u.id
+    )
+    SELECT root, id FROM down UNION SELECT root, id FROM up WHERE id IS NOT NULL
+  `;
+  const clashing = new Map<string, Set<string>>(); // request id → requested item ids
+  for (const { root, id } of related) {
+    const r = promisedBy.get(id);
+    if (r) clashing.set(r.id, (clashing.get(r.id) ?? new Set()).add(root));
+  }
+  if (!clashing.size) return null;
+
+  const [firstId, roots] = [...clashing][0];
+  const first = pending.find((r) => r.id === firstId)!;
+  const items = await db.item.findMany({ where: { id: { in: [...roots] } }, select: { name: true }, orderBy: { name: "asc" } });
+  const names = items.map((i) => `"${i.name}"`);
+  const shown = names.length > 5 ? `${names.slice(0, 5).join(", ")} and ${names.length - 5} more` : names.join(", ");
+  const payload = first.payload as unknown as TransferInput;
+  const kind = payload.transfer?.transferOwnership ? "handover" : "transfer";
+  const to = payload.transfer?.targetParentId ? await destinationLabel(db, payload.transfer.targetParentId) : "another place";
+  const more = clashing.size > 1 ? ` (and ${clashing.size - 1} more pending request${clashing.size > 2 ? "s" : ""})` : "";
+  const plural = names.length > 1;
+  return (
+    `${shown} ${plural ? "are" : "is"} already in a pending ${kind} to ${to}, asked by ${first.requester.name} on ${first.createdAt.toISOString().slice(0, 10)}${more}. ` +
+    `That request has to be approved, rejected or cancelled before ${plural ? "they" : "it"} can go anywhere else.`
+  );
+}
+
+/** Register markers: the top-most items a pending transfer or handover will move, and
+ *  where to. Only items the viewer can see are marked. */
+export async function pendingTransferMarkers(actorId: string): Promise<PendingTransferMarkersDto> {
+  const pending = await prisma.changeRequest.findMany({ where: { status: "PENDING" }, select: { id: true, baseVersions: true, payload: true } });
+  if (!pending.length) return {};
+  const ownerOf = new Map<string, (typeof pending)[number]>();
+  for (const r of pending) for (const id of Object.keys((r.baseVersions ?? {}) as Record<string, number>)) ownerOf.set(id, r);
+  const where = await scope.visibleItemWhere(actorId);
+  const visible = await prisma.item.findMany({ where: { AND: [where, { id: { in: [...ownerOf.keys()] }, deletedAt: null }] }, select: { id: true } });
+  const labels = new Map<string, string>();
+  const out: PendingTransferMarkersDto = {};
+  for (const { id } of visible) {
+    const r = ownerOf.get(id)!;
+    const payload = r.payload as unknown as TransferInput;
+    const target = payload.transfer?.targetParentId;
+    if (target && !labels.has(target)) labels.set(target, await destinationLabel(prisma, target));
+    out[id] = { requestId: r.id, line: `In a pending ${payload.transfer?.transferOwnership ? "handover" : "transfer"} to ${target ? labels.get(target) : "another place"}` };
+  }
+  return out;
 }
 
 // ── Requesting a transfer ────────────────────────────────────────────────────────
@@ -356,6 +451,8 @@ async function resolveHostReleaserId(itemId: string): Promise<string | null> {
  * store keeper/SYS_ADMIN only, checked against the SOURCE as it always was.
  */
 async function assertTransferParties(actorId: string, input: TransferInput): Promise<{ input: TransferInput; isReturn: boolean }> {
+  // Refused now rather than when the chain finally applies it (mutate.ts refuses it too).
+  if (input.transfer.renameAs && !input.transfer.transferOwnership) throw new HttpError(400, "Only a store handover can rename what it hands over.");
   if (input.transfer.transferOwnership) {
     await assertMayTransferOwnership(actorId, input);
     await scope.assertCanMutate(actorId, input.itemIds);
@@ -401,11 +498,42 @@ async function normalizeTransfer(input: TransferInput): Promise<TransferInput> {
   return { ...input, itemIds: await topMostItemIds(prisma, input.itemIds) };
 }
 
-export async function previewTransfer(actorId: string, rawInput: TransferInput): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] }> {
+/** What a store handover's items would be called at the destination (R2-3): the name
+ *  the destination already uses for that category ("Workstation" beside Workstation
+ *  01–20), and the names they'd get with the requested (or suggested) base. Offered
+ *  only for a handover of one category; `planned` is a preview — the names are
+ *  allocated live when the handover applies. */
+async function handoverNaming(input: TransferInput, ctx: TransferContext): Promise<TransferNamingDto | undefined> {
+  if (!input.transfer.transferOwnership) return undefined;
+  const categoryIds = new Set(ctx.items.map((i) => i.categoryId));
+  if (categoryIds.size !== 1) return undefined;
+  const siblings = await prisma.item.findMany({
+    where: { parentId: ctx.destination.id, deletedAt: null, id: { notIn: ctx.items.map((i) => i.id) } },
+    select: { name: true, categoryId: true },
+  });
+  const bases = new Map<string, number>();
+  for (const sib of siblings) {
+    // Only a numbered scheme is a scheme: a lone "Teacher Table" says nothing about
+    // what the next table should be called.
+    const m = categoryIds.has(sib.categoryId) ? sib.name.match(/^(.*\S)\s+\d+$/) : null;
+    if (m) bases.set(m[1], (bases.get(m[1]) ?? 0) + 1);
+  }
+  const suggested = [...bases].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const base = input.transfer.renameAs ?? suggested;
+  return { suggested, planned: base ? allocateNames(base, siblings.map((x) => x.name), ctx.items.length) : [] };
+}
+
+export async function previewTransfer(
+  actorId: string,
+  rawInput: TransferInput,
+): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[]; naming?: TransferNamingDto }> {
   const { input, isReturn } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
   const ctx = await loadTransferContext(input);
+  const clash = await findPendingClash(prisma, input.itemIds);
+  if (clash) return { outcome: "DENIED", reason: clash };
   const resolution = await resolveTransfer(actorId, input, ctx, isReturn);
-  if (resolution.outcome !== "ROUTED") return resolution;
+  const naming = resolution.outcome === "DENIED" ? undefined : await handoverNaming(input, ctx);
+  if (resolution.outcome !== "ROUTED") return { ...resolution, ...(naming ? { naming } : {}) };
 
   // buildChain already resolved each step's approver against LIVE org data a moment
   // ago, so the ids here are current — only the display names need a lookup.
@@ -417,6 +545,7 @@ export async function previewTransfer(actorId: string, rawInput: TransferInput):
     outcome: "ROUTED",
     reason: resolution.reason,
     steps: resolution.steps.map((s) => toStepDto(s, s.approverId, s.approverId ? (nameById.get(s.approverId) ?? null) : null)),
+    ...(naming ? { naming } : {}),
   };
 }
 
@@ -424,6 +553,10 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
   const { input, isReturn } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
 
   const ctx = await loadTransferContext(input);
+  // Checked up front so an applied-at-once transfer can't carry off promised items
+  // either, and again under the lock below for a routed one.
+  const clash = await findPendingClash(prisma, input.itemIds);
+  if (clash) throw new HttpError(409, clash);
   const resolution = await resolveTransfer(actorId, input, ctx, isReturn);
 
   if (resolution.outcome === "DENIED") throw new HttpError(403, resolution.reason);
@@ -436,7 +569,14 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
   const baseVersions: Record<string, number> = Object.fromEntries(ctx.items.map((i) => [i.id, i.version]));
   const structuralSnapshot: Record<string, StructuralFields> = Object.fromEntries(ctx.items.map((i) => [i.id, structuralFieldsOf(i)]));
 
+  const destination = await destinationLabel(prisma, ctx.destination.id);
   const requestId = await prisma.$transaction(async (tx) => {
+    // One lock for every new transfer request: two requests over the same items can't
+    // both pass the clash check before either is written. Requests are rare enough
+    // that serializing them costs nothing noticeable.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('lrms:transfer-request'))`;
+    const raced = await findPendingClash(tx, input.itemIds);
+    if (raced) throw new HttpError(409, raced);
     const request = await tx.changeRequest.create({
       data: {
         payload: input as unknown as Prisma.InputJsonValue,
@@ -444,7 +584,7 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
         status: "PENDING",
         baseVersions,
         structuralSnapshot: structuralSnapshot as unknown as Prisma.InputJsonValue,
-        summary: summarize(ctx, input),
+        summary: summarize(ctx, input, destination),
         note: input.note ?? null,
       },
     });

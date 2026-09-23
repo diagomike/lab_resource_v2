@@ -7,8 +7,11 @@
  *  - Numbering continues from what is already there and FILLS GAPS FIRST: with
  *    Workstation 01–20 and 12 deleted, adding 5 gives 12, 21, 22, 23, 24.
  *  - A bare "Workstation" (no number) counts as taking slot 1.
- *  - Numbers are zero-padded to at least two digits, wider once the set needs it
- *    (…, 99, 100). Existing names are never renamed.
+ *  - Numbers are zero-padded to at least two digits. A fresh set is padded to fit its
+ *    largest number (001…151). Once siblings exist, their padding is kept and larger
+ *    numbers are simply written out (…, 98, 99, 100), so a second batch never mixes
+ *    widths (R2-2 of the 2026-09-23 run: "01"–"75", then "076"–"151"). Existing names
+ *    are never renamed.
  *  - A single new item keeps the bare base name when nothing beside it uses that base;
  *    otherwise it is numbered like the rest.
  *
@@ -39,6 +42,18 @@ export function usedNumbers(base: string, siblingNames: string[]): Set<number> {
   return used;
 }
 
+/** The padding the existing numbered siblings already use: the widest zero-padded
+ *  number among them ("Chair 007" → 3), or 2 when none is padded. */
+function establishedWidth(base: string, siblingNames: string[]): number {
+  const numbered = new RegExp(`^${escapeRegExp(normalizeName(base))} (\\d+)$`);
+  let width = 2;
+  for (const raw of siblingNames) {
+    const m = normalizeName(raw).match(numbered);
+    if (m && m[1].startsWith("0")) width = Math.max(width, m[1].length);
+  }
+  return width;
+}
+
 /** `count` new names under `base` that clash with none of `siblingNames`. */
 export function allocateNames(base: string, siblingNames: string[], count: number): string[] {
   const cleanBase = base.trim().replace(/\s+/g, " ");
@@ -48,7 +63,7 @@ export function allocateNames(base: string, siblingNames: string[], count: numbe
 
   const picked: number[] = [];
   for (let n = 1; picked.length < count; n++) if (!used.has(n)) picked.push(n);
-  const width = Math.max(2, String(Math.max(...picked, ...used)).length);
+  const width = used.size ? establishedWidth(cleanBase, siblingNames) : Math.max(2, String(Math.max(...picked)).length);
   return picked.map((n) => `${cleanBase} ${String(n).padStart(width, "0")}`);
 }
 
