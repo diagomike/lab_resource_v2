@@ -4331,3 +4331,33 @@ its model that make porting it as-is the wrong move.
     `@hazard:Flammable` → 3 chemicals in Chemistry Store C-12; `@category:ram` → 624. The
     seed sets no serial numbers or RAM DDR types, so `@serial` and `@ddrtype` correctly
     match nothing yet.
+
+- **2026-09-23 (register speed: measured, then the server cache, gzip and shared fetches)** —
+  The user found the register slow to load.
+  - **Measured on the real data (9,685 items):**
+    - every register read (tree, paged list, filter-fields, summary) rebuilt the whole
+      forest from the database, 0.4–1.2 s per call;
+    - the tree response was 6.7 MB of uncompressed JSON (`next dev` doesn't compress),
+      sent again on every filter change and save;
+    - the page fetched categories, the org chart and both marker lists twice;
+    - browser-side parsing and tree building were ~80 ms, not the problem.
+  - **Server cache** (`items.ts` `loadForest`): the forest (items, categories, statuses,
+    descendant categories, and lazily each row's path) is kept in memory. A cheap
+    fingerprint query checks it's still current on every request: counts, version sums
+    and latest timestamps over Item, ItemImage, ResourceCategory, the category sub-tables
+    and a hash of CategoryGroup. The fingerprint asks the DB rather than this process, so
+    any write, from any instance or script, rebuilds it, and nothing has to invalidate
+    it. Concurrent rebuilds are shared. Warm `tree()`: 23–31 ms (was 400–600 ms).
+    Checked: an admin rename showed on the very next read, v1 → v2 → v3.
+  - **Gzip** (`lib/server/json-response.ts`) on the tree, list and summary routes, for
+    responses over 32 KB when the browser accepts it: 6.7 MB → 175–190 KB. Next's and
+    Vercel's own compression skip already-encoded responses.
+  - **`api.getShared`**: concurrent identical GETs share one request, reused for 30 s,
+    and cleared by any write through `api`. Used for categories, org nodes and the two
+    marker lists. University resources: 11 → 7 calls per load.
+  - New `prod-nomail` launch config (`next start` on :3200, same dev DB, mail off) for
+    realistic timing. `next dev` builds into `.next/dev`, so both run side by side.
+  - Measuring note: timings taken in the in-app browser pane while it's hidden are
+    throttled (its timers and drawing are slowed), so I used direct server and curl
+    timings instead.
+  - 521/521 tests, and the build is clean.

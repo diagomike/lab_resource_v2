@@ -284,8 +284,8 @@ export function FilterBar({
   const [categoryList, setCategoryList] = useState<ResourceCategoryDto[]>([]);
   const [orgNodes, setOrgNodes] = useState<OrgNodeDto[]>([]);
   useEffect(() => {
-    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(() => setCategoryList([]));
-    api.get<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(() => setOrgNodes([]));
+    api.getShared<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(() => setCategoryList([]));
+    api.getShared<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(() => setOrgNodes([]));
   }, []);
 
   useEffect(() => {

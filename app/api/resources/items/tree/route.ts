@@ -1,5 +1,6 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { errorResponse } from "@/lib/server/http-error";
+import { jsonResponse } from "@/lib/server/json-response";
 import { requireSession, requireRole, STAFF_ROLES } from "@/lib/server/auth/session";
 import { parseItemQuery, tree } from "@/lib/server/resources/items";
 import { resolveReadOverride } from "@/lib/server/resources/views";
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     const readOverride = await resolveReadOverride(user.id, sp);
 
     const result = await tree(user.id, parseItemQuery(sp), readOverride.scope, readOverride.extraFilters);
-    return NextResponse.json(result, { status: 200 });
+    return jsonResponse(request, result);
   } catch (err) {
     return errorResponse(err);
   }

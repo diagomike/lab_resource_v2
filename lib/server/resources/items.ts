@@ -57,9 +57,64 @@ interface Forest {
   index: TreeIndex;
   statuses: ReturnType<typeof computeStatuses>;
   descCats: ReturnType<typeof descendantCategories>;
+  /** Each item's path of ancestor names, filled lazily — the one per-row cost of
+   *  `toRowDto`, paid once per forest instead of once per request. */
+  paths: Map<string, string[]>;
 }
 
+// ── The forest, cached across requests ───────────────────────────────────────────
+//
+// Measured 2026-09-23 on the real CSE data (9,685 items): rebuilding the forest took
+// 0.4–1.2 s per request, and every register read (tree, search, filter-fields,
+// summary) paid it again. The forest is identical for every caller — scope is applied
+// to the RESULT — so it is kept in memory and reused while the data it was built from
+// is unchanged.
+//
+// "Unchanged" is asked of the database, not of this process: one cheap query of
+// counts, version sums and latest timestamps over every table the forest reads. Any
+// write anywhere (another server instance, a seed script, raw SQL inside a category
+// edit, which bumps the category's version in the same transaction) changes it, so a
+// stale forest is never served, and nothing has to remember to invalidate it.
+
+async function forestFingerprint(): Promise<string> {
+  const [row] = await prisma.$queryRaw<{ k: string }[]>`
+    SELECT concat_ws('|',
+      (SELECT count(*) FROM "Item"), (SELECT coalesce(sum(version), 0) FROM "Item"), (SELECT max("updatedAt") FROM "Item"),
+      (SELECT count(*) FROM "ItemImage"), (SELECT coalesce(sum("sortOrder"), 0) FROM "ItemImage"), (SELECT max("createdAt") FROM "ItemImage"),
+      (SELECT count(*) FROM "ResourceCategory"), (SELECT coalesce(sum(version), 0) FROM "ResourceCategory"), (SELECT max("updatedAt") FROM "ResourceCategory"),
+      (SELECT count(*) FROM "CategoryField"), (SELECT count(*) FROM "CategoryTemplateChild"), (SELECT count(*) FROM "CategoryPlacementRule"),
+      (SELECT md5(coalesce(string_agg(id || ':' || name || ':' || "sortOrder", ',' ORDER BY id), '')) FROM "CategoryGroup")
+    ) AS k`;
+  return row.k;
+}
+
+let forestCache: { key: string; forest: Forest } | null = null;
+let forestBuilding: { key: string; promise: Promise<Forest> } | null = null;
+
 async function loadForest(): Promise<Forest> {
+  const key = await forestFingerprint();
+  if (forestCache?.key === key) return forestCache.forest;
+  // Requests arriving together while it is rebuilt share the one rebuild.
+  if (forestBuilding?.key === key) return forestBuilding.promise;
+  const promise = buildForest()
+    .then((forest) => {
+      forestCache = { key, forest };
+      return forest;
+    })
+    .finally(() => {
+      if (forestBuilding?.promise === promise) forestBuilding = null;
+    });
+  forestBuilding = { key, promise };
+  return promise;
+}
+
+function pathFor(forest: Forest, id: string): string[] {
+  let p = forest.paths.get(id);
+  if (!p) forest.paths.set(id, (p = pathOf(forest.index, id)));
+  return p;
+}
+
+async function buildForest(): Promise<Forest> {
   const [itemRows, categoryRows] = await Promise.all([
     prisma.item.findMany({ where: { deletedAt: null }, include: { images: true } }),
     prisma.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true } }),
@@ -67,7 +122,7 @@ async function loadForest(): Promise<Forest> {
   const categories = toDomainCategoryMap(categoryRows);
   const items = itemRows.map((r) => toDomainItem(r, r.images));
   const index = indexItems(items);
-  return { items, categories, index, statuses: computeStatuses(items, categories), descCats: descendantCategories(index) };
+  return { items, categories, index, statuses: computeStatuses(items, categories), descCats: descendantCategories(index), paths: new Map() };
 }
 
 /** `base` is what the caller's scope directly grants (org reach / custody); `closed`
@@ -115,7 +170,7 @@ async function nameLookups(): Promise<{ nodeName: Map<string, string>; userName:
 
 function toRowDto(
   item: DomainItem,
-  forest: Pick<Forest, "categories" | "index" | "statuses">,
+  forest: Pick<Forest, "categories" | "index" | "statuses"> & Partial<Pick<Forest, "paths">>,
   lookups: { nodeName: Map<string, string>; userName: Map<string, string> },
   readOnlyContext: boolean,
 ): ItemRowDto {
@@ -140,7 +195,7 @@ function toRowDto(
     custodianId: item.custodianId,
     custodianName: lookups.userName.get(item.custodianId) ?? "",
     version: item.version,
-    path: pathOf(forest.index, item.id),
+    path: forest.paths ? pathFor(forest as Forest, item.id) : pathOf(forest.index, item.id),
     thumbnailUrl: item.images[0]?.src ?? null,
     readOnlyContext,
   };

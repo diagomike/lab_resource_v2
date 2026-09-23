@@ -57,7 +57,7 @@ export function useEditOptions(): EditOptions {
   const [options, setOptions] = useState<EditOptions>(EMPTY);
 
   useEffect(() => {
-    Promise.all([api.get<ItemFilterFieldDef[]>("/resources/items/filter-fields"), api.get<OrgNodeDto[]>("/org/nodes").catch(() => [] as OrgNodeDto[])])
+    Promise.all([api.get<ItemFilterFieldDef[]>("/resources/items/filter-fields"), api.getShared<OrgNodeDto[]>("/org/nodes").catch(() => [] as OrgNodeDto[])])
       .then(([fields, nodes]) => {
         const byId = new Map(fields.map((f) => [f.id, f]));
         setOptions({

@@ -1,6 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import type { ItemSummaryDto } from "@/lib/shared";
 import { errorResponse } from "@/lib/server/http-error";
+import { jsonResponse } from "@/lib/server/json-response";
 import { requireSession, requireRole, STAFF_ROLES } from "@/lib/server/auth/session";
 import { parseItemQuery, summary } from "@/lib/server/resources/items";
 import { resolveReadOverride } from "@/lib/server/resources/views";
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     const readOverride = await resolveReadOverride(user.id, sp);
 
     const result = await summary(user.id, readOverride.scope, parseItemQuery(sp), readOverride.extraFilters);
-    return NextResponse.json<ItemSummaryDto>(result, { status: 200 });
+    return jsonResponse(request, result satisfies ItemSummaryDto);
   } catch (err) {
     return errorResponse(err);
   }

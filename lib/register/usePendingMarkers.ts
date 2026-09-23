@@ -15,11 +15,11 @@ export function usePendingMarkers(): { markers: PendingMarkersDto; transfers: Pe
   useEffect(() => {
     let live = true;
     api
-      .get<PendingMarkersDto>("/resources/labs/pending")
+      .getShared<PendingMarkersDto>("/resources/labs/pending")
       .then((m) => live && setMarkers(m))
       .catch(() => live && setMarkers({}));
     api
-      .get<PendingTransferMarkersDto>("/resources/transfers/pending")
+      .getShared<PendingTransferMarkersDto>("/resources/transfers/pending")
       .then((m) => live && setTransfers(m))
       .catch(() => live && setTransfers({}));
     return () => {

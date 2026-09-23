@@ -267,8 +267,8 @@ export function useRegisterState(opts?: {
   const needsGroupData = mode === "grouped";
   useEffect(() => {
     if (!needsGroupData || orgNodes.length) return;
-    api.get<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(() => setOrgNodes([]));
-    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(() => setCategoryList([]));
+    api.getShared<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(() => setOrgNodes([]));
+    api.getShared<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(() => setCategoryList([]));
   }, [needsGroupData, orgNodes.length]);
 
   // No mode in the URL: reopen this page the way it was last left (per browser).

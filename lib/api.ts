@@ -44,15 +44,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** `getShared`'s memory: one entry per path, holding the in-flight or settled promise. */
+const shared = new Map<string, { at: number; promise: Promise<unknown> }>();
+const SHARED_TTL_MS = 30_000;
+
+/** Any write may change what a shared read returned — forget them all. */
+function writing<T>(p: Promise<T>): Promise<T> {
+  shared.clear();
+  return p.finally(() => shared.clear());
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path, { method: "GET" }),
+  /**
+   * A GET that several parts of one page ask for at once — the category list, the org
+   * chart, the pending-change markers. Callers asking at the same time share one
+   * request, and the answer is reused for 30 s, or until any write through `api`.
+   * (Measured 2026-09-23: University resources fetched each of these twice per load.)
+   * Only for results nobody modifies in place: every caller gets the same object.
+   */
+  getShared: <T>(path: string): Promise<T> => {
+    const hit = shared.get(path);
+    if (hit && Date.now() - hit.at < SHARED_TTL_MS) return hit.promise as Promise<T>;
+    const promise = request<T>(path, { method: "GET" });
+    shared.set(path, { at: Date.now(), promise });
+    promise.catch(() => shared.delete(path));
+    return promise;
+  },
   post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
+    writing(request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined })),
   patch: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
+    writing(request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined })),
   put: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+    writing(request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined })),
+  delete: <T>(path: string) => writing(request<T>(path, { method: "DELETE" })),
   /** For file downloads (letters, imports later) — the response body is a binary blob,
    *  not JSON, so this bypasses request()'s res.json() entirely. */
   async postBlob(path: string, body?: unknown): Promise<Blob> {
