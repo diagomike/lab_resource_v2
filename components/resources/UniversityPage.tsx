@@ -115,7 +115,7 @@ function UniversityPageInner() {
           </div>
         }
       >
-        <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} scope="UNIVERSITY" />
+        <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} scope="UNIVERSITY" {...state.filterSummary} />
         {state.mode === "grouped" && <GroupByBar value={state.groupBy} onChange={state.setGroupBy} />}
 
         {state.selectedItemIds.length > 0 && (
@@ -147,6 +147,8 @@ function UniversityPageInner() {
             selectable
             pending={markers}
             pendingTransfers={transferMarkers}
+            matched={state.matched}
+            matchedUnder={state.matchedUnder}
           />
         )}
       </Panel>

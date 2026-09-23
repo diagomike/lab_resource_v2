@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ItemFilterFieldDef, FilterVariant } from "@/lib/shared";
+import type { ItemFilterFieldDef, FilterVariant, ItemRowDto } from "@/lib/shared";
+import { STATUS_LABEL } from "@/lib/domain/status";
 import { opsFor, OP_LABEL, VALUELESS_OPS, newRule, type FilterOp, type FilterRule } from "@/lib/domain/filters";
 import { api } from "@/lib/api";
 import { Button, Tag } from "@/components/ui";
@@ -206,15 +207,53 @@ function AddRuleForm({ fields, onAdd }: { fields: ItemFilterFieldDef[]; onAdd: (
   );
 }
 
+/** "Department: Computer Science and Engineering 624 · …" — one line of the summary,
+ *  the largest first, the rest behind "+N more". */
+function BreakdownLine({ label, counts }: { label: string; counts: Map<string, number> }) {
+  const [all, setAll] = useState(false);
+  const sorted = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, { numeric: true }));
+  const shown = all ? sorted : sorted.slice(0, 6);
+  return (
+    <div className="text-10.5 text-dim leading-relaxed">
+      <span className="text-faint">{label}:</span>{" "}
+      {shown.map(([k, n], i) => (
+        <span key={k}>
+          {i > 0 && " · "}
+          {k} <span className="font-mono text-text">{n.toLocaleString()}</span>
+        </span>
+      ))}
+      {sorted.length > 6 && (
+        <button type="button" onClick={() => setAll((a) => !a)} className="ml-6 text-accent hover:underline">
+          {all ? "show fewer" : `+${sorted.length - 6} more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function tally(rows: ItemRowDto[], key: (r: ItemRowDto) => string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) m.set(key(r), (m.get(key(r)) ?? 0) + (r.countingMode === "BULK" ? r.qty : 1));
+  return m;
+}
+
 export function FilterBar({
   filters,
   onChange,
   onClear,
   scope,
+  matches,
+  matchCount,
 }: {
   filters: RegisterFilters;
   onChange: (patch: Partial<RegisterFilters>) => void;
   onClear: () => void;
+  /** The rows that match the filters (not the context around them), for the written
+   *  summary and its breakdowns — null when only a count is known (the paged search
+   *  list), omitted when the page shows no summary. */
+  matches?: ItemRowDto[] | null;
+  /** How many resources match, when `matches` is only one page of them. */
+  matchCount?: number;
   /** The university-wide browse (10b of
    *  ~/.claude/plans/three-product-changes-dynamic-thompson.md) — passed straight
    *  through to `/filter-fields` so its owner/custodian option lists match the same
@@ -262,6 +301,25 @@ export function FilterBar({
     onChange({ join: filters.join === "and" ? "or" : "and" });
   }
 
+  // One removable chip per active filter — the search, each core dropdown, each rule —
+  // so a single one can be dropped without clearing the rest.
+  const chips: Array<{ id: string; text: string; remove: () => void }> = [];
+  if (filters.q) chips.push({ id: "q", text: `Search: "${filters.q}"`, remove: () => onChange({ q: "" }) });
+  for (const { id, key } of CORE_FIELDS) {
+    if (!filters[key]) continue;
+    const field = fieldsById.get(id);
+    const value = field?.options?.find((o) => o.value === filters[key])?.label ?? filters[key];
+    // Dropping the category also drops the rules that only exist for it.
+    const patch: Partial<RegisterFilters> =
+      key === "categoryId" ? { categoryId: "", rules: filters.rules.filter((r) => !r.field.startsWith("prop:") && !r.field.startsWith("desc:")) } : { [key]: "" };
+    chips.push({ id, text: `${field?.label ?? id} is ${value}`, remove: () => onChange(patch) });
+  }
+  for (const r of filters.rules) chips.push({ id: r.id, text: describeRule(fieldsById.get(r.field), r), remove: () => removeRule(r.id) });
+  const joinWord = filters.join === "and" ? " and " : " or ";
+
+  const count = matches ? matches.reduce((a, r) => a + (r.countingMode === "BULK" ? r.qty : 1), 0) : matchCount;
+  const kinds = matches ? tally(matches, (r) => r.categoryName) : null;
+
   return (
     <div className="flex flex-col gap-6 px-14 py-9 border-b border-border bg-panel2">
       <div className="flex flex-wrap items-center gap-8">
@@ -290,33 +348,54 @@ export function FilterBar({
           );
         })}
         <AddRuleForm fields={advancedFields} onAdd={addRule} />
-        {active && (
-          <button onClick={onClear} className="text-10.5 text-accent ml-auto">
-            Clear filters
-          </button>
-        )}
       </div>
-      {filters.rules.length > 0 && (
+      {active && (
         <div className="flex flex-wrap items-center gap-6">
-          {filters.rules.length > 1 && (
+          <span className="text-9.5 uppercase tracking-label text-faint font-semibold">Filtered by</span>
+          {chips.length > 1 && (
             <button
               onClick={toggleJoin}
-              title="Toggle how the filters below combine"
+              title="Toggle whether a resource must match all of these filters, or any one of them"
               className="h-20 px-8 rounded-2 border border-accent bg-soft text-accent text-9.5 font-mono font-medium"
             >
-              {filters.join === "and" ? "AND" : "OR"}
+              {filters.join === "and" ? "ALL" : "ANY"}
             </button>
           )}
-          {filters.rules.map((r) => (
-            <Tag key={r.id} tone="accent">
+          {chips.map((c) => (
+            <Tag key={c.id} tone="accent">
               <span className="inline-flex items-center gap-4">
-                {describeRule(fieldsById.get(r.field), r)}
-                <button onClick={() => removeRule(r.id)} aria-label="Remove filter" className="font-sans">
+                {c.text}
+                <button onClick={c.remove} aria-label={`Remove filter: ${c.text}`} title="Remove this filter" className="font-sans hover:text-text">
                   ×
                 </button>
               </span>
             </Tag>
           ))}
+          <button onClick={onClear} className="text-10.5 text-accent ml-auto hover:underline">
+            Clear all
+          </button>
+        </div>
+      )}
+      {active && count !== undefined && (
+        <div className="flex flex-col gap-3 rounded-2 border border-border bg-panel px-10 py-8">
+          <div className="text-11.5">
+            {/* "40 × Computer match: category is Computer and custodian is Ali Kibret Muhamed." */}
+            <span className="font-semibold font-mono">{count.toLocaleString()}</span>{" "}
+            {kinds && kinds.size === 1 ? <span className="font-semibold">× {[...kinds.keys()][0]}</span> : count === 1 ? "resource" : "resources"}{" "}
+            {count === 1 ? "matches" : "match"}: <span className="text-dim">{chips.map((c) => c.text.charAt(0).toLowerCase() + c.text.slice(1)).join(joinWord)}</span>.
+          </div>
+          {matches && matches.length > 0 && (
+            <>
+              {kinds && kinds.size > 1 && <BreakdownLine label="Category" counts={kinds} />}
+              <BreakdownLine label="Department" counts={tally(matches, (r) => r.ownerOrgNodeName)} />
+              <BreakdownLine label="Custodian" counts={tally(matches, (r) => r.custodianName)} />
+              <BreakdownLine label="Status" counts={tally(matches, (r) => STATUS_LABEL[r.effectiveStatus] ?? r.effectiveStatus)} />
+              <BreakdownLine label="Lab / place" counts={tally(matches, (r) => r.path[0] ?? r.name)} />
+            </>
+          )}
+          {!matches && (
+            <div className="text-10.5 text-faint">Switch to Hierarchy or Grouped to see them broken down by department, custodian, status and lab.</div>
+          )}
         </div>
       )}
     </div>

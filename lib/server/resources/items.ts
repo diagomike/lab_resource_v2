@@ -250,16 +250,26 @@ export async function search(
  *  module's own header — they are pure and meant to run in the browser too) group
  *  into Hierarchy or Rollup mode. Both view modes fetch from here; which one a person
  *  is looking at is a rendering choice, not a different query. */
-export async function tree(userId: string, query: ItemQuery, scopeOverride?: ScopeOverride, extraFilters?: FilterState | null): Promise<{ items: ItemRowDto[] }> {
+export async function tree(
+  userId: string,
+  query: ItemQuery,
+  scopeOverride?: ScopeOverride,
+  extraFilters?: FilterState | null,
+): Promise<{ items: ItemRowDto[]; matchedIds: string[] | null }> {
   const forest = await loadForest();
   const { base, closed } = await computeScopedIds(userId, forest, scopeOverride, extraFilters);
-  const matched = matchItems(forest.items, buildFilterState(query), ctxOf(forest));
+  const state = buildFilterState(query);
+  const matched = matchItems(forest.items, state, ctxOf(forest));
   const expanded = expandMatches(forest.index, matched);
   const keep = [...closed].filter((id) => expanded.has(id));
 
   const lookups = await nameLookups();
   const rows = keep.map((id) => forest.index.byId.get(id)!).map((item) => toRowDto(item, forest, lookups, !base.has(item.id)));
-  return { items: rows };
+  // Which rows are genuine matches, as opposed to the ancestors and parts shown around
+  // them as context — so the register can count "624 computers", not "31 labs". Null
+  // when nothing is being filtered (every row counts).
+  const filtering = Boolean(state.search.trim()) || state.rules.length > 0;
+  return { items: rows, matchedIds: filtering ? keep.filter((id) => matched.has(id)) : null };
 }
 
 /** enum→multiSelect: every enum field here is queried with inArray/notInArray

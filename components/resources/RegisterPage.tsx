@@ -210,7 +210,7 @@ function RegisterPageInner() {
           </div>
         }
       >
-        <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} />
+        <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} {...state.filterSummary} />
         {state.mode === "grouped" && <GroupByBar value={state.groupBy} onChange={state.setGroupBy} />}
 
         {selectedIds.length > 0 && (
@@ -324,6 +324,8 @@ function RegisterPageInner() {
               selectable={canEdit}
               pending={markers}
               pendingTransfers={transferMarkers}
+              matched={state.matched}
+              matchedUnder={state.matchedUnder}
             />
 
             {state.mode === "flat" && state.total > state.pageSize && (

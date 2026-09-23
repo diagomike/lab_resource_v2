@@ -61,12 +61,27 @@ export interface ResourceTableProps {
   /** Items a pending transfer or handover will move — shown with a `⇄` (a count on a
    *  cluster row) so nobody promises them a second time. */
   pendingTransfers?: PendingTransferMarkersDto;
+  /** While a filter is on: the genuine matches (null/omitted: not filtering), and the
+   *  matches under any item. Rows that are only context (the lab around a matching
+   *  computer, a matching computer's parts) are dimmed, and group, cluster and context
+   *  rows count and summarise the matches beneath them — "624 Computer", not "×31". */
+  matched?: Set<string> | null;
+  matchedUnder?: (id: string) => string[];
 }
 
-export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true, pending, pendingTransfers }: ResourceTableProps) {
+export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true, pending, pendingTransfers, matched, matchedUnder }: ResourceTableProps) {
   const columns = useMemo(() => {
     const rowOf = (id: string) => byId.get(id);
     const nameAgg = (values: (string | undefined)[]) => aggregate(values.map((v) => v ?? null));
+    const filtering = Boolean(matched && matchedUnder);
+    const present = (xs: Array<ItemRowDto | undefined>) => xs.filter((x): x is ItemRowDto => Boolean(x));
+    /** What a row's roll-ups describe: its members, or while filtering, the matches
+     *  beneath them. */
+    const aggRowsOf = (r: RowNode): ItemRowDto[] =>
+      filtering ? present([...new Set(membersOf(r).flatMap((m) => matchedUnder!(m.id)))].map(rowOf)) : present(membersOf(r).map((m) => rowOf(m.id)));
+    /** An item shown only because it contains, or is part of, a match. */
+    const isContext = (r: RowNode) => filtering && r.kind === "item" && !matched!.has(r.item.id);
+    const rollupRowsOf = (r: RowNode) => (r.kind === "item" ? present([rowOf(r.item.id)]) : aggRowsOf(r));
 
     const cols = [
       ...(selectable
@@ -112,7 +127,9 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
                 <span className="w-14 h-14 flex-none flex items-center justify-center text-9.5 text-dim">{row.getIsExpanded() ? "▾" : "▸"}</span>
                 {r.iconKey && <CategoryIcon iconKey={r.iconKey} className="w-13 h-13 flex-none text-dim" />}
                 <span className="truncate text-11.5 font-semibold">{r.label}</span>
-                <span className="text-9.5 font-mono text-faint flex-none">{r.members.length}</span>
+                {/* How many top-level resources the heading holds — hidden while filtering,
+                    when the Qty column counts the matches instead ("40 Computer", not "2"). */}
+                {!filtering && <span className="text-9.5 font-mono text-faint flex-none">{r.members.length}</span>}
               </div>
             );
           }
@@ -134,7 +151,8 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
                   if (!isCluster(r)) onInspect(r.item.id);
                   else row.toggleExpanded();
                 }}
-                className="truncate text-left text-11.5 hover:text-accent hover:underline"
+                className={`truncate text-left text-11.5 hover:text-accent hover:underline ${isContext(r) ? "text-faint" : ""}`}
+                title={isContext(r) ? "Shown for context — the matches are inside it or around it" : undefined}
               >
                 {isCluster(r) ? (first?.categoryName ?? "—") : r.item.name}
               </button>
@@ -196,7 +214,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         header: "Category",
         cell: ({ row }) => {
           if (isGroup(row.original)) {
-            const agg = nameAgg(row.original.members.map((m) => rowOf(m.id)?.categoryName));
+            const agg = nameAgg(aggRowsOf(row.original).map((m) => m.categoryName));
             return <span className="text-10.5 text-faint">{describeAgg(agg)}</span>;
           }
           return <span className="text-10.5 text-dim">{rowOf(idsOf(row.original)[0])?.categoryName ?? "—"}</span>;
@@ -208,8 +226,8 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         header: "Status",
         cell: ({ row }) => {
           const r = row.original;
-          const members = membersOf(r).map((m) => rowOf(m.id)).filter((m): m is ItemRowDto => Boolean(m));
           if (isCluster(r) || isGroup(r)) {
+            const members = aggRowsOf(r);
             const counts = new Map<string, number>();
             for (const m of members) counts.set(m.effectiveStatus, (counts.get(m.effectiveStatus) ?? 0) + 1);
             const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
@@ -235,6 +253,18 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         cell: ({ row }) => {
           const r = row.original;
           const first = rowOf(idsOf(r)[0]);
+          if (filtering && (isGroup(r) || isCluster(r) || isContext(r))) {
+            const hits = aggRowsOf(r);
+            if (!hits.length) return <span className="text-10.5 font-mono text-faint">—</span>;
+            const count = hits.reduce((a, h) => a + (h.countingMode === "BULK" ? h.qty : 1), 0);
+            const kinds = new Set(hits.map((h) => h.categoryName));
+            const label = kinds.size === 1 ? [...kinds][0] : "matches";
+            return (
+              <span className="text-10.5 font-mono text-dim whitespace-nowrap" title={`${count.toLocaleString()} matching ${label} here`}>
+                {count.toLocaleString()} <span className="font-sans text-faint">{label}</span>
+              </span>
+            );
+          }
           if (isGroup(r)) return <span className="text-10.5 font-mono text-faint" title="Top-level resources in this group">×{r.members.length}</span>;
           if (isCluster(r)) {
             if (first?.countingMode === "BULK") {
@@ -252,7 +282,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         id: "custodian",
         header: "Custodian",
         cell: ({ row }) => {
-          const agg = nameAgg(membersOf(row.original).map((m) => rowOf(m.id)?.custodianName));
+          const agg = nameAgg(rollupRowsOf(row.original).map((m) => m.custodianName));
           return <span className="text-10.5 truncate block">{describeAgg(agg)}</span>;
         },
       }),
@@ -261,7 +291,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         id: "currentOrg",
         header: "Current unit",
         cell: ({ row }) => {
-          const agg = nameAgg(membersOf(row.original).map((m) => rowOf(m.id)?.currentOrgNodeName));
+          const agg = nameAgg(rollupRowsOf(row.original).map((m) => m.currentOrgNodeName));
           return <span className="text-10.5 truncate block">{describeAgg(agg)}</span>;
         },
       }),
@@ -270,14 +300,14 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         id: "owner",
         header: "Owner",
         cell: ({ row }) => {
-          const agg = nameAgg(membersOf(row.original).map((m) => rowOf(m.id)?.ownerOrgNodeName));
+          const agg = nameAgg(rollupRowsOf(row.original).map((m) => m.ownerOrgNodeName));
           return <span className="text-10.5 truncate block">{describeAgg(agg)}</span>;
         },
       }),
     );
 
     return cols;
-  }, [byId, showPath, onInspect, selectable, pending, pendingTransfers]);
+  }, [byId, showPath, onInspect, selectable, pending, pendingTransfers, matched, matchedUnder]);
 
   const table = useTable({
     features,

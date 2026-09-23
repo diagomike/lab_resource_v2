@@ -4261,3 +4261,31 @@ its model that make porting it as-is the wrong move.
   - **Totals match `docs/cse_labs.md`:** sum of required 340 = 189 broken PCs + 151
     missing workstations. Broken parts: RAM 60, Storage 56, Monitor 73. Chairs: 412
     broken.
+
+- **2026-09-23 (register filters: chips, written summary, match-aware quantities)** — The
+  user's request: see each applied filter as a removable chip instead of only "Clear
+  filters", get a readable summary of what matches, and have quantities count the
+  matches. Filtering by Computer had shown "31" (labs), not the number of computers.
+  - `items.tree()` returns `matchedIds`, which separates genuine matches from the
+    ancestors and parts shown around them as context. It is null when nothing is
+    filtered.
+  - `useRegisterState` exposes `matched`, a cached `matchedUnder(id)`, and
+    `filterSummary`.
+  - **FilterBar:**
+    - a "Filtered by" row with one chip per filter (search, each core dropdown, each
+      rule), each with its own ×. Removing the category chip also drops that
+      category's property rules.
+    - an ALL/ANY toggle, and "Clear all".
+    - a summary box: "40 × Computer match: category is Computer and custodian is Ali
+      Kibret Muhamed.", with breakdowns by category, department, custodian, status and
+      lab (top 6, then "+N more").
+    - In the paged Search list it shows the count only.
+  - **ResourceTable, while filtering:** group, cluster and context rows count the matches
+    beneath them ("20 Computer" per lab, "624 Computer" per unit heading). Their status,
+    custodian, unit and owner roll-ups describe the matches. Context rows are dimmed, and
+    the heading's top-level count is hidden.
+  - Checked on :3000 as the CSE head:
+    - Computer → 624 (435 working, 189 impaired), 20 per lab;
+    - adding Ali Kibret → 40 (32 working, 8 impaired);
+    - removing only the Computer chip kept the custodian filter → 614.
+  - 515/515 tests, and the build is clean.

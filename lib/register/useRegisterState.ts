@@ -299,6 +299,9 @@ export function useRegisterState(opts?: {
 
   const [rows, setRows] = useState<ItemRowDto[] | null>(null);
   const [total, setTotal] = useState(0);
+  /** The genuine filter matches among `rows` (the rest are ancestors and parts shown
+   *  around them as context), or null when nothing is filtered. */
+  const [matchedIds, setMatchedIds] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const [selection, setSelection] = useState<RowSelectionState>({});
@@ -327,10 +330,12 @@ export function useRegisterState(opts?: {
 
     const request =
       mode === "flat"
-        ? api.get<{ items: ItemRowDto[]; total: number }>(
-            `/resources/items${apiParams}${apiParams ? "&" : "?"}page=${page}&pageSize=${PAGE_SIZE}`,
-          )
-        : api.get<{ items: ItemRowDto[] }>(`/resources/items/tree${apiParams}`).then((r) => ({ items: r.items, total: r.items.length }));
+        ? api
+            .get<{ items: ItemRowDto[]; total: number }>(`/resources/items${apiParams}${apiParams ? "&" : "?"}page=${page}&pageSize=${PAGE_SIZE}`)
+            .then((r) => ({ ...r, matchedIds: null as string[] | null }))
+        : api
+            .get<{ items: ItemRowDto[]; matchedIds?: string[] | null }>(`/resources/items/tree${apiParams}`)
+            .then((r) => ({ items: r.items, total: r.items.length, matchedIds: r.matchedIds ?? null }));
 
     request
       .then((r) => {
@@ -338,6 +343,7 @@ export function useRegisterState(opts?: {
         shownKey.current = queryKey;
         setRows(r.items);
         setTotal(r.total);
+        setMatchedIds(r.matchedIds);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -399,6 +405,28 @@ export function useRegisterState(opts?: {
   const domainItems = useMemo(() => (rows ?? []).map(toDomainItem), [rows]);
   const index = useMemo(() => indexItems(domainItems), [domainItems]);
   const byId = useMemo(() => new Map((rows ?? []).map((r) => [r.id, r])), [rows]);
+  const matched = useMemo(() => (matchedIds ? new Set(matchedIds) : null), [matchedIds]);
+  /** What the filter bar's written summary reads: every matching row in the tree views;
+   *  only the count in the paged search list (one page can't be broken down honestly). */
+  const filterSummary = useMemo<{ matches?: ItemRowDto[] | null; matchCount?: number }>(() => {
+    if (!rows) return {};
+    if (mode === "flat") return { matches: null, matchCount: total };
+    return matched ? { matches: rows.filter((r) => matched.has(r.id)) } : {};
+  }, [rows, mode, total, matched]);
+  /** The matches in an item's own subtree, itself included — what a row's quantity and
+   *  roll-ups count while a filter is on. Cached per item for the current rows. */
+  const matchedUnder = useMemo(() => {
+    const cache = new Map<string, string[]>();
+    const under = (id: string): string[] => {
+      const hit = cache.get(id);
+      if (hit) return hit;
+      const out = matched?.has(id) ? [id] : [];
+      for (const c of index.childrenOf.get(id) ?? []) out.push(...under(c.id));
+      cache.set(id, out);
+      return out;
+    };
+    return under;
+  }, [index, matched]);
 
   const rowNodes = useMemo<RowNode[]>(() => {
     if (!rows) return [];
@@ -472,6 +500,11 @@ export function useRegisterState(opts?: {
     viewId,
     rows,
     rowNodes,
+    /** Filter matches among `rows` (null: not filtering) and the matches under any
+     *  item — see `matchedUnder`'s own note. */
+    matched,
+    matchedUnder,
+    filterSummary,
     /** Row-DTO lookup — the denormalised names (categoryName, ownerOrgNodeName, ...)
      *  tree.ts's domain Item doesn't carry. */
     byId,
