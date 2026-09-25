@@ -9,8 +9,12 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
+// `help/` (with the slash) is the guide's static content and screenshots in public/help —
+// not the /help page, which stays behind sign-in. Matching them here sent every
+// screenshot through this function and redirected it to /login when signed out, so the
+// CDN could never cache them.
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|login|forgot-password|reset-password|accept-invite|portal).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|help/|login|forgot-password|reset-password|accept-invite|portal).*)",
   ],
 };

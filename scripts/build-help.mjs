@@ -6,6 +6,7 @@
  *
  * Writes:
  *   public/help/content.json   every chapter as HTML, plus its sections as plain text for search
+ *   lib/help/content-url.ts    content.json's versioned URL, which the Help page fetches
  *   public/help/img/**         the guide's screenshots (public/help/img/diagrams is kept: the
  *                              appendix's flow diagrams, rendered once from its ```mermaid blocks)
  *
@@ -14,6 +15,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { marked } from "marked";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
@@ -62,6 +64,35 @@ const plain = (html) =>
     .replace(/&#39;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
+/** Short content hash — the ?v= that lets next.config.ts cache the guide's files for good. */
+const hashOf = (bytes) => createHash("sha256").update(bytes).digest("hex").slice(0, 10);
+
+/** Pixel size of a JPEG (its SOF marker) or an SVG (width/height), so the page reserves
+ *  each screenshot's space before the lazy image arrives and nothing jumps. */
+function sizeOf(file) {
+  const b = fs.readFileSync(file);
+  if (file.endsWith(".svg")) {
+    const head = b.toString("utf8", 0, 2000);
+    const w = head.match(/<svg[^>]*\swidth="([\d.]+)"/);
+    const h = head.match(/<svg[^>]*\sheight="([\d.]+)"/);
+    return w && h ? { w: Math.round(Number(w[1])), h: Math.round(Number(h[1])) } : null;
+  }
+  for (let i = 2; i + 9 < b.length; ) {
+    if (b[i] !== 0xff) return null;
+    const marker = b[i + 1];
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
+}
+/** A public/help file's versioned URL and its size. */
+function asset(src) {
+  const file = path.join(ROOT, "public", src);
+  if (!fs.existsSync(file)) throw new Error(`missing image ${src}`);
+  return { url: `${src}?v=${hashOf(fs.readFileSync(file))}`, size: sizeOf(file) };
+}
+const dims = (size) => (size ? ` width="${size.w}" height="${size.h}"` : "");
+
 /** In-app link to a chapter, and optionally a section within it. */
 const helpHref = (chapter, anchor) => `/help?c=${chapter}${anchor ? `#${chapter}--${anchor}` : ""}`;
 
@@ -85,15 +116,16 @@ function renderChapter(id, file) {
     return `<a href="${esc(href)}"${title ? ` title="${esc(title)}"` : ""} target="_blank" rel="noopener">${text}</a>`;
   };
   renderer.image = ({ href, text }) => {
-    const src = `/help/${href.replace(/^\.?\/?/, "")}`;
-    return `<figure class="shot"><button type="button" class="zoom" data-src="${esc(src)}" aria-label="Enlarge: ${esc(text)}"><img src="${esc(src)}" alt="${esc(text)}" loading="lazy" decoding="async"></button><figcaption>${esc(text)}</figcaption></figure>`;
+    const { url, size } = asset(`/help/${href.replace(/^\.?\/?/, "")}`);
+    return `<figure class="shot"><button type="button" class="zoom" data-src="${esc(url)}" aria-label="Enlarge: ${esc(text)}"><img src="${esc(url)}" alt="${esc(text)}"${dims(size)} loading="lazy" decoding="async"></button><figcaption>${esc(text)}</figcaption></figure>`;
   };
   renderer.code = ({ text, lang }) => {
     if (lang === "mermaid") {
       mermaidIndex += 1;
       const src = `/help/img/diagrams/${path.basename(file, ".md")}-${mermaidIndex}.svg`;
       if (!fs.existsSync(path.join(ROOT, "public", src))) throw new Error(`${file}: no pre-rendered diagram ${src}`);
-      return `<figure class="diagram"><img src="${src}" alt="Flow diagram" loading="lazy"></figure>`;
+      const { url, size } = asset(src);
+      return `<figure class="diagram"><img src="${url}" alt="Flow diagram"${dims(size)} loading="lazy"></figure>`;
     }
     return `<pre class="code"><code>${esc(text)}</code></pre>`;
   };
@@ -141,9 +173,12 @@ for (const c of chapters) {
     if (!chapters.some((x) => x.id === chapter) || (anchor && !anchors.has(anchor))) throw new Error(`${c.id}: broken help link to ${chapter}#${anchor ?? ""}`);
   }
   for (const [, src] of c.html.matchAll(/src="(\/help\/[^"]+)"/g)) {
-    if (!fs.existsSync(path.join(ROOT, "public", src))) throw new Error(`${c.id}: missing image ${src}`);
+    if (!fs.existsSync(path.join(ROOT, "public", src.replace(/\?.*$/, "")))) throw new Error(`${c.id}: missing image ${src}`);
   }
 }
 
-fs.writeFileSync(path.join(OUT, "content.json"), JSON.stringify({ builtAt: new Date().toISOString().slice(0, 10), chapters }));
+const json = JSON.stringify({ builtAt: new Date().toISOString().slice(0, 10), chapters });
+fs.writeFileSync(path.join(OUT, "content.json"), json);
+// The Help page fetches this exact URL: a rebuilt guide is a new URL, so the old one can be cached for good.
+fs.writeFileSync(path.join(ROOT, "lib", "help", "content-url.ts"), `// Written by scripts/build-help.mjs — do not edit.\nexport const HELP_CONTENT_URL = "/help/content.json?v=${hashOf(json)}";\n`);
 console.log(`public/help/content.json: ${chapters.length} chapters, ${chapters.reduce((n, c) => n + c.sections.length, 0)} sections; ${images} screenshots`);

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { helpChaptersFor } from "@/lib/help/audience";
+import { HELP_CONTENT_URL } from "@/lib/help/content-url";
 import { Modal, ErrorNote } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 
@@ -32,7 +33,7 @@ interface HelpChapter {
 
 let cache: Promise<HelpChapter[]> | null = null;
 function loadHelp(): Promise<HelpChapter[]> {
-  cache ??= fetch("/help/content.json")
+  cache ??= fetch(HELP_CONTENT_URL)
     .then((r) => {
       if (!r.ok) throw new Error(`Help couldn't be loaded (${r.status}).`);
       return r.json() as Promise<{ chapters: HelpChapter[] }>;

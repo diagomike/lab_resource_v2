@@ -4,6 +4,7 @@ import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
 import { sniffImage } from "./image-sniff";
+import { normalizeImage } from "./image-normalize";
 import { storage } from "./storage";
 
 /**
@@ -23,7 +24,10 @@ import { storage } from "./storage";
  * cases explicitly rather than leaving them to accident.
  */
 
-export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 MB — generous; the client already downscales before this is ever hit
+// 4 MB: Vercel refuses a function request body over 4.5 MB before this code runs, with a
+// bare 413. The client downscales to ~1280px first; only a photo it can't decode goes up
+// whole, and ItemImages.tsx checks this same limit before sending it.
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const MAX_DIMENSION = 8000; // guards against a decompression-bomb-shaped header, not a real photo
 const UPLOAD_TTL_MS = 10 * 60 * 1000; // 10 minutes — long enough for a slow mobile upload, short enough that an abandoned session doesn't linger
 
@@ -75,8 +79,9 @@ export async function createUploadSession(actorId: string, itemId: string): Prom
 }
 
 /** Step 2. The only place a claimed Content-Type is compared against reality — and
- *  only for a friendlier error message; the STORED `contentType` always comes from
- *  `sniffImage`, never from `declaredContentType`. */
+ *  only for a friendlier error message. `sniffImage` decides whether the bytes are an
+ *  accepted format at all; what is stored, and its `contentType`/size, is the
+ *  server's own re-encoding (`image-normalize.ts`), never the bytes as sent. */
 export async function receiveUpload(actorId: string, uploadSessionId: string, bytes: Buffer): Promise<{ contentType: string; byteSize: number; width: number; height: number }> {
   const row = await prisma.imageUpload.findUnique({ where: { id: uploadSessionId } });
   if (!row || row.requestedById !== actorId) throw new HttpError(404, "Upload session not found");
@@ -100,13 +105,15 @@ export async function receiveUpload(actorId: string, uploadSessionId: string, by
     throw new HttpError(400, `That image is too large — ${sniffed.width}×${sniffed.height} exceeds the ${MAX_DIMENSION}px limit per side.`);
   }
 
-  await storage.write(row.storageKey, bytes);
+  // What is stored is the server's re-encoding (image-normalize.ts), never the bytes as sent.
+  const stored = await normalizeImage(bytes, MAX_DIMENSION * MAX_DIMENSION);
+  await storage.write(row.storageKey, stored.bytes);
   await prisma.imageUpload.update({
     where: { id: row.id },
-    data: { status: "UPLOADED", contentType: sniffed.mimeType, byteSize: bytes.length, width: sniffed.width, height: sniffed.height, uploadedAt: new Date() },
+    data: { status: "UPLOADED", contentType: stored.contentType, byteSize: stored.bytes.length, width: stored.width, height: stored.height, uploadedAt: new Date() },
   });
 
-  return { contentType: sniffed.mimeType, byteSize: bytes.length, width: sniffed.width, height: sniffed.height };
+  return { contentType: stored.contentType, byteSize: stored.bytes.length, width: stored.width, height: stored.height };
 }
 
 export type ImageServingLookup = { scope: "item"; itemId: string; contentType: string } | { scope: "category"; contentType: null } | null;

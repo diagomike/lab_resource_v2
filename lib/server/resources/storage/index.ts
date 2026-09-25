@@ -13,7 +13,9 @@ import { vercelBlobDriver } from "./vercel-blob-driver";
  * below, nothing else in the codebase changes.
  */
 function selectDriver(): StorageDriver {
-  const kind = process.env.IMAGE_STORAGE_DRIVER ?? "local";
+  // On Vercel (which sets VERCEL=1) the local disk is read-only and per-invocation, so
+  // a missing setting there must not quietly fall back to it: every photo was a 404.
+  const kind = process.env.IMAGE_STORAGE_DRIVER ?? (process.env.VERCEL ? "vercel-blob" : "local");
   switch (kind) {
     case "local":
       return localFsDriver;

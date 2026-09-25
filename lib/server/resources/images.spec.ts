@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -25,7 +26,13 @@ function loadDotEnv(): void {
 }
 loadDotEnv();
 
-function pngBytes(width: number, height: number): Buffer {
+/** A real, decodable PNG — the server re-encodes every upload, so a header alone won't do. */
+function pngBytes(width: number, height: number): Promise<Buffer> {
+  return sharp({ create: { width, height, channels: 3, background: { r: 40, g: 120, b: 200 } } }).png().toBuffer();
+}
+
+/** Just a PNG header claiming a size — for refusals that must happen before any decoding. */
+function pngHeader(width: number, height: number): Buffer {
   const b = Buffer.alloc(24);
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
   b.writeUInt32BE(13, 8);
@@ -142,16 +149,53 @@ describe("images — upload-session authorization", () => {
 describe("images — receiving bytes", () => {
   it("sniffs the real format/dimensions from the bytes, ignoring what a caller might have claimed", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
-    const result = await images.receiveUpload(seCustodianId, session.uploadSessionId, pngBytes(64, 48));
-    expect(result).toEqual({ contentType: "image/png", byteSize: 24, width: 64, height: 48 });
+    const result = await images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(64, 48));
+    // Stored as the server's WebP re-encoding, at the same size (never enlarged).
+    expect(result).toMatchObject({ contentType: "image/webp", width: 64, height: 48 });
 
     const row = await prisma.imageUpload.findUniqueOrThrow({ where: { id: session.uploadSessionId } });
     expect(row.status).toBe("UPLOADED");
-    expect(row.contentType).toBe("image/png");
-    const stored = await storage.read(row.storageKey);
-    expect(stored?.equals(pngBytes(64, 48))).toBe(true);
+    expect(row.contentType).toBe("image/webp");
+    const stored = (await storage.read(row.storageKey))!;
+    const meta = await sharp(stored).metadata();
+    expect({ format: meta.format, width: meta.width, height: meta.height, bytes: stored.length }).toEqual({ format: "webp", width: 64, height: 48, bytes: result.byteSize });
     await storage.remove(row.storageKey);
     await prisma.imageUpload.delete({ where: { id: row.id } });
+  });
+
+  it("shrinks a large photo to fit 1600px, and drops its metadata (a phone's GPS position)", async () => {
+    const session = await images.createUploadSession(seCustodianId, seItemId);
+    const photo = await sharp({ create: { width: 4000, height: 3000, channels: 3, background: { r: 200, g: 180, b: 90 } } })
+      .jpeg({ quality: 95 })
+      .withExif({ IFD0: { Make: "PhoneCo", ImageDescription: "GPS 8.54N 39.27E" } })
+      .toBuffer();
+    expect((await sharp(photo).metadata()).exif).toBeTruthy();
+
+    const result = await images.receiveUpload(seCustodianId, session.uploadSessionId, photo);
+    expect(result).toMatchObject({ contentType: "image/webp", width: 1600, height: 1200 });
+
+    const row = await prisma.imageUpload.findUniqueOrThrow({ where: { id: session.uploadSessionId } });
+    const stored = (await storage.read(row.storageKey))!;
+    expect(stored.length).toBe(result.byteSize);
+    expect(stored.length).toBeLessThan(photo.length);
+    expect((await sharp(stored).metadata()).exif).toBeUndefined();
+    await storage.remove(row.storageKey);
+    await prisma.imageUpload.delete({ where: { id: row.id } });
+  });
+
+  it("refuses a file with an image header that will not decode, leaving the session PENDING", async () => {
+    const session = await images.createUploadSession(seCustodianId, seItemId);
+    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, pngHeader(64, 48))).rejects.toMatchObject({ status: 400 });
+    const row = await prisma.imageUpload.findUniqueOrThrow({ where: { id: session.uploadSessionId } });
+    expect(row.status).toBe("PENDING");
+    await prisma.imageUpload.delete({ where: { id: row.id } });
+  });
+
+  it("refuses a file over the upload limit before reading it", async () => {
+    const session = await images.createUploadSession(seCustodianId, seItemId);
+    const tooBig = Buffer.concat([pngHeader(64, 48), Buffer.alloc(images.MAX_UPLOAD_BYTES)]);
+    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, tooBig)).rejects.toMatchObject({ status: 400 });
+    await prisma.imageUpload.delete({ where: { id: session.uploadSessionId } });
   });
 
   it("refuses an SVG (or any unrecognized bytes), leaving the session PENDING", async () => {
@@ -166,20 +210,20 @@ describe("images — receiving bytes", () => {
 
   it("refuses an image whose real dimensions exceed the server limit", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
-    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, pngBytes(9000, 9000))).rejects.toMatchObject({ status: 400 });
+    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, pngHeader(9000, 9000))).rejects.toMatchObject({ status: 400 });
     await prisma.imageUpload.delete({ where: { id: session.uploadSessionId } });
   });
 
   it("refuses a different actor from uploading into someone else's session", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
-    await expect(images.receiveUpload(sysAdminId, session.uploadSessionId, pngBytes(10, 10))).rejects.toMatchObject({ status: 404 });
+    await expect(images.receiveUpload(sysAdminId, session.uploadSessionId, await pngBytes(10, 10))).rejects.toMatchObject({ status: 404 });
     await prisma.imageUpload.delete({ where: { id: session.uploadSessionId } });
   });
 
   it("refuses a second upload into an already-UPLOADED session", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
-    await images.receiveUpload(seCustodianId, session.uploadSessionId, pngBytes(10, 10));
-    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, pngBytes(20, 20))).rejects.toMatchObject({ status: 409 });
+    await images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(10, 10));
+    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(20, 20))).rejects.toMatchObject({ status: 409 });
 
     const row = await prisma.imageUpload.findUniqueOrThrow({ where: { id: session.uploadSessionId } });
     await storage.remove(row.storageKey);
@@ -189,7 +233,7 @@ describe("images — receiving bytes", () => {
   it("refuses an expired session outright, even with valid bytes", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
     await prisma.imageUpload.update({ where: { id: session.uploadSessionId }, data: { expiresAt: new Date(Date.now() - 1000) } });
-    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, pngBytes(10, 10))).rejects.toMatchObject({ status: 409 });
+    await expect(images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(10, 10))).rejects.toMatchObject({ status: 409 });
     // The expired-session path deletes the row itself.
     await expect(prisma.imageUpload.findUnique({ where: { id: session.uploadSessionId } })).resolves.toBeNull();
   });
@@ -198,7 +242,7 @@ describe("images — receiving bytes", () => {
 describe("images — finalizing through applyChange (addImage)", () => {
   async function uploadedSession(itemId: string, actorId = seCustodianId) {
     const session = await images.createUploadSession(actorId, itemId);
-    await images.receiveUpload(actorId, session.uploadSessionId, pngBytes(80, 60));
+    await images.receiveUpload(actorId, session.uploadSessionId, await pngBytes(80, 60));
     return session;
   }
 
@@ -216,7 +260,7 @@ describe("images — finalizing through applyChange (addImage)", () => {
     expect(result.applied).toBe(1);
 
     const image = await prisma.itemImage.findFirstOrThrow({ where: { itemId: seItemId, storageKey: (await prisma.imageUpload.findUniqueOrThrow({ where: { id: session.uploadSessionId } })).storageKey } });
-    expect(image).toMatchObject({ contentType: "image/png", byteSize: 24, width: 80, height: 60, caption: "Front panel" });
+    expect(image).toMatchObject({ contentType: "image/webp", width: 80, height: 60, caption: "Front panel" });
 
     const upload = await prisma.imageUpload.findUniqueOrThrow({ where: { id: session.uploadSessionId } });
     expect(upload.status).toBe("FINALIZED");
@@ -294,7 +338,7 @@ describe("images — finalizing through applyChange (addImage)", () => {
 describe("images — cleanup after a committed transaction, never before", () => {
   it("deletes the file from storage when a photo is removed, only after the removal commits", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
-    await images.receiveUpload(seCustodianId, session.uploadSessionId, pngBytes(10, 10));
+    await images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(10, 10));
     const before = await prisma.item.findUniqueOrThrow({ where: { id: seItemId } });
     await applyChange(seCustodianId, { kind: "addImage", itemIds: [seItemId], uploadSessionId: session.uploadSessionId, expectedVersions: { [seItemId]: before.version } });
 
@@ -310,7 +354,7 @@ describe("images — cleanup after a committed transaction, never before", () =>
 
   it("does not delete the file when removeImage is refused by a version conflict", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
-    await images.receiveUpload(seCustodianId, session.uploadSessionId, pngBytes(10, 10));
+    await images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(10, 10));
     const before = await prisma.item.findUniqueOrThrow({ where: { id: seItemId } });
     await applyChange(seCustodianId, { kind: "addImage", itemIds: [seItemId], uploadSessionId: session.uploadSessionId, expectedVersions: { [seItemId]: before.version } });
     const image = await prisma.itemImage.findFirstOrThrow({ where: { itemId: seItemId } });
@@ -333,13 +377,13 @@ describe("images — cleanup after a committed transaction, never before", () =>
     // it kept, recoverable), not the hard delete this test used to prove wiped
     // storage clean — see mutate.ts's own applyDeleteItem note.
     const parentSession = await images.createUploadSession(seCustodianId, seItemId);
-    await images.receiveUpload(seCustodianId, parentSession.uploadSessionId, pngBytes(10, 10));
+    await images.receiveUpload(seCustodianId, parentSession.uploadSessionId, await pngBytes(10, 10));
     const before = await prisma.item.findUniqueOrThrow({ where: { id: seItemId } });
     await applyChange(seCustodianId, { kind: "addImage", itemIds: [seItemId], uploadSessionId: parentSession.uploadSessionId, expectedVersions: { [seItemId]: before.version } });
     const parentImage = await prisma.itemImage.findFirstOrThrow({ where: { itemId: seItemId } });
 
     const childSession = await images.createUploadSession(seCustodianId, childItemId);
-    await images.receiveUpload(seCustodianId, childSession.uploadSessionId, pngBytes(10, 10));
+    await images.receiveUpload(seCustodianId, childSession.uploadSessionId, await pngBytes(10, 10));
     const childUpload = await prisma.imageUpload.findUniqueOrThrow({ where: { id: childSession.uploadSessionId } });
 
     expect(await storage.read(parentImage.storageKey)).not.toBeNull();

@@ -4250,6 +4250,32 @@ its model that make porting it as-is the wrong move.
   - **Left for the user:** every account still has the shared seed password, including Ali's, and should
     be changed before real use. The 17 CSE ARAs start with notification emails off.
 
+- **2026-09-25 (production photos, uploads, Help caching)**
+  - **ChemE photos missing on production:** `prisma/resource-seed.ts` wrote the 36 `seed-chem-*` photos
+    to `.local-storage/images` only, even when seeding Neon, so production (Vercel Blob) never had them.
+    They were never visible there; the restore didn't change that.
+    - The seed now writes to Blob when `IMAGE_STORAGE_DRIVER=vercel-blob`.
+    - New `prisma/sync-images-to-blob.ts` checks every key the DB references (photos, category images,
+      letters) against Blob and uploads missing ones from local storage (report first, then `--apply`).
+      **It still has to be run against production**, which needs the Blob token.
+    - `storage/index.ts` now defaults to `vercel-blob` on Vercel (`VERCEL` set), so a missing
+      `IMAGE_STORAGE_DRIVER` there can't silently fall back to the local disk.
+  - **Uploads are shrunk and limited on the server:** new `lib/server/resources/image-normalize.ts`
+    (sharp, now a direct dependency).
+    - Every upload is auto-rotated, has all metadata stripped (phone GPS), is fitted inside 1600px, and
+      is stored as WebP q80. Anything that won't decode is refused.
+    - `MAX_UPLOAD_BYTES` is 15 → 4 MB (Vercel refuses bodies over 4.5 MB with a bare 413). The client
+      (still downscaling to 1280px) refuses over 4 MB with a clear message.
+    - Photos are served `private, max-age=604800, immutable` (keys are single-use UUIDs).
+    - Tests: real PNGs via sharp; new cases for 4000×3000 → 1600×1200 with EXIF removed, an undecodable
+      file and the size limit. 541/541, the build is clean.
+  - **Help caching:** `proxy.ts` matched `/help/…` static files, so every screenshot went through the
+    proxy (and redirected to /login when signed out) and the CDN never cached them.
+    - Now excluded (`help/`); the `/help` page still needs sign-in.
+    - `build-help.mjs` adds `?v=<content hash>` and width/height to every image, and writes
+      `lib/help/content-url.ts` (the versioned `content.json` URL).
+    - `next.config.ts` serves `/help/*?v=…` as `public, max-age=31536000, immutable`.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.

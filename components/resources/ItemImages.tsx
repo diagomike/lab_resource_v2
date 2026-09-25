@@ -65,6 +65,8 @@ export interface UploadOutcome {
 export async function uploadImageBytes(itemId: string, file: File): Promise<UploadOutcome> {
   try {
     const blob = await downscale(file);
+    // The server's MAX_UPLOAD_BYTES (the hosting limit); only a photo this browser couldn't shrink gets here.
+    if (blob.size > 4 * 1024 * 1024) return { ok: false, message: "That photo is too large (over 4 MB) and this browser couldn't shrink it. Save it as a JPEG or PNG and try again." };
     const session = await api.post<{ uploadSessionId: string; uploadUrl: string }>(`/resources/items/${itemId}/images/upload-sessions`);
     await api.putFile(session.uploadUrl, blob);
     return { ok: true, uploadSessionId: session.uploadSessionId };

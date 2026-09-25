@@ -497,6 +497,19 @@ function storageKeyFor(srcFilename: string): string {
   return `seed-chem-${path.basename(srcFilename, path.extname(srcFilename))}`;
 }
 
+/** Writes to whichever backend the app will read from (storage/index.ts's selector).
+ *  Seeding production with the default local write put the photos on this machine's
+ *  disk only, so every seeded photo was a 404 on Vercel. Same `images/` pathname as
+ *  vercel-blob-driver.ts. */
+async function writeSeedImage(key: string, bytes: Buffer): Promise<void> {
+  if (process.env.IMAGE_STORAGE_DRIVER === "vercel-blob") {
+    const { put } = await import("@vercel/blob");
+    await put(`images/${key}`, bytes, { access: "private", addRandomSuffix: false, allowOverwrite: true });
+  } else {
+    await writeFile(path.join(IMAGE_STORAGE_ROOT, key), bytes);
+  }
+}
+
 /** Reads each equipment item's source photograph(s) (`item.images[].src`, a bare
  *  filename — see real-data-seed.ts's own note on why), sniffs the real format/
  *  dimensions from the bytes exactly as a genuine upload does
@@ -508,7 +521,7 @@ async function persistRealImages(items: DomainItem[]): Promise<number> {
   const withImages = items.filter((i) => i.images.length > 0);
   if (!withImages.length) return 0;
 
-  await mkdir(IMAGE_STORAGE_ROOT, { recursive: true });
+  if (process.env.IMAGE_STORAGE_DRIVER !== "vercel-blob") await mkdir(IMAGE_STORAGE_ROOT, { recursive: true });
   const rows: Prisma.ItemImageCreateManyInput[] = [];
   for (const item of withImages) {
     for (const [index, img] of item.images.entries()) {
@@ -519,7 +532,7 @@ async function persistRealImages(items: DomainItem[]): Promise<number> {
         continue;
       }
       const key = storageKeyFor(img.src);
-      await writeFile(path.join(IMAGE_STORAGE_ROOT, key), bytes);
+      await writeSeedImage(key, bytes);
       rows.push({
         itemId: item.id,
         storageKey: key,

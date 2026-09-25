@@ -53,7 +53,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Cache-Control": "private, max-age=3600",
+        // A key is a one-time UUID whose bytes never change (a removed photo's key is
+        // gone, not reused), so the browser can keep it: a register page of thumbnails
+        // then doesn't re-fetch every photo through this function each hour. `private`
+        // keeps it out of shared caches — the scope check above is per person.
+        "Cache-Control": "private, max-age=604800, immutable",
       },
     });
   } catch (err) {
