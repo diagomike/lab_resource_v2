@@ -4209,6 +4209,29 @@ its model that make porting it as-is the wrong move.
     and Esc work, a phone in dark mode has no overflow, and there are no errors.
   - The guide's Getting started now mentions Help. Its export and artifact (v3) are rebuilt.
 
+- **2026-09-25 (phases 5–6: commit and production data — paused before the restore)**
+  - **Commits:** `3eaa2d1` (the application) and `f29293c` (docs and Help content). The build is clean.
+    **Not pushed yet**, because the new code needs Neon's schema first (below).
+  - **Neon is 4 migrations behind** (from `20260922160000_user_must_change_password`). Pushing first would
+    break production sign-in (`User.emailNotifications`).
+  - **Production snapshot:** `backups/neon-prod-2026-09-25-before-replace.dump`, restored locally as
+    `lrms_v2_prodsnap`.
+    - 18 users, all from the 4 September seed; only admin and Ali ever signed in.
+    - 562 items: Software Engineering test content, plus Ali's September trial edits.
+    - Chemical Engineering had 122 live items; 36 photos (all `seed-chem-*`); no purchases or views.
+  - **ChemE's own additions carried into `lrms_v2`** (the user asked that only ChemE-added resources and
+    personnel be kept):
+    - the "Chemicals and Reagents" category (key `chem`, 5 fields);
+    - labs ChemLab01 (10 glassware items) and "B529 01" (5 "Sodiem" items), with the ids kept;
+    - 19 change-log entries.
+    - There were no new ChemE personnel. ChemE prod vs dev now diffs to zero (122 = 122), and the photo
+      keys match.
+  - **Dev dump for production:** `backups/lrms_v2-2026-09-25-for-prod.dump` (9,702 items, 31 users,
+    9 nodes, 41 categories, 36 images, 31 ideals).
+  - **Blocked:** the restore onto Neon was refused by the permission system (it modifies a shared
+    production resource). The user runs `replace-prod.sh` from the scratchpad: schema recreate, restore,
+    clearing sessions and reset tokens, then migration status and counts. Then push.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
