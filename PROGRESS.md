@@ -4232,6 +4232,24 @@ its model that make porting it as-is the wrong move.
     production resource). The user runs `replace-prod.sh` from the scratchpad: schema recreate, restore,
     clearing sessions and reset tokens, then migration status and counts. Then push.
 
+- **2026-09-25 (phase 6 finished: production replaced and pushed)**
+  - First checked that Neon had no activity after the backup (last item edit and last session were on
+    22 September), so `neon-prod-2026-09-25-before-replace.dump` is a complete rollback point.
+  - Ran `replace-prod.sh`:
+    - Neon's `public` schema was recreated and `lrms_v2-2026-09-25-for-prod.dump` restored onto it;
+    - sessions, login attempts and reset tokens were cleared;
+    - Prisma reports 26 migrations, **schema up to date**;
+    - the counts match the dump: items 9702, users 31, nodes 9, categories 41, images 36,
+      ideals 31, sessions 0.
+  - **Pushed** `a3f5a75..9cf7a7e` to `origin/master`. The Vercel production deploy succeeded.
+  - **Smoke test on https://lab-resource-v2.vercel.app:**
+    - `/` redirects to `/login` (200);
+    - a login with an unknown email returns a clean 401, so the user lookup against the new schema works;
+    - `/api/public/catalog` returns 200 with no groups. That is expected, since no category has
+      `publicListed` set yet.
+  - **Left for the user:** every account still has the shared seed password, including Ali's, and should
+    be changed before real use. The 17 CSE ARAs start with notification emails off.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
