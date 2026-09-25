@@ -4087,6 +4087,128 @@ its model that make porting it as-is the wrong move.
   INACTIVE, so the plan runs on a freshly rebuilt `lrms_v2_e2e` clone instead. Nothing was
   executed against either database.
 
+- **2026-09-25 (pre-deploy verification, phase 1 of `~/.claude/plans/i-was-working-in-golden-bunny.md`)** — The
+  user asked to verify everything before the production push, then add a College Managing Director approval
+  step, a cross-role walkthrough, in-app Help, and replace production's data with the clean CSE + ChemE set.
+  - **Static gates:** `tsc` clean; 525/525 tests; `npm run build` clean; `lrms_v2` migrations up to date.
+  - **Diff review** of the uncommitted G-1…G-24 work: the Escape handling, the purchasables maths, the
+    staged-reason path and the Receive auto-load all hold up. One duplicate import merged in
+    `lib/server/external/requests.ts`. A staged reason is deliberately kept when a later Draft-page edit
+    has none (clearing it would lose the custodian's real reason).
+  - **Fresh-install cycle** on a rebuilt E2E clone, through the app's API (`e2e/drive-cse-cycle.ts`): 31
+    ideals proposed and approved, PR-2026-001 compiled (Setup 151, Outlet 155, RAM 60, Storage 56, Monitor 73,
+    Chair 412), dean → AVP → procurement, the pipeline, full receipt, CLOSED, 310 handover decisions, and
+    every lab's gap closed.
+  - **Screen sweep:** 11 role accounts × 16 screens in headless Chrome, recording console errors, page errors
+    and 4xx/5xx responses.
+  - **Fixed** (logged in `docs/guide-walkthrough-fixes-2026-09-24.md`):
+    - G-25: the seed chain broke on every rebuild. `resource-seed.ts` refused because of the ICT view that
+      `seed.ts` now creates; the guard now counts only views with a saved filter.
+    - G-26: item photos were refused to people who see the item through an access view (the ICT officer) or
+      through the university-wide browse. The photo route now uses the effective view or the permitted browse.
+    - G-27: `app/favicon.ico` added (it was a 404 on every first load).
+  - The old `e2e/suites` campaign wasn't run: it targets the synthetic SE cast the 2026-09-22 rewrite
+    removed, and its fixture would create a second PROC office. The UI-level lifecycles (drafts, bookings,
+    external, transfers, admin) are exercised as the walkthrough's acts in phase 3, on the final code.
+
+- **2026-09-25 (College Managing Director approval step, phase 2)** — The purchase ladder is now
+  Head → Dean → AVP → **College Managing Director** → Procurement Office.
+  - `buildLadderSteps` adds a `NODE_OCCUPANT` step for `findCmdOffice` (active OFFICE, code `CMD`, else the
+    exact name). It's optional, so without the office the ladder is unchanged; ambiguity refuses.
+  - `prisma/seed-cmd-office.ts` (idempotent, called by `seed.ts`): the office plus `cmd@astu.edu.et` / `astu1234`
+    (MANAGER). Applied to `lrms_v2` (now 9 org nodes) and the clone.
+  - 2 new DB tests (ladder order and turn-taking, inbox and readability, send-back restarts at the dean):
+    527/527. `drive-cse-cycle.ts chain` follows whatever chain the request has.
+  - Live UI run on :3100: PR-2026-002 went dean → AVP → CMD → procurement → Order placed.
+  - Guide updated wherever the chain is described. The approvers' chapter is "Dean, AVP and CMD", and
+    the admin chapter covers the PROC and CMD codes, vacancy and deactivation.
+  - G-28: the guide claimed approvers get an email. Purchasing, lab commits, transfers and internal
+    bookings send none, so the guide was corrected. Internal approval emails are flagged to the user as
+    a possible feature.
+
+- **2026-09-25 (approval emails)** — At the user's request, before phase 3. The new
+  `lib/server/mail/notify.ts` (active recipients only, never the actor, sequential, after commit, failures
+  logged) is wired into:
+  - purchasing: next approver; raiser on outcome and each stage; store keepers on arrival; need declined;
+  - lab commits: head on submit, custodian on the decision;
+  - transfers: next step's holder, requester on the outcome;
+  - staff bookings: custodian on a request or withdrawal, requester on the decision.
+  `MAIL_DISABLED=true` in `vitest.config.ts` keeps specs off SMTP. Four specs assert recipients and subjects
+  (528/528), and `next build` is clean. Live on :3100: PR-2026-003's full chain and pipeline mailed exactly
+  one person per hand-off. The guide has a new Getting started §8 "Emails you'll get".
+  **Note:** the dev DB server (`npm run dev`, :3000) sends real mail, and 11 ARAs have real addresses. Use
+  the dev-nomail config or the clone for anything that approves or books.
+
+- **2026-09-25 (per-person email notifications switch)** — Added at the user's request.
+  - `User.emailNotifications` (default on; migration `20260925090000_user_email_notifications`) gates every
+    notification and external-staff email. Invitations and resets are unaffected.
+  - Self: Profile → Email notifications. Others: People & roles → Manage (an admin for anyone, a head for
+    their department's custodians and staff).
+  - The **17 CSE ARAs start off**: `cse-lab-data.ts` creates them that way, and `lrms_v2` and the clone were
+    updated (17 off).
+  - 530/530, the build is clean, and checked live on :3100.
+  - **Deploy note:** Neon needs this migration and `20260924120000_version_item_note` (phase 6's restore of
+    `lrms_v2` carries both).
+
+- **2026-09-25 (phase 3: cross-role walkthrough and user-story catalogue)** — Done at the user's request
+  (and, mid-phase, their ask for "user stories … with screenshots … and how those actions travel through
+  different users").
+  - **`e2e/reset-demo.mjs`** (new): one command rebuilds the demo clone (drop, migrate, the three seeds).
+  - **The demo story, run twice end to end on a fresh clone through the UI** (scratchpad Playwright
+    scripts `w01…w13`, `run-all.sh`). It covers 13 acts:
+    - Admin: the CMD office, invite staff, bookable Lab/Computer, a Projector category.
+    - Ali: stages 2 broken monitors with reasons, submits the draft, proposes the ideal (+5 workstations).
+    - Staff: a projector need, and a booking request.
+    - Head: approves both, then compiles PR-2026-001 (purchasables plus the carried need).
+    - The dean sends it back, the head adds costs, then dean → AVP → CMD → procurement, and the pipeline.
+    - Store: over-receipt refused, full receipt, closed; two handovers (the workstations renamed
+      Workstation 21–25, plus the projector).
+    - Head approves, Ali accepts, and the ideal gap closes.
+    - Booking approved; the external request goes portal → AVP → hold → head price → quote → paid.
+    - Audit.
+  - **`docs/walkthrough/`**: 13 acts, Before you start, and Running it on production. `stories/` holds the
+    **user-story catalogue**: 42 stories in 10 areas (A accounts … J oversight). Each has "As a / I want /
+    so that", its flow across roles with ✉ at each email, and screenshots (63 new walkthrough shots plus
+    the guide's), linking to the demo act where it runs live.
+  - **Exports:** `lab_resource_additions/ASTU Lab Resources Walkthrough/` (index.html + img, 25 chapters,
+    138 images). The guide export was rebuilt with the CMD/email/notification changes and current approver
+    shots (the previous `index.html` is kept in the scratchpad).
+  - **Fixed:** G-29 (the ideal kept listing delivered stock as missing) and G-30 (the change log showed
+    raw category codes). Full suite 532/532, and `tsc` is clean.
+  - **Published (private):** walkthrough https://claude.ai/artifact/6tqiCUjE4EUTkRuYcBTwLn; the guide was republished
+    at https://claude.ai/artifact/CGsD973BWpxFpt3EozNFDV (v2).
+  - Scripting notes: the handover destination search also matches items named after the lab ("Projector
+    for B510-R8"); always pick the lab by its full name. Wait for the save response after "Apply
+    changes" before navigating.
+
+- **2026-09-25 (phase 4: in-app Help)** — The user guide is now inside the app.
+  - **Where it lives:**
+    - **`/help` "Help & guides"**, in the sidebar's *You* group. It has General chapters and *For your
+      role* chapters, a search over every section the person can read (exact phrase first), the
+      chapter's contents as chips, screenshots that open in the app's Modal (Esc closes), a chapter
+      picker on phones, and both themes.
+    - **`? Help` in the top bar**, beside the theme switch. It's context-aware: it opens the guide
+      section for the current screen and role (the head on Purchasing lands on "5. Compile a purchase
+      request"; the store keeper on "Receive arrived stock").
+    - A modal was rejected because the guide is long and screenshot-heavy.
+  - **Content pipeline:** `npm run help:build` (`scripts/build-help.mjs`, marked as a devDependency) turns
+    `docs/user-guide/*.md` into `public/help/content.json` (fetched only when Help opens) and copies the
+    screenshots to `public/help/img/`. The appendix's 4 Mermaid flows were rendered once to
+    `public/help/img/diagrams/*.svg`. The build fails on any broken in-app link or missing image. The
+    output is committed; `next build` doesn't run it.
+  - **Audience** (`lib/help/audience.ts`):
+    - the general chapters for everyone, plus per role;
+    - MANAGER is read through the occupied post: department → head; college, university or the CMD office
+      → "Dean, AVP and CMD" (the AVP also gets the portal chapter);
+    - the ICT officer is recognised by the read-only university view;
+    - SYS_ADMIN sees everything.
+    - `ScopeDto` gained `code` (the CMD office is recognised by it).
+  - **Tests:** `lib/help/audience.spec.ts` (6), including that every screen→section link exists in the
+    built content, and that the chapter list matches it. 538/538, the build is clean.
+  - **Checked live on :3100:** 10 accounts each see exactly their guides. The context link, search, zoom
+    and Esc work, a phone in dark mode has no overflow, and there are no errors.
+  - The guide's Getting started now mentions Help. Its export and artifact (v3) are rebuilt.
+
 ## Working agreements for this project
 
 - Never spawn subagents (global CLAUDE.md rule) — do everything inline.
@@ -4361,3 +4483,97 @@ its model that make porting it as-is the wrong move.
     throttled (its timers and drawing are slowed), so I used direct server and curl
     timings instead.
   - 521/521 tests, and the build is clean.
+
+- **2026-09-24 (user guide, checkpoint 1: pilot, walkthrough fixes, ICT maintenance post)** — The user
+  asked for a per-role user guide with real screenshots. The plan is
+  `~/.claude/plans/i-want-you-to-jolly-wombat.md`: Markdown in `docs/user-guide/` plus a published
+  HTML page, shot on the E2E clone (:3100, mail sink), with personal emails masked and a chapter for
+  every role.
+  - **Tooling (scratchpad only, no project deps):**
+    - `playwright-core` driving the installed Chrome;
+    - sessions minted per actor on the clone;
+    - a `shoot()` helper that waits out skeletons, masks personal emails (and refuses to save a
+      shot if any remain) and draws numbered callouts;
+    - one script per storyboard phase, so shots can be re-taken.
+    - I never type passwords into the app: the MT accounts were activated by a clone-only fixture
+      script, not through the invite form.
+  - **Pilot written:**
+    - `README.md` (role finder), `00-getting-started.md`, `01-concepts.md`, `02-custodian.md`
+      (sections 1–8, direct mode and drafts, Ideal) and `12-ict-maintenance.md`;
+    - 41 screenshots in use, plus 9 admin shots for the next round;
+    - the link checker is clean.
+  - **Fixes made along the way** (the user allowed fixing, with documentation), all logged in
+    `docs/guide-walkthrough-fixes-2026-09-24.md`:
+    - G-1: Escape closes the top dialog, and pickers claim their own Escape;
+    - G-2: the top-bar search works (Enter → Register search list, Ctrl/⌘+K);
+    - G-3, G-4, G-5, G-9: raw status codes replaced by labels in filters, history, change log and
+      bulk; bulk confirmations name the value;
+    - G-6: staging in drafts mode says so ("Stage in the lab's draft") and shows the staged notice;
+    - G-7: draft entries say where a nested item is (`where`, "Monitor in Workstation 03 › Computer");
+    - G-8: Enter renames in the draft tree;
+    - G-10: the sidebar and status bar describe the active access view's scope.
+    - Checks: 522/522 tests, `tsc` clean.
+  - **ICT Maintenance Office** (user request): a view-only, university-wide post made entirely of
+    existing pieces:
+    - an OFFICE node `ICT` under ASTU;
+    - `ict.maintenance@astu.edu.et` / `astu1234`, role STAFF;
+    - the access view "ICT maintenance — every department" (UNIVERSITY, read only, PERSON audience).
+    - Built through the admin UI on the clone, and in **lrms_v2** by the new idempotent
+      `prisma/seed-ict-maintenance.ts`. `prisma/seed.ts` now calls it (8 org nodes).
+    - Verified: 9,688 resources and 1,151 needing attention across every department, with no
+      Change or Add controls. The dev DB changed by exactly +1 user and +1 node.
+    - Not yet possible: a saved "only broken" filter on a view (the Access views editor doesn't
+      author `extraFilters`).
+  - **Clone state now:**
+    - Ali's B510-R8 has a submitted draft (2 monitors Broken, Teacher Chair Maintenance, Whiteboard
+      renamed "Whiteboard (front)") and a submitted ideal (+5 workstations);
+    - Hanna's Mechanical Unit Ops lab has Chair 02–04 (Broken);
+    - there are MT staff, student, pending and property-admin accounts.
+  - **Next:** head, staff and student chapters (approve that draft and ideal), then the supply chain,
+    admin, portal, appendix, then the HTML page.
+
+- **2026-09-25 (user guide complete: every role, 24 walkthrough fixes, published page)** — Continued
+  the guide from checkpoint 1 at the user's go-ahead ("continue to the remaining chapters").
+  - **Chapters** (`docs/user-guide/`, 15 files, 136 screenshots, link check clean):
+    - README (role finder), Getting started, How LRMS thinks;
+    - Lab custodian (15 sections), Department head (10), Staff, Student, Dean/AVP, Procurement,
+      Store keeper, ICT maintenance, System admin, Property admin, Public portal;
+    - Appendix: who approves what, 4 Mermaid flows, statuses and badges, common messages.
+  - **Published page:** https://claude.ai/artifact/CGsD973BWpxFpt3EozNFDV (private until the user
+    shares it). Built from the Markdown by `scratchpad/build-guide.mjs` + `guide-shell.html`
+    (`marked`): role rail (a chapter picker on phones), hash deep links (`#head--5-compile-…`),
+    zoomable screenshots, native Mermaid, light and dark themes.
+  - **Clone walkthrough, all through the UI:**
+    - both of Ali's lab commits (the draft sent back, revised, approved; the ideal approved), and
+      30 more ideals via `drive-cse-cycle.ts`;
+    - needs raised and declined;
+    - PR-2026-001 compiled with the pre-G-13 numbers and withdrawn;
+    - PR-2026-002: sent back by the dean, revised, then dean → AVP → procurement, three pipeline
+      advances, received by the store keeper (over-receipt refused; a Projector category created by
+      the admin), and closed;
+    - a handover of 5 workstations + the projector to B510-R8 (head approved, Ali accepted);
+    - staff bookings (one approved, one declined with a note, a clash), a weekly class, and a
+      machine booking;
+    - EXT-2026-001 from the portal: forwarded to CSE, two holds, the head's ETB 2,000, the AVP's
+      quote, paid (fake verifier, telebirr `FAKE-2000`), Confirmed;
+    - a pull-transfer request for the Jaw Crusher into B510-R9, left pending at its first step.
+  - **Fixes G-11 to G-24**, each in `docs/guide-walkthrough-fixes-2026-09-24.md`:
+    - G-11: staged reasons kept. New migration `20260924120000_version_item_note`, applied to the
+      clone and `lrms_v2`.
+    - G-12: heads can see and decline open needs.
+    - G-13: purchasables no longer double-count parts or replace impaired containers, and gain a
+      To-buy column.
+    - G-14: withdrawing a request asks for confirmation.
+    - G-15: the booking calendar follows the chosen date.
+    - G-16: "whole room" instead of the lab name twice.
+    - G-17/G-22: machines are named by their place (booking, weekly class, holds).
+    - G-18: role-gated pages show the boundary page, not a raw error.
+    - G-19: a finished request's chain is shown neutral.
+    - G-20: readable approval cards (stage label, summarised justifications).
+    - G-21: receiving destinations load.
+    - G-22 also: external assignment status labels.
+    - G-23: the admin Overview copy.
+    - G-24: portal title contrast.
+    - Checks: 525/525 tests, `tsc` clean.
+  - **Dev DB `lrms_v2`:** only the ICT additions (+1 user, +1 node) and the G-11 migration; items
+    unchanged (9,685).
