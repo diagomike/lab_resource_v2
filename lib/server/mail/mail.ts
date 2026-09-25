@@ -41,6 +41,9 @@ const from = process.env.MAIL_FROM ?? "ASTU Lab Resources <no-reply@university.l
  * Callers send SEQUENTIALLY (never Promise.all) for the same reason.
  */
 export async function send(message: MailMessage): Promise<void> {
+  // The test suite sets this: DB-backed specs drive real flows that notify people, and
+  // none of that should try to reach an SMTP server. (Specs that check mail mock this module.)
+  if (process.env.MAIL_DISABLED === "true") return;
   try {
     await transporter.sendMail({ from, ...message });
   } catch (err) {

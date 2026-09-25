@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ContainerOptionDto, ItemDetailDto, PersonSummaryDto } from "@/lib/shared";
+import type { ContainerOptionDto, ItemChangeResultDto, ItemDetailDto, OrgNodeDto, PersonSummaryDto } from "@/lib/shared";
 import { TreePicker, containerTreeOptions, type TreeOption } from "@/components/TreePicker";
 import { itemStatuses } from "@/lib/shared";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
 import { useEditOptions } from "@/lib/register/useEditOptions";
+import { useAuth } from "@/lib/auth-context";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 
 type ChangeKind = "setStatus" | "setCustodian" | "setOwnerOrg" | "setCurrentOrg" | "moveInTree" | "deleteItem";
@@ -73,7 +74,8 @@ export function ChangeModal({
 }: {
   item: ItemDetailDto;
   onClose: () => void;
-  onDone: () => void;
+  /** `staged` is set when the edit went into the lab's Draft instead of the register. */
+  onDone: (staged?: ItemChangeResultDto["staged"]) => void;
   initialKind?: ChangeKind;
 }) {
   const [kind, setKind] = useState<ChangeKind>(initialKind);
@@ -84,6 +86,24 @@ export function ChangeModal({
   const [moveTargets, setMoveTargets] = useState<ContainerOptionDto[]>([]);
   const [people, setPeople] = useState<PersonSummaryDto[]>([]);
   const options = useEditOptions();
+  const { user } = useAuth();
+
+  // In a department with drafts on, a custodian's edit is staged into the lab's Draft
+  // rather than applied (mutate.ts / lab-versions.ts); SYS_ADMIN always edits directly.
+  // Say so on the button, so nobody is told "apply" for something that waits for the head.
+  const [ownerDrafts, setOwnerDrafts] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getShared<OrgNodeDto[]>("/org/nodes")
+      .then((nodes) => !cancelled && setOwnerDrafts(Boolean(nodes.find((n) => n.id === item.ownerOrgNodeId)?.draftWorkflowEnabled)))
+      .catch(() => !cancelled && setOwnerDrafts(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [item.ownerOrgNodeId]);
+  const isAdmin = Boolean(user?.roles.includes("SYS_ADMIN"));
+  const stages = ownerDrafts && !isAdmin && (kind === "setStatus" || kind === "moveInTree" || kind === "deleteItem");
 
   // Custody can go to anyone eligible, not only people who already custody something
   // in the loaded register — the forest-derived list alone could never offer a newly
@@ -163,8 +183,8 @@ export function ChangeModal({
           : kind === "moveInTree"
             ? { kind: "moveInTree" as const, itemIds: [item.id], value: value || null, note: note.trim() || undefined, expectedVersions }
             : { kind, itemIds: [item.id], value, note: note.trim() || undefined, expectedVersions };
-      await api.post("/resources/items/changes", input);
-      onDone();
+      const result = await api.post<ItemChangeResultDto>("/resources/items/changes", input);
+      onDone(result?.staged);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not apply this change");
     } finally {
@@ -234,9 +254,15 @@ export function ChangeModal({
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
+      {stages && (
+        <div className="text-10.5 text-dim bg-soft border border-accent rounded-2 px-8 py-6">
+          {item.ownerOrgNodeName} uses drafts: this goes into the lab&apos;s draft. The register changes once the department head approves it.
+        </div>
+      )}
+
       <div className="flex items-center gap-8">
         <Button variant={kind === "deleteItem" ? "danger" : "primary"} onClick={submit} disabled={busy || unchanged || (kind !== "deleteItem" && !value)}>
-          {busy ? "Working…" : kind === "deleteItem" ? "Delete" : "Confirm & apply"}
+          {busy ? "Working…" : stages ? (kind === "deleteItem" ? "Stage removal in the draft" : "Stage in the lab's draft") : kind === "deleteItem" ? "Delete" : "Confirm & apply"}
         </Button>
         <Button onClick={onClose} disabled={busy}>
           Cancel

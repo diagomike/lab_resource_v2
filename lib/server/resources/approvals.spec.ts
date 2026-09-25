@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+/** Transfer notifications (lib/server/mail/notify.ts), captured instead of sent. */
+const sent: { to: string; subject: string }[] = [];
+vi.mock("../mail/mail", () => ({ send: async (m: { to: string; subject: string }) => void sent.push({ to: m.to, subject: m.subject }) }));
 
 /** DB-backed — live chain resolution against real org nodes/heads, vacancy/handoff
  *  behaviour, and version-conflict handling are not provable as pure logic (the pure
@@ -215,10 +219,20 @@ describe("requestTransfer — policy resolution (pull: the requester holds the d
     const destLabId = await makeItem(targetNodeId, requesterId, "Chain Dest Lab");
     const sourceId = await makeItem(ownerNodeId, lenderId, "Chain Source Item");
 
+    const emailOf = async (id: string) => (await prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true } })).email;
+    let mark = sent.length;
     const result = await approvals.requestTransfer(requesterId, transferInput([sourceId], destLabId, targetNodeId));
     expect(result.outcome).toBe("ROUTED");
     if (result.outcome !== "ROUTED") throw new Error("unreachable");
     createdRequestIds.push(result.request.id);
+    // Only the first approver (the lender) is told; the next hears once it's their turn.
+    expect(sent.slice(mark).map((m) => m.to)).toEqual([await emailOf(lenderId)]);
+    mark = sent.length;
+    await approvals.decideStep(lenderId, result.request.id, "APPROVE");
+    expect(sent.slice(mark).map((m) => m.to)).toEqual([await emailOf(ownerHeadId)]);
+    mark = sent.length;
+    await approvals.decideStep(ownerHeadId, result.request.id, "REJECT", "Needed here this term");
+    expect(sent.slice(mark)).toEqual([{ to: await emailOf(requesterId), subject: `Your transfer was rejected: ${result.request.summary}` }]);
 
     expect(result.request.steps.map((s) => s.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
     expect([result.request.steps[0].status, result.request.steps[0].approverId]).toEqual(["PENDING", lenderId]);

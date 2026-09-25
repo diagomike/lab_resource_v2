@@ -112,6 +112,27 @@ describe("diffVersion", () => {
     const added = applyVersionOp(base, { kind: "createItem", parentId: "pc1", categoryId: "chair", count: 1, name: "Stool" }, ctx).items;
     expect(diffVersion(added, current, baseIds, labels)[0].lines[0]).toBe("Added in Workstation 01 › Computer");
   });
+
+  it("counts only top-most missing items as what to order — parts come inside them", () => {
+    const { items } = applyVersionOp(base, { kind: "createItem", parentId: "lab", categoryId: "ws", count: 2 }, ctx);
+    const stats = idealStats(items, current, "lab");
+    const ws = stats.find((s) => s.categoryId === "ws")!;
+    const pc = stats.find((s) => s.categoryId === "pc")!;
+    expect([ws.missing.length, ws.topMissing]).toEqual([2, 2]);
+    expect([pc.missing.length, pc.topMissing]).toEqual([2, 0]); // each arrives inside its workstation
+  });
+
+  it("says where a changed item is when it sits inside something in the lab", () => {
+    // pc1 (Computer) sits in Workstation 01: identical status lines across workstations
+    // must still say which one.
+    const { items } = applyVersionOp(base, { kind: "setStatus", itemIds: ["pc1"], value: "BROKEN" }, ctx);
+    const [entry] = diffVersion(items, current, baseIds, labels);
+    expect(entry.lines).toEqual(["Status: Working → Broken"]);
+    expect(entry.where).toBe("Workstation 01");
+    // A lab's direct child needs no place — the lab is the place.
+    const top = applyVersionOp(base, { kind: "setStatus", itemIds: ["ws1"], value: "BROKEN" }, ctx).items;
+    expect(diffVersion(top, current, baseIds, labels)[0].where).toBeUndefined();
+  });
 });
 
 describe("idealStats", () => {
@@ -122,5 +143,17 @@ describe("idealStats", () => {
     expect(stats.ws.missing.map((m) => m.name)).toEqual(["Workstation 04", "Workstation 05"]);
     expect(stats.pc).toMatchObject({ idealCount: 5, currentCount: 3, gap: 2 });
     expect(stats.lab).toBeUndefined();
+  });
+
+  it("stock that arrived unlinked fills the ideal: nothing is listed missing beyond the gap", () => {
+    const ideal = applyVersionOp(base, { kind: "createItem", parentId: "lab", categoryId: "ws", count: 2 }, ctx).items;
+    // One workstation handed over from the store — a new item, not linked to either ideal row.
+    const oneArrived = [...current, { id: "new1", parentId: "lab", categoryId: "ws", name: "Workstation 04", qty: 1, status: "WORKING" as const, props: {}, customProps: {} }];
+    let ws = idealStats(ideal, oneArrived, "lab").find((r) => r.categoryId === "ws")!;
+    expect([ws.gap, ws.topMissing, ws.missing.map((m) => m.name)]).toEqual([1, 1, ["Workstation 05"]]);
+    // Both arrived: the gap is closed and nothing is still "to acquire".
+    const bothArrived = [...oneArrived, { id: "new2", parentId: "lab", categoryId: "ws", name: "Workstation 05", qty: 1, status: "WORKING" as const, props: {}, customProps: {} }];
+    ws = idealStats(ideal, bothArrived, "lab").find((r) => r.categoryId === "ws")!;
+    expect([ws.gap, ws.topMissing, ws.missing]).toEqual([0, 0, []]);
   });
 });

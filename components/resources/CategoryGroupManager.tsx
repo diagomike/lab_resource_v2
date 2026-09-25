@@ -95,7 +95,10 @@ export function CategoryGroupManager({
                     onChange={(e) => setDraftName(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") saveRename(g.id);
-                      if (e.key === "Escape") setEditing(null);
+                      if (e.key === "Escape") {
+                        e.preventDefault(); // cancels the rename, not the dialog around it
+                        setEditing(null);
+                      }
                     }}
                     className="flex-1 h-22 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
                   />

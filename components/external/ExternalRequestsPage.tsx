@@ -8,7 +8,7 @@ import { Panel, Screen, ErrorNote, Button, Tag, Modal } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
-import { EXTERNAL_STATUS_LABEL, externalStatusTone, formatEtb, parseEtb } from "./labels";
+import { ASSIGNMENT_STATUS_LABEL, EXTERNAL_STATUS_LABEL, externalStatusTone, formatEtb, parseEtb } from "./labels";
 import { PAYMENT_STATUS_LABEL, paymentTone } from "@/components/portal/PaymentPanel";
 
 /**
@@ -201,6 +201,7 @@ function HoldModal({ request, onClose, onDone }: { request: ExternalRequestDto; 
             {room.equipment.map((m) => (
               <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-10.5 cursor-pointer ${machines.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
                 <input type="checkbox" checked={machines.includes(m.id)} onChange={() => setMachines(machines.includes(m.id) ? machines.filter((x) => x !== m.id) : [...machines, m.id])} />
+                {m.place ? `${m.place} › ` : ""}
                 {m.name}
               </label>
             ))}
@@ -268,7 +269,7 @@ function AssignmentRow({ assignment, onDone }: { assignment: ExternalAssignmentD
           )}
           {a.note && <div className="text-10.5 text-dim italic">"{a.note}"</div>}
         </div>
-        <Tag tone={a.status === "ACCEPTED" ? "good" : a.status === "DECLINED" ? "bad" : "warn"}>{a.status}</Tag>
+        <Tag tone={a.status === "ACCEPTED" ? "good" : a.status === "DECLINED" ? "bad" : "warn"}>{ASSIGNMENT_STATUS_LABEL[a.status] ?? a.status}</Tag>
         {a.canDecide && !open && (
           <>
             <Button variant="primary" onClick={() => setOpen("ACCEPT")}>
@@ -512,7 +513,8 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
                 {h.date} {h.start}–{h.end}
               </span>
               <span>{h.labName}</span>
-              <span className="text-dim">{h.resources.map((x) => x.name).join(", ")}</span>
+              {/* A whole-room hold's one resource is the lab itself — don't name it twice (G-16). */}
+              <span className="text-dim">{h.resources.some((x) => x.name !== h.labName) ? h.resources.map((x) => x.name).join(", ") : "whole room"}</span>
               <Tag tone={h.state === "CONFIRMED" ? "good" : h.state === "HELD" ? "cross" : "neutral"}>{STATE_LABEL[h.state]}</Tag>
               {h.holdExpiresAt && h.state === "HELD" && <span className="text-faint text-10">until {new Date(h.holdExpiresAt).toLocaleDateString()}</span>}
             </div>

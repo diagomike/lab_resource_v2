@@ -257,7 +257,7 @@ function IdealTab({ states, focusItem, onChanged }: { states: LabStatesDto; focu
       {show === "approved" ? (
         <Panel title="Approved ideal — what the lab should hold">
           {states.ideal ? (
-            <TreeView nodes={states.ideal.nodes} focusItem={focusItem} addedIds={new Set(states.ideal.nodes.filter((n) => !n.sourceItemId).map((n) => n.id))} />
+            <TreeView nodes={states.ideal.nodes} focusItem={focusItem} addedIds={new Set(states.idealStats.flatMap((r) => r.missing.map((m) => m.id)))} />
           ) : (
             <div className="px-14 py-12 text-11 text-dim">
               None yet. {states.canEdit ? "Open the Proposal view and start one — it begins as a copy of the lab as it is now." : "The custodian proposes one; the head approves it."}
@@ -472,8 +472,12 @@ function ChangesList({ diff, label }: { diff: DiffEntryDto[]; label: string }) {
           {diff.map((d, i) => (
             <div key={i} className="text-10.5 flex gap-8">
               <span className={`w-60 flex-none font-semibold ${tone[d.kind]}`}>{word[d.kind]}</span>
-              <span className="font-medium">{d.name}</span>
+              <span className="font-medium">
+                {d.name}
+                {d.where && <span className="font-normal text-faint"> in {d.where}</span>}
+              </span>
               <span className="text-dim">{d.lines.join(" · ")}</span>
+              {d.note && <span className="text-faint italic">“{d.note}”</span>}
             </div>
           ))}
         </div>
@@ -770,22 +774,29 @@ function RowButton({ onClick, title, children }: { onClick: () => void; title: s
 
 function RenameDialog({ node, onOp, onClose }: { node: LabTreeNodeDto; onOp: (i: VersionOpInput) => Promise<unknown>; onClose: () => void }) {
   const [name, setName] = useState(node.name);
+  const canRename = Boolean(name.trim()) && name.trim() !== node.name;
   return (
     <Modal title={`Rename "${node.name}"`} onClose={onClose} width="380px">
-      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} className="w-full h-26 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent" />
-      <div className="flex gap-8">
-        <Button
-          variant="primary"
-          disabled={!name.trim() || name.trim() === node.name}
-          onClick={async () => {
-            await onOp({ kind: "setName", itemIds: [node.id], value: name.trim() });
-            onClose();
-          }}
-        >
-          Rename
-        </Button>
-        <Button onClick={onClose}>Cancel</Button>
-      </div>
+      {/* A form, so Enter renames — typing a name and pressing Enter is what people do. */}
+      <form
+        className="flex flex-col gap-14"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!canRename) return;
+          await onOp({ kind: "setName", itemIds: [node.id], value: name.trim() });
+          onClose();
+        }}
+      >
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} className="w-full h-26 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent" />
+        <div className="flex gap-8">
+          <Button type="submit" variant="primary" disabled={!canRename}>
+            Rename
+          </Button>
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
     </Modal>
   );
 }

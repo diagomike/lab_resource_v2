@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 /**
  * The shared vocabulary every list and detail screen is built from.
@@ -178,6 +178,10 @@ export function ErrorNote({ children }: { children: ReactNode }) {
 /** An overlay dialog for an action that needs more room than a row of buttons — still
  *  flush and un-shadowed, matching the rest of the design; the backdrop is what separates
  *  it from the page, not elevation. Click the backdrop or the × to dismiss. */
+/** Open modals, innermost last — Escape closes only the top one (a Change dialog opened
+ *  over an item's details closes alone, leaving the details open). */
+const openModals: object[] = [];
+
 export function Modal({
   title,
   onClose,
@@ -189,6 +193,24 @@ export function Modal({
   children: ReactNode;
   width?: string;
 }) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const me = {};
+    openModals.push(me);
+    function onKeyDown(e: KeyboardEvent) {
+      // A picker inside the modal that closed its own list on this Escape marks it handled.
+      if (e.key !== "Escape" || e.defaultPrevented || openModals[openModals.length - 1] !== me) return;
+      e.preventDefault();
+      closeRef.current();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      openModals.splice(openModals.indexOf(me), 1);
+    };
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-14">
       <div className="absolute inset-0 bg-black opacity-50" onClick={onClose} aria-hidden="true" />

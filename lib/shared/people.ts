@@ -30,6 +30,8 @@ export const PersonDto = z.object({
   occupiesNodeName: z.string().nullable(),
   invitedByName: z.string().nullable(),
   createdAt: z.string(),
+  /** Notification emails reach this person (User.emailNotifications). */
+  emailNotifications: z.boolean(),
 });
 export type PersonDto = z.infer<typeof PersonDto>;
 

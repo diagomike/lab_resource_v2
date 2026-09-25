@@ -72,7 +72,10 @@ function MultiSelectPopover({
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        e.preventDefault(); // closes this menu, not a dialog around it
+        setOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDocMouseDown);
     document.addEventListener("keydown", onKeyDown);

@@ -157,6 +157,16 @@ export default function PersonnelPage() {
     }
   }
 
+  async function setEmailNotifications(personId: string, enabled: boolean) {
+    try {
+      await api.post(`/people/${personId}/notifications`, { enabled });
+      reload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not change this person's email notifications");
+      reload(); // puts the switch back to what is stored
+    }
+  }
+
   async function updateRoles(personId: string, roles: RoleKind[]) {
     try {
       await api.post(`/people/${personId}/roles`, { roles });
@@ -254,6 +264,7 @@ export default function PersonnelPage() {
           isSelf={managing.id === user?.id}
           onClose={() => setManageId(null)}
           onSaveRoles={(roles) => updateRoles(managing.id, roles)}
+          onSetEmailNotifications={(enabled) => setEmailNotifications(managing.id, enabled)}
           onAssignNode={(nodeId) => assignNode(managing.id, nodeId)}
           onMoveHomeNode={(nodeId) => moveHomeNode(managing.id, nodeId)}
           onDeactivate={() => deactivate(managing)}
@@ -361,6 +372,7 @@ function PersonManageModal({
   isSelf,
   onClose,
   onSaveRoles,
+  onSetEmailNotifications,
   onAssignNode,
   onMoveHomeNode,
   onDeactivate,
@@ -373,6 +385,7 @@ function PersonManageModal({
   isSelf: boolean;
   onClose: () => void;
   onSaveRoles: (roles: RoleKind[]) => void;
+  onSetEmailNotifications: (enabled: boolean) => void;
   onAssignNode: (nodeId: string | null) => void;
   onMoveHomeNode: (nodeId: string | null) => void;
   onDeactivate: () => void;
@@ -380,6 +393,9 @@ function PersonManageModal({
   onError: (m: string) => void;
 }) {
   const [roleDraft, setRoleDraft] = useState<RoleKind[]>(person.roles);
+  // Shown at once; the reloaded person (or a failed save's reload) settles it.
+  const [emailsOn, setEmailsOn] = useState(person.emailNotifications);
+  useEffect(() => setEmailsOn(person.emailNotifications), [person.emailNotifications]);
   const rolesDirty = JSON.stringify([...roleDraft].sort()) !== JSON.stringify([...person.roles].sort());
   // A head sees and may only ever set CUSTODIAN/STAFF — the server enforces the
   // identical floor (F-014 of the 2026-09-15 campaign); this just keeps the UI from
@@ -464,6 +480,21 @@ function PersonManageModal({
           />
         </div>
       )}
+
+      {/* Whether approval and outcome emails reach this person — the same switch they have
+          on their own Profile. Invitations and password resets are unaffected. */}
+      <div>
+        <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Email notifications</div>
+        <label className="flex items-start gap-8 cursor-pointer text-11">
+          <input type="checkbox" className="mt-2" checked={emailsOn} onChange={(e) => (setEmailsOn(e.target.checked), onSetEmailNotifications(e.target.checked))} />
+          <span>
+            Send this person notification emails
+            <span className="block text-10.5 text-faint">
+              Approvals waiting for them and decisions on what they asked for. Invitations and password resets always arrive.
+            </span>
+          </span>
+        </label>
+      </div>
 
       {!isSelf && person.status !== "DISABLED" && <SignInHelp person={person} onError={onError} />}
 

@@ -273,7 +273,7 @@ export const ExternalRequestDto = z.object({
   /** Departments the AVP may forward to. Empty for anyone else. */
   departments: z.array(z.object({ id: z.string(), name: z.string(), headName: z.string().nullable() })),
   /** Rooms the viewer keeps that belong to an assigned department — where they may place holds. */
-  holdRooms: z.array(z.object({ id: z.string(), name: z.string(), equipment: z.array(z.object({ id: z.string(), name: z.string() })) })),
+  holdRooms: z.array(z.object({ id: z.string(), name: z.string(), equipment: z.array(z.object({ id: z.string(), name: z.string(), place: z.string().optional() })) })),
   payments: z.array(
     z.object({
       id: z.string(),

@@ -20,8 +20,8 @@ import { generateToken, hashToken } from "../auth/token";
 import { storage } from "../resources/storage";
 import * as scope from "../resources/scope";
 import { DEFAULT_TIME_ZONE, addDays, civilToInstant, instantToCivil, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
-import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookingTarget, toReservationDto, viewerOf } from "../scheduling/context";
-import { writeReservation } from "../scheduling/reservations";
+import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookingTarget, subtreeRows, toReservationDto, viewerOf } from "../scheduling/context";
+import { equipmentOf, writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, trackingUrl } from "./mail";
 import { PROVIDER_INPUT } from "@/lib/domain/payment-receipt";
 import { enabledProviders } from "../payments/config";
@@ -387,14 +387,8 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
     : [];
   const holdRooms = [];
   for (const room of custodyRooms) {
-    const equipment = await prisma.$queryRaw<{ id: string; name: string }[]>`
-      WITH RECURSIVE down AS (
-        SELECT i.id FROM "Item" i WHERE i."parentId" = ${room.id} AND i."deletedAt" IS NULL
-        UNION SELECT c.id FROM "Item" c INNER JOIN down ON c."parentId" = down.id WHERE c."deletedAt" IS NULL
-      )
-      SELECT i.id, i.name FROM down INNER JOIN "Item" i ON i.id = down.id INNER JOIN "ResourceCategory" c ON c.id = i."categoryId"
-      WHERE c."bookingMode" = 'EQUIPMENT' AND i.status = 'WORKING' ORDER BY i.name
-    `;
+    // Same list (and "Workstation 01 › Computer" places) as booking uses — working machines only.
+    const equipment = equipmentOf(await subtreeRows(prisma, room.id), room.id).map((m) => ({ id: m.id, name: m.name, place: m.place }));
     holdRooms.push({ ...room, equipment });
   }
 

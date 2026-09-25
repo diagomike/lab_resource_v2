@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+/** Booking notifications (lib/server/mail/notify.ts), captured instead of sent. */
+const sent: { to: string; subject: string }[] = [];
+vi.mock("../mail/mail", () => ({ send: async (m: { to: string; subject: string }) => void sent.push({ to: m.to, subject: m.subject }) }));
 import { addDays, instantToCivil, weekdayOf } from "@/lib/domain/civil-time";
 
 /** DB-backed — the exclusion constraint, the per-lab lock, hold expiry and series
@@ -130,6 +134,21 @@ describe("staff bookings", () => {
 
     const own = await reservations.createStaffBooking(custodianId, booking([pc2], date, "08:00", "09:00"));
     expect(own.state).toBe("CONFIRMED");
+  });
+
+  it("the custodian is emailed a staff request, and the requester the decision", async () => {
+    const emailOf = async (id: string) => (await prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true } })).email;
+    const date = dayAhead(12);
+    let mark = sent.length;
+    const asked = await reservations.createStaffBooking(staffId, booking([pc1], date, "08:00", "09:00"));
+    expect(sent.slice(mark)).toEqual([{ to: await emailOf(custodianId), subject: `Booking request for ${asked.labName} on ${date}` }]);
+    mark = sent.length;
+    await reservations.decideBooking(custodianId, asked.id, "DECLINE", "Exams that week");
+    expect(sent.slice(mark)).toEqual([{ to: await emailOf(staffId), subject: `Your booking of ${asked.labName} on ${date} was declined` }]);
+    // A custodian's own booking confirms at once — nobody to tell.
+    mark = sent.length;
+    await reservations.createStaffBooking(custodianId, booking([pc2], date, "10:00", "11:00"));
+    expect(sent.slice(mark)).toEqual([]);
   });
 
   it("booking a room clashes with a confirmed machine inside it, and a machine clashes with a confirmed room; back-to-back is fine", async () => {

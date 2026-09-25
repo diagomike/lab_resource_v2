@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+/** Approval notifications (lib/server/mail/notify.ts), captured instead of sent. */
+const sent: { to: string; subject: string }[] = [];
+vi.mock("../mail/mail", () => ({ send: async (m: { to: string; subject: string }) => void sent.push({ to: m.to, subject: m.subject }) }));
 
 /** DB-backed — lab Drafts and Ideals as whole trees (2026-09-22): auto-staging from
  *  the register, merging on approval (and refusing a stale merge), ideal proposals,
@@ -107,12 +111,14 @@ describe("Draft — staged from the register, merged on approval", () => {
 
   it("a custodian's register edit goes into the lab's Draft, not the register", async () => {
     const pc = await prisma.item.findFirstOrThrow({ where: { categoryId: pcCat, parent: { parentId: labId, name: "Workstation 02" } } });
-    const result = await mutate.applyChange(custodianId, { kind: "setStatus", itemIds: [pc.id], value: "BROKEN" });
+    const result = await mutate.applyChange(custodianId, { kind: "setStatus", itemIds: [pc.id], value: "BROKEN", note: "No signal on boot" });
     expect(result.staged?.labItemId).toBe(labId);
     expect((await prisma.item.findUniqueOrThrow({ where: { id: pc.id } })).status).toBe("WORKING");
 
     const states = await versions.getLabStates(custodianId, labId);
     expect(states.draft?.diff.map((d) => [d.kind, d.lines[0]])).toEqual([["changed", "Status: Working → Broken"]]);
+    // The reason given while staging stays with the change (G-11).
+    expect(states.draft?.diff[0].note).toBe("No signal on boot");
     const markers = await versions.pendingMarkers(custodianId);
     expect(markers[pc.id]?.lines).toEqual(["Status: Working → Broken"]);
   });
@@ -128,12 +134,19 @@ describe("Draft — staged from the register, merged on approval", () => {
   });
 
   it("submitting sends one readable request; the head approves and it merges, credited to the custodian", async () => {
+    const emailOf = async (id: string) => (await prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true } })).email;
+    let mark = sent.length;
     const request = await versions.submitVersion(custodianId, labId, "DRAFT");
     expect(request.canDecide).toBe(false);
+    // The head is told a draft is waiting; the custodian isn't told about their own submit.
+    expect(sent.slice(mark)).toEqual([{ to: await emailOf(headId), subject: `${request.labName}: a draft is waiting for your approval` }]);
     expect(request.summary.map((s) => s.kind).sort()).toEqual(["added", "added", "changed", "removed"]);
+    expect(request.summary.find((s) => s.kind === "changed")?.note).toBe("No signal on boot");
 
+    mark = sent.length;
     const decided = await versions.decideCommit(headId, request.id, "APPROVE");
     expect(decided.status).toBe("APPLIED");
+    expect(sent.slice(mark)).toEqual([{ to: await emailOf(custodianId), subject: `${request.labName}: your draft was approved` }]);
     const children = await prisma.item.findMany({ where: { parentId: labId, deletedAt: null }, select: { name: true }, orderBy: { name: "asc" } });
     expect(children.map((c) => c.name)).toEqual(["LV Workstation 01", "LV Workstation 02", "Workstation 01", "Workstation 02"]);
     const added = await itemNamed(labId, "LV Workstation 01");
@@ -142,6 +155,7 @@ describe("Draft — staged from the register, merged on approval", () => {
     expect(pc.status).toBe("BROKEN");
     const log = await prisma.itemChange.findFirstOrThrow({ where: { itemId: pc.id, kind: "setStatus" } });
     expect(log.actorId).toBe(custodianId);
+    expect(log.note).toBe("No signal on boot"); // logged with the custodian's reason, as a direct edit would be
     expect(await prisma.labVersion.count({ where: { labItemId: labId, kind: "DRAFT" } })).toBe(0);
   });
 

@@ -9,6 +9,7 @@ import { useEditOptions } from "@/lib/register/useEditOptions";
 import { useActiveViewId } from "@/lib/register/active-view";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import { STATUS_LABEL } from "@/lib/domain/status";
 import { Panel, Screen, ErrorNote, Button, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { ResourceTable } from "./ResourceTable";
@@ -126,12 +127,13 @@ function RegisterPageInner() {
     return first.filter((f) => rest.every((fs) => fs.some((x) => x.key === f.key)));
   }, [selectedRows, categories]);
 
-  function bulkRequestSelect(kind: "setStatus" | "setCustodian" | "setOwnerOrg" | "setCurrentOrg", value: string, label: string) {
+  function bulkRequestSelect(kind: "setStatus" | "setCustodian" | "setOwnerOrg" | "setCurrentOrg", value: string, label: string, valueLabel: string) {
     if (!value) return;
     request({
       input: { kind, itemIds: selectedIds, value } as never,
       title: label,
-      message: `Apply "${label}" to ${selectedIds.length} selected resources?`,
+      // Name the value, so the confirmation says what is about to happen, not just what kind of change.
+      message: `${label} to "${valueLabel}" for ${selectedIds.length} selected resource${selectedIds.length === 1 ? "" : "s"}. Apply?`,
       tone: "warn",
     });
   }
@@ -143,7 +145,7 @@ function RegisterPageInner() {
     request({
       input: { kind: "moveInTree", itemIds: selectedRootIds, value },
       title: "Relocation",
-      message: `Move ${selectedRootIds.length} selected resource${selectedRootIds.length === 1 ? "" : "s"} (with everything inside them) to ${value ? "the chosen destination" : "the top level"}?`,
+      message: `Move ${selectedRootIds.length} selected resource${selectedRootIds.length === 1 ? "" : "s"} (with everything inside them) to ${value ? (moveTargets.find((t) => t.id === value)?.name ?? "the chosen destination") : "the top level"}?`,
       tone: "warn",
     });
   }
@@ -219,22 +221,22 @@ function RegisterPageInner() {
             <select
               defaultValue=""
               onChange={(e) => {
-                bulkRequestSelect("setStatus", e.target.value, "Status change");
+                bulkRequestSelect("setStatus", e.target.value, "Status change", STATUS_LABEL[e.target.value as keyof typeof STATUS_LABEL] ?? e.target.value);
                 e.target.value = "";
               }}
               className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
             >
               <option value="">Set status…</option>
-              {["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"].map((s) => (
+              {(["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const).map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {STATUS_LABEL[s]}
                 </option>
               ))}
             </select>
             <select
               defaultValue=""
               onChange={(e) => {
-                bulkRequestSelect("setCustodian", e.target.value, "Custody transfer");
+                bulkRequestSelect("setCustodian", e.target.value, "Custody transfer", e.target.selectedOptions[0]?.text ?? e.target.value);
                 e.target.value = "";
               }}
               className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
@@ -250,7 +252,7 @@ function RegisterPageInner() {
               <TreePicker
                 options={options.unitTree(options.owner)}
                 value=""
-                onChange={(id) => id && bulkRequestSelect("setOwnerOrg", id, "Ownership transfer")}
+                onChange={(id) => id && bulkRequestSelect("setOwnerOrg", id, "Ownership transfer", options.owner.find((o) => o.value === id)?.label ?? id)}
                 placeholder="Set owning unit…"
               />
             </div>
@@ -258,7 +260,7 @@ function RegisterPageInner() {
               <TreePicker
                 options={options.unitTree(options.currentOrg)}
                 value=""
-                onChange={(id) => id && bulkRequestSelect("setCurrentOrg", id, "Current unit change")}
+                onChange={(id) => id && bulkRequestSelect("setCurrentOrg", id, "Current unit change", options.currentOrg.find((o) => o.value === id)?.label ?? id)}
                 placeholder="Set current unit…"
               />
             </div>

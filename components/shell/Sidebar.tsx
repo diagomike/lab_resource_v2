@@ -39,6 +39,9 @@ export default function Sidebar({
    *  fallback server-side, so what the dropdown shows selected is what the server
    *  will actually apply. */
   const selectedViewId = views.find((v) => v.id === activeViewId)?.id ?? views[0]?.id ?? "";
+  /** The register reach actually in force: the chosen access view's scope when there is
+   *  one (it can widen reads well past the person's own unit), else their default. */
+  const effectiveScopeMode = views.find((v) => v.id === selectedViewId)?.scope ?? me?.scopeMode;
 
   const go = (path: string) => {
     router.push(path);
@@ -82,7 +85,7 @@ export default function Sidebar({
         {me && (
           <div className="text-10.5 text-dim mt-6 flex items-center gap-5">
             <span className="opacity-60">◎</span>
-            {SCOPE_LABEL[me.scopeMode]}
+            {SCOPE_LABEL[effectiveScopeMode ?? me.scopeMode]}
           </div>
         )}
 

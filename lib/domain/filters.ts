@@ -16,7 +16,7 @@
  * URL, but resolve to ordinary rules here (`newRule`) before `matchItems` ever runs.
  */
 import { newId } from "./instantiate";
-import { statusOf, type StatusInfo } from "./status";
+import { STATUS_LABEL, statusOf, type StatusInfo } from "./status";
 import type { TreeIndex } from "./tree";
 import type { Category, EffectiveStatus, Item, OrgNode, Person } from "./types";
 
@@ -111,7 +111,7 @@ export function buildFilterFields(
       group: "Core",
       options: (["WORKING", "IMPAIRED", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as EffectiveStatus[]).map((s) => ({
         value: s,
-        label: s,
+        label: STATUS_LABEL[s],
       })),
     },
     {

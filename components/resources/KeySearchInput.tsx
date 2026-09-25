@@ -98,6 +98,7 @@ export function KeySearchInput({ value, onChange, keys }: { value: string; onCha
       e.preventDefault();
       accept(active);
     } else if (e.key === "Escape") {
+      e.preventDefault(); // closes the suggestions, not the dialog around it
       setDismissed(true);
     }
   }

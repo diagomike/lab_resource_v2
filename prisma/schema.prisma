@@ -76,6 +76,11 @@ model User {
   /// Set when an administrator issues a temporary password — the person must choose
   /// their own before anything else works (session.ts refuses every other API).
   mustChangePassword Boolean @default(false)
+  /// Whether notification emails reach this person — "something is waiting for you" and
+  /// "your request was decided" (lib/server/mail/notify.ts, and staff mail about external
+  /// requests). Invitations and password resets ignore it: they are how someone gets in.
+  /// Set by the person on their Profile, or by an admin/their head in People & roles.
+  emailNotifications Boolean @default(true)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -1202,6 +1207,10 @@ model VersionItem {
   critical     Boolean    @default(false)
   props        Json       @default("{}")
   customProps  Json       @default("{}")
+  /// The reason given when this row was last changed from the register ("No signal —
+  /// screen stays black"). Shown to the head, and logged as the change's reason when
+  /// the draft merges — a direct edit keeps its reason, so a staged one must too.
+  note         String?
 
   version LabVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 

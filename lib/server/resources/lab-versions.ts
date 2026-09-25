@@ -27,6 +27,7 @@ import * as orgScope from "../org/scope";
 import { applyChange, createExactItems, type Tx } from "./mutate";
 import { toDomainCategoryMap } from "./adapt";
 import { storage } from "./storage";
+import { esc, notify, quoted } from "../mail/notify";
 
 /**
  * Lab states — Current, Draft and Ideal (2026-09-22 rework of Track 2; the pure rules
@@ -201,7 +202,7 @@ export async function applyVersionEdit(
   labItemId: string,
   kind: KindArg,
   op: VersionOpInput,
-  opts?: { dryRun?: boolean },
+  opts?: { dryRun?: boolean; note?: string },
 ): Promise<{ touched: string[]; plannedNames?: string[] }> {
   await loadLab(labItemId);
   await assertCanEditLab(actorId, labItemId);
@@ -236,6 +237,8 @@ export async function applyVersionEdit(
         throw err;
       }
       await persistRows(tx, version.id, before, after);
+      const note = opts?.note?.trim();
+      if (note && touched.length) await tx.versionItem.updateMany({ where: { versionId: version.id, id: { in: touched } }, data: { note } });
       await tx.labVersion.update({ where: { id: version.id }, data: { updatedAt: new Date() } });
       const byId = new Map(after.map((a) => [a.id, a]));
       result = { touched, ...(op.kind === "createItem" ? { plannedNames: touched.map((id) => byId.get(id)!.name) } : {}) };
@@ -324,13 +327,16 @@ export async function refreshDraft(actorId: string, labItemId: string): Promise<
 
 async function diffFor(version: { items: VersionItem[]; baseVersions: Prisma.JsonValue }, live: PrismaItem[], categories: Record<string, Category>): Promise<DiffEntryDto[]> {
   const base = Object.keys((version.baseVersions ?? {}) as Record<string, number>);
-  return diffVersion(version.items.map(toVItem), live.map(toLive), base, {
+  const diff = diffVersion(version.items.map(toVItem), live.map(toLive), base, {
     categoryName: (id) => categories[id]?.name ?? id,
     fieldLabel: (categoryId, key) => categories[categoryId]?.fields.find((f) => f.key === key)?.label ?? key,
   });
+  // The reasons given when changes were staged from the register ride along with them.
+  const noteOf = new Map(version.items.filter((i) => i.note).map((i) => [i.id, i.note!]));
+  return diff.map((d) => (d.versionItemId && noteOf.has(d.versionItemId) ? { ...d, note: noteOf.get(d.versionItemId)! } : d));
 }
 
-const summaryOf = (diff: DiffEntryDto[]) => diff.map((d) => ({ kind: d.kind, name: d.name, lines: d.lines }));
+const summaryOf = (diff: DiffEntryDto[]) => diff.map((d) => ({ kind: d.kind, name: d.name, lines: d.lines, ...(d.where ? { where: d.where } : {}), ...(d.note ? { note: d.note } : {}) }));
 
 // ── Submitting and deciding ──────────────────────────────────────────────
 
@@ -349,7 +355,21 @@ export async function submitVersion(actorId: string, labItemId: string, kind: Ki
       data: { labItemId, targetKind: kind === "DRAFT" ? "VISIBLE" : "IDEAL", requesterId: actorId, versionId: v.id, summary: summaryOf(diff) as Prisma.InputJsonValue },
     });
   });
-  return getRequest(actorId, request.id, lab.ownerOrgNodeId);
+  const dto = await getRequest(actorId, request.id, lab.ownerOrgNodeId);
+  const head = await currentHeadOf(lab.ownerOrgNodeId);
+  const what = kind === "DRAFT" ? "draft" : "ideal proposal";
+  await notify(head?.id, actorId, {
+    subject: `${lab.name}: a ${what} is waiting for your approval`,
+    paragraphs: [
+      `${esc(dto.requesterName)} submitted the ${what} for <strong>${esc(lab.name)}</strong> (${diff.length} change${diff.length === 1 ? "" : "s"}).`,
+      kind === "DRAFT"
+        ? "Approving it applies the changes to the register. Sending it back returns it to the custodian with your reason."
+        : "Approving it makes this the lab's Ideal, which purchasing measures the lab against.",
+    ],
+    path: "/approvals",
+    action: "Review it in Approvals",
+  });
+  return dto;
 }
 
 /** The custodian takes a submitted version back to keep editing. */
@@ -371,6 +391,23 @@ export async function withdrawVersion(actorId: string, labItemId: string, kind: 
  * custodian with the reason.
  */
 export async function decideCommit(actorId: string, requestId: string, decision: "APPROVE" | "REJECT", note?: string): Promise<LabCommitRequestDto> {
+  const dto = await decideCommitNow(actorId, requestId, decision, note);
+  const what = dto.targetKind === "VISIBLE" ? "draft" : "ideal proposal";
+  const outcome =
+    dto.status === "APPLIED"
+      ? { subject: `${dto.labName}: your ${what} was approved`, text: dto.targetKind === "VISIBLE" ? "Its changes are now in the register." : "It is now the lab's Ideal." }
+      : dto.status === "STALE"
+        ? { subject: `${dto.labName}: your draft couldn't be applied`, text: "Something it changes was edited in the register after the draft was copied. Refresh the draft from Current, redo the change, and submit again." }
+        : { subject: `${dto.labName}: your ${what} was sent back`, text: "It's back on Lab states for you to change and submit again." };
+  await notify(dto.requesterId, actorId, {
+    subject: outcome.subject,
+    paragraphs: [`${esc(dto.decidedByName ?? "The department head")} decided the ${what} for <strong>${esc(dto.labName)}</strong>. ${outcome.text}${quoted(dto.resolution)}`],
+    path: "/lab-states",
+  });
+  return dto;
+}
+
+async function decideCommitNow(actorId: string, requestId: string, decision: "APPROVE" | "REJECT", note?: string): Promise<LabCommitRequestDto> {
   const request = await prisma.labCommitRequest.findUnique({ where: { id: requestId }, include: { lab: { select: { ownerOrgNodeId: true } } } });
   if (!request) throw new HttpError(404, "Request not found");
   if (request.status !== "PENDING") throw new HttpError(409, "This request has already been decided.");
@@ -452,7 +489,8 @@ async function mergeDraft(tx: Tx, authorId: string, rows: VItem[], diff: DiffEnt
   const byId = new Map(rows.map((r) => [r.id, r]));
   const realOf = new Map<string, string>(); // version row id → real item id (linked or just created)
   for (const r of rows) if (r.sourceItemId && liveById.has(r.sourceItemId)) realOf.set(r.id, r.sourceItemId);
-  const apply = (input: ItemChangeInput) => applyChange(authorId, input, { bypassDraftWorkflowBlock: true, tx, cleanupKeys });
+  const applyBase = (input: ItemChangeInput) => applyChange(authorId, input, { bypassDraftWorkflowBlock: true, tx, cleanupKeys });
+  const apply = applyBase;
 
   for (const d of diff.filter((x) => x.kind === "added")) {
     const top = byId.get(d.versionItemId!)!;
@@ -473,6 +511,8 @@ async function mergeDraft(tx: Tx, authorId: string, rows: VItem[], diff: DiffEnt
     const v = byId.get(d.versionItemId!)!;
     const l = liveById.get(d.sourceItemId!)!;
     const ids = [l.id];
+    // The custodian's reason from staging becomes the logged reason, as for a direct edit.
+    const apply = (input: ItemChangeInput) => applyBase({ ...input, ...(d.note ? { note: d.note } : {}) } as ItemChangeInput);
     if (v.name !== l.name) await apply({ kind: "setName", itemIds: ids, value: v.name });
     if (v.status !== l.status) await apply({ kind: "setStatus", itemIds: ids, value: v.status });
     if (Number(v.qty) !== Number(l.qty)) await apply({ kind: "setQuantity", itemIds: ids, value: v.qty });
@@ -537,7 +577,7 @@ export async function stageFromRegister(actorId: string, input: ItemChangeInput,
   void _ignored;
   void _note;
   const op = rest as unknown as VersionOpInput;
-  const res = await applyVersionEdit(actorId, labItemId, "DRAFT", op, opts);
+  const res = await applyVersionEdit(actorId, labItemId, "DRAFT", op, { ...opts, note: typeof _note === "string" ? _note : undefined });
   const lab = await prisma.item.findUniqueOrThrow({ where: { id: labItemId }, select: { name: true } });
   return { applied: 0, itemIds: [], staged: { labItemId, labName: lab.name }, ...(res.plannedNames ? { plannedNames: res.plannedNames } : {}) };
 }
@@ -773,6 +813,9 @@ async function idealSheetRows(labItemId: string, categories: Record<string, Cate
     brokenItems: live
       .filter((l) => l.id !== labItemId && l.categoryId === r.categoryId && NEEDS_ATTENTION.includes(statusOf(statuses, l.id)))
       .map((l) => ({ id: l.id, name: l.name, status: statusOf(statuses, l.id) })),
+    buyGap: r.topMissing,
+    // Replace what failed itself; impaired containers are mended through their parts.
+    replaceCount: live.filter((l) => l.id !== labItemId && l.categoryId === r.categoryId && (l.status === "BROKEN" || l.status === "LOST")).length,
   }));
 }
 

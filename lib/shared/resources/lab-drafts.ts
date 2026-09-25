@@ -58,6 +58,8 @@ export const DiffEntryDto = z.object({
   categoryId: z.string(),
   lines: z.array(z.string()),
   markerItemId: z.string().nullable(),
+  where: z.string().optional(),
+  note: z.string().optional(),
 });
 export type DiffEntryDto = z.infer<typeof DiffEntryDto>;
 
@@ -97,7 +99,7 @@ export const LabCommitRequestDto = z.object({
   versionId: z.string().nullable(),
   status: RequestStatusSchema,
   /** What it changes, readable — kept on the request after the version is gone. */
-  summary: z.array(z.object({ kind: z.enum(["added", "removed", "changed"]), name: z.string(), lines: z.array(z.string()) })),
+  summary: z.array(z.object({ kind: z.enum(["added", "removed", "changed"]), name: z.string(), lines: z.array(z.string()), where: z.string().optional(), note: z.string().optional() })),
   note: z.string().nullable(),
   decidedById: z.string().nullable(),
   decidedByName: z.string().nullable(),
@@ -170,6 +172,8 @@ export const IdealVsActualRowDto = z.object({
   actualCount: z.number().int(),
   gap: z.number().int(),
   brokenItems: z.array(z.object({ id: z.string(), name: z.string(), status: z.string() })),
+  buyGap: z.number().int().optional(),
+  replaceCount: z.number().int().optional(),
 });
 export type IdealVsActualRowDto = z.infer<typeof IdealVsActualRowDto>;
 
@@ -183,6 +187,8 @@ export const PurchasableLabDto = z.object({
   actualCount: z.number().int(),
   gap: z.number().int(),
   brokenCount: z.number().int(),
+  buyGap: z.number().int(),
+  replaceCount: z.number().int(),
 });
 export type PurchasableLabDto = z.infer<typeof PurchasableLabDto>;
 
@@ -193,6 +199,10 @@ export const PurchasableRowDto = z.object({
   actualCount: z.number().int(),
   gap: z.number().int(),
   brokenCount: z.number().int(),
+  /** What to order to close the gap — top-most missing items only (parts come inside). */
+  buyGap: z.number().int(),
+  /** Replacements for items that failed themselves (broken or lost). */
+  replaceCount: z.number().int(),
   labs: z.array(PurchasableLabDto),
 });
 export type PurchasableRowDto = z.infer<typeof PurchasableRowDto>;

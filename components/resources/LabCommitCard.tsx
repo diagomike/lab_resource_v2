@@ -61,8 +61,12 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
         <ul className="flex flex-col gap-3 text-10.5">
           {request.summary.slice(0, 40).map((s, i) => (
             <li key={i} className="flex gap-6">
-              <span className={`min-w-0 font-medium ${KIND_LINE[s.kind]}`}>{s.name}</span>
+              <span className={`min-w-0 font-medium ${KIND_LINE[s.kind]}`}>
+                {s.name}
+                {s.where && <span className="font-normal text-faint"> in {s.where}</span>}
+              </span>
               <span className="text-dim">{s.lines.join(" · ")}</span>
+              {s.note && <span className="text-faint italic">“{s.note}”</span>}
             </li>
           ))}
           {request.summary.length > 40 && <li className="text-faint">…and {request.summary.length - 40} more</li>}

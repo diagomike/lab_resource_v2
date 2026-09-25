@@ -139,7 +139,10 @@ export async function loadOrCreateCseAras(prisma: PrismaClient, cseNodeId: strin
       existing?.id ??
       (
         await prisma.user.create({
-          data: { email: p.email, emailLower, name: p.name, title: p.title, passwordHash, status: "ACTIVE", homeNodeId: cseNodeId, roles: { create: [{ kind: "CUSTODIAN" }, { kind: "STAFF" }] } },
+          // Notification emails start OFF for the ARAs (the user's decision, 2026-09-25):
+          // they are real people with real mailboxes. Each can turn them on in Profile, or
+          // an admin or the CSE head in People & roles.
+          data: { email: p.email, emailLower, name: p.name, title: p.title, passwordHash, status: "ACTIVE", homeNodeId: cseNodeId, emailNotifications: false, roles: { create: [{ kind: "CUSTODIAN" }, { kind: "STAFF" }] } },
         })
       ).id;
   }

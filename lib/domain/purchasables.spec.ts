@@ -51,4 +51,23 @@ describe("suggestedLines", () => {
     ]);
     expect(lines[1].justification).toBe("Ideal 4, current 4 across 1 lab (A −0 +2 broken)");
   });
+
+  it("summarises the per-lab breakdown once more than four labs contribute", () => {
+    const labs = ["a", "b", "c", "d", "e"].map((id, i) => sheet(id, [row("pc", 10, 10 - (i + 1))]));
+    const [line] = suggestedLines(aggregatePurchasables(labs), false);
+    expect(line.qty).toBe(15);
+    expect(line.justification).toBe("Ideal 50, current 35 across 5 labs (5 labs; most in E −5, D −4, C −3)");
+  });
+
+  it("orders top-most missing items only, and replacements only for what failed itself", () => {
+    // 5 workstations missing (each with a computer inside); 4 computers impaired by a
+    // dead RAM stick each; those 4 RAM sticks are the broken ones.
+    const ws: LabIdealRow = { ...row("ws", 25, 20), categoryName: "Workstation Setup", buyGap: 5, replaceCount: 0 };
+    const pc: LabIdealRow = { ...row("pc", 25, 20, 4), buyGap: 0, replaceCount: 0 };
+    const ram: LabIdealRow = { ...row("ram", 25, 20, 4), categoryName: "RAM", buyGap: 0, replaceCount: 4 };
+    const out = aggregatePurchasables([sheet("a", [ws, pc, ram])]);
+    expect(Object.fromEntries(suggestedLines(out, true).map((l) => [l.categoryId, l.qty]))).toEqual({ ws: 5, ram: 4 });
+    expect(suggestedLines(out, false).map((l) => [l.categoryId, l.qty])).toEqual([["ws", 5]]);
+    expect(out.find((r) => r.categoryId === "pc")).toMatchObject({ gap: 5, brokenCount: 4, buyGap: 0, replaceCount: 0 });
+  });
 });

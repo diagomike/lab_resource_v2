@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
-import { assertCanSeeItem } from "@/lib/server/resources/scope";
+import { assertCanBrowseUniversity, canSeeItem } from "@/lib/server/resources/scope";
+import { resolveReadOverride } from "@/lib/server/resources/views";
 import { findImageForServing } from "@/lib/server/resources/images";
 import { storage } from "@/lib/server/resources/storage";
 import { sniffImage } from "@/lib/server/resources/image-sniff";
@@ -15,6 +16,12 @@ type Params = { params: Promise<{ storageKey: string }> };
  * item read would, so a signed-out request, a guessed key, or a key copied out of one
  * department's response into another department's session all fail the same way an
  * out-of-scope item read already does — 404, not a broken-but-revealing 403.
+ *
+ * "Could read the item" means through any read path the person is allowed: their
+ * effective access view (the default one when no `?view=` rides along — the ICT
+ * office's university-wide view, say) or the university-wide browse their role permits.
+ * Checking the plain default scope alone refused photos of items those people were
+ * already shown.
  */
 export async function GET(request: NextRequest, { params }: Params) {
   try {
@@ -26,7 +33,11 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     let contentType = found.contentType;
     if (found.scope === "item") {
-      await assertCanSeeItem(user.id, found.itemId);
+      const override = await resolveReadOverride(user.id, request.nextUrl.searchParams);
+      const visible =
+        (await canSeeItem(user.id, found.itemId, override.scope?.mode, override.scope?.explicitNodeIds)) ||
+        ((await assertCanBrowseUniversity(user.id).then(() => true, () => false)) && (await canSeeItem(user.id, found.itemId, "UNIVERSITY")));
+      if (!visible) throw new HttpError(404, "Photo not found");
     }
     // A category's default image is shared vocabulary — readable by anyone signed in,
     // same as the category itself; no per-item scope check applies to it.

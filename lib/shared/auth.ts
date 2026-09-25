@@ -24,6 +24,11 @@ export const ChangePasswordInput = z.object({
 });
 export type ChangePasswordInput = z.infer<typeof ChangePasswordInput>;
 
+/** Turning notification emails on or off — for yourself (Profile) or, as an admin or
+ *  head, for someone you manage (People & roles). */
+export const SetEmailNotificationsInput = z.object({ enabled: z.boolean() });
+export type SetEmailNotificationsInput = z.infer<typeof SetEmailNotificationsInput>;
+
 export const ForgotPasswordInput = z.object({
   email: z.string().email(),
 });
@@ -45,6 +50,8 @@ export const SessionUserDto = z.object({
   /** True after an administrator set a temporary password — the shell shows only the
    *  change-password screen until it is replaced. */
   mustChangePassword: z.boolean(),
+  /** Notification emails reach this person (User.emailNotifications). */
+  emailNotifications: z.boolean(),
 });
 export type SessionUserDto = z.infer<typeof SessionUserDto>;
 

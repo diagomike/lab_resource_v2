@@ -54,11 +54,22 @@ export default function AdminDashboardPage() {
               </button>
             }
           >
-            <div className="px-14 py-14 text-11.5 text-dim leading-loose">
-              Build the org chart from the Colleges, Departments and Offices pages, use the Structure page to draw or
-              redraw who reports under whom, then invite people from the Personnel page. Lab management (assets,
-              stock, procurement, bookings) is built one module at a time from here.
-            </div>
+            {/* The four setup steps, in the order they depend on each other — each a link. */}
+            <ol className="px-14 py-12 text-11.5 text-dim leading-loose list-decimal pl-32">
+              {[
+                ["Org structure", "/admin/org-structure", "draw the university, colleges, departments and offices, and assign each one's head."],
+                ["People & roles", "/admin/people", "invite custodians, staff and the university offices; heads can invite their own department's people too."],
+                ["Categories", "/categories", "the kinds of resources and their details; make labs and machines bookable, and choose what the public portal lists."],
+                ["Access views", "/admin/access-views", "widen what a person or role may see — read-only if they should look but not touch."],
+              ].map(([label, path, text]) => (
+                <li key={path}>
+                  <button onClick={() => router.push(path)} className="text-accent hover:underline">
+                    {label}
+                  </button>{" "}
+                  — {text}
+                </li>
+              ))}
+            </ol>
           </Panel>
         </>
       )}

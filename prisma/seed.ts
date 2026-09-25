@@ -12,6 +12,7 @@
  *   │   └─ Computer Science and Engineering (CSE head)
  *   ├─ College of Mechanical, Chemical and Materials Engineering
  *   │   └─ Chemical Engineering (head.chem)
+ *   ├─ College Managing Director, code CMD (cmd@ — purchase approval after the AVP)
  *   └─ Procurement Office, code PROC (procurement officer)
  *
  * Idempotent by wipe-and-rebuild: every run clears the tables it owns and regenerates
@@ -24,6 +25,8 @@ import { PrismaClient, type RoleKind } from "@prisma/client";
 // package.
 import * as argon2 from "@node-rs/argon2";
 import { computeClosureRows } from "../lib/server/org/closure-algorithm";
+import { ensureIctMaintenance } from "./seed-ict-maintenance";
+import { ensureCmdOffice } from "./seed-cmd-office";
 
 if (process.env.NODE_ENV === "production") {
   console.error("prisma/seed.ts refuses to run with NODE_ENV=production — this wipes every User/OrgNode. Use prisma/bootstrap.ts instead.");
@@ -103,8 +106,13 @@ async function main() {
   await occupy(proc.id, procurement.id);
   await occupy(chem.id, chemHead.id);
 
-  console.log(`  7 org nodes: ASTU > CoEEC > {SE, CSE}; CoMCME > ChemE; Procurement Office (PROC)`);
-  console.log(`  admin@astu.edu.et, avp@, coeec.dean@, cse.head@, se.head@, procurement@, store.keeper@ (all / ${SEED_PASSWORD})`);
+  // The ICT Maintenance Office: a view-only, university-wide post (see its own file).
+  await ensureIctMaintenance(prisma, SEED_PASSWORD);
+  // The College Managing Director: the purchase-approval step after the AVP (see its own file).
+  await ensureCmdOffice(prisma, SEED_PASSWORD);
+
+  console.log(`  9 org nodes: ASTU > CoEEC > {SE, CSE}; CoMCME > ChemE; Procurement Office (PROC); ICT Maintenance Office (ICT); College Managing Director (CMD)`);
+  console.log(`  admin@astu.edu.et, avp@, cmd@, coeec.dean@, cse.head@, se.head@, procurement@, store.keeper@ (all / ${SEED_PASSWORD})`);
   console.log(`  Chemical Engineering: head.chem@, custodian.chem@ (Hanna Bekele)`);
   console.log(`  The 17 CSE lab custodians come with their labs — run prisma/resource-seed.ts next.`);
 }

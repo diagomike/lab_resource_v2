@@ -164,3 +164,186 @@
     background: transparent;
   }
 }
+
+/* Help & guides (components/help/HelpPage.tsx): the user guide's HTML, built from
+   docs/user-guide by scripts/build-help.mjs. Only theme tokens, so it follows light/dark
+   and the reader's text-size preference like the rest of the app. */
+@layer components {
+  .help-prose {
+    color: var(--text);
+    font-size: calc(13px * var(--font-scale, 1));
+    line-height: 1.6;
+  }
+  .help-prose > p,
+  .help-prose > ul,
+  .help-prose > ol,
+  .help-prose > aside,
+  .help-prose li > p {
+    max-width: 70ch;
+  }
+  .help-prose h2 {
+    font-size: calc(17px * var(--font-scale, 1));
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 32px 0 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    scroll-margin-top: 12px;
+  }
+  .help-prose h3 {
+    font-size: calc(14px * var(--font-scale, 1));
+    font-weight: 600;
+    margin: 22px 0 6px;
+    scroll-margin-top: 12px;
+  }
+  .help-prose p {
+    margin: 8px 0;
+  }
+  .help-prose ul,
+  .help-prose ol {
+    margin: 8px 0;
+    padding-left: 1.3em;
+  }
+  .help-prose ul {
+    list-style: disc;
+  }
+  .help-prose ol {
+    list-style: decimal;
+  }
+  .help-prose li {
+    margin: 3px 0;
+  }
+  .help-prose li::marker {
+    color: var(--faint);
+  }
+  .help-prose a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .help-prose strong {
+    font-weight: 600;
+  }
+  .help-prose code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.9em;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+  }
+  .help-prose pre.code {
+    overflow-x: auto;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font: calc(12px * var(--font-scale, 1)) / 1.5 "IBM Plex Mono", ui-monospace, monospace;
+  }
+  .help-prose pre.code code {
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+  .help-prose hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+  .help-prose .table {
+    overflow-x: auto;
+    margin: 12px 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .help-prose table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: calc(12px * var(--font-scale, 1));
+  }
+  .help-prose th,
+  .help-prose td {
+    text-align: left;
+    vertical-align: top;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .help-prose th {
+    background: var(--panel2);
+    color: var(--dim);
+    font-weight: 600;
+    font-size: calc(10.5px * var(--font-scale, 1));
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .help-prose tr:last-child td {
+    border-bottom: 0;
+  }
+  /* Screenshots: framed, and click to enlarge. They are light-theme captures, so they
+     keep a white ground in dark mode too. */
+  .help-prose figure.shot {
+    margin: 12px 0 18px;
+  }
+  .help-prose .zoom {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    background: #fff;
+    cursor: zoom-in;
+  }
+  .help-prose .zoom:hover,
+  .help-prose .zoom:focus-visible {
+    border-color: var(--accent);
+  }
+  .help-prose .zoom img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 640px;
+    object-fit: contain;
+    object-position: top center;
+  }
+  .help-prose figcaption {
+    font-size: calc(11px * var(--font-scale, 1));
+    color: var(--dim);
+    margin-top: 5px;
+  }
+  .help-prose figure.diagram {
+    overflow-x: auto;
+    margin: 12px 0;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .help-prose figure.diagram img {
+    max-width: none;
+    height: auto;
+  }
+  .help-prose aside {
+    margin: 12px 0;
+    padding: 10px 14px;
+    border-radius: 4px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+  }
+  .help-prose aside.tip {
+    background: var(--goodbg);
+    border-color: var(--good);
+  }
+  .help-prose aside p {
+    margin: 4px 0;
+  }
+  .help-prose .tip-label {
+    display: inline-block;
+    font-size: calc(10px * var(--font-scale, 1));
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--good);
+    margin-right: 6px;
+  }
+}

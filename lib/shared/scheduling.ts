@@ -158,7 +158,8 @@ export const SchedulingLabDto = z.object({
   /** Staff requests waiting on this room's custodian. */
   pendingCount: z.number().int(),
   /** Bookable machines inside it, for the series/booking forms. */
-  equipment: z.array(z.object({ id: z.string(), name: z.string(), categoryName: z.string() })),
+  /** `place`: where the machine sits inside the room ("Workstation 01"), empty at the top level. */
+  equipment: z.array(z.object({ id: z.string(), name: z.string(), categoryName: z.string(), place: z.string().optional() })),
 });
 export type SchedulingLabDto = z.infer<typeof SchedulingLabDto>;
 

@@ -5,6 +5,7 @@ import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
 import { applyChange, topMostItemIds, type Tx } from "./mutate";
+import { esc, notify, quoted } from "../mail/notify";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { canPlace } from "@/lib/domain/placement";
 import { allocateNames } from "@/lib/domain/naming";
@@ -604,7 +605,40 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
     return request.id;
   });
 
-  return { outcome: "ROUTED", request: await getRequest(actorId, requestId) };
+  const request = await getRequest(actorId, requestId);
+  await tellNextApprover(request, actorId);
+  return { outcome: "ROUTED", request };
+}
+
+// ── Notifications (lib/server/mail/notify.ts) — always after the write commits ────
+
+/** Whoever the request now waits on: an approver, or a custodian confirming receipt. */
+async function tellNextApprover(request: ChangeRequestDto, actorId: string): Promise<void> {
+  const step = request.steps.find((s) => s.status === "PENDING");
+  if (!step?.approverId) return;
+  await notify(step.approverId, actorId, {
+    subject: `A transfer is waiting for you: ${request.summary}`,
+    paragraphs: [
+      `${esc(request.requesterName)}'s request has reached your step (${esc(step.label)}): <strong>${esc(request.summary)}</strong>.${quoted(request.note)}`,
+      step.receipt ? "Confirm it under <strong>Approvals → Transfers</strong> once it's with you." : "Approve or reject it under <strong>Approvals → Transfers</strong>.",
+    ],
+    path: "/approvals",
+    action: "Open Approvals",
+  });
+}
+
+async function tellRequesterOutcome(request: ChangeRequestDto, actorId: string): Promise<void> {
+  const outcome =
+    request.status === "APPLIED"
+      ? ["is done", "Every step approved it, and the register now shows the change."]
+      : request.status === "REJECTED"
+        ? ["was rejected", "Nothing was moved."]
+        : ["couldn't be applied", "Something it depends on changed while it was waiting, so nothing was moved. Raise it again if it's still needed."];
+  await notify(request.requesterId, actorId, {
+    subject: `Your transfer ${outcome[0]}: ${request.summary}`,
+    paragraphs: [`<strong>${esc(request.summary)}</strong>: ${outcome[1]}${quoted(request.resolution)}`],
+    path: "/approvals",
+  });
 }
 
 // ── Deciding a step ──────────────────────────────────────────────────────────────
@@ -642,6 +676,13 @@ type DecideOutcome = { done: true } | { done: false; requesterId: string; payloa
  * write need no lock of their own.
  */
 export async function decideStep(actorId: string, requestId: string, decision: "APPROVE" | "REJECT", note?: string): Promise<ChangeRequestDto> {
+  const request = await decideStepNow(actorId, requestId, decision, note);
+  if (request.status === "PENDING") await tellNextApprover(request, actorId);
+  else await tellRequesterOutcome(request, actorId);
+  return request;
+}
+
+async function decideStepNow(actorId: string, requestId: string, decision: "APPROVE" | "REJECT", note?: string): Promise<ChangeRequestDto> {
   const outcome = await prisma.$transaction(async (tx): Promise<DecideOutcome> => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${requestId}))`;
 
@@ -734,6 +775,12 @@ export async function cancelRequest(actorId: string, requestId: string): Promise
   if (!request || request.status !== "PENDING") throw new HttpError(404, "Request not found");
   if (request.requesterId !== actorId) throw new HttpError(403, "Only the person who raised this request may cancel it.");
   await prisma.changeRequest.update({ where: { id: requestId }, data: { status: "CANCELLED", resolvedAt: new Date() } });
+  const dto = await getRequest(actorId, requestId);
+  await notify(dto.steps.find((s) => s.status === "PENDING")?.approverId, actorId, {
+    subject: `Transfer withdrawn: ${dto.summary}`,
+    paragraphs: [`${esc(dto.requesterName)} withdrew <strong>${esc(dto.summary)}</strong>. There's nothing left for you to decide.`],
+    path: "/approvals",
+  });
 }
 
 // ── Reading ──────────────────────────────────────────────────────────────────────

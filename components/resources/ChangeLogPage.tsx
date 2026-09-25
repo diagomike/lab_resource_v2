@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { changeValueLabel } from "@/lib/domain/status";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ChangeLogEntryDto, ItemChangeKind, ItemChangeTarget, ResourceCategoryDto } from "@/lib/shared";
 import { itemChangeKinds } from "@/lib/shared";
@@ -265,8 +266,8 @@ function EntryRow({ entry, onOpenItem }: { entry: ChangeLogEntryDto; onOpenItem:
       </td>
       <td className="px-10 py-7 text-11 whitespace-nowrap">{CHANGE_LABEL[entry.kind as ItemChangeKind] ?? entry.kind}</td>
       <td className="px-10 py-7 text-10.5 text-dim">{show(entry.field)}</td>
-      <td className="px-10 py-7 text-10.5 text-dim max-w-[160px] truncate">{show(entry.before)}</td>
-      <td className="px-10 py-7 text-10.5 font-medium max-w-[160px] truncate">{show(entry.after)}</td>
+      <td className="px-10 py-7 text-10.5 text-dim max-w-[160px] truncate">{changeValueLabel(entry.field, entry.before)}</td>
+      <td className="px-10 py-7 text-10.5 font-medium max-w-[160px] truncate">{changeValueLabel(entry.field, entry.after)}</td>
       <td className="px-10 py-7 text-10.5 text-dim whitespace-nowrap">{entry.actorName}</td>
       <td className="px-10 py-7 text-10.5 text-dim max-w-[180px] truncate">{show(entry.note)}</td>
     </tr>

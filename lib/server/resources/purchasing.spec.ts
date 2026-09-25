@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+/** Approval notifications (lib/server/mail/notify.ts), captured instead of sent. */
+const sent: { to: string; subject: string }[] = [];
+vi.mock("../mail/mail", () => ({ send: async (m: { to: string; subject: string }) => void sent.push({ to: m.to, subject: m.subject }) }));
 
 /** DB-backed — live chain resolution against real org nodes/heads (including a
  *  genuinely multi-parent department), vacancy/handoff behaviour, and the
@@ -48,6 +52,11 @@ let bulkCategoryId: string;
 let procurementNodeId: string;
 let procurementUserId: string;
 let realOfficeIdsToRestore: string[] = [];
+/** A College Managing Director office this file owns — inactive unless a test turns it
+ *  on, so every other test sees the shorter ladder whatever the shared DB holds. */
+let cmdNodeId: string;
+let cmdUserId: string;
+let realCmdIdsToRestore: string[] = [];
 
 const testKey = `__test-purchasing-${Date.now()}`;
 const createdUserIds: string[] = [];
@@ -153,7 +162,34 @@ beforeAll(async () => {
   // makeNode's own name is prefixed with testKey — rename to the exact string
   // findProcurementOffice looks for.
   await prisma.orgNode.update({ where: { id: procurementNodeId }, data: { name: "Procurement Office" } });
+
+  // Same for the College Managing Director: park any real one (by code or exact name),
+  // then add this file's own under the exact name findCmdOffice falls back to.
+  const realCmd = await prisma.orgNode.findMany({ where: { kind: "OFFICE", active: true, OR: [{ code: "CMD" }, { name: "College Managing Director" }] } });
+  if (realCmd.length) {
+    realCmdIdsToRestore = realCmd.map((o) => o.id);
+    await prisma.orgNode.updateMany({ where: { id: { in: realCmdIdsToRestore } }, data: { active: false } });
+  }
+  cmdUserId = await makeUser("cmd", ["MANAGER"]);
+  cmdNodeId = await makeNode("cmd-office", "OFFICE", 1, cmdUserId);
+  await prisma.orgNode.update({ where: { id: cmdNodeId }, data: { name: "College Managing Director", active: false } });
 });
+
+/** Subjects mailed to this user since `from` (an index into `sent`). */
+async function mailedTo(userId: string, from: number): Promise<string[]> {
+  const { email } = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
+  return sent.slice(from).filter((m) => m.to === email).map((m) => m.subject);
+}
+
+/** Runs `fn` with this file's College Managing Director office active. */
+async function withCmdOffice<T>(fn: () => Promise<T>): Promise<T> {
+  await prisma.orgNode.update({ where: { id: cmdNodeId }, data: { active: true } });
+  try {
+    return await fn();
+  } finally {
+    await prisma.orgNode.update({ where: { id: cmdNodeId }, data: { active: false } });
+  }
+}
 
 afterAll(async () => {
   await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: createdItemIds } }, { categoryId: { in: [serializedCategoryId, bulkCategoryId] } }] } });
@@ -172,6 +208,9 @@ afterAll(async () => {
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
   if (realOfficeIdsToRestore.length) {
     await prisma.orgNode.updateMany({ where: { id: { in: realOfficeIdsToRestore } }, data: { active: true } });
+  }
+  if (realCmdIdsToRestore.length) {
+    await prisma.orgNode.updateMany({ where: { id: { in: realCmdIdsToRestore } }, data: { active: true } });
   }
   await prisma.$disconnect();
 });
@@ -241,6 +280,75 @@ describe("compilePurchaseRequest — the org chart as the ladder", () => {
     expect(result.steps[1].approverId).toBe(collegeHeadId);
     expect(result.steps[2].approverId).toBe(universityHeadId);
     expect(result.steps[3].approverId).toBe(procurementUserId);
+  });
+
+  it("with a College Managing Director office, the ladder is head, dean, AVP, CMD, then Procurement", async () => {
+    await withCmdOffice(async () => {
+      const deptHeadId = await makeUser("cmd-chain-dept-head", ["MANAGER"]);
+      const deanId = await makeUser("cmd-chain-dean");
+      const avpId = await makeUser("cmd-chain-avp");
+      const { universityId, collegeId, deptId } = await makeChain("cmd-chain", deptHeadId);
+      await setHead(collegeId, deanId);
+      await setHead(universityId, avpId);
+
+      let mark = sent.length;
+      const result = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId));
+      createdRequestIds.push(result.id);
+      // Each approver is told when the request reaches them — and only then.
+      expect(await mailedTo(deanId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
+      expect(await mailedTo(avpId, mark)).toEqual([]);
+      expect(await mailedTo(deptHeadId, mark)).toEqual([]); // not about their own action
+      expect(result.steps.map((s) => s.selector)).toEqual(["OWNER_HEAD", "HIERARCHY", "HIERARCHY", "NODE_OCCUPANT", "NODE_OCCUPANT"]);
+      expect(result.steps.map((s) => s.approverId)).toEqual([deptHeadId, deanId, avpId, cmdUserId, procurementUserId]);
+      expect(result.steps[3].label).toBe("College Managing Director");
+
+      // The CMD decides only in turn: not before the dean and the AVP.
+      await expect(purchasing.decideStep(cmdUserId, result.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+      mark = sent.length;
+      await purchasing.decideStep(deanId, result.id, "APPROVE");
+      expect(await mailedTo(avpId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
+      mark = sent.length;
+      await purchasing.decideStep(avpId, result.id, "APPROVE");
+      expect(await mailedTo(cmdUserId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
+      // Named on the chain, so the CMD can follow it, and it is in their inbox now.
+      expect((await purchasing.getRequest(cmdUserId, result.id)).id).toBe(result.id);
+      expect((await purchasing.listForActor(cmdUserId, "inbox")).map((r) => r.id)).toContain(result.id);
+      await expect(purchasing.decideStep(procurementUserId, result.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+
+      mark = sent.length;
+      const afterCmd = await purchasing.decideStep(cmdUserId, result.id, "APPROVE", "Within the college budget");
+      expect(await mailedTo(procurementUserId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
+      expect(afterCmd.stage).toBe("APPROVING");
+      expect(afterCmd.steps[3]).toMatchObject({ status: "APPROVED", decidedById: cmdUserId });
+      mark = sent.length;
+      const done = await purchasing.decideStep(procurementUserId, result.id, "APPROVE");
+      expect(done.stage).toBe("ORDER_PLACED");
+      expect(await mailedTo(deptHeadId, mark)).toEqual([`${result.reference} is approved`]);
+    });
+  });
+
+  it("a CMD send-back returns the request to the head, and resubmitting starts again at the dean", async () => {
+    await withCmdOffice(async () => {
+      const deptHeadId = await makeUser("cmd-revise-dept-head", ["MANAGER"]);
+      const deanId = await makeUser("cmd-revise-dean");
+      const avpId = await makeUser("cmd-revise-avp");
+      const { universityId, collegeId, deptId } = await makeChain("cmd-revise", deptHeadId);
+      await setHead(collegeId, deanId);
+      await setHead(universityId, avpId);
+      const compiled = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId));
+      createdRequestIds.push(compiled.id);
+      await purchasing.decideStep(deanId, compiled.id, "APPROVE");
+      await purchasing.decideStep(avpId, compiled.id, "APPROVE");
+
+      const mark = sent.length;
+      const revised = await purchasing.decideStep(cmdUserId, compiled.id, "REVISE", "Split the order by quarter");
+      expect(revised.stage).toBe("REVISING");
+      expect(await mailedTo(deptHeadId, mark)).toEqual([`${compiled.reference} was sent back for revision`]);
+      const again = await purchasing.reviseAndResubmit(deptHeadId, compiled.id, compileInput(deptId, { title: "Split by quarter" }));
+      expect(again.stage).toBe("APPROVING");
+      expect(again.steps).toHaveLength(5);
+      expect(again.steps.find((s) => s.status === "PENDING")?.approverId).toBe(deanId);
+    });
   });
 
   it("a two-college (multi-parent) department requires BOTH deans, sequentially, before reaching the university level", async () => {

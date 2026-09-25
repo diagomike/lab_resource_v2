@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from
 import type { CategoryFieldDto, CustomPropType, ItemChangeDto, ItemDetailDto, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
 import { CUSTOM_PROP_KEY_PATTERN, customPropTypes } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
-import { STATUS_LABEL } from "@/lib/domain/status";
+import { STATUS_LABEL, changeValueLabel } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
 import { Modal, ErrorNote, ConfirmDialog, Button } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
@@ -542,7 +542,7 @@ export function Inspector({
                       {(c.before !== null || c.after !== null) && (
                         <span className="text-faint">
                           {" "}
-                          · {String(c.before ?? "—")} → {String(c.after ?? "—")}
+                          · {changeValueLabel(c.field, c.before)} → {changeValueLabel(c.field, c.after)}
                         </span>
                       )}
                       <div className="text-9.5 text-faint mt-1">
@@ -581,10 +581,12 @@ export function Inspector({
         <ChangeModal
           item={item}
           onClose={() => setChangeOpen(false)}
-          onDone={() => {
+          onDone={(staged) => {
             setChangeOpen(false);
+            setStagedIn(staged ?? null);
             onChanged();
-            load();
+            refreshMarkers();
+            load({ quiet: true });
           }}
         />
       )}

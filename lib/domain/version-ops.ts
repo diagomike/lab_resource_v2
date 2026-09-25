@@ -19,6 +19,7 @@ import type { Category, CustomProp, ItemStatus, PropValue } from "./types";
 import { canPlace } from "./placement";
 import { allocateNames, findNameClash } from "./naming";
 import { instantiateMany } from "./instantiate";
+import { STATUS_LABEL } from "./status";
 
 export interface VItem {
   id: string;
@@ -76,13 +77,9 @@ export const VERSION_OP_KINDS = [
 /** A refusal with a message fit to show the custodian as-is. */
 export class VersionOpError extends Error {}
 
-export const STATUS_LABEL: Record<ItemStatus, string> = {
-  WORKING: "Working",
-  BROKEN: "Broken",
-  UNDER_MAINTENANCE: "Under maintenance",
-  LOST: "Lost",
-  CONSUMED: "Consumed",
-};
+// Status words come from status.ts's one STATUS_LABEL, so a draft's "Status: Working →
+// Maintenance" reads the same as the chip beside it (this file used to keep its own
+// copy, which said "Under maintenance").
 
 function childrenOf(items: VItem[], parentId: string | null): VItem[] {
   return items.filter((i) => i.parentId === parentId);
@@ -263,6 +260,11 @@ export interface DiffEntry {
   /** Where a marker belongs in the live register: the item itself, or for an addition
    *  its nearest real ancestor. */
   markerItemId: string | null;
+  /** changed only: the item's place inside the lab ("Workstation 03 › Computer") when it
+   *  is nested — shown beside the name, never in `lines` (markers sit on the row already). */
+  where?: string;
+  /** The reason the custodian gave for this change, when they gave one (server-attached). */
+  note?: string;
 }
 
 function fmt(v: unknown): string {
@@ -357,8 +359,13 @@ export function diffVersion(
     if (v.parentId && newParentReal !== l.parentId) {
       lines.push(`Moved from ${pathIn(l.parentId, liveById)} into ${pathIn(v.parentId, vById)}`);
     }
+    // Say where, when it isn't obvious: two "Monitor · Status: Working → Broken" entries
+    // are otherwise indistinguishable across a lab of 20 workstations. A move already
+    // says where; a lab's direct child needs nothing — the lab is the place.
+    const moved = Boolean(v.parentId && newParentReal !== l.parentId);
+    const where = !moved && l.parentId && liveById.get(l.parentId)?.parentId ? pathIn(l.parentId, liveById) : undefined;
     if (lines.length) {
-      out.push({ kind: "changed", versionItemId: v.id, sourceItemId: l.id, name: v.name, categoryId: v.categoryId, lines, markerItemId: l.id });
+      out.push({ kind: "changed", versionItemId: v.id, sourceItemId: l.id, name: v.name, categoryId: v.categoryId, lines, markerItemId: l.id, ...(where ? { where } : {}) });
     }
   }
 
@@ -393,6 +400,9 @@ export interface IdealStatRow {
   gap: number;
   /** Ideal rows with no real counterpart in the lab — what would have to be bought. */
   missing: Array<{ id: string; name: string }>;
+  /** Of `missing`, those not inside another missing row — what an order would name. A
+   *  missing workstation is one; the computer inside it comes with it. */
+  topMissing: number;
 }
 
 /**
@@ -405,19 +415,32 @@ export function idealStats(ideal: VItem[], live: LiveItem[], labItemId: string):
   const rows = new Map<string, IdealStatRow>();
   const row = (categoryId: string) => {
     let r = rows.get(categoryId);
-    if (!r) rows.set(categoryId, (r = { categoryId, idealCount: 0, currentCount: 0, gap: 0, missing: [] }));
+    if (!r) rows.set(categoryId, (r = { categoryId, idealCount: 0, currentCount: 0, gap: 0, missing: [], topMissing: 0 }));
     return r;
   };
+  const isMissing = (v: VItem) => !v.sourceItemId || !liveIds.has(v.sourceItemId);
+  const idealById = new Map(ideal.map((v) => [v.id, v]));
   for (const v of ideal) {
     if (v.parentId === null) continue;
     const r = row(v.categoryId);
     r.idealCount += 1;
-    if (!v.sourceItemId || !liveIds.has(v.sourceItemId)) r.missing.push({ id: v.id, name: v.name });
+    if (isMissing(v)) {
+      r.missing.push({ id: v.id, name: v.name });
+      const parent = idealById.get(v.parentId);
+      if (!parent || parent.parentId === null || !isMissing(parent)) r.topMissing += 1;
+    }
   }
   for (const l of live) {
     if (l.id === labItemId) continue;
     row(l.categoryId).currentCount += 1;
   }
-  for (const r of rows.values()) r.gap = Math.max(0, r.idealCount - r.currentCount);
+  for (const r of rows.values()) {
+    r.gap = Math.max(0, r.idealCount - r.currentCount);
+    // Stock that arrives by purchase or handover is new items, never linked to the ideal's
+    // rows — but it does fill them. So a category can't be missing more than its gap: keep
+    // the last rows (an ideal's additions come last), and none once the gap is closed.
+    r.missing = r.gap > 0 ? r.missing.slice(-r.gap) : [];
+    r.topMissing = Math.min(r.topMissing, r.gap);
+  }
   return [...rows.values()];
 }

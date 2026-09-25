@@ -50,8 +50,11 @@ if (process.env.NODE_ENV === "production") {
  * on this exact risk.
  */
 async function assertSafeToReset(): Promise<void> {
+  // Only a view with a saved filter can hold a category id. A plain scope view (the ICT
+  // office's, which prisma/seed.ts creates before this runs) has nothing to go stale.
+  const hasFilter = (f: Prisma.JsonValue | null) => f !== null && !(typeof f === "object" && Object.keys(f as object).length === 0);
   const [accessViews, policies, requests, needs] = await Promise.all([
-    prisma.accessView.count(),
+    prisma.accessView.findMany({ select: { extraFilters: true } }).then((views) => views.filter((v) => hasFilter(v.extraFilters)).length),
     prisma.approvalPolicy.count(),
     prisma.changeRequest.count(),
     prisma.needLine.count(),

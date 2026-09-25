@@ -2,6 +2,7 @@ import "server-only";
 import type { BookableDto, BookingInput, BookingPreviewDto, ReservationDto, SchedulingLabDto } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
+import { esc, notify, quoted } from "../mail/notify";
 import { findClashes } from "@/lib/domain/availability";
 import { DEFAULT_TIME_ZONE, MAX_HORIZON_DAYS, addDays, civilToInstant, instantToCivil, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
 import {
@@ -167,7 +168,40 @@ export async function createStaffBooking(userId: string, input: BookingInput): P
     participantCount: input.participantCount,
     note: input.note,
   });
-  return loadDto(id, userId);
+  const dto = await loadDto(id, userId);
+  if (dto.state === "REQUESTED") {
+    await notify(await custodianOf(dto.labItemId), userId, {
+      subject: `Booking request for ${dto.labName} on ${dto.date}`,
+      paragraphs: [
+        `${esc(dto.requestedByName ?? "Someone")} asked to book ${when(dto)}: “${esc(dto.title)}”.${quoted(dto.note)}`,
+        "Approve or decline it under <strong>Approvals → Lab bookings</strong> (or Schedule → My labs).",
+      ],
+      path: "/approvals",
+      action: "Decide in Approvals",
+    });
+  }
+  return dto;
+}
+
+// ── Notifications (lib/server/mail/notify.ts) — always after the write commits ────
+
+async function custodianOf(labItemId: string): Promise<string | null> {
+  return (await prisma.item.findUnique({ where: { id: labItemId }, select: { custodianId: true } }))?.custodianId ?? null;
+}
+
+function when(dto: ReservationDto): string {
+  const what = dto.resources.length && !dto.resources.every((r) => r.itemId === dto.labItemId) ? `${dto.resources.length} machine${dto.resources.length === 1 ? "" : "s"} in ` : "";
+  return `${what}<strong>${esc(dto.labName)}</strong> on ${esc(dto.date)}, ${esc(dto.start)}–${esc(dto.end)}`;
+}
+
+/** A staff booking's requester hears how it was decided or that it was cancelled. */
+async function tellRequester(dto: ReservationDto, actorId: string, verb: string): Promise<void> {
+  if (dto.source !== "STAFF") return;
+  await notify(dto.requestedById, actorId, {
+    subject: `Your booking of ${dto.labName} on ${dto.date} was ${verb}`,
+    paragraphs: [`“${esc(dto.title)}”, ${when(dto)}, was <strong>${verb}</strong>${dto.decidedByName ? ` by ${esc(dto.decidedByName)}` : ""}.${quoted(dto.note)}`],
+    path: "/schedule",
+  });
 }
 
 // ── Decide & cancel ────────────────────────────────────────────────────────────
@@ -182,7 +216,9 @@ export async function decideBooking(userId: string, id: string, decision: "APPRO
   const now = new Date();
   if (decision === "DECLINE") {
     await prisma.reservation.update({ where: { id }, data: { state: "DECLINED", decidedById: userId, decidedAt: now, note: note || row.note } });
-    return loadDto(id, userId);
+    const declined = await loadDto(id, userId);
+    await tellRequester(declined, userId, "declined");
+    return declined;
   }
   if (row.startsAt < now) throw new HttpError(409, "This booking's time has already started, so it can only be declined.");
 
@@ -209,7 +245,9 @@ export async function decideBooking(userId: string, id: string, decision: "APPRO
     if (isOverlapViolation(err)) throw overlapConflict();
     throw err;
   }
-  return loadDto(id, userId);
+  const approved = await loadDto(id, userId);
+  await tellRequester(approved, userId, "approved");
+  return approved;
 }
 
 /** The requester may withdraw their own staff booking; the room's custodian may cancel
@@ -240,7 +278,18 @@ export async function cancelBooking(userId: string, id: string, note?: string): 
     await tx.reservation.update({ where: { id }, data: { state: "CANCELLED", note: note || row.note, decidedById: decides ? userId : row.decidedById, decidedAt: new Date() } });
     await tx.reservationResource.updateMany({ where: { reservationId: id }, data: { blocking: false } });
   });
-  return loadDto(id, userId);
+  const dto = await loadDto(id, userId);
+  if (ownStaffBooking && !decides) {
+    // The requester withdrew it — the custodian no longer needs to decide or keep the slot.
+    await notify(await custodianOf(dto.labItemId), userId, {
+      subject: `Booking withdrawn: ${dto.labName} on ${dto.date}`,
+      paragraphs: [`${esc(dto.requestedByName ?? "The requester")} withdrew “${esc(dto.title)}”, ${when(dto)}. The slot is free again.`],
+      path: "/schedule",
+    });
+  } else {
+    await tellRequester(dto, userId, "cancelled");
+  }
+  return dto;
 }
 
 // ── Reads ──────────────────────────────────────────────────────────────────────
@@ -331,6 +380,25 @@ export async function searchBookables(userId: string, q: string): Promise<Bookab
   return out;
 }
 
+/** The room's bookable machines, each with where it sits inside the room — twenty
+ *  machines all named "Computer" can only be told apart by their workstation. */
+export function equipmentOf(tree: Awaited<ReturnType<typeof subtreeRows>>, labId: string) {
+  const byId = new Map(tree.map((r) => [r.id, r]));
+  const placeOf = (id: string): string => {
+    const names: string[] = [];
+    let cur = byId.get(id)?.parentId ? byId.get(byId.get(id)!.parentId!) : undefined;
+    while (cur && cur.id !== labId) {
+      names.unshift(cur.name);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return names.join(" › ");
+  };
+  return tree
+    .filter((r) => r.bookingMode === "EQUIPMENT" && r.status === "WORKING")
+    .map((r) => ({ id: r.id, name: r.name, categoryName: r.categoryName, place: placeOf(r.id) }))
+    .sort((a, b) => `${a.place} ${a.name}`.localeCompare(`${b.place} ${b.name}`, undefined, { numeric: true }));
+}
+
 async function labDto(lab: { id: string; name: string; currentOrg: { name: string }; custodian: { name: string } }): Promise<SchedulingLabDto> {
   const [tree, pendingCount] = await Promise.all([subtreeRows(prisma, lab.id), prisma.reservation.count({ where: { labItemId: lab.id, state: "REQUESTED" } })]);
   return {
@@ -339,7 +407,7 @@ async function labDto(lab: { id: string; name: string; currentOrg: { name: strin
     orgNodeName: lab.currentOrg.name,
     custodianName: lab.custodian.name,
     pendingCount,
-    equipment: tree.filter((r) => r.bookingMode === "EQUIPMENT" && r.status === "WORKING").map((r) => ({ id: r.id, name: r.name, categoryName: r.categoryName })),
+    equipment: equipmentOf(tree, lab.id),
   };
 }
 

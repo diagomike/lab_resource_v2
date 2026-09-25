@@ -14,6 +14,8 @@ export const ScopeDto = z.object({
   name: z.string(),
   level: z.number().int(),
   kind: OrgNodeKindSchema.nullable(),
+  /** The node's stable code ("CSE", "CMD"…) — how the few named offices are recognised. */
+  code: z.string().nullable(),
   isLeaf: z.boolean(),
   isGlobal: z.boolean(),
   /** True when the user OCCUPIES this node (a department head, a dean), false when they

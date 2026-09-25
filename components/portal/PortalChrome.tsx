@@ -14,7 +14,8 @@ export default function PortalChrome({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-bg flex flex-col">
       <div className="h-38 bg-top text-topfg flex items-center gap-12 px-10 flex-none">
-        <Link href="/portal" className="flex items-center gap-8">
+        {/* text-current: the global link colour made the title blue-on-blue in the top bar. */}
+        <Link href="/portal" className="flex items-center gap-8 text-current no-underline">
           <div className="w-18 h-18 bg-white text-top text-9.5 font-bold flex items-center justify-center tracking-tight rounded-2">AS</div>
           <div className="text-12 font-semibold tracking-wide">
             ASTU <span className="opacity-60 font-normal">Resources for workshops &amp; training</span>

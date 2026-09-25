@@ -15,7 +15,7 @@
  *      forward. A silent auto-conversion would put a department's name on a purchase
  *      nobody senior ever chose to ask for.
  *   2. A PURCHASE REQUEST. The department's formal ask, compiled by the head, which
- *      walks Head → Dean → College Managing Directorate → Academic Vice President →
+ *      walks Head → Dean → Academic Vice President → College Managing Director →
  *      Procurement Office.
  *   3. A PROCUREMENT PIPELINE. What the purchasing team does afterwards, which is
  *      reporting rather than deciding: order placed, buyer found, on delivery, in
@@ -129,18 +129,19 @@ export interface PurchaseRequest {
 }
 
 /**
- * The ladder: Department Head → Dean of College → CMD → AVP → Procurement Office.
- * The first two come out of the org chart; the last three are named offices, which
- * is exactly why NODE_OCCUPANT exists — the Managing Directorate, the Vice
- * President and Procurement are not ancestors of any department, so no walk would
- * reach them. The head's own step is skipped automatically when the head is the one
- * raising it, which is the normal case: they compiled it.
+ * The ladder: Department Head → Dean of College → AVP → CMD → Procurement Office.
+ * The first three come out of the org chart (the AVP occupies the university root);
+ * the last two are named offices, which is exactly why NODE_OCCUPANT exists — the
+ * College Managing Director and Procurement are not ancestors of any department, so
+ * no walk would reach them. (The server builds the live version in
+ * lib/server/resources/purchasing.ts's buildLadderSteps.) The head's own step is
+ * skipped automatically when the head is the one raising it, which is the normal
+ * case: they compiled it.
  */
 export const PURCHASE_LADDER: StepSelector[] = [
   { type: "OWNER_HEAD" },
-  { type: "HIERARCHY", stopAtKind: "COLLEGE" },
+  { type: "HIERARCHY", stopAtKind: "UNIVERSITY" },
   { type: "NODE_OCCUPANT", nodeId: "cmd-office" },
-  { type: "NODE_OCCUPANT", nodeId: "astu" },
   { type: "NODE_OCCUPANT", nodeId: "proc-office" },
 ];
 

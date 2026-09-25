@@ -43,6 +43,8 @@ export default defineConfig({
     // migrated and seeded by test/global-setup.ts (2026-09-23 — `__test-*` fixtures from
     // interrupted runs had piled up in lrms_v2).
     globalSetup: ["./test/global-setup.ts"],
-    env: { DATABASE_URL: testDatabaseUrl(), DIRECT_URL: testDatabaseUrl() },
+    // MAIL_DISABLED: flows under test send approval notifications (lib/server/mail/notify.ts);
+    // no spec should reach an SMTP server.
+    env: { DATABASE_URL: testDatabaseUrl(), DIRECT_URL: testDatabaseUrl(), MAIL_DISABLED: "true" },
   },
 });

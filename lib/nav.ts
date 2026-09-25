@@ -92,7 +92,14 @@ export const NAV: NavGroup[] = [
 
 /** Every workspace used to get the same account section; there is only one nav now,
  *  so this is just appended once. */
-const YOU_GROUP: NavGroup = { label: "You", items: [{ key: "profile", label: "Profile & password", icon: "◌", path: "/me/profile" }] };
+const YOU_GROUP: NavGroup = {
+  label: "You",
+  items: [
+    // Everyone gets Help; which guides it shows follows the person (lib/help/audience.ts).
+    { key: "help", label: "Help & guides", icon: "?", path: "/help" },
+    { key: "profile", label: "Profile & password", icon: "◌", path: "/me/profile" },
+  ],
+};
 
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["", "Dashboard", "What the register looks like from where you stand"],
@@ -112,6 +119,7 @@ export const META: Record<string, [string, string, string]> = {
   "admin-access-views": ["Administration ›", "Access views", "What each kind of person sees in the register, and whether they may edit it"],
 
   profile: ["Me ›", "Profile & password", "Your details, your unit, and your sign-in password"],
+  help: ["Me ›", "Help & guides", "How to do things in LRMS — the general guides, and the ones for your role"],
 };
 
 function allows(itemRoles: RoleKind[] | undefined, userRoles: RoleKind[]): boolean {

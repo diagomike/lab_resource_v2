@@ -1,4 +1,11 @@
-import type { ExternalRequestStatus } from "@/lib/shared";
+import type { ExternalAssignmentStatus, ExternalRequestStatus } from "@/lib/shared";
+
+/** A department's answer to a forwarded request. */
+export const ASSIGNMENT_STATUS_LABEL: Record<ExternalAssignmentStatus, string> = {
+  PENDING: "Waiting for the head",
+  ACCEPTED: "Accepted",
+  DECLINED: "Declined",
+};
 
 export const EXTERNAL_STATUS_LABEL: Record<ExternalRequestStatus, string> = {
   SUBMITTED: "Received",

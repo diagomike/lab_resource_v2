@@ -19,6 +19,14 @@ export interface LabIdealRow {
   actualCount: number;
   gap: number;
   brokenItems: Array<{ id: string; name: string; status: string }>;
+  /** Of the gap, how many are TOP-MOST missing items — a missing workstation counts,
+   *  the computer inside it doesn't (it arrives with the workstation). Defaults to the
+   *  gap when a caller doesn't know the tree. Capped at the gap. */
+  buyGap?: number;
+  /** Items that failed THEMSELVES (own status broken or lost) — what a replacement is
+   *  for. An impaired computer is mended by replacing its broken part, and an item
+   *  under maintenance is being repaired. Defaults to brokenItems.length. */
+  replaceCount?: number;
 }
 
 export interface LabIdealSheet {
@@ -34,6 +42,8 @@ export interface PurchasableLab {
   actualCount: number;
   gap: number;
   brokenCount: number;
+  buyGap: number;
+  replaceCount: number;
 }
 
 export interface PurchasableRow {
@@ -43,6 +53,10 @@ export interface PurchasableRow {
   actualCount: number;
   gap: number;
   brokenCount: number;
+  /** What to buy to close the gap without double-counting parts (see LabIdealRow). */
+  buyGap: number;
+  /** Replacements for items that failed themselves (see LabIdealRow). */
+  replaceCount: number;
   labs: PurchasableLab[];
 }
 
@@ -53,13 +67,17 @@ export function aggregatePurchasables(sheets: LabIdealSheet[]): PurchasableRow[]
   for (const sheet of sheets) {
     for (const row of sheet.rows) {
       if (row.idealQty <= 0) continue;
-      const entry = byCategory.get(row.categoryId) ?? { categoryId: row.categoryId, categoryName: row.categoryName, idealQty: 0, actualCount: 0, gap: 0, brokenCount: 0, labs: [] };
+      const entry = byCategory.get(row.categoryId) ?? { categoryId: row.categoryId, categoryName: row.categoryName, idealQty: 0, actualCount: 0, gap: 0, brokenCount: 0, buyGap: 0, replaceCount: 0, labs: [] };
       const gap = Math.max(0, row.idealQty - row.actualCount);
+      const buyGap = Math.min(gap, row.buyGap ?? gap);
+      const replaceCount = row.replaceCount ?? row.brokenItems.length;
       entry.idealQty += row.idealQty;
       entry.actualCount += row.actualCount;
       entry.gap += gap;
       entry.brokenCount += row.brokenItems.length;
-      entry.labs.push({ labItemId: sheet.labItemId, labName: sheet.labName, idealQty: row.idealQty, actualCount: row.actualCount, gap, brokenCount: row.brokenItems.length });
+      entry.buyGap += buyGap;
+      entry.replaceCount += replaceCount;
+      entry.labs.push({ labItemId: sheet.labItemId, labName: sheet.labName, idealQty: row.idealQty, actualCount: row.actualCount, gap, brokenCount: row.brokenItems.length, buyGap, replaceCount });
       byCategory.set(row.categoryId, entry);
     }
   }
@@ -74,17 +92,26 @@ export interface SuggestedLine {
 }
 
 /** Request lines a head can start from: one per category with something to buy —
- *  the summed gap, plus a replacement for every broken/impaired unit when asked. The
+ *  the top-most missing items (a workstation, not also its computer), plus, when asked,
+ *  a replacement for every item that failed itself (not the containers it impairs). The
  *  justification carries the per-lab breakdown, so the line can be defended upward
  *  without the approver having to open the register. */
 export function suggestedLines(rows: PurchasableRow[], includeBroken: boolean): SuggestedLine[] {
   return rows
     .map((row) => {
-      const qty = row.gap + (includeBroken ? row.brokenCount : 0);
-      const perLab = row.labs
-        .filter((l) => l.gap > 0 || (includeBroken && l.brokenCount > 0))
-        .map((l) => `${l.labName} −${l.gap}${includeBroken && l.brokenCount ? ` +${l.brokenCount} broken` : ""}`)
-        .join(", ");
+      const qty = row.buyGap + (includeBroken ? row.replaceCount : 0);
+      const contributing = row.labs.filter((l) => l.buyGap > 0 || (includeBroken && l.replaceCount > 0));
+      const describe = (l: PurchasableLab) => `${l.labName} −${l.buyGap}${includeBroken && l.replaceCount ? ` +${l.replaceCount} broken` : ""}`;
+      // A few labs read well named one by one; thirty don't — an approver gets the three
+      // largest and a count, and the head keeps the full per-lab picture on screen.
+      const perLab =
+        contributing.length <= 4
+          ? contributing.map(describe).join(", ")
+          : `${contributing.length} labs; most in ${[...contributing]
+              .sort((a, b) => b.buyGap + b.replaceCount - (a.buyGap + a.replaceCount))
+              .slice(0, 3)
+              .map(describe)
+              .join(", ")}`;
       const justification = `Ideal ${row.idealQty}, current ${row.actualCount} across ${row.labs.length} lab${row.labs.length === 1 ? "" : "s"}${perLab ? ` (${perLab})` : ""}`;
       return { categoryId: row.categoryId, name: row.categoryName, qty, justification };
     })

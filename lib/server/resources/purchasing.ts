@@ -27,7 +27,8 @@ import {
   type ChainStep as DomainChainStep,
   type StepSelector,
 } from "@/lib/domain/approvals";
-import { FIRST_PIPELINE_STAGE, canRaiseNeed, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
+import { FIRST_PIPELINE_STAGE, STAGE_LABEL, canRaiseNeed, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
+import { esc, notify, quoted, usersWithRole } from "../mail/notify";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
 import type { RoleKind } from "@/lib/shared";
 
@@ -39,7 +40,8 @@ import type { RoleKind } from "@/lib/shared";
  * owning unit's head, then every ancestor up to the university root (both branches
  * of a multi-parent department required, not a choice between them — the same
  * HIERARCHY selector / `ancestorsOfChain()` Track 3 already relies on), then the
- * Procurement Office. Reuses `lib/domain/approvals.ts`'s chain engine completely
+ * College Managing Director's office when there is one, then the Procurement Office.
+ * Reuses `lib/domain/approvals.ts`'s chain engine completely
  * unchanged — a `PurchaseStep` Prisma row is a sibling of `ChainStep`, not a
  * variant of it (ChainStep is hard-tied to ChangeRequest's Item-shaped payload,
  * which a purchase request has no use for), fed through the exact same pure
@@ -127,11 +129,39 @@ async function findProcurementOffice(nodes: DomainOrgNode[]): Promise<DomainOrgN
   return matches[0];
 }
 
+/** The College Managing Director's office — the last approval before Procurement,
+ *  after the AVP. Optional, unlike Procurement: an install without one keeps the
+ *  shorter ladder rather than refusing every request. Resolved like the Procurement
+ *  Office: its stable code ("CMD") first, then the exact name. Ambiguity refuses, for
+ *  the same reason — silently picking one of two offices would route money wrongly. */
+const CMD_OFFICE_NAME = "College Managing Director";
+async function findCmdOffice(nodes: DomainOrgNode[]): Promise<DomainOrgNode | null> {
+  const byCode = await prisma.orgNode.findFirst({ where: { kind: "OFFICE", active: true, code: "CMD" } });
+  if (byCode) return nodes.find((n) => n.id === byCode.id) ?? { ...byCode, parentIds: [], occupantId: byCode.userId };
+
+  const matches = nodes.filter((n) => n.kind === "OFFICE" && n.active && n.name === CMD_OFFICE_NAME);
+  if (matches.length > 1) {
+    throw new HttpError(
+      400,
+      `More than one active "${CMD_OFFICE_NAME}" office exists on the org chart. Ask an administrator to give the real one the code "CMD", or deactivate the extra one.`,
+    );
+  }
+  return matches[0] ?? null;
+}
+
+/** Head → dean → AVP (the org chart, up to the university) → College Managing
+ *  Director (when the office exists) → Procurement Office. */
 async function buildLadderSteps(orgNodeId: string, actorId: string): Promise<DomainChainStep[]> {
   const nodes = await loadDomainOrgNodes();
   const procurement = await findProcurementOffice(nodes);
+  const cmd = await findCmdOffice(nodes);
   const orgIndex = buildOrgIndex(nodes);
-  const ladder: StepSelector[] = [{ type: "OWNER_HEAD" }, { type: "HIERARCHY", stopAtKind: "UNIVERSITY" }, { type: "NODE_OCCUPANT", nodeId: procurement.id }];
+  const ladder: StepSelector[] = [
+    { type: "OWNER_HEAD" },
+    { type: "HIERARCHY", stopAtKind: "UNIVERSITY" },
+    ...(cmd ? [{ type: "NODE_OCCUPANT" as const, nodeId: cmd.id }] : []),
+    { type: "NODE_OCCUPANT", nodeId: procurement.id },
+  ];
   return buildChain(ladder, { ownerNodeId: orgNodeId, requesterId: actorId, nodes, orgIndex });
 }
 
@@ -262,6 +292,11 @@ export async function declineNeed(actorId: string, needId: string, input: Declin
     where: { id: needId },
     data: { status: "DECLINED", handledById: actorId, handledAt: new Date(), note: input.note },
     include: needInclude,
+  });
+  await notify(need.raisedById, actorId, {
+    subject: `Your need "${need.name}" was declined`,
+    paragraphs: [`The head declined your need for <strong>${esc(need.name)}</strong> (× ${esc(String(need.qty))}).${quoted(input.note)}`],
+    path: "/purchasing",
   });
   return toNeedDto(row);
 }
@@ -418,7 +453,9 @@ export async function compilePurchaseRequest(actorId: string, input: CompilePurc
   }
 
   await settleIfComplete(requestId, actorId, steps);
-  return loadDto(requestId, actorId);
+  const dto = await loadDto(requestId, actorId);
+  await tellNextApprover(dto, actorId);
+  return dto;
 }
 
 /** Every step self-held (the requester holds every post on the route) means nothing
@@ -501,7 +538,9 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
   });
 
   await settleIfComplete(requestId, actorId, steps);
-  return loadDto(requestId, actorId);
+  const dto = await loadDto(requestId, actorId);
+  await tellNextApprover(dto, actorId);
+  return dto;
 }
 
 /**
@@ -584,7 +623,14 @@ export async function decideStep(actorId: string, requestId: string, decision: "
     }
   });
 
-  return loadDto(requestId, actorId);
+  const dto = await loadDto(requestId, actorId);
+  if (dto.stage === "APPROVING") await tellNextApprover(dto, actorId);
+  else if (dto.stage === "REJECTED") await tellRaiser(dto, actorId, `${dto.reference} was rejected`, [`${summary(dto)} was rejected and won't go further. Any needs carried into it are open again.${quoted(note)}`]);
+  else if (dto.stage === "REVISING")
+    await tellRaiser(dto, actorId, `${dto.reference} was sent back for revision`, [`${summary(dto)} was sent back to you. Edit it and resubmit; the approval chain starts again.${quoted(note)}`]);
+  else if (dto.stage === FIRST_PIPELINE_STAGE)
+    await tellRaiser(dto, actorId, `${dto.reference} is approved`, [`${summary(dto)} passed every approval and is with procurement: <strong>${STAGE_LABEL[dto.stage]}</strong>.`]);
+  return dto;
 }
 
 /**
@@ -619,6 +665,19 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string, 
     });
     await reopenCarriedNeeds(tx, requestId, request.reference, "cancelled");
   });
+
+  const dto = await loadDto(requestId, actorId);
+  if (isRaiser) {
+    // Whoever it was waiting on has nothing left to decide.
+    const waitingOn = dto.steps.find((s) => s.status === "PENDING")?.approverId;
+    await notify(waitingOn, actorId, {
+      subject: `${dto.reference} was withdrawn`,
+      paragraphs: [`${summary(dto)} was withdrawn by ${esc(dto.raisedByName)}. There's nothing left for you to decide.`],
+      path: "/approvals",
+    });
+  } else {
+    await tellRaiser(dto, actorId, `${dto.reference} was cancelled by procurement`, [`Procurement cancelled ${summary(dto)}. Any needs carried into it are open again.${quoted(note)}`]);
+  }
 }
 
 /** The reporting pipeline: ORDER_PLACED → BUYER_FOUND → ON_DELIVERY → IN_STORE. A
@@ -637,7 +696,16 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
     prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: next } }),
     prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: next, note: input.note ?? null } }),
   ]);
-  return loadDto(requestId, actorId);
+  const dto = await loadDto(requestId, actorId);
+  await tellRaiser(dto, actorId, `${dto.reference}: ${STAGE_LABEL[next]}`, [`${summary(dto)} moved on: <strong>${STAGE_LABEL[next]}</strong>.${quoted(input.note)}`]);
+  if (next === "IN_STORE") {
+    await notify(await usersWithRole("STORE_KEEPER"), actorId, {
+      subject: `${dto.reference} has arrived at the main store`,
+      paragraphs: [`${summary(dto)} has arrived. Register what came in against its lines under <strong>Purchasing → Receive</strong>.`],
+      path: "/purchasing",
+    });
+  }
+  return dto;
 }
 
 /**
@@ -747,7 +815,36 @@ export async function receivePurchaseLine(actorId: string, requestId: string, in
     ]);
   }
 
-  return loadDto(requestId, actorId);
+  const dto = await loadDto(requestId, actorId);
+  if (allComplete) {
+    await tellRaiser(dto, actorId, `${dto.reference} is in the store`, [`Everything on ${summary(dto)} is registered in the main store. The store keeper can now hand it over to your labs.`]);
+  }
+  return dto;
+}
+
+// ── Notifications (lib/server/mail/notify.ts) — always after the write commits ────
+
+function summary(dto: PurchaseRequestDto): string {
+  return `<strong>${esc(dto.reference)}</strong> “${esc(dto.title)}” (${esc(dto.orgNodeName)}, ${dto.lines.length} line${dto.lines.length === 1 ? "" : "s"})`;
+}
+
+/** The approver the request is now waiting on, if anyone holds that post. */
+async function tellNextApprover(dto: PurchaseRequestDto, actorId: string): Promise<void> {
+  const step = dto.steps.find((s) => s.status === "PENDING");
+  if (!step?.approverId) return;
+  await notify(step.approverId, actorId, {
+    subject: `${dto.reference} is waiting for your approval`,
+    paragraphs: [
+      `A purchase request has reached your step (${esc(step.label)}): ${summary(dto)}, raised by ${esc(dto.raisedByName)}.`,
+      "Approve it, send it back for revision, or reject it under <strong>Approvals → Purchasing</strong>.",
+    ],
+    path: "/approvals",
+    action: "Review it in Approvals",
+  });
+}
+
+async function tellRaiser(dto: PurchaseRequestDto, actorId: string, subject: string, paragraphs: string[]): Promise<void> {
+  await notify(dto.raisedById, actorId, { subject, paragraphs, path: "/purchasing" });
 }
 
 // ── Reading ──────────────────────────────────────────────────────────────────────
@@ -782,7 +879,8 @@ const READS_EVERY_REQUEST: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCURE
  *  - the raising unit's own members (home unit), and the occupant of that unit or of
  *    ANY unit above it in the org chart — the offices its ladder walks through,
  *    resolved via `OrgClosure` so a newly appointed dean sees it immediately;
- *  - the occupant of any office its chain names directly (the Procurement Office);
+ *  - the occupant of any office its chain names directly (the College Managing
+ *    Director, the Procurement Office);
  *  - anyone whose need was carried into one of its lines.
  * Returned as a Prisma filter (`null` = unrestricted) so a list and a point read
  * enforce exactly the same rule.

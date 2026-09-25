@@ -64,6 +64,8 @@ export default function ProfilePage() {
         </dl>
       </Panel>
 
+      <EmailNotificationsPanel />
+
       <Panel title="Change password">
         <form onSubmit={changePassword} className="px-14 py-12 flex flex-col gap-11 max-w-[380px]">
           <label className="block">
@@ -108,6 +110,54 @@ export default function ProfilePage() {
         </form>
       </Panel>
     </Screen>
+  );
+}
+
+/** Whether notification emails reach you — approvals waiting for you and decisions on
+ *  what you asked for. Saved on your account (not this browser), so it applies everywhere. */
+function EmailNotificationsPanel() {
+  const { user, refresh } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Shown at once while saving (the account refresh follows), and put back if it fails.
+  const [pending, setPending] = useState<boolean | null>(null);
+  const on = pending ?? user?.emailNotifications ?? true;
+
+  async function set(enabled: boolean) {
+    setBusy(true);
+    setError(null);
+    setPending(enabled);
+    try {
+      await api.post("/auth/notifications", { enabled });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save this setting");
+    } finally {
+      setPending(null);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title="Email notifications">
+      <div className="px-14 py-12 flex flex-col gap-9 max-w-[560px]">
+        <label className="flex items-start gap-9 cursor-pointer">
+          <input type="checkbox" className="mt-3" checked={on} disabled={busy} onChange={(e) => void set(e.target.checked)} aria-describedby="email-notifications-help" />
+          <span>
+            <span className="text-12 font-medium">Email me when something needs me or my request is decided</span>
+            <span id="email-notifications-help" className="block text-10.5 text-dim mt-2">
+              Approvals waiting for you (purchase requests, lab drafts and ideals, transfers, bookings) and the outcome of what you asked
+              for. Invitations and password-reset emails always arrive. Whatever you choose, everything waiting for you is listed under{" "}
+              <strong>Approvals</strong>.
+            </span>
+          </span>
+        </label>
+        <div className="text-10.5">
+          {on ? <Tag tone="good">emails on</Tag> : <Tag tone="neutral">emails off</Tag>}
+        </div>
+        {error && <ErrorNote>{error}</ErrorNote>}
+      </div>
+    </Panel>
   );
 }
 

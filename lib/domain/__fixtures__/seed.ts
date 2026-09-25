@@ -26,7 +26,7 @@ export const ORG_NODES: OrgNode[] = [
 
   { id: "property-office", name: "Property Administration Office", kind: "OFFICE", level: 1, parentIds: ["astu"], occupantId: "p-property", active: true },
   { id: "proc-office", name: "Procurement Office", kind: "OFFICE", level: 1, parentIds: ["astu"], occupantId: "p-procurement", active: true },
-  { id: "cmd-office", name: "College Managing Directorate", kind: "OFFICE", level: 1, parentIds: ["astu"], occupantId: "p-cmd", active: true },
+  { id: "cmd-office", name: "College Managing Director", kind: "OFFICE", level: 1, parentIds: ["astu"], occupantId: "p-cmd", active: true },
 
   { id: "se", name: "Software Engineering", kind: "DEPARTMENT", level: 2, parentIds: ["coeec"], occupantId: "p-head-se", active: true },
   { id: "chem", name: "Chemical Engineering", kind: "DEPARTMENT", level: 2, parentIds: ["comcme"], occupantId: "p-head-chem", active: true },

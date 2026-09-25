@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { HistoryTimeline } from "./PurchasingPage";
+import { STAGE_LABEL } from "@/lib/domain/purchasing";
 import { LabCommitCard } from "./LabCommitCard";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
@@ -269,7 +270,8 @@ function BookingCard({ booking, onDecided }: { booking: ReservationDto; onDecide
             <span className="font-mono">
               {booking.date} {booking.start}–{booking.end}
             </span>{" "}
-            · {booking.labName} · {booking.resources.map((r) => r.name).join(", ")}
+            · {booking.labName}
+            {booking.resources.some((r) => r.name !== booking.labName) ? ` · ${booking.resources.map((r) => r.name).join(", ")}` : " · whole room"}
             {booking.requestedByName ? ` · by ${booking.requestedByName}` : ""}
           </div>
           {booking.onBehalfOfNote && <div className="text-10.5 text-dim">On behalf of: {booking.onBehalfOfNote}</div>}
@@ -379,7 +381,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
             {request.orgNodeName} · by {request.raisedByName} · {new Date(request.createdAt).toLocaleString()}
           </div>
         </div>
-        <Tag tone={request.stage === "REJECTED" ? "bad" : request.stage === "REVISING" ? "warn" : request.stage === "APPROVING" ? "warn" : "good"}>{request.stage}</Tag>
+        <Tag tone={request.stage === "REJECTED" ? "bad" : request.stage === "REVISING" ? "warn" : request.stage === "APPROVING" ? "warn" : "good"}>{STAGE_LABEL[request.stage] ?? request.stage}</Tag>
       </div>
 
       <ChainTrail steps={request.steps} />
@@ -390,7 +392,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
             {l.name} · {l.qty}
             {l.unit ? ` ${l.unit}` : ""}
             {l.estimatedUnitCost !== null ? ` · ~${l.estimatedUnitCost}/unit` : ""}
-            {l.justification ? <span className="text-faint"> — {l.justification}</span> : null}
+            {l.justification ? <Justification text={l.justification} /> : null}
           </div>
         ))}
       </div>
@@ -501,5 +503,23 @@ export default function ApprovalsPage() {
       <PurchasingPanel viewerId={user.id} />
       {user.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN" || r === "STAFF") && <BookingsPanel />}
     </Screen>
+  );
+}
+
+/** A request line's justification. Short ones read inline; long ones (a line compiled
+ *  from thirty labs' ideals) show their first sentence-worth and open on demand, so an
+ *  approver can scan the lines without wading through every lab's breakdown. */
+function Justification({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const LIMIT = 140;
+  if (text.length <= LIMIT) return <span className="text-faint"> — {text}</span>;
+  return (
+    <span className="text-faint">
+      {" "}
+      — {open ? text : `${text.slice(0, LIMIT).trimEnd()}…`}{" "}
+      <button type="button" className="text-accent hover:underline" onClick={() => setOpen(!open)}>
+        {open ? "less" : "more"}
+      </button>
+    </span>
   );
 }

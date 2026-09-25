@@ -131,6 +131,8 @@ export function CategoryCombobox({
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
+      // An open list closes first; the dialog's own Escape then waits for the next press.
+      if (open) event.preventDefault();
       setOpen(false);
       return;
     }

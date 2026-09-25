@@ -156,11 +156,14 @@ function BookingForm({
   initialItemIds,
   slot,
   onBooked,
+  onDateChange,
 }: {
   lab: SchedulingLabDto;
   initialItemIds: string[];
   slot: { date: string; start: string } | null;
   onBooked: (r: ReservationDto) => void;
+  /** So the calendar beside the form can show the week being booked. */
+  onDateChange?: (date: string) => void;
 }) {
   const [itemIds, setItemIds] = useState<string[]>(initialItemIds);
   const [date, setDate] = useState(slot?.date ?? addDays(today(), 1));
@@ -175,6 +178,8 @@ function BookingForm({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => setItemIds(initialItemIds), [initialItemIds]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => onDateChange?.(date), [date]);
   useEffect(() => {
     if (!slot) return;
     setDate(slot.date);
@@ -253,6 +258,7 @@ function BookingForm({
                 {lab.equipment.map((m) => (
                   <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-10.5 cursor-pointer ${itemIds.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
                     <input type="checkbox" checked={itemIds.includes(m.id)} onChange={() => toggleMachine(m.id)} />
+                    {m.place ? `${m.place} › ` : ""}
                     {m.name}
                   </label>
                 ))}
@@ -427,6 +433,7 @@ function SeriesModal({ lab, onClose, onSaved }: { lab: SchedulingLabDto; onClose
             {lab.equipment.map((m) => (
               <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-10.5 cursor-pointer ${equipment.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
                 <input type="checkbox" checked={equipment.includes(m.id)} onChange={() => setEquipment(equipment.includes(m.id) ? equipment.filter((x) => x !== m.id) : [...equipment, m.id])} />
+                {m.place ? `${m.place} › ` : ""}
                 {m.name}
               </label>
             ))}
@@ -686,7 +693,10 @@ function BookTab() {
 
       {picked && lab && (
         <>
-          <Panel title={`${lab.name} — this week`} actions={<WeekNav weekStart={weekStart} onChange={setWeekStart} />}>
+          <Panel
+            title={`${lab.name} — ${weekStart === startOfWeek(today()) ? "this week" : `week of ${weekStart}`}`}
+            actions={<WeekNav weekStart={weekStart} onChange={setWeekStart} />}
+          >
             <div className="px-14 py-8 border-b border-border">
               <CalendarLegend />
             </div>
@@ -709,8 +719,11 @@ function BookTab() {
                   lab={lab}
                   initialItemIds={initialItemIds}
                   slot={slot}
+                  // The calendar follows the date being booked, so what's already there is in view.
+                  onDateChange={(d) => d && setWeekStart(startOfWeek(d))}
                   onBooked={(r) => {
                     setBooked(r);
+                    setWeekStart(startOfWeek(r.date));
                     calendar.reload();
                   }}
                 />
@@ -747,7 +760,9 @@ function MyBookingsTab() {
                 <span className="font-mono">
                   {r.date} {r.start}–{r.end}
                 </span>{" "}
-                · {r.labName} · {r.resources.map((x) => x.name).join(", ")}
+                · {r.labName}
+                {/* A whole-room booking's one resource IS the lab — don't name it twice. */}
+                {r.resources.some((x) => x.name !== r.labName) ? ` · ${r.resources.map((x) => x.name).join(", ")}` : " · whole room"}
               </div>
             </div>
             <Tag tone={stateTone(r.state)}>{STATE_LABEL[r.state]}</Tag>

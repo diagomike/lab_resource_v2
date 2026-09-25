@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStatuses } from "./status";
+import { changeValueLabel, computeStatuses } from "./status";
 import type { Category, Item } from "./types";
 
 const now = "2026-01-01T00:00:00.000Z";
@@ -85,5 +85,17 @@ describe("derived status", () => {
     expect(statuses.get("pc")?.culprits).toEqual(["monitor"]);
     // The stored fact is untouched; only the derived reading changed.
     expect(items[0].status).toBe("WORKING");
+  });
+});
+
+describe("changeValueLabel", () => {
+  it("shows stored codes by the words people see on screen", () => {
+    expect(changeValueLabel("status", "UNDER_MAINTENANCE")).toBe("Maintenance");
+    expect(changeValueLabel("booking mode", "NOT_BOOKABLE")).toBe("Not bookable");
+    expect(changeValueLabel("booking mode", "ROOM")).toBe("Bookable room");
+    expect(changeValueLabel("public portal", true)).toBe("Listed on the portal");
+    expect(changeValueLabel("counting mode", "serialized")).toBe("Individual units");
+    expect(changeValueLabel("name", "ROOM")).toBe("ROOM"); // only coded fields are translated
+    expect(changeValueLabel("booking mode", null)).toBe("—");
   });
 });

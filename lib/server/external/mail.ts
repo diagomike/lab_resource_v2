@@ -1,5 +1,6 @@
 import "server-only";
 import { send } from "../mail/mail";
+import { prisma } from "../prisma";
 
 /**
  * Track 7's outbound mail — the requester (an outside institution with no account) and
@@ -43,6 +44,10 @@ export async function mailRequester(to: string, subject: string, paragraphs: str
 
 export async function mailStaff(to: string | null | undefined, subject: string, paragraphs: string[], path: string): Promise<void> {
   if (!to) return;
+  // Staff can switch notification emails off (User.emailNotifications); the requester,
+  // who has no account, always gets theirs (mailRequester).
+  const staff = await prisma.user.findUnique({ where: { emailLower: to.toLowerCase() }, select: { emailNotifications: true } });
+  if (staff && !staff.emailNotifications) return;
   const body = paragraphs.map((p) => `<p>${p}</p>`).join("\n") + `\n<p><a href="${esc(`${APP_ORIGIN}${path}`)}" style="color:#1d5fbf">Open it in Lab Resources</a></p>`;
   await send({ to, subject, html: layout(subject, body) });
 }

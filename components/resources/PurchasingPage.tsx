@@ -16,7 +16,7 @@ import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished } from "@/lib/domain/pu
 import { suggestedLines } from "@/lib/domain/purchasables";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Panel, Screen, ErrorNote, Button, Tag } from "@/components/ui";
+import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 
 const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5";
@@ -49,14 +49,16 @@ const STEP_TONE: Record<ChainStepDto["status"], "warn" | "good" | "bad" | "neutr
   SKIPPED: "neutral",
 };
 
-function ChainTrail({ steps }: { steps: ChainStepDto[] }) {
+/** `ended`: the request is withdrawn, rejected or closed — a step still marked pending is
+ *  no longer waiting on anyone, so it isn't highlighted as if it were. */
+function ChainTrail({ steps, ended = false }: { steps: ChainStepDto[]; ended?: boolean }) {
   if (!steps.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-6">
       {steps.map((s, i) => (
         <span key={s.id} className="flex items-center gap-6">
           {i > 0 && <span className="text-faint">→</span>}
-          <Tag tone={STEP_TONE[s.status]}>
+          <Tag tone={ended && s.status === "PENDING" ? "neutral" : STEP_TONE[s.status]}>
             {s.label}
             {s.status === "PENDING" && !s.approverId ? " (vacant)" : s.approverName ? ` · ${s.approverName}` : ""}
           </Tag>
@@ -377,6 +379,9 @@ function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill:
                   <th className="text-right px-8 py-6" title="Broken, impaired, under maintenance or lost — every unit that needs attention">
                     Not working
                   </th>
+                  <th className="text-right px-8 py-6" title="What Fill request lines will order for this category">
+                    To buy
+                  </th>
                   <th className="text-left px-8 py-6">By lab</th>
                 </tr>
               </thead>
@@ -388,8 +393,24 @@ function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill:
                     <td className="px-8 py-6 text-right font-mono">{r.actualCount}</td>
                     <td className={`px-8 py-6 text-right font-mono ${r.gap > 0 ? "text-warn" : ""}`}>{r.gap}</td>
                     <td className={`px-8 py-6 text-right font-mono ${r.brokenCount > 0 ? "text-bad" : ""}`}>{r.brokenCount}</td>
+                    <td className="px-8 py-6 text-right font-mono font-semibold">{r.buyGap + (includeBroken ? r.replaceCount : 0)}</td>
                     <td className="px-8 py-6 text-10 text-dim">
-                      {r.labs.map((l) => `${l.labName}: ${l.actualCount}/${l.idealQty}${l.brokenCount ? ` (${l.brokenCount} not working)` : ""}`).join(" · ")}
+                      {/* A department can have dozens of labs — a count that opens, not a wall of text. */}
+                      <details>
+                        <summary className="cursor-pointer select-none">
+                          {r.labs.filter((l) => l.gap > 0 || l.brokenCount > 0).length} of {r.labs.length} labs short or not working
+                        </summary>
+                        <div className="mt-4 flex flex-col gap-1">
+                          {r.labs
+                            .filter((l) => l.gap > 0 || l.brokenCount > 0)
+                            .map((l) => (
+                              <span key={l.labItemId}>
+                                {l.labName}: {l.actualCount}/{l.idealQty}
+                                {l.brokenCount ? ` · ${l.brokenCount} not working` : ""}
+                              </span>
+                            ))}
+                        </div>
+                      </details>
                     </td>
                   </tr>
                 ))}
@@ -399,12 +420,17 @@ function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill:
           <div className="flex flex-wrap items-center gap-10">
             <label className="flex items-center gap-6 text-10.5">
               <input type="checkbox" checked={includeBroken} onChange={(e) => setIncludeBroken(e.target.checked)} />
-              Include replacements for units that aren&apos;t working (broken, impaired, under maintenance or lost)
+              Include replacements for items that are broken or lost
             </label>
             <Button variant="primary" onClick={fill} disabled={suggestionCount === 0}>
               Fill request lines ({suggestionCount})
             </Button>
             <span className="text-9.5 text-faint">Replaces the lines below — edit or reduce them before submitting.</span>
+          </div>
+          <div className="text-10 text-faint leading-normal">
+            <strong className="font-medium">To buy</strong> never counts a part twice: a missing workstation is one Workstation Setup (its computer, monitor and
+            parts come with it). Replacements are for items that failed themselves — an impaired computer is mended by replacing its broken part, and items
+            under maintenance are already being repaired.
           </div>
         </>
       )}
@@ -451,11 +477,19 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
     <Panel title="Compile a purchase request">
       <div className="p-12 flex flex-col gap-10">
         {error && <ErrorNote>{error}</ErrorNote>}
-        {openNeeds.length > 0 && (
-          <div className="text-10.5 text-dim">
-            {openNeeds.length} open need{openNeeds.length === 1 ? "" : "s"} in this unit — pick "From need" on a line to carry one forward.
-          </div>
-        )}
+        <OpenNeedsList
+          needs={openNeeds}
+          carried={new Set(lines.map((l) => l.fromNeedId).filter(Boolean))}
+          onAdd={(n) =>
+            setLines((prev) => {
+              const line = { ...emptyLine(), fromNeedId: n.id, name: n.name, qty: String(n.qty), unit: n.unit ?? "", categoryId: n.categoryId ?? "", justification: n.reason };
+              // Fill the first blank line rather than leaving an empty one above it.
+              const blank = prev.findIndex((l) => !l.name.trim() && !l.fromNeedId);
+              return blank >= 0 ? prev.map((l, i) => (i === blank ? { ...line, key: l.key } : l)) : [...prev, line];
+            })
+          }
+          onDeclined={loadOpenNeeds}
+        />
         <label className="flex flex-col gap-3">
           <span className={labelCls}>Title</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q1 lab equipment" className={`${inputCls} max-w-[360px]`} />
@@ -469,6 +503,100 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
         </div>
       </div>
     </Panel>
+  );
+}
+
+/** The unit's open needs, for the head: who asked, why, and two ways to answer — carry
+ *  it into the request being compiled, or decline it with a reason the raiser sees.
+ *  (Before this, the only trace of them was the "From need" picker on a line, and the
+ *  server's decline endpoint had no screen at all.) */
+function OpenNeedsList({
+  needs,
+  carried,
+  onAdd,
+  onDeclined,
+}: {
+  needs: NeedLineDto[];
+  carried: Set<string>;
+  onAdd: (need: NeedLineDto) => void;
+  onDeclined: () => void;
+}) {
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function decline(id: string) {
+    if (!note.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post<NeedLineDto>(`/resources/needs/${encodeURIComponent(id)}/decline`, { note: note.trim() });
+      setDeclining(null);
+      setNote("");
+      onDeclined();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not decline this need");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <span className={labelCls}>Open needs in this unit</span>
+      {needs.length === 0 ? (
+        <div className="text-10.5 text-faint">No open needs — nobody in the unit is waiting on a purchase.</div>
+      ) : (
+        <div className="border border-border rounded-2 divide-y divide-border">
+          {error && <ErrorNote>{error}</ErrorNote>}
+          {needs.map((n) => (
+            <div key={n.id} className="px-10 py-8 flex flex-col gap-6">
+              <div className="flex flex-wrap items-baseline gap-8">
+                <span className="text-11.5 font-medium">{n.name}</span>
+                <span className="text-10.5 font-mono text-dim">
+                  × {n.qty}
+                  {n.unit ? ` ${n.unit}` : ""}
+                </span>
+                <span className="text-10.5 text-dim">
+                  raised by {n.raisedByName} · {new Date(n.createdAt).toLocaleDateString()}
+                </span>
+                <span className="flex-1" />
+                <Button onClick={() => onAdd(n)} disabled={carried.has(n.id)}>
+                  {carried.has(n.id) ? "In this request" : "Add to request"}
+                </Button>
+                <Button variant="danger" onClick={() => (setDeclining(declining === n.id ? null : n.id), setNote(""))}>
+                  Decline…
+                </Button>
+              </div>
+              <div className="text-10.5 text-dim">“{n.reason}”</div>
+              {declining === n.id && (
+                <form
+                  className="flex flex-wrap items-center gap-6"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void decline(n.id);
+                  }}
+                >
+                  <input
+                    autoFocus
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Why — shown to the person who raised it"
+                    aria-label="Reason for declining"
+                    className={`${inputCls} flex-1 min-w-[240px]`}
+                  />
+                  <Button type="submit" variant="danger" disabled={busy || !note.trim()}>
+                    Decline need
+                  </Button>
+                  <Button onClick={() => setDeclining(null)}>Cancel</Button>
+                </form>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -573,6 +701,7 @@ function RequestCard({
     }
   }
 
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   async function cancel(procurementNote?: string) {
     setBusy(true);
     setError(null);
@@ -623,6 +752,19 @@ function RequestCard({
     }
   }
 
+  // A line usually arrives with its category already set (it was ordered as one), so the
+  // "Into" choices must be loaded for it up front — they used to load only when the
+  // category was CHANGED, which left the pre-filled lines with no destination at all.
+  useEffect(() => {
+    if (!showReceive) return;
+    for (const l of request.lines) {
+      if (!l.categoryId || receiveState[l.id]) continue;
+      if (l.receivedQty !== null && l.receivedQty >= l.qty) continue;
+      void loadContainers(l.id, l.categoryId, l.categoryId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showReceive, request.id]);
+
   async function receive(lineId: string, defaultCategoryId: string | null) {
     const f = receiveFieldsFor(lineId, defaultCategoryId);
     if (!f.qty || !f.categoryId || !f.storeParentId) return;
@@ -653,7 +795,7 @@ function RequestCard({
         <Tag tone={STAGE_TONE[request.stage] ?? "neutral"}>{STAGE_LABEL[request.stage]}</Tag>
       </div>
 
-      <ChainTrail steps={request.steps} />
+      <ChainTrail steps={request.steps} ended={isFinished(request.stage)} />
       {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
       <HistoryTimeline history={request.history} />
       {error && <ErrorNote>{error}</ErrorNote>}
@@ -733,10 +875,27 @@ function RequestCard({
           withdrawal nobody downstream is told about. */}
       {isRequester && request.stage === "APPROVING" && (
         <div>
-          <button className="text-10.5 text-bad" onClick={() => cancel()} disabled={busy}>
+          {/* Withdrawing ends the request for everyone in the chain — confirm first, like
+              every other consequential action in the app. */}
+          <button className="text-10.5 text-bad" onClick={() => setConfirmWithdraw(true)} disabled={busy}>
             Withdraw this request
           </button>
         </div>
+      )}
+      {confirmWithdraw && (
+        <ConfirmDialog
+          title="Withdraw this request"
+          message={`Withdraw ${request.reference}? It stops wherever it is in the approval chain, and any needs carried into it reopen so they can go into another request.`}
+          confirmLabel="Withdraw"
+          tone="danger"
+          busy={busy}
+          error={null}
+          onConfirm={async () => {
+            await cancel();
+            setConfirmWithdraw(false);
+          }}
+          onCancel={() => setConfirmWithdraw(false)}
+        />
       )}
       {canRunPipeline && !isFinished(request.stage) && request.stage !== "APPROVING" && request.stage !== "REVISING" && (
         <ProcurementCancel busy={busy} onCancel={cancel} />

@@ -211,7 +211,10 @@ export function TreePicker({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Escape") return setOpen(false);
+    if (e.key === "Escape") {
+      if (open) e.preventDefault(); // closes the list, not the dialog around it
+      return setOpen(false);
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (!open) setOpen(true);

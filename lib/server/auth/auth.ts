@@ -268,6 +268,7 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
       status: row.status,
       roles: user.roles,
       mustChangePassword: row.mustChangePassword,
+      emailNotifications: row.emailNotifications,
     },
     scope: node
       ? {
@@ -275,6 +276,7 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
           name: node.name,
           level: node.level,
           kind: node.kind,
+          code: node.code ?? null,
           isLeaf: childCount === 0,
           isGlobal,
           isOccupant: occupied !== null,
@@ -288,6 +290,7 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
             name: "Entire university",
             level: 0,
             kind: null,
+            code: null,
             isLeaf: false,
             isGlobal: true,
             isOccupant: false,
@@ -302,8 +305,13 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
   };
 }
 
+/** The person's own switch for notification emails (Profile). */
+export async function setOwnEmailNotifications(userId: string, enabled: boolean): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { emailNotifications: enabled } });
+}
+
 function toDto(
-  user: { id: string; email: string; name: string; phone: string | null; status: string; mustChangePassword: boolean },
+  user: { id: string; email: string; name: string; phone: string | null; status: string; mustChangePassword: boolean; emailNotifications: boolean },
   roles: RoleKind[],
 ): SessionUserDto {
   return {
@@ -314,6 +322,7 @@ function toDto(
     status: user.status as SessionUserDto["status"],
     roles,
     mustChangePassword: user.mustChangePassword,
+    emailNotifications: user.emailNotifications,
   };
 }
 

@@ -79,6 +79,7 @@ function toDto(
     roles: { kind: string }[];
     homeNode: { name: string } | null;
     orgNode: { id: string; name: string } | null;
+    emailNotifications: boolean;
   },
   invitedByName: string | null,
 ): PersonDto {
@@ -95,6 +96,7 @@ function toDto(
     occupiesNodeName: r.orgNode?.name ?? null,
     invitedByName,
     createdAt: r.createdAt.toISOString(),
+    emailNotifications: r.emailNotifications,
   };
 }
 
@@ -242,6 +244,19 @@ async function assertNotLastActiveAdmin(targetUserId: string, action: string): P
   if (otherActiveAdmins === 0) {
     throw new HttpError(400, `Cannot ${action} this person — they are the last active system administrator.`);
   }
+}
+
+/** Turns someone's notification emails on or off. Same reach as every other staff
+ *  action here (`assertMayManageStaff`): an admin for anyone, a head for their own
+ *  department's custodians and staff. Invitations and resets are unaffected. */
+export async function setEmailNotifications(actorUserId: string, actorRoles: RoleKind[], id: string, enabled: boolean): Promise<PersonDto> {
+  const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
+  if (!user) throw new HttpError(404, "Person not found");
+  if (user.id !== actorUserId) {
+    await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
+  }
+  await prisma.user.update({ where: { id }, data: { emailNotifications: enabled } });
+  return one(id);
 }
 
 export async function updateRoles(actorUserId: string, actorRoles: RoleKind[], id: string, input: UpdatePersonRolesInput): Promise<PersonDto> {

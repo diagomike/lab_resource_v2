@@ -197,3 +197,37 @@ describe("F-018 — a dean's invite and resend reach the whole subtree they can 
     ).rejects.toMatchObject({ status: 403 });
   });
 });
+
+describe("email notifications — a per-person switch", () => {
+  it("an admin switches anyone; a head only their own department's staff; others are refused", async () => {
+    const org = await import("../org/org");
+    const college = await makeNode("notif-college", 1);
+    await prisma.orgNode.update({ where: { id: college }, data: { kind: "COLLEGE" } });
+    const dept = await org.create({ name: `${testKey}-notif-dept-${userCounter++}`, level: 2, kind: "DEPARTMENT", parentIds: [college] });
+    createdNodeIds.push(dept.id);
+    const headId = await makeUser("notif-head", ["MANAGER"]);
+    await prisma.orgNode.update({ where: { id: dept.id }, data: { userId: headId } });
+    const araId = await makeUser("notif-ara", ["CUSTODIAN", "STAFF"]);
+    await prisma.user.update({ where: { id: araId }, data: { homeNodeId: dept.id } });
+    const adminId = (await prisma.user.findFirstOrThrow({ where: { roles: { some: { kind: "SYS_ADMIN" } } } })).id;
+    const strangerId = await makeUser("notif-stranger", ["MANAGER"]);
+
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: araId } })).emailNotifications).toBe(true); // on by default
+    await expect(people.setEmailNotifications(headId, ["MANAGER"], araId, false)).resolves.toMatchObject({ emailNotifications: false });
+    await expect(people.setEmailNotifications(strangerId, ["MANAGER"], araId, true)).rejects.toMatchObject({ status: 403 });
+    await expect(people.setEmailNotifications(adminId, ["SYS_ADMIN"], araId, true)).resolves.toMatchObject({ emailNotifications: true });
+    // Anyone may switch their own.
+    await expect(people.setEmailNotifications(strangerId, ["MANAGER"], strangerId, false)).resolves.toMatchObject({ emailNotifications: false });
+  });
+
+  it("notification emails skip anyone who switched them off", async () => {
+    const { notify } = await import("../mail/notify");
+    const onId = await makeUser("notif-on");
+    const offId = await makeUser("notif-off");
+    await prisma.user.update({ where: { id: offId }, data: { emailNotifications: false } });
+    const mark = sent.length;
+    await notify([onId, offId], null, { subject: "Waiting for you", paragraphs: ["x"], path: "/approvals" });
+    const { email } = await prisma.user.findUniqueOrThrow({ where: { id: onId }, select: { email: true } });
+    expect(sent.slice(mark)).toEqual([{ to: email, subject: "Waiting for you" }]);
+  });
+});

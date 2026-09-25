@@ -106,3 +106,26 @@ export const STATUS_TONE: Record<EffectiveStatus, string> = {
 
 /** Statuses that mean somebody has to do something. */
 export const NEEDS_ATTENTION: EffectiveStatus[] = ["BROKEN", "IMPAIRED", "UNDER_MAINTENANCE", "LOST"];
+
+/** Category-definition fields that record a stored code, by the words the category
+ *  editor uses for them (lib/server/resources/categories.ts names these fields). */
+const CODE_LABELS: Record<string, Record<string, string>> = {
+  "booking mode": { NOT_BOOKABLE: "Not bookable", ROOM: "Bookable room", EQUIPMENT: "Bookable equipment" },
+  "public portal": { TRUE: "Listed on the portal", FALSE: "Not listed" },
+  "counting mode": { SERIALIZED: "Individual units", BULK: "A quantity" },
+  "failure rule": { ANY_CRITICAL: "Any critical", ANYCRITICAL: "Any critical", ALL_CRITICAL: "All critical", ALLCRITICAL: "All critical", NEVER: "Never" },
+  "placement mode": { ANYWHERE: "Anywhere", ONLY_LISTED: "Only inside listed categories", ONLYLISTED: "Only inside listed categories" },
+  "can be root": { TRUE: "Yes", FALSE: "No" },
+};
+
+/** A change-log value as a person reads it — a status change records the stored code
+ *  (UNDER_MAINTENANCE), which is shown by its label (Maintenance), and so do the coded
+ *  category fields above (NOT_BOOKABLE → "Not bookable"); anything else as is. */
+export function changeValueLabel(field: string | null | undefined, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (field === "status" && typeof value === "string" && value in STATUS_LABEL) return STATUS_LABEL[value as EffectiveStatus];
+  const coded = field ? CODE_LABELS[field]?.[String(value).toUpperCase()] : undefined;
+  if (coded) return coded;
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
