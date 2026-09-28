@@ -4,18 +4,20 @@ import { parseBody } from "@/lib/server/validate";
 import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
 import { closeRequest, extendHolds, forward, placeHold, sendQuote } from "@/lib/server/external/requests";
-import { confirmBooking } from "@/lib/server/payments/verify";
+import { confirmPayment } from "@/lib/server/payments/verify";
 
 type Params = { params: Promise<{ id: string; action: string }> };
 
 /**
  * The staff steps on one external request. Authorization lives in the service:
- *  - forward — the AVP sends it to departments;
- *  - hold — a custodian holds a slot on a room of an assigned department;
- *  - extend-holds — the AVP or an assigned head keeps holds alive longer;
- *  - quote — the AVP sends the single quote once every department has answered;
+ *  - forward — the AVP sends it to colleges (each dean takes it on from there — see
+ *    ../../assignments/[id]/[action]);
+ *  - hold — a custodian a head asked holds a slot on a room (or a machine) they keep;
+ *  - extend-holds — the AVP, or a dean or head on it, keeps holds alive longer;
+ *  - quote — the AVP sends the single quote once every college is decided;
  *  - decline — the AVP closes it;
- *  - confirm — the AVP retries turning a paid request's holds into bookings (Track 8).
+ *  - confirm — the AVP confirms a paid request's payment: its holds become bookings and
+ *    the requester sees the contact persons (also the retry after a lost slot).
  */
 export async function POST(request: NextRequest, { params }: Params) {
   try {
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         result = await closeRequest(user.id, id, await parseBody(CloseExternalRequestInput, request));
         break;
       case "confirm":
-        result = await confirmBooking(user.id, id);
+        result = await confirmPayment(user.id, id);
         break;
       default:
         throw new HttpError(404, "Not found");

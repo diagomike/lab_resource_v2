@@ -24,9 +24,11 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-/** F-057: the public portal is for signed-out outsiders — probing /auth/me from it only
- *  produced a 401 per visit. */
-const isPublicPath = (pathname: string | null) => pathname === "/portal" || (pathname?.startsWith("/portal/") ?? false);
+/** F-057: the public portal pages are for signed-out outsiders — probing /auth/me from
+ *  them only produced a 401 per visit. A requester's own pages (the request form, their
+ *  requests) are behind their account since 2026-09-28, so those do check. */
+const PUBLIC_PORTAL = ["/portal/signup", "/portal/verify", "/portal/track/"];
+const isPublicPath = (pathname: string | null) => pathname === "/portal" || PUBLIC_PORTAL.some((p) => pathname?.startsWith(p) ?? false);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeContextDto | null>(null);

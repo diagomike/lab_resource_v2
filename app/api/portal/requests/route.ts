@@ -1,17 +1,29 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SubmitExternalRequestInput, type SubmitExternalRequestResultDto } from "@/lib/shared";
+import { SubmitExternalRequestInput, type RequesterRequestSummaryDto, type SubmitExternalRequestResultDto } from "@/lib/shared";
 import { errorResponse, HttpError } from "@/lib/server/http-error";
+import { requireRole, requireSession } from "@/lib/server/auth/session";
 import { hashIp } from "@/lib/server/auth/token";
-import { MAX_LETTER_BYTES, submitRequest } from "@/lib/server/external/requests";
+import { MAX_LETTER_BYTES, listForRequester, submitRequest } from "@/lib/server/external/requests";
 
 /**
- * No session — an outside institution submits a request. Multipart: `payload` (the
- * JSON described by SubmitExternalRequestInput) and `letter` (the official letter, a PDF
- * checked by its bytes). Throttled per email and per IP; the tracking token comes back
- * once, here and in the confirmation email.
+ * The signed-in requester's own requests. GET lists them; POST sends a new one —
+ * multipart: `payload` (SubmitExternalRequestInput as JSON) and `letter` (the official
+ * letter, a PDF checked by its bytes). Throttled per account and per IP.
  */
+export async function GET(request: NextRequest) {
+  try {
+    const user = await requireSession(request);
+    requireRole(user, ["EXTERNAL"]);
+    return NextResponse.json<RequesterRequestSummaryDto[]>(await listForRequester(user.id), { status: 200, headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireSession(request);
+    requireRole(user, ["EXTERNAL"]);
     const declared = Number(request.headers.get("content-length") ?? "");
     if (Number.isFinite(declared) && declared > MAX_LETTER_BYTES + 200_000) throw new HttpError(400, "The letter must be a PDF of at most 4 MB.");
 
@@ -30,7 +42,7 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) throw new HttpError(400, "Validation failed", { message: parsed.error.issues[0]?.message ?? "Validation failed", issues: parsed.error.issues });
 
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || undefined;
-    const result = await submitRequest(parsed.data, { bytes: Buffer.from(await letter.arrayBuffer()), fileName: letter.name }, hashIp(ip));
+    const result = await submitRequest(user.id, parsed.data, { bytes: Buffer.from(await letter.arrayBuffer()), fileName: letter.name }, hashIp(ip));
     return NextResponse.json<SubmitExternalRequestResultDto>(result, { status: 201 });
   } catch (err) {
     return errorResponse(err);

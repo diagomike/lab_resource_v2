@@ -10,7 +10,8 @@ import { Panel, ErrorNote } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { CategoryIcon } from "@/components/resources/IconPicker";
 
-/** Public — what the university can offer, as counts only, and the way in to ask. */
+/** Public — what the university can offer, as counts only, and the way in to ask (an
+ *  account, since 2026-09-28). */
 export default function PortalHome() {
   const [catalog, setCatalog] = useState<PublicCatalogDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,14 +25,18 @@ export default function PortalHome() {
   return (
     <PortalChrome>
       <div className="flex flex-col gap-6">
-        <h1 className="text-21 font-semibold">Hosting a workshop or training?</h1>
+        <h1 className="text-21 font-semibold">Hosting a workshop, or need samples analysed?</h1>
         <p className="text-12 text-dim leading-relaxed max-w-[640px]">
-          Adama Science and Technology University makes its laboratories, workstations and equipment available to institutions and companies. Below is
-          what we have across campus. Tell us what you need and when, attach your official letter, and we will reply with a quote.
+          Adama Science and Technology University makes its laboratories, workstations and machines available to institutions and companies — to use for a
+          workshop or training, or to run your samples and give you the results. Below is what we have across campus. Create an account, tell us what you
+          need and when, attach your official letter, and we will reply with a quote.
         </p>
-        <div>
-          <Link href="/portal/request" className="inline-flex items-center border border-accent bg-accent text-white h-28 px-14 rounded-2 text-12 font-medium">
-            Request resources
+        <div className="flex flex-wrap items-center gap-10">
+          <Link href="/portal/signup" className="inline-flex items-center border border-accent bg-accent text-white h-28 px-14 rounded-2 text-12 font-medium">
+            Create an account
+          </Link>
+          <Link href="/portal/requests" className="text-12 text-accent">
+            Already have one? Your requests
           </Link>
         </div>
       </div>

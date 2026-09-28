@@ -32,7 +32,7 @@ export default function LoginPage() {
   return (
     <AuthChrome
       subtitle="Sign in"
-      footer="Access is by invitation. If your department registered you, the link in your email sets your password — use it rather than signing in here."
+      footer="Staff access is by invitation: if your department registered you, the link in your email sets your password. An outside institution asking for resources or an analysis creates its own account on the portal (/portal/signup)."
     >
       <form onSubmit={onSubmit} className="px-14 py-12">
         <label className="block">

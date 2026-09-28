@@ -4,10 +4,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { addDays, instantToCivil } from "@/lib/domain/civil-time";
 
 /** DB-backed — payment verification against real Postgres with the fake verifier: a
- *  matching receipt books the request, receipts that don't pay the university (enough,
- *  in time) are refused, a receipt pays once, split payments add up, manual review, and
- *  a hold that lapsed and lost its slot before payment. Mail is mocked. Every node,
- *  category and item is created fresh and removed afterwards. */
+ *  matching receipt makes the request PAID and the AVP's confirmation books it and shows
+ *  the requester the contact persons (2026-09-28); receipts that don't pay the university
+ *  (enough, in time) are refused, a receipt pays once, split payments add up, manual
+ *  review, and a hold that lapsed and lost its slot before payment. Mail is mocked. Every
+ *  node, category and item is created fresh and removed afterwards. */
 function loadDotEnv(): void {
   if (process.env.DATABASE_URL) return;
   const content = fs.readFileSync(path.resolve(process.cwd(), ".env"), "utf8");
@@ -41,16 +42,18 @@ let requests: RequestsModule;
 let reservations: ReservationsModule;
 let prisma: (typeof import("../prisma"))["prisma"];
 let storage: (typeof import("../resources/storage"))["storage"];
-let hashToken: (typeof import("../auth/token"))["hashToken"];
 
 const testKey = `__test-payments-${Date.now()}`;
 const HOOK_TIMEOUT = 60_000;
 const PDF = Buffer.from("%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
 
 let avpId: string;
+let deanId: string;
 let headId: string;
 let custodianId: string;
+let requesterId: string;
 let nodeA: string;
+let collegeNode: string;
 let universityNode: string;
 let groupId: string;
 let roomCategoryId: string;
@@ -73,11 +76,18 @@ async function makeUser(suffix: string, roles: string[]) {
   return u.id;
 }
 
-/** A request taken all the way to QUOTED, with one hold per slot; returns a fresh
- *  tracking token (the quote regenerated it and only emailed it). */
+const CONTACT = { name: "Ato Contact", role: "Lab assistant", phone: "+251911222333" };
+let requesterSeq = 0;
+
+/** A request taken all the way to QUOTED along the whole line (AVP → dean → head →
+ *  custodian → head → dean → AVP), with one hold per slot. Each request comes from its own
+ *  requester account (each may send 3 a day). */
 async function quoted(slots: Array<{ day: number; start: string; end: string }>, amountSantim = 1_000_000) {
+  const by = await makeUser(`req-${++requesterSeq}`, ["EXTERNAL"]);
   const result = await requests.submitRequest(
+    by,
     {
+      kind: "FACILITY",
       organizationName: "Payments Test Org",
       contactName: "Ms. Payer",
       contactEmail: `${testKey}-${Math.random().toString(36).slice(2, 8)}@example.org`,
@@ -89,16 +99,21 @@ async function quoted(slots: Array<{ day: number; start: string; end: string }>,
     { bytes: PDF, fileName: "letter.pdf" },
     null,
   );
-  const row = await prisma.externalRequest.findUniqueOrThrow({ where: { reference: result.reference } });
-  createdRequests.push(row.id);
-  await requests.forward(avpId, row.id, { orgNodeIds: [nodeA] });
-  for (const s of slots) await requests.placeHold(custodianId, row.id, { itemIds: [labId], date: dayAhead(s.day), start: s.start, end: s.end });
-  const assignment = await prisma.externalRequestAssignment.findFirstOrThrow({ where: { requestId: row.id } });
-  await requests.decideAssignment(headId, assignment.id, { decision: "ACCEPT", sheetUrl: "https://docs.google.com/spreadsheets/d/t", amountSantim });
-  await requests.sendQuote(avpId, row.id, { amountSantim, paymentDeadline: dayAhead(7) });
-  const token = `test-token-${row.id}-${Math.random().toString(36).slice(2)}`;
-  await prisma.externalRequest.update({ where: { id: row.id }, data: { trackingTokenHash: hashToken(token) } });
-  return { id: row.id, reference: row.reference, token };
+  createdRequests.push(result.id);
+  await requests.forward(avpId, result.id, { orgNodeIds: [collegeNode] });
+  const college = (await prisma.externalRequestAssignment.findFirstOrThrow({ where: { requestId: result.id, level: "COLLEGE" } })).id;
+  await requests.forwardToDepartments(deanId, college, { orgNodeIds: [nodeA] });
+  const dept = (await prisma.externalRequestAssignment.findFirstOrThrow({ where: { requestId: result.id, level: "DEPARTMENT" } })).id;
+  await requests.assignCustodians(headId, dept, { tasks: [{ custodianId, want: "Pay Lab" }] });
+  for (const s of slots) await requests.placeHold(custodianId, result.id, { itemIds: [labId], date: dayAhead(s.day), start: s.start, end: s.end });
+  const task = await prisma.externalCustodianTask.findFirstOrThrow({ where: { assignmentId: dept } });
+  await requests.finishTask(custodianId, task.id, { outcome: "DONE" });
+  await requests.submitDepartment(headId, dept, { sheetUrl: "https://docs.google.com/spreadsheets/d/t", amountSantim, contacts: [CONTACT] });
+  await requests.reviewAssignment(deanId, dept, { decision: "APPROVE" });
+  await requests.submitCollege(deanId, college, {});
+  await requests.reviewAssignment(avpId, college, { decision: "APPROVE" });
+  await requests.sendQuote(avpId, result.id, { amountSantim, paymentDeadline: dayAhead(7) });
+  return { id: result.id, reference: result.reference, requesterId: by };
 }
 
 function cbeReceipt(reference: string, amount: unknown, overrides: Record<string, unknown> = {}) {
@@ -114,14 +129,17 @@ beforeAll(async () => {
   reservations = await import("../scheduling/reservations");
   ({ prisma } = await import("../prisma"));
   ({ storage } = await import("../resources/storage"));
-  ({ hashToken } = await import("../auth/token"));
 
   avpId = await makeUser("avp", ["MANAGER", "STAFF"]);
+  deanId = await makeUser("dean", ["MANAGER"]);
   headId = await makeUser("head", ["MANAGER", "STAFF"]);
   custodianId = await makeUser("custodian", ["CUSTODIAN", "STAFF"]);
+  requesterId = await makeUser("requester", ["EXTERNAL"]);
 
   universityNode = (await prisma.orgNode.create({ data: { name: `${testKey}-uni`, level: 0, kind: "UNIVERSITY", active: true, userId: avpId } })).id;
-  nodeA = (await prisma.orgNode.create({ data: { name: `${testKey}-dept`, level: 9, kind: "DEPARTMENT", active: true, userId: headId } })).id;
+  collegeNode = (await prisma.orgNode.create({ data: { name: `${testKey}-college`, level: 1, kind: "COLLEGE", active: true, userId: deanId } })).id;
+  nodeA = (await prisma.orgNode.create({ data: { name: `${testKey}-dept`, level: 2, kind: "DEPARTMENT", active: true, userId: headId } })).id;
+  await prisma.orgEdge.create({ data: { parentId: collegeNode, childId: nodeA } });
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
   roomCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-room`, name: "Pay Room", iconKey: "Package", groupId, countingMode: "SERIALIZED", canBeRoot: true, bookingMode: "ROOM" } })).id;
   labId = (await prisma.item.create({ data: { name: "Pay Lab", categoryId: roomCategoryId, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: nodeA, currentOrgNodeId: nodeA, custodianId } })).id;
@@ -136,34 +154,51 @@ afterAll(async () => {
   await prisma.item.deleteMany({ where: { id: labId } });
   await prisma.resourceCategory.deleteMany({ where: { id: roomCategoryId } });
   await prisma.categoryGroup.deleteMany({ where: { id: groupId } });
-  await prisma.orgNode.deleteMany({ where: { id: { in: [nodeA, universityNode] } } });
+  await prisma.orgNode.updateMany({ where: { id: { in: [nodeA, collegeNode, universityNode] } }, data: { userId: null } });
+  await prisma.orgNode.deleteMany({ where: { id: { in: [nodeA, collegeNode, universityNode] } } });
   await prisma.userRole.deleteMany({ where: { userId: { in: createdUsers } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUsers } } });
   await prisma.$disconnect();
 }, HOOK_TIMEOUT);
 
 describe("automatic verification", () => {
-  it("a receipt paying the university the full amount books the request and tells everyone", async () => {
+  it("a verified full payment waits for the AVP; confirming it books the request, shows the contacts and tells everyone", async () => {
     const r = await quoted([{ day: 40, start: "09:00", end: "12:00" }]);
     const reference = ref("FULL");
     cbeReceipt(reference, "ETB 10,000.00");
 
     sent.length = 0;
-    const result = await verify.submitPayment(r.token, cbe(reference.toLowerCase()));
-    expect([result.outcome, result.tracking.status, result.tracking.payment?.paidSantim]).toEqual(["VERIFIED", "SCHEDULED", 1_000_000]);
-    expect(result.tracking.timeline.map((t) => t.label)).toEqual(expect.arrayContaining(["Payment confirmed", "Booking confirmed"]));
+    const result = await verify.submitPayment(r.id, cbe(reference.toLowerCase()));
+    expect([result.outcome, result.tracking.status, result.tracking.payment?.paidSantim]).toEqual(["VERIFIED", "PAID", 1_000_000]);
+    expect(result.tracking.timeline.map((t) => t.label)).toContain("Payment received");
+    // Paid, but not confirmed: still held, and nobody to call yet.
+    expect(result.tracking.contacts).toEqual([]);
+    expect(result.tracking.bookings.map((b) => b.confirmed)).toEqual([false]);
+    expect(sent.map((m) => m.subject)).toEqual([`Payment received for ${r.reference}`, `${r.reference} is paid — confirm the payment`]);
 
+    // Only the AVP's office confirms.
+    await expect(verify.confirmPayment(headId, r.id)).rejects.toMatchObject({ status: 403 });
+    sent.length = 0;
+    const dto = await verify.confirmPayment(avpId, r.id);
+    expect([dto.status, dto.contactsRevealedAt !== null]).toEqual(["SCHEDULED", true]);
     const holds = await prisma.reservation.findMany({ where: { externalRequestId: r.id }, include: { resources: true } });
     expect(holds.map((h) => [h.state, h.holdExpiresAt, h.resources.every((x) => x.blocking)])).toEqual([["CONFIRMED", null, true]]);
     expect(sent.map((m) => m.subject)).toEqual([`Booking confirmed — ${r.reference}`, `Booking confirmed on your calendar — ${r.reference}`, `${r.reference} is paid and booked`]);
     expect(sent[1].to).toBe(`${testKey}-custodian@astu.edu.et`);
 
+    // The requester now sees their bookings confirmed and who to call.
+    const mine = await requests.viewForRequester(r.requesterId, r.id);
+    expect(mine.status).toBe("SCHEDULED");
+    expect(mine.bookings.map((b) => [b.place, b.confirmed])).toEqual([["Pay Lab", true]]);
+    expect(mine.contacts).toEqual([{ departmentName: `${testKey}-dept`, people: [CONTACT] }]);
+    expect(mine.timeline.map((t) => t.label)).toContain("Payment confirmed — booking confirmed");
+
     // One receipt pays once — here or anywhere else.
     const other = await quoted([{ day: 41, start: "09:00", end: "12:00" }]);
-    await expect(verify.submitPayment(other.token, cbe(reference))).rejects.toMatchObject({ status: 409, message: "This payment reference has already been used." });
+    await expect(verify.submitPayment(other.id, cbe(reference))).rejects.toMatchObject({ status: 409, message: "This payment reference has already been used." });
     // A booked request takes no more payments, and its confirmation can't be re-run.
-    await expect(verify.submitPayment(r.token, cbe(ref("MORE")))).rejects.toMatchObject({ status: 409 });
-    await expect(verify.confirmBooking(avpId, r.id)).rejects.toMatchObject({ status: 409 });
+    await expect(verify.submitPayment(r.id, cbe(ref("MORE")))).rejects.toMatchObject({ status: 409 });
+    await expect(verify.confirmPayment(avpId, r.id)).rejects.toMatchObject({ status: 409 });
   });
 
   it("refuses receipts that paid someone else, too early, not at all — and a refused reference can be tried again", async () => {
@@ -171,28 +206,28 @@ describe("automatic verification", () => {
 
     const wrong = ref("WRONG");
     cbeReceipt(wrong, 10_000, { receiverAccount: "1****0000" });
-    let result = await verify.submitPayment(r.token, cbe(wrong));
+    let result = await verify.submitPayment(r.id, cbe(wrong));
     expect([result.outcome, result.reason]).toEqual(["REJECTED", "This payment was not made to the university's account."]);
 
     const early = ref("EARLY");
     cbeReceipt(early, 10_000, { date: `${dayAhead(-2)} 10:00:00` });
-    expect((await verify.submitPayment(r.token, cbe(early))).reason).toBe("This payment was made before the quote was sent.");
+    expect((await verify.submitPayment(r.id, cbe(early))).reason).toBe("This payment was made before the quote was sent.");
 
     const pending = ref("PENDING");
     cbeReceipt(pending, 10_000, { status: "Pending" });
-    expect((await verify.submitPayment(r.token, cbe(pending))).reason).toBe("The bank does not show this payment as completed.");
+    expect((await verify.submitPayment(r.id, cbe(pending))).reason).toBe("The bank does not show this payment as completed.");
 
-    result = await verify.submitPayment(r.token, cbe(ref("UNKNOWN")));
+    result = await verify.submitPayment(r.id, cbe(ref("UNKNOWN")));
     expect([result.outcome, result.unavailable, result.tracking.status]).toEqual(["REJECTED", false, "QUOTED"]);
     expect(result.tracking.payment?.attempts.map((a) => a.status)).toEqual(["REJECTED", "REJECTED", "REJECTED", "REJECTED"]);
 
     // Providers not offered, and missing inputs, are refused before asking any bank.
-    await expect(verify.submitPayment(r.token, { provider: "DASHEN", reference: ref("D") })).rejects.toMatchObject({ status: 400 });
-    await expect(verify.submitPayment(r.token, { provider: "CBE", reference: ref("NOSUFFIX") })).rejects.toMatchObject({ status: 400 });
+    await expect(verify.submitPayment(r.id, { provider: "DASHEN", reference: ref("D") })).rejects.toMatchObject({ status: 400 });
+    await expect(verify.submitPayment(r.id, { provider: "CBE", reference: ref("NOSUFFIX") })).rejects.toMatchObject({ status: 400 });
 
     // The mistyped attempt didn't claim its reference: the real receipt still counts.
     cbeReceipt(wrong, 10_000);
-    expect((await verify.submitPayment(r.token, cbe(wrong))).tracking.status).toBe("SCHEDULED");
+    expect((await verify.submitPayment(r.id, cbe(wrong))).tracking.status).toBe("PAID");
   });
 
   it("split payments add up; a receipt matched by name works for a name-configured provider", async () => {
@@ -201,24 +236,24 @@ describe("automatic verification", () => {
     cbeReceipt(first, "5000.00");
 
     sent.length = 0;
-    let result = await verify.submitPayment(r.token, cbe(first));
+    let result = await verify.submitPayment(r.id, cbe(first));
     expect([result.outcome, result.tracking.status, result.tracking.payment?.paidSantim, result.tracking.canCancel]).toEqual(["VERIFIED", "QUOTED", 500_000, false]);
     expect(sent.map((m) => m.subject)).toEqual([`Payment received for ${r.reference}`]);
 
     const second = ref("REST");
     fake.registerFakeReceipt("TELEBIRR", { reference: second, amount: "5000.50", receiverName: "TEST UNIVERSITY", date: receiptNow(), status: "Completed" });
-    result = await verify.submitPayment(r.token, { provider: "TELEBIRR", reference: second });
-    expect([result.outcome, result.tracking.status, result.tracking.payment?.paidSantim]).toEqual(["VERIFIED", "SCHEDULED", 1_000_050]);
+    result = await verify.submitPayment(r.id, { provider: "TELEBIRR", reference: second });
+    expect([result.outcome, result.tracking.status, result.tracking.payment?.paidSantim]).toEqual(["VERIFIED", "PAID", 1_000_050]);
   });
 
-  it("two full receipts at once: exactly one is taken, the booking is confirmed once", async () => {
+  it("two full receipts at once: exactly one is taken, and the request is paid once", async () => {
     const r = await quoted([{ day: 44, start: "09:00", end: "12:00" }]);
     const [a, b] = [ref("RACEA"), ref("RACEB")];
     cbeReceipt(a, 10_000);
     cbeReceipt(b, 10_000);
-    const settled = await Promise.allSettled([verify.submitPayment(r.token, cbe(a)), verify.submitPayment(r.token, cbe(b))]);
+    const settled = await Promise.allSettled([verify.submitPayment(r.id, cbe(a)), verify.submitPayment(r.id, cbe(b))]);
     expect(settled.map((s) => s.status).sort()).toEqual(["fulfilled", "rejected"]);
-    expect(await prisma.externalRequestEvent.count({ where: { requestId: r.id, kind: "SCHEDULED" } })).toBe(1);
+    expect((await prisma.externalRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("PAID");
     expect(await prisma.paymentVerification.count({ where: { requestId: r.id, status: "VERIFIED" } })).toBe(1);
   });
 
@@ -227,15 +262,16 @@ describe("automatic verification", () => {
     await prisma.externalRequest.update({ where: { id: r.id }, data: { paymentDeadline: new Date(Date.now() - 60_000) } });
     const late = ref("LATE");
     cbeReceipt(late, 10_000);
-    await expect(verify.submitPayment(r.token, cbe(late))).rejects.toMatchObject({ status: 409 });
+    await expect(verify.submitPayment(r.id, cbe(late))).rejects.toMatchObject({ status: 409 });
 
     const unquoted = await requests.submitRequest(
-      { organizationName: "Early Bird", contactName: "Mr. Early", contactEmail: `${testKey}-early@example.org`, contactPhone: "+251911000001", purpose: "Paying before any quote exists.", windows: [{ date: dayAhead(46), start: "09:00", end: "10:00" }], lines: [{ description: "x", quantity: 1 }] },
+      requesterId,
+      { kind: "FACILITY", organizationName: "Early Bird", contactName: "Mr. Early", contactEmail: `${testKey}-early@example.org`, contactPhone: "+251911000001", purpose: "Paying before any quote exists.", windows: [{ date: dayAhead(46), start: "09:00", end: "10:00" }], lines: [{ description: "x", quantity: 1 }] },
       { bytes: PDF, fileName: "l.pdf" },
       null,
     );
-    createdRequests.push((await prisma.externalRequest.findUniqueOrThrow({ where: { reference: unquoted.reference } })).id);
-    await expect(verify.submitPayment(unquoted.trackingToken, cbe(late))).rejects.toMatchObject({ status: 409 });
+    createdRequests.push(unquoted.id);
+    await expect(verify.submitPayment(unquoted.id, cbe(late))).rejects.toMatchObject({ status: 409 });
   });
 });
 
@@ -245,15 +281,15 @@ describe("manual review", () => {
     const reference = ref("MANUAL");
     fake.registerFakeOutage("CBE", reference);
 
-    let result = await verify.submitPayment(r.token, cbe(reference));
+    let result = await verify.submitPayment(r.id, cbe(reference));
     expect([result.outcome, result.unavailable]).toEqual(["REJECTED", true]);
 
     sent.length = 0;
-    await expect(verify.submitPayment(r.token, { ...cbe(reference), manualReview: true })).rejects.toMatchObject({ status: 400 });
-    result = await verify.submitPayment(r.token, { ...cbe(reference), manualReview: true, amountSantim: 1_000_000, note: "Paid at the branch" });
+    await expect(verify.submitPayment(r.id, { ...cbe(reference), manualReview: true })).rejects.toMatchObject({ status: 400 });
+    result = await verify.submitPayment(r.id, { ...cbe(reference), manualReview: true, amountSantim: 1_000_000, note: "Paid at the branch" });
     expect([result.outcome, result.tracking.status, result.tracking.payment?.pendingCount]).toEqual(["PENDING_REVIEW", "PAYMENT_SUBMITTED", 1]);
     expect(sent.map((m) => m.subject)).toEqual([`Payment to check for ${r.reference}`]);
-    await expect(verify.submitPayment(r.token, { ...cbe(reference), manualReview: true, amountSantim: 1 })).rejects.toMatchObject({ status: 409 });
+    await expect(verify.submitPayment(r.id, { ...cbe(reference), manualReview: true, amountSantim: 1 })).rejects.toMatchObject({ status: 409 });
 
     const pendingId = (await prisma.paymentVerification.findFirstOrThrow({ where: { requestId: r.id, status: "PENDING_REVIEW" } })).id;
     let dto = await requests.getForActor(headId, r.id);
@@ -262,21 +298,22 @@ describe("manual review", () => {
     await expect(verify.reviewPayment(avpId, pendingId, { decision: "REJECT" })).rejects.toMatchObject({ status: 400 });
 
     dto = await verify.reviewPayment(avpId, pendingId, { decision: "APPROVE", note: "Seen on the bank statement" });
-    expect([dto.status, dto.paidSantim, dto.payments.find((p) => p.id === pendingId)?.status]).toEqual(["SCHEDULED", 1_000_000, "MANUAL_VERIFIED"]);
+    expect([dto.status, dto.paidSantim, dto.payments.find((p) => p.id === pendingId)?.status, dto.can.confirm]).toEqual(["PAID", 1_000_000, "MANUAL_VERIFIED", true]);
+    expect((await verify.confirmPayment(avpId, r.id)).status).toBe("SCHEDULED");
     await expect(verify.reviewPayment(avpId, pendingId, { decision: "REJECT", note: "again" })).rejects.toMatchObject({ status: 409 });
   });
 
   it("a rejected review frees the reference and returns the request to awaiting payment", async () => {
     const r = await quoted([{ day: 48, start: "09:00", end: "12:00" }]);
     const reference = ref("REVIEWNO");
-    await verify.submitPayment(r.token, { ...cbe(reference), manualReview: true, amountSantim: 1_000_000 });
+    await verify.submitPayment(r.id, { ...cbe(reference), manualReview: true, amountSantim: 1_000_000 });
     const pending = await prisma.paymentVerification.findFirstOrThrow({ where: { requestId: r.id } });
     sent.length = 0;
     const dto = await verify.reviewPayment(avpId, pending.id, { decision: "REJECT", note: "Not on the statement" });
     expect([dto.status, dto.payments[0].status]).toEqual(["QUOTED", "MANUAL_REJECTED"]);
     expect(sent.map((m) => m.subject)).toEqual([`Payment for ${r.reference} not accepted`]);
     cbeReceipt(reference, 10_000);
-    expect((await verify.submitPayment(r.token, cbe(reference))).tracking.status).toBe("SCHEDULED");
+    expect((await verify.submitPayment(r.id, cbe(reference))).tracking.status).toBe("PAID");
   });
 });
 
@@ -292,9 +329,11 @@ describe("confirmation", () => {
 
     const reference = ref("LAPSED");
     cbeReceipt(reference, 10_000);
+    expect((await verify.submitPayment(r.id, cbe(reference))).tracking.status).toBe("PAID");
     sent.length = 0;
-    const result = await verify.submitPayment(r.token, cbe(reference));
-    expect(result.tracking.status).toBe("PAID");
+    // The AVP confirms: one slot comes back, the other was taken — it stays PAID, contacts hidden.
+    let dto = await verify.confirmPayment(avpId, r.id);
+    expect([dto.status, dto.contactsRevealedAt]).toEqual(["PAID", null]);
 
     const holds = await prisma.reservation.findMany({ where: { externalRequestId: r.id }, orderBy: { startsAt: "asc" } });
     expect(holds.map((h) => h.state)).toEqual(["CANCELLED", "CONFIRMED"]);
@@ -303,11 +342,11 @@ describe("confirmation", () => {
     expect(sent.map((m) => m.subject)).toEqual(expect.arrayContaining([`Payment complete — ${r.reference}`, `${r.reference} is paid but a slot was lost`, `Booking confirmed on your calendar — ${r.reference}`]));
 
     // The custodian holds a replacement; the AVP confirms again.
-    let dto = await requests.getForActor(avpId, r.id);
+    dto = await requests.getForActor(avpId, r.id);
     expect(dto.can.confirm).toBe(true);
-    await expect(verify.confirmBooking(headId, r.id)).rejects.toMatchObject({ status: 403 });
+    await expect(verify.confirmPayment(headId, r.id)).rejects.toMatchObject({ status: 403 });
     await requests.placeHold(custodianId, r.id, { itemIds: [labId], date: dayAhead(50), start: "13:00", end: "16:00" });
-    dto = await verify.confirmBooking(avpId, r.id);
-    expect([dto.status, dto.holds.map((h) => h.state)]).toEqual(["SCHEDULED", ["CANCELLED", "CONFIRMED", "CONFIRMED"]]);
+    dto = await verify.confirmPayment(avpId, r.id);
+    expect([dto.status, dto.holds.map((h) => h.state), dto.contactsRevealedAt !== null]).toEqual(["SCHEDULED", ["CANCELLED", "CONFIRMED", "CONFIRMED"], true]);
   });
 });

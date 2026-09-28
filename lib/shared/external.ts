@@ -1,11 +1,12 @@
 /**
- * External booking requests — Track 7 of
- * ~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md.
+ * External booking requests — Track 7, reworked 2026-09-28 to the university's own line
+ * of communication (AVP → Dean → Head → custodians, and back up).
  *
- * Two audiences share these contracts: the public (no account — the catalog, the request
- * form, a tracking page reached by an emailed link) and staff (the AVP, department
- * heads, custodians). Public shapes carry counts and the requester's own request only;
- * nothing here ever exposes the item tree, a location or a person outside the request.
+ * Two audiences share these contracts: outside requesters (the public catalog, then an
+ * EXTERNAL account: the request form and their own requests) and staff (the AVP, deans,
+ * heads, custodians). Requester shapes carry counts and their own request only; nothing
+ * here ever exposes the item tree or a person outside the request — the contact persons
+ * a department names are shown to the requester only once the AVP confirms payment.
  *
  * Money is integer santim (1 ETB = 100 santim), never a float.
  */
@@ -17,9 +18,31 @@ export const externalRequestStatuses = ["SUBMITTED", "UNDER_REVIEW", "QUOTED", "
 export const ExternalRequestStatusSchema = z.enum(externalRequestStatuses);
 export type ExternalRequestStatus = (typeof externalRequestStatuses)[number];
 
-export const externalAssignmentStatuses = ["PENDING", "ACCEPTED", "DECLINED"] as const;
+export const externalAssignmentStatuses = ["PENDING", "ACCEPTED", "DECLINED", "FORWARDED", "SUBMITTED", "APPROVED", "RETURNED"] as const;
 export const ExternalAssignmentStatusSchema = z.enum(externalAssignmentStatuses);
 export type ExternalAssignmentStatus = (typeof externalAssignmentStatuses)[number];
+
+export const ExternalRequestKindSchema = z.enum(["FACILITY", "SAMPLE_ANALYSIS"]);
+export type ExternalRequestKind = z.infer<typeof ExternalRequestKindSchema>;
+
+export const ExternalTaskStatusSchema = z.enum(["PENDING", "DONE", "DECLINED"]);
+export type ExternalTaskStatus = z.infer<typeof ExternalTaskStatusSchema>;
+
+// ── Accounts for outside requesters ──────────────────────────────────────
+
+export const ExternalSignupInput = z.object({
+  organisation: z.string().trim().min(2, "Name your institution or company.").max(200),
+  name: z.string().trim().min(2, "Give your name.").max(120),
+  email: z.string().trim().email("Give a valid email address.").max(200),
+  phone: z.string().trim().min(6, "Give a phone number.").max(30),
+  password: z.string().min(8, "Use at least 8 characters.").max(200),
+  /** Honeypot — a real person never fills this in. */
+  website: z.string().optional(),
+});
+export type ExternalSignupInput = z.infer<typeof ExternalSignupInput>;
+
+export const VerifyEmailInput = z.object({ token: z.string().min(20) });
+export type VerifyEmailInput = z.infer<typeof VerifyEmailInput>;
 
 const CivilDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-09-14.");
 const CivilTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a time like 08:00.");
@@ -60,28 +83,48 @@ export type ExternalRequestLineInput = z.infer<typeof ExternalRequestLineInput>;
 export const ExternalWindowInput = z.object({ date: CivilDate, start: CivilTime, end: CivilTime });
 export type ExternalWindowInput = z.infer<typeof ExternalWindowInput>;
 
+export const SampleAnalysisInput = z.object({
+  /** The kind of machine, from the public catalog (an EQUIPMENT category). */
+  categoryId: z.string().optional(),
+  sampleCount: z.number().int().min(1).max(10_000),
+  analysis: z.string().trim().min(3, "Say what analysis you need.").max(2000),
+});
+export type SampleAnalysisInput = z.infer<typeof SampleAnalysisInput>;
+
 /** Sent as the `payload` field of a multipart form, alongside the `letter` PDF. */
 export const SubmitExternalRequestInput = z.object({
+  kind: ExternalRequestKindSchema.default("FACILITY"),
+  sample: SampleAnalysisInput.optional(),
   organizationName: z.string().trim().min(2, "Name your institution or company.").max(200),
   contactName: z.string().trim().min(2, "Give a contact person.").max(120),
   contactEmail: z.string().trim().email("Give a valid email address.").max(200),
   contactPhone: z.string().trim().min(6, "Give a phone number.").max(30),
   purpose: z.string().trim().min(10, "Say what the workshop or training is.").max(3000),
   windows: z.array(ExternalWindowInput).min(1, "Add at least one date.").max(10),
-  lines: z.array(ExternalRequestLineInput).min(1, "List at least one thing you need.").max(30),
+  // At least one for a FACILITY request (checked by the service); a sample analysis may list none.
+  lines: z.array(ExternalRequestLineInput).max(30),
   /** Honeypot — a real person never fills this in. */
   website: z.string().optional(),
 });
 export type SubmitExternalRequestInput = z.infer<typeof SubmitExternalRequestInput>;
 
 export const SubmitExternalRequestResultDto = z.object({
+  id: z.string(),
   reference: z.string(),
-  /** The raw tracking token — returned once, here and in the confirmation email. */
-  trackingToken: z.string(),
 });
 export type SubmitExternalRequestResultDto = z.infer<typeof SubmitExternalRequestResultDto>;
 
 const WindowDto = z.object({ date: z.string(), start: z.string(), end: z.string() });
+const SampleDto = z.object({ sampleCount: z.number().int(), analysis: z.string(), categoryName: z.string().nullable() });
+
+/** A contact person a department names for the requester. */
+export const ExternalContactDto = z.object({
+  name: z.string().trim().min(2).max(120),
+  role: z.string().trim().max(120).optional(),
+  phone: z.string().trim().min(6).max(30),
+  email: z.string().trim().email().max(200).optional(),
+});
+export type ExternalContactDto = z.infer<typeof ExternalContactDto>;
 const LineDto = z.object({ description: z.string(), quantity: z.number(), categoryName: z.string().nullable() });
 
 export const BankDetailsDto = z.object({ bankName: z.string(), accountName: z.string(), accountNumber: z.string() });
@@ -135,10 +178,13 @@ export const PublicPaymentDto = z.object({
 });
 export type PublicPaymentDto = z.infer<typeof PublicPaymentDto>;
 
-/** What the requester sees on their tracking page. */
+/** What the requester sees of their own request, signed in to the portal. */
 export const PublicTrackingDto = z.object({
+  id: z.string(),
   reference: z.string(),
   status: ExternalRequestStatusSchema,
+  kind: ExternalRequestKindSchema,
+  sample: SampleDto.nullable(),
   organizationName: z.string(),
   contactName: z.string(),
   createdAt: z.string(),
@@ -150,6 +196,8 @@ export const PublicTrackingDto = z.object({
       amountSantim: z.number().int(),
       note: z.string().nullable(),
       sheetUrls: z.array(z.string()),
+      /** Each department's part of the total. */
+      breakdown: z.array(z.object({ departmentName: z.string(), amountSantim: z.number().int(), sheetUrl: z.string().nullable() })),
       paymentDeadline: z.string().nullable(),
       bank: BankDetailsDto.nullable(),
     })
@@ -157,6 +205,10 @@ export const PublicTrackingDto = z.object({
   timeline: z.array(z.object({ at: z.string(), label: z.string(), note: z.string().nullable() })),
   closingNote: z.string().nullable(),
   canCancel: z.boolean(),
+  /** The rooms or machines held (then booked) for them, and when. */
+  bookings: z.array(z.object({ place: z.string(), date: z.string(), start: z.string(), end: z.string(), confirmed: z.boolean() })),
+  /** Once the AVP has confirmed payment: who to call, per department. Empty before. */
+  contacts: z.array(z.object({ departmentName: z.string(), people: z.array(ExternalContactDto) })),
   /** Present once quoted. `canSubmit` — still payable, before the deadline. */
   payment: z
     .object({
@@ -179,22 +231,59 @@ export const SubmitPaymentResultDto = z.object({
 });
 export type SubmitPaymentResultDto = z.infer<typeof SubmitPaymentResultDto>;
 
+export const RequesterRequestSummaryDto = z.object({
+  id: z.string(),
+  reference: z.string(),
+  status: ExternalRequestStatusSchema,
+  kind: ExternalRequestKindSchema,
+  createdAt: z.string(),
+  purpose: z.string(),
+  firstWindow: WindowDto.nullable(),
+});
+export type RequesterRequestSummaryDto = z.infer<typeof RequesterRequestSummaryDto>;
+
 // ── Staff workflow ───────────────────────────────────────────────────────
 
+/** The AVP forwarding to colleges, or a dean to departments of their college. */
 export const ForwardExternalRequestInput = z.object({
-  orgNodeIds: z.array(z.string()).min(1, "Choose at least one department."),
+  orgNodeIds: z.array(z.string()).min(1, "Choose at least one unit."),
   note: z.string().trim().max(2000).optional(),
 });
 export type ForwardExternalRequestInput = z.infer<typeof ForwardExternalRequestInput>;
 
-export const DecideAssignmentInput = z.object({
-  decision: z.enum(["ACCEPT", "DECLINE"]),
-  sheetUrl: z.string().trim().url("Paste the full link to the pricing sheet.").optional(),
-  amountSantim: z.number().int().min(0).optional(),
+/** A head asking custodians to hold rooms or machines. */
+export const AssignCustodiansInput = z.object({
+  tasks: z.array(z.object({ custodianId: z.string(), want: z.string().trim().min(2, "Say what they should hold.").max(300) })).min(1).max(30),
+  note: z.string().trim().max(2000).optional(),
+});
+export type AssignCustodiansInput = z.infer<typeof AssignCustodiansInput>;
+
+/** A custodian reporting back: held what was asked (DONE), or can't (DECLINED). */
+export const FinishTaskInput = z.object({ outcome: z.enum(["DONE", "DECLINED"]), note: z.string().trim().max(2000).optional() });
+export type FinishTaskInput = z.infer<typeof FinishTaskInput>;
+
+/** A head sending the department's answer up to the dean. */
+export const SubmitDepartmentInput = z.object({
+  sheetUrl: z.string().trim().url("Paste the full link to the cost breakdown."),
+  amountSantim: z.number().int().min(0),
+  contacts: z.array(ExternalContactDto).min(1, "Name at least one contact person for the requester.").max(10),
+  /** Answering with nothing held on a calendar needs this said out loud (e.g. consumables only). */
   noCalendarNeeded: z.boolean().optional(),
   note: z.string().trim().max(2000).optional(),
 });
-export type DecideAssignmentInput = z.infer<typeof DecideAssignmentInput>;
+export type SubmitDepartmentInput = z.infer<typeof SubmitDepartmentInput>;
+
+/** A dean on a department's answer, or the AVP on a college's. */
+export const ReviewAssignmentInput = z.object({ decision: z.enum(["APPROVE", "RETURN"]), note: z.string().trim().max(2000).optional() });
+export type ReviewAssignmentInput = z.infer<typeof ReviewAssignmentInput>;
+
+/** A dean sending the college's answer up to the AVP. */
+export const SubmitCollegeInput = z.object({ note: z.string().trim().max(2000).optional() });
+export type SubmitCollegeInput = z.infer<typeof SubmitCollegeInput>;
+
+/** A dean or head declining their unit's part. */
+export const DeclineAssignmentInput = z.object({ note: z.string().trim().min(3, "Say why.").max(2000) });
+export type DeclineAssignmentInput = z.infer<typeof DeclineAssignmentInput>;
 
 export const SendQuoteInput = z.object({
   amountSantim: z.number().int().min(1, "A quote must be more than zero."),
@@ -217,20 +306,45 @@ export type PlaceHoldInput = z.infer<typeof PlaceHoldInput>;
 export const ExtendHoldsInput = z.object({ until: CivilDate });
 export type ExtendHoldsInput = z.infer<typeof ExtendHoldsInput>;
 
+export const ExternalTaskDto = z.object({
+  id: z.string(),
+  custodianId: z.string(),
+  custodianName: z.string(),
+  want: z.string(),
+  status: ExternalTaskStatusSchema,
+  note: z.string().nullable(),
+  holdCount: z.number().int(),
+  /** The viewer is this task's custodian and may still report on it. */
+  mine: z.boolean(),
+});
+export type ExternalTaskDto = z.infer<typeof ExternalTaskDto>;
+
 export const ExternalAssignmentDto = z.object({
   id: z.string(),
+  level: z.enum(["COLLEGE", "DEPARTMENT"]),
+  parentId: z.string().nullable(),
   orgNodeId: z.string(),
   orgNodeName: z.string(),
+  /** The dean or head. */
   headName: z.string().nullable(),
   status: ExternalAssignmentStatusSchema,
   sheetUrl: z.string().nullable(),
   amountSantim: z.number().int().nullable(),
   noCalendarNeeded: z.boolean(),
+  contacts: z.array(ExternalContactDto),
   note: z.string().nullable(),
   decidedByName: z.string().nullable(),
   decidedAt: z.string().nullable(),
   holdCount: z.number().int(),
-  canDecide: z.boolean(),
+  tasks: z.array(ExternalTaskDto),
+  /** What the viewer may do on this unit's part. */
+  can: z.object({
+    forward: z.boolean(),
+    assign: z.boolean(),
+    submit: z.boolean(),
+    review: z.boolean(),
+    decline: z.boolean(),
+  }),
 });
 export type ExternalAssignmentDto = z.infer<typeof ExternalAssignmentDto>;
 
@@ -244,8 +358,11 @@ export const ExternalRequestSummaryDto = z.object({
   windowCount: z.number().int(),
   assignmentCount: z.number().int(),
   acceptedCount: z.number().int(),
+  kind: ExternalRequestKindSchema,
   /** Why this row is in the viewer's list. */
-  role: z.enum(["AVP", "HEAD", "CUSTODIAN"]),
+  role: z.enum(["AVP", "DEAN", "HEAD", "CUSTODIAN"]),
+  /** Something here is waiting on the viewer. */
+  waitingOnMe: z.boolean(),
 });
 export type ExternalRequestSummaryDto = z.infer<typeof ExternalRequestSummaryDto>;
 
@@ -253,6 +370,10 @@ export const ExternalRequestDto = z.object({
   id: z.string(),
   reference: z.string(),
   status: ExternalRequestStatusSchema,
+  kind: ExternalRequestKindSchema,
+  sample: SampleDto.nullable(),
+  role: z.enum(["AVP", "DEAN", "HEAD", "CUSTODIAN"]),
+  contactsRevealedAt: z.string().nullable(),
   organizationName: z.string(),
   contactName: z.string(),
   contactEmail: z.string(),
@@ -270,8 +391,12 @@ export const ExternalRequestDto = z.object({
   assignments: z.array(ExternalAssignmentDto),
   holds: z.array(ReservationDto),
   events: z.array(z.object({ at: z.string(), actorLabel: z.string(), kind: z.string(), note: z.string().nullable() })),
-  /** Departments the AVP may forward to. Empty for anyone else. */
-  departments: z.array(z.object({ id: z.string(), name: z.string(), headName: z.string().nullable() })),
+  /** Units the viewer may forward to: colleges for the AVP, a dean's own departments. */
+  forwardTargets: z.array(z.object({ id: z.string(), name: z.string(), headName: z.string().nullable(), parentAssignmentId: z.string().nullable() })),
+  /** Custodians a head may ask, per department assignment they head. */
+  custodians: z.array(z.object({ assignmentId: z.string(), id: z.string(), name: z.string() })),
+  /** The sum of the departments' approved amounts — the quote's starting point. */
+  suggestedQuoteSantim: z.number().int().nullable(),
   /** Rooms the viewer keeps that belong to an assigned department — where they may place holds. */
   holdRooms: z.array(z.object({ id: z.string(), name: z.string(), equipment: z.array(z.object({ id: z.string(), name: z.string(), place: z.string().optional() })) })),
   payments: z.array(
@@ -290,6 +415,9 @@ export const ExternalRequestDto = z.object({
       reviewedByName: z.string().nullable(),
       createdAt: z.string(),
       canReview: z.boolean(),
+      /** The bank's own receipt page, when the verifier's response gave one — for the
+       *  AVP's office to check by hand before confirming the payment. */
+      receiptUrl: z.string().nullable(),
     }),
   ),
   /** Verified (automatically or by hand) so far. */

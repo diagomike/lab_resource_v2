@@ -3,8 +3,8 @@ import { send } from "../mail/mail";
 import { prisma } from "../prisma";
 
 /**
- * Track 7's outbound mail — the requester (an outside institution with no account) and
- * the staff who move their request along. Inline HTML like every other mail in this app,
+ * Track 7's outbound mail — the requester (an outside institution, signed in to the
+ * portal with an EXTERNAL account) and the staff who move their request along. Inline HTML like every other mail in this app,
  * always sent AFTER the transaction commits and one at a time. Everything interpolated
  * is escaped: organisation names and purposes are typed by the public.
  */
@@ -24,8 +24,9 @@ export function etb(santim: number): string {
   return `ETB ${(santim / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function trackingUrl(token: string): string {
-  return `${APP_ORIGIN}/portal/track/${encodeURIComponent(token)}`;
+/** The requester's own page for a request — they sign in to see it. */
+export function portalUrl(requestId: string): string {
+  return `${APP_ORIGIN}/portal/requests/${encodeURIComponent(requestId)}`;
 }
 
 function layout(title: string, body: string): string {
@@ -44,8 +45,8 @@ export async function mailRequester(to: string, subject: string, paragraphs: str
 
 export async function mailStaff(to: string | null | undefined, subject: string, paragraphs: string[], path: string): Promise<void> {
   if (!to) return;
-  // Staff can switch notification emails off (User.emailNotifications); the requester,
-  // who has no account, always gets theirs (mailRequester).
+  // Staff can switch notification emails off (User.emailNotifications); the requester
+  // always gets theirs (mailRequester) — it is how their request moves.
   const staff = await prisma.user.findUnique({ where: { emailLower: to.toLowerCase() }, select: { emailNotifications: true } });
   if (staff && !staff.emailNotifications) return;
   const body = paragraphs.map((p) => `<p>${p}</p>`).join("\n") + `\n<p><a href="${esc(`${APP_ORIGIN}${path}`)}" style="color:#1d5fbf">Open it in Lab Resources</a></p>`;

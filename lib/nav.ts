@@ -64,7 +64,7 @@ export const NAV: NavGroup[] = [
         // Everyone may raise a need except a student (lib/domain/purchasing.ts's
         // own canRaiseNeed gate) — hiding the entry is convenience, not the real
         // enforcement, which the server still applies on every write.
-        roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER", "EXTERNAL"],
+        roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"],
       },
       { key: "change-log", label: "Change log", icon: "◷", path: "/change-log", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
       { key: "categories", label: "Categories", icon: "◈", path: "/categories" },
@@ -115,6 +115,11 @@ export const META: Record<string, [string, string, string]> = {
   help: ["Me ›", "Help & guides", "How to do things in LRMS — the general guides, and the ones for your role"],
 };
 
+/** An EXTERNAL account and nothing else — an outside institution's requester. */
+export function isRequesterOnly(roles: RoleKind[]): boolean {
+  return roles.length > 0 && roles.every((r) => r === "EXTERNAL");
+}
+
 function allows(itemRoles: RoleKind[] | undefined, userRoles: RoleKind[]): boolean {
   if (!itemRoles || itemRoles.length === 0) return true;
   return itemRoles.some((r) => userRoles.includes(r));
@@ -135,6 +140,8 @@ function allItems(): NavItem[] {
  *  reaches "Resources" ›  Dashboard, so this only actually varies for the rare
  *  account that reaches nothing (shouldn't happen — Dashboard has no role gate). */
 export function landingPathFor(roles: RoleKind[]): string {
+  // An outside requester's account reaches the portal only (their own requests).
+  if (isRequesterOnly(roles)) return "/portal/requests";
   const groups = navFor(roles);
   return groups[0]?.items[0]?.path ?? "/me/profile";
 }

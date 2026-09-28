@@ -8,8 +8,8 @@ import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { expireHolds, lineageRows, loadClaims, lockTree, rootOf, subtreeRows } from "../scheduling/context";
 import { parentLookup } from "../scheduling/reservations";
-import { PAYABLE, actorOf, avpUserId, event, getForActor, isAvp, loadByToken, paidSantimOf, trackByToken } from "../external/requests";
-import { esc, etb, mailRequester, mailStaff } from "../external/mail";
+import { PAYABLE, actorOf, avpUserId, event, getForActor, isAvp, paidSantimOf, requesterEmail, requesterView } from "../external/requests";
+import { esc, etb, mailRequester, mailStaff, portalUrl } from "../external/mail";
 import { enabledProviders, receiverConfig } from "./config";
 import { verifier, type Receipt } from "./verifier";
 
@@ -20,7 +20,9 @@ import { verifier, type Receipt } from "./verifier";
  *   requester gives a transaction reference ─▶ the verifier reads the bank's receipt ─▶
  *   it must have paid the university's account, after the quote went out, before the
  *   deadline ─▶ verified amounts add up (split payments are fine) ─▶ once they reach the
- *   quote the request is PAID ─▶ its held slots turn CONFIRMED and it is SCHEDULED.
+ *   quote the request is PAID ─▶ the AVP's office checks the payment itself and confirms
+ *   it (2026-09-28) ─▶ its held slots turn CONFIRMED, it is SCHEDULED, and the requester
+ *   sees the departments' contact persons.
  *
  * A bank receipt pays once: `claimKey` ("PROVIDER:REFERENCE") is unique while a receipt
  * counts or awaits review. When the verifier can't help, the requester asks for manual
@@ -65,8 +67,15 @@ const USED = "This payment reference has already been used.";
 
 // ── The requester ─────────────────────────────────────────────────────────────
 
-export async function submitPayment(token: string, input: SubmitPaymentInput): Promise<SubmitPaymentResultDto> {
-  const row = await loadByToken(token);
+async function loadForPayment(requestId: string) {
+  const row = await prisma.externalRequest.findUnique({ where: { id: requestId }, include: { payments: { orderBy: { createdAt: "asc" } } } });
+  if (!row) throw new HttpError(404, "Request not found");
+  return row;
+}
+
+/** The requester (signed in; the caller checked it is their own request) confirming a payment. */
+export async function submitPayment(requestId: string, input: SubmitPaymentInput): Promise<SubmitPaymentResultDto> {
+  const row = await loadForPayment(requestId);
   if (!PAYABLE.includes(row.status) || row.quoteAmountSantim === null || !row.quoteSentAt) throw new HttpError(409, "This request is not awaiting payment.");
   if (row.paymentDeadline && row.paymentDeadline.getTime() < Date.now()) throw new HttpError(409, "The payment deadline has passed — please contact the university.");
   if (!enabledProviders().includes(input.provider)) throw new HttpError(400, `Payments through ${PROVIDER_INPUT[input.provider].label} are not accepted here.`);
@@ -84,11 +93,11 @@ export async function submitPayment(token: string, input: SubmitPaymentInput): P
   const rejectedToday = row.payments.filter((p) => p.status === "REJECTED" && p.createdAt >= since).length;
   if (rejectedToday >= MAX_REJECTIONS_PER_DAY) throw new HttpError(429, "Too many payment attempts could not be verified today. Ask for a manual review, or try again tomorrow.");
 
-  if (input.manualReview) return submitForReview(token, row.id, row.reference, claimKey, reference, input);
+  if (input.manualReview) return submitForReview(row.id, row.reference, claimKey, reference, input);
 
   const quoteSentAt = row.quoteSentAt;
   const result = await verifier().verify({ provider: input.provider, reference, accountSuffix: input.accountSuffix, phoneNumber: input.phoneNumber });
-  if (!result.ok) return reject(token, row.id, input, reference, result.reason, result.unavailable, result.raw);
+  if (!result.ok) return reject(row.id, input, reference, result.reason, result.unavailable, result.raw);
 
   const receipt = result.receipt;
   const amountSantim = parseAmountToSantim(receipt.amount);
@@ -104,7 +113,7 @@ export async function submitPayment(token: string, input: SubmitPaymentInput): P
           : !paidAfter(paidAt, quoteSentAt)
             ? "This payment was made before the quote was sent."
             : null;
-  if (problem) return reject(token, row.id, input, reference, problem, false, receipt.raw, receipt, amountSantim, paidAt?.at ?? null);
+  if (problem) return reject(row.id, input, reference, problem, false, receipt.raw, receipt, amountSantim, paidAt?.at ?? null);
 
   let status: ExternalRequestStatus;
   try {
@@ -122,7 +131,7 @@ export async function submitPayment(token: string, input: SubmitPaymentInput): P
     throw err;
   }
   await afterPayment(row.id, status, amountSantim!);
-  return { outcome: "VERIFIED", reason: null, unavailable: false, tracking: await trackByToken(token) };
+  return { outcome: "VERIFIED", reason: null, unavailable: false, tracking: await requesterView(row.id) };
 }
 
 function receiptFields(receipt: Receipt, amountSantim: number | null, paidAt: Date | null) {
@@ -137,7 +146,6 @@ function receiptFields(receipt: Receipt, amountSantim: number | null, paidAt: Da
 }
 
 async function reject(
-  token: string,
   requestId: string,
   input: SubmitPaymentInput,
   reference: string,
@@ -161,10 +169,10 @@ async function reject(
     });
     await event(tx, requestId, { id: null, label: "Requester" }, "PAYMENT_REJECTED", `${reference}: ${reason}`);
   });
-  return { outcome: "REJECTED", reason, unavailable, tracking: await trackByToken(token) };
+  return { outcome: "REJECTED", reason, unavailable, tracking: await requesterView(requestId) };
 }
 
-async function submitForReview(token: string, requestId: string, requestRef: string, claimKey: string, reference: string, input: SubmitPaymentInput): Promise<SubmitPaymentResultDto> {
+async function submitForReview(requestId: string, requestRef: string, claimKey: string, reference: string, input: SubmitPaymentInput): Promise<SubmitPaymentResultDto> {
   if (!input.amountSantim) throw new HttpError(400, "Say how much you paid, so the office can check it.");
   try {
     await prisma.$transaction(async (tx) => {
@@ -185,14 +193,14 @@ async function submitForReview(token: string, requestId: string, requestRef: str
     const to = await prisma.user.findUnique({ where: { id: avp }, select: { email: true } });
     await mailStaff(to?.email, `Payment to check for ${requestRef}`, [`The requester says they paid ${esc(etb(input.amountSantim))} through ${esc(PROVIDER_INPUT[input.provider].label)}, reference ${esc(reference)}, and asked for it to be checked by hand.`], "/external-requests");
   }
-  return { outcome: "PENDING_REVIEW", reason: null, unavailable: false, tracking: await trackByToken(token) };
+  return { outcome: "PENDING_REVIEW", reason: null, unavailable: false, tracking: await requesterView(requestId) };
 }
 
 // ── The AVP's office ──────────────────────────────────────────────────────────
 
 export async function reviewPayment(userId: string, paymentId: string, input: ReviewPaymentInput): Promise<ExternalRequestDto> {
   if (!(await isAvp(userId))) throw new HttpError(403, "Only the Academic Vice President's office reviews payments.");
-  const payment = await prisma.paymentVerification.findUnique({ where: { id: paymentId }, include: { request: { select: { id: true, reference: true, contactEmail: true, contactName: true } } } });
+  const payment = await prisma.paymentVerification.findUnique({ where: { id: paymentId }, include: { request: { select: { id: true, reference: true, contactEmail: true, contactName: true, requesterId: true } } } });
   if (!payment) throw new HttpError(404, "Payment not found");
   if (input.decision === "REJECT" && !input.note) throw new HttpError(400, "Say why the payment could not be accepted — the requester sees it.");
   const amountSantim = input.amountSantim ?? payment.amountSantim;
@@ -221,37 +229,50 @@ export async function reviewPayment(userId: string, paymentId: string, input: Re
   }, TX);
 
   if (input.decision === "REJECT") {
-    await mailRequester(payment.request.contactEmail, `Payment for ${payment.request.reference} not accepted`, [
+    await mailRequester(await requesterEmail(payment.request), `Payment for ${payment.request.reference} not accepted`, [
       `Dear ${esc(payment.request.contactName)},`,
       `We could not accept the payment with reference ${esc(payment.reference)}: ${esc(input.note)}`,
-      "You can submit another payment reference from your tracking page.",
-    ]);
+      "You can submit another payment reference in the portal.",
+    ], { href: portalUrl(payment.requestId), label: "View your request" });
   } else {
     await afterPayment(payment.requestId, status, amountSantim!);
   }
   return getForActor(userId, payment.requestId);
 }
 
-/** The AVP retrying confirmation of a PAID request — after a lost slot was re-held. */
-export async function confirmBooking(userId: string, requestId: string): Promise<ExternalRequestDto> {
-  if (!(await isAvp(userId))) throw new HttpError(403, "Only the Academic Vice President's office confirms bookings.");
+/**
+ * The AVP's office confirming the payment (2026-09-28) — after checking the receipt
+ * itself, even when the verifier already read it. This is what books the held slots, and
+ * what shows the requester the departments' contact persons: from then on, arrival and
+ * everything else is arranged with them directly. Also the retry after a lost slot was
+ * re-held.
+ */
+export async function confirmPayment(userId: string, requestId: string): Promise<ExternalRequestDto> {
+  if (!(await isAvp(userId))) throw new HttpError(403, "Only the Academic Vice President's office confirms payments.");
   const outcome = await confirmPaidRequest(requestId, await actorOf(userId));
-  if (!outcome) throw new HttpError(409, "Only a paid request waiting for its calendar can be confirmed.");
+  if (!outcome) throw new HttpError(409, "Only a fully paid request waiting for confirmation can be confirmed.");
   return getForActor(userId, requestId);
 }
 
-/** A verified amount landed: tell the requester where they stand, and book it if paid. */
+/** A verified amount landed: tell the requester where they stand; once it is fully paid,
+ *  ask the AVP's office to check and confirm it. */
 async function afterPayment(requestId: string, status: ExternalRequestStatus, amountSantim: number): Promise<void> {
-  if (status === "PAID") {
-    await confirmPaidRequest(requestId, { id: null, label: "System" });
-    return;
-  }
   const row = await prisma.externalRequest.findUniqueOrThrow({ where: { id: requestId }, include: { payments: { select: { status: true, amountSantim: true } } } });
   const paid = paidSantimOf(row.payments);
-  await mailRequester(row.contactEmail, `Payment received for ${row.reference}`, [
+  if (status === "PAID") {
+    await mailRequester(await requesterEmail(row), `Payment received for ${row.reference}`, [
+      `Dear ${esc(row.contactName)},`,
+      `We have received ${esc(etb(paid))}, the full amount. The Academic Vice President's office will confirm it shortly; you will then see your bookings confirmed and who to contact in each department.`,
+    ], { href: portalUrl(requestId), label: "View your request" });
+    const avp = await avpUserId();
+    const to = avp ? await prisma.user.findUnique({ where: { id: avp }, select: { email: true } }) : null;
+    await mailStaff(to?.email, `${row.reference} is paid — confirm the payment`, [`${esc(row.organizationName)} has paid ${esc(etb(paid))}. Check the receipt, then confirm the payment: that books the held slots and gives them their contact persons.`], "/external-requests");
+    return;
+  }
+  await mailRequester(await requesterEmail(row), `Payment received for ${row.reference}`, [
     `Dear ${esc(row.contactName)},`,
     `We have confirmed a payment of ${esc(etb(amountSantim))}. So far ${esc(etb(paid))} of ${esc(etb(row.quoteAmountSantim ?? 0))} has been received; the booking is confirmed once the full amount is paid.`,
-  ]);
+  ], { href: portalUrl(requestId), label: "View your request" });
 }
 
 // ── Confirmation ──────────────────────────────────────────────────────────────
@@ -338,7 +359,7 @@ export async function confirmPaidRequest(requestId: string, actor: { id: string 
     if (conflicts.length) {
       await event(tx, requestId, actor, "CONFIRMATION_CONFLICT", conflicts.join("; "));
     } else {
-      await tx.externalRequest.update({ where: { id: requestId }, data: { status: "SCHEDULED" } });
+      await tx.externalRequest.update({ where: { id: requestId }, data: { status: "SCHEDULED", contactsRevealedAt: now } });
       await event(tx, requestId, actor, "SCHEDULED", confirmed.length ? `${confirmed.length} booking${confirmed.length === 1 ? "" : "s"} confirmed` : null);
     }
     return { scheduled: conflicts.length === 0, conflicts, confirmed };
@@ -351,19 +372,26 @@ export async function confirmPaidRequest(requestId: string, actor: { id: string 
 async function mailConfirmation(requestId: string, outcome: Confirmation, lineage: Map<string, { parentId: string | null; custodianId: string | null }>): Promise<void> {
   const row = await prisma.externalRequest.findUniqueOrThrow({
     where: { id: requestId },
-    include: { assignments: { where: { status: "ACCEPTED" }, include: { orgNode: { select: { user: { select: { email: true } } } } } } },
+    include: { assignments: { where: { level: "DEPARTMENT", status: { in: ["ACCEPTED", "APPROVED"] } }, include: { orgNode: { select: { name: true, user: { select: { email: true } } } } } } },
   });
   const slots = outcome.confirmed.map((c) => `${esc(c.labName)} · ${esc(c.when)}`);
+  const requesterTo = await requesterEmail(row);
 
   if (outcome.scheduled) {
-    await mailRequester(row.contactEmail, `Booking confirmed — ${row.reference}`, [
+    // Who to call, per department — from now on everything is arranged with them directly.
+    const contacts = row.assignments.flatMap((a) =>
+      (Array.isArray(a.contacts) ? (a.contacts as Array<{ name: string; role?: string; phone: string; email?: string }>) : []).map(
+        (c) => `${esc(a.orgNode.name)}: ${esc(c.name)}${c.role ? ` (${esc(c.role)})` : ""} · ${esc(c.phone)}${c.email ? ` · ${esc(c.email)}` : ""}`,
+      ),
+    );
+    await mailRequester(requesterTo, `Booking confirmed — ${row.reference}`, [
       `Dear ${esc(row.contactName)},`,
-      `Your payment is complete and ${esc(row.organizationName)}'s booking is confirmed.`,
+      `Your payment is confirmed and ${esc(row.organizationName)}'s booking is confirmed.`,
       slots.length ? `Booked: ${slots.join("<br>")}` : "",
-      "The departments concerned will be in touch with any arrangements for the day.",
-    ].filter(Boolean));
+      contacts.length ? `For arrival and everything on the day, contact:<br>${contacts.join("<br>")}` : "The departments concerned will be in touch with any arrangements for the day.",
+    ].filter(Boolean), { href: portalUrl(requestId), label: "View your bookings" });
   } else {
-    await mailRequester(row.contactEmail, `Payment complete — ${row.reference}`, [
+    await mailRequester(requesterTo, `Payment complete — ${row.reference}`, [
       `Dear ${esc(row.contactName)},`,
       "Your payment is complete. One or more of the requested slots needs to be re-arranged; the university's office will contact you shortly.",
     ]);

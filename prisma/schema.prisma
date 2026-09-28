@@ -123,6 +123,8 @@ model User {
   reservationsRequested      Reservation[]               @relation("ReservationRequestedBy")
   reservationsDecided        Reservation[]               @relation("ReservationDecidedBy")
   externalAssignmentsDecided ExternalRequestAssignment[] @relation("ExternalAssignmentDecidedBy")
+  externalRequestsRaised     ExternalRequest[]           @relation("ExternalRequestRequester")
+  externalTasks              ExternalCustodianTask[]     @relation("ExternalTaskCustodian")
   externalRequestEvents      ExternalRequestEvent[]      @relation("ExternalRequestEventActor")
   paymentsReviewed           PaymentVerification[]       @relation("PaymentVerificationReviewedBy")
 
@@ -1482,12 +1484,16 @@ model ReservationResource {
   @@index([itemId, startsAt])
 }
 
-// ── External bookings (Track 7 of ~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md)
+// ── External bookings (Track 7; reworked 2026-09-28 to the university's own line)
 //
-// An outside institution asks through the public portal — no account. The AVP (the
-// university root's occupant) forwards it to departments; their custodians place HELD
-// reservations; each department head accepts with a pricing sheet link and amount; the
-// AVP sends one quote; payment (Track 8) turns the holds CONFIRMED.
+// An outside institution signs up (an EXTERNAL account) and asks through the portal —
+// to use rooms or labs (FACILITY), or to have samples analysed on a machine
+// (SAMPLE_ANALYSIS). The request travels the line of communication and back:
+//   AVP ─▶ Dean (a COLLEGE assignment) ─▶ Head (a DEPARTMENT assignment under it)
+//   ─▶ custodians (tasks) hold rooms or machines ─▶ Head submits the cost breakdown and
+//   contact persons ─▶ Dean ─▶ AVP approves and quotes ─▶ the requester pays ─▶ the AVP
+//   confirms the payment, which confirms the bookings and reveals the contact persons.
+// Everything after payment happens offline, through those contacts.
 
 enum ExternalRequestStatus {
   SUBMITTED
@@ -1501,9 +1507,35 @@ enum ExternalRequestStatus {
   EXPIRED
 }
 
+/// PENDING: waiting on this unit (a dean to forward, a head to assign custodians).
+/// FORWARDED: sent on down the line. SUBMITTED: answered up the line. APPROVED: the
+/// level above accepted the answer. RETURNED: sent back down for another answer.
+/// ACCEPTED is the pre-2026-09-28 department answer, kept for old rows.
 enum ExternalAssignmentStatus {
   PENDING
   ACCEPTED
+  DECLINED
+  FORWARDED
+  SUBMITTED
+  APPROVED
+  RETURNED
+}
+
+enum ExternalAssignmentLevel {
+  COLLEGE
+  DEPARTMENT
+}
+
+enum ExternalRequestKind {
+  /// Rooms or labs, for a workshop or training.
+  FACILITY
+  /// Samples analysed on a machine, for a report.
+  SAMPLE_ANALYSIS
+}
+
+enum ExternalTaskStatus {
+  PENDING
+  DONE
   DECLINED
 }
 
@@ -1512,6 +1544,13 @@ model ExternalRequest {
   /// EXT-2026-001 — what everyone quotes, in and out of the system.
   reference         String                @unique
   status            ExternalRequestStatus @default(SUBMITTED)
+  kind              ExternalRequestKind   @default(FACILITY)
+  /// The requester's account. Null only for requests from before accounts existed.
+  requesterId       String?
+  /// SAMPLE_ANALYSIS only: { sampleCount, analysis, categoryId?, categoryName? }.
+  sample            Json?
+  /// When the AVP confirmed payment — from then on the requester sees the contact persons.
+  contactsRevealedAt DateTime?            @db.Timestamptz(3)
   organizationName  String
   contactName       String
   contactEmail      String
@@ -1523,9 +1562,8 @@ model ExternalRequest {
   letterStorageKey  String
   letterFileName    String
   letterByteSize    Int
-  /// SHA-256 of the requester's tracking token — the raw token only ever lives in the
-  /// link emailed to them. Re-sending a link regenerates it.
-  trackingTokenHash String                @unique
+  /// Pre-2026-09-28 only: SHA-256 of the emailed tracking token. Requesters sign in now.
+  trackingTokenHash String?               @unique
   submitterIpHash   String?
   /// Money is integer santim (1 ETB = 100 santim), never a float.
   quoteAmountSantim Int?
@@ -1536,6 +1574,7 @@ model ExternalRequest {
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
+  requester    User?                       @relation("ExternalRequestRequester", fields: [requesterId], references: [id], onDelete: SetNull)
   windows      ExternalRequestWindow[]
   assignments  ExternalRequestAssignment[]
   events       ExternalRequestEvent[]
@@ -1543,6 +1582,7 @@ model ExternalRequest {
   payments     PaymentVerification[]
 
   @@index([status])
+  @@index([requesterId])
   @@index([contactEmail, createdAt])
   @@index([submitterIpHash, createdAt])
 }
@@ -1563,12 +1603,19 @@ model ExternalRequestWindow {
   @@index([requestId])
 }
 
-/// The AVP forwarding a request to one department, and that department head's answer.
+/// One unit's part in a request: a college (its dean, forwarded by the AVP) or a
+/// department under it (its head, forwarded by the dean), and that unit's answer.
 model ExternalRequestAssignment {
   id               String                   @id @default(cuid())
   requestId        String
   orgNodeId        String
+  level            ExternalAssignmentLevel  @default(DEPARTMENT)
+  /// A department's college assignment. Null for a college, and for old rows.
+  parentId         String?
   status           ExternalAssignmentStatus @default(PENDING)
+  /// A department's contact persons for the requester — [{ name, role, phone, email }] —
+  /// revealed to them once the AVP confirms payment.
+  contacts         Json?
   /// The head's pricing breakdown (a Google Sheet) — link only, never a copy.
   sheetUrl         String?
   amountSantim     Int?
@@ -1579,12 +1626,35 @@ model ExternalRequestAssignment {
   decidedAt        DateTime?                @db.Timestamptz(3)
   createdAt        DateTime                 @default(now())
 
-  request   ExternalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  orgNode   OrgNode         @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
-  decidedBy User?           @relation("ExternalAssignmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  request   ExternalRequest             @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  orgNode   OrgNode                     @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
+  decidedBy User?                       @relation("ExternalAssignmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  parent    ExternalRequestAssignment?  @relation("ExternalAssignmentTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  ExternalRequestAssignment[] @relation("ExternalAssignmentTree")
+  tasks     ExternalCustodianTask[]
 
   @@unique([requestId, orgNodeId])
   @@index([orgNodeId, status])
+  @@index([parentId])
+}
+
+/// A head asking one of their custodians to hold rooms or a machine for a request.
+model ExternalCustodianTask {
+  id           String             @id @default(cuid())
+  assignmentId String
+  custodianId  String
+  /// What the head asks of them, e.g. "2 labs with 20 workstations" or "the XRD".
+  want         String
+  status       ExternalTaskStatus @default(PENDING)
+  note         String?
+  decidedAt    DateTime?          @db.Timestamptz(3)
+  createdAt    DateTime           @default(now())
+
+  assignment ExternalRequestAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  custodian  User                      @relation("ExternalTaskCustodian", fields: [custodianId], references: [id], onDelete: Restrict)
+
+  @@unique([assignmentId, custodianId])
+  @@index([custodianId, status])
 }
 
 /// Append-only history, shown to staff in full and to the requester in public terms.

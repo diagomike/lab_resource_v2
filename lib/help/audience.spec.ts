@@ -11,7 +11,7 @@ const ALL = content.chapters.map((c) => c.id);
 
 function me(roles: RoleKind[], post?: { kind: "DEPARTMENT" | "COLLEGE" | "UNIVERSITY" | "OFFICE"; code?: string }, views: MeContextDto["views"] = []): MeContextDto {
   return {
-    user: { id: "u", email: "u@x", name: "U", phone: null, status: "ACTIVE", roles, mustChangePassword: false, emailNotifications: true },
+    user: { id: "u", email: "u@x", name: "U", phone: null, organisation: null, status: "ACTIVE", roles, mustChangePassword: false, emailNotifications: true },
     scope: post
       ? { nodeId: "n", name: "N", level: 1, kind: post.kind, code: post.code ?? null, isLeaf: true, isGlobal: false, isOccupant: true, reachableNodeCount: 1 }
       : null,

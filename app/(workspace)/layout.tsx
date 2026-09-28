@@ -1,9 +1,9 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { screenKeyForPath, META } from "@/lib/nav";
+import { isRequesterOnly, screenKeyForPath, META } from "@/lib/nav";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import TopBar from "@/components/shell/TopBar";
 import Sidebar from "@/components/shell/Sidebar";
@@ -35,7 +35,13 @@ export function useMeContext() {
 
 function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { me } = useAuth();
+  // An outside requester's account has nothing in the workspace — their home is the portal.
+  const requester = isRequesterOnly(me?.user.roles ?? []);
+  useEffect(() => {
+    if (requester) router.replace("/portal/requests");
+  }, [requester, router]);
   const [override, setOverride] = useState<ShellHeader>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -56,6 +62,7 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   const key = screenKeyForPath(pathname);
   const meta = META[key] ?? ["", "", ""];
+  if (requester) return null;
 
   const counts: Record<string, string> = {};
   // Populated once the approvals-inbox count endpoint exists.

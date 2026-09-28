@@ -77,6 +77,9 @@ export async function login(
     await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: false } });
     throw new HttpError(401, "Invalid email or password");
   }
+  // An outside requester who signed up but hasn't followed the email link yet
+  // (lib/server/auth/external-account.ts). Said only after the password matched.
+  if (user.status === "INVITED") throw new HttpError(401, "Confirm your email address first — follow the link we sent you.");
   await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: true } });
 
   const raw = generateToken();
@@ -265,6 +268,7 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
       email: row.email,
       name: row.name,
       phone: row.phone,
+      organisation: row.organisation,
       status: row.status,
       roles: user.roles,
       mustChangePassword: row.mustChangePassword,
@@ -311,7 +315,7 @@ export async function setOwnEmailNotifications(userId: string, enabled: boolean)
 }
 
 function toDto(
-  user: { id: string; email: string; name: string; phone: string | null; status: string; mustChangePassword: boolean; emailNotifications: boolean },
+  user: { id: string; email: string; name: string; phone: string | null; organisation: string | null; status: string; mustChangePassword: boolean; emailNotifications: boolean },
   roles: RoleKind[],
 ): SessionUserDto {
   return {
@@ -319,6 +323,7 @@ function toDto(
     email: user.email,
     name: user.name,
     phone: user.phone,
+    organisation: user.organisation,
     status: user.status as SessionUserDto["status"],
     roles,
     mustChangePassword: user.mustChangePassword,

@@ -7,10 +7,11 @@ import { Panel, ErrorNote, Button, Tag } from "@/components/ui";
 import { formatEtb, parseEtb } from "@/components/external/labels";
 
 /**
- * Track 8 — the requester confirms their payment on the tracking page. They pick how they
- * paid and give the receipt's reference; the university's verifier reads the bank's
- * receipt. If it can't (or the bank isn't reachable), they may ask a person to check it
- * instead, stating the amount. Several payments may add up to the quote.
+ * Track 8 — the requester confirms their payment on their request's page, signed in. They
+ * pick how they paid and give the receipt's reference; the university's verifier reads the
+ * bank's receipt. If it can't (or the bank isn't reachable), they may ask a person to
+ * check it instead, stating the amount. Several payments may add up to the quote; once
+ * they do, the AVP's office confirms the payment.
  */
 
 const inputClass = "h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
@@ -28,7 +29,7 @@ export function paymentTone(status: PaymentVerificationStatus): "good" | "bad" |
   return status === "VERIFIED" || status === "MANUAL_VERIFIED" ? "good" : status === "PENDING_REVIEW" ? "accent" : "bad";
 }
 
-export default function PaymentPanel({ token, data, onUpdated }: { token: string; data: PublicTrackingDto; onUpdated: (next: PublicTrackingDto) => void }) {
+export default function PaymentPanel({ data, onUpdated }: { data: PublicTrackingDto; onUpdated: (next: PublicTrackingDto) => void }) {
   const payment = data.payment!;
   const quote = data.quote!;
   const [provider, setProvider] = useState<PaymentProvider | "">(payment.providers[0]?.id ?? "");
@@ -55,7 +56,7 @@ export default function PaymentPanel({ token, data, onUpdated }: { token: string
     setError(null);
     setOutcome(null);
     try {
-      const result = await api.post<SubmitPaymentResultDto>(`/public/track/${encodeURIComponent(token)}/payments`, {
+      const result = await api.post<SubmitPaymentResultDto>(`/portal/requests/${encodeURIComponent(data.id)}/payments`, {
         provider: option.id,
         reference: reference.trim(),
         accountSuffix: option.extra?.kind === "SUFFIX" ? suffix : undefined,

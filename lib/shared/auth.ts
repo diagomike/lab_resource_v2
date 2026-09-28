@@ -45,6 +45,8 @@ export const SessionUserDto = z.object({
   email: z.string(),
   name: z.string(),
   phone: z.string().nullable(),
+  /** EXTERNAL accounts only: the institution or company they ask on behalf of. */
+  organisation: z.string().nullable(),
   status: UserStatusSchema,
   roles: z.array(RoleKindSchema),
   /** True after an administrator set a temporary password — the shell shows only the
