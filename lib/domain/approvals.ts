@@ -426,6 +426,26 @@ export function movementChain(shape: MovementShape, ctx: MovementContext): StepS
   }
 }
 
+/** Steps that ask for consent — as opposed to taking something on or confirming it arrived. */
+const CONSENT_SELECTORS: ReadonlySet<StepSelector["type"]> = new Set(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "NODE_OCCUPANT", "HOST_RELEASE", "HIERARCHY", "OWNER_ANCESTOR"]);
+
+/**
+ * One person, one signature: when the same person holds two consent steps on a route
+ * (the owning and the receiving head of a move inside one department), the later one
+ * is skipped rather than asking them twice. Taking custody or confirming receipt is
+ * never collapsed — that is a different act from agreeing to it.
+ */
+export function collapseRepeatedApprovers(steps: ChainStep[]): ChainStep[] {
+  const seen = new Set<string>();
+  const out = steps.map((s) => {
+    if (s.status === "SKIPPED" || s.receipt || !s.approverId || !CONSENT_SELECTORS.has(s.selector)) return s;
+    if (seen.has(s.approverId)) return { ...s, status: "SKIPPED" as StepStatus, skipReason: "Already approved at an earlier step" };
+    seen.add(s.approverId);
+    return s;
+  });
+  return activate(out);
+}
+
 /** The first step that can actually be decided becomes PENDING; the rest wait. */
 export function activate(steps: ChainStep[]): ChainStep[] {
   let armed = false;

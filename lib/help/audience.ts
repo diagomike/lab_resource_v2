@@ -57,8 +57,7 @@ export function helpChaptersFor(me: MeContextDto | null | undefined, allChapterI
  */
 const SCREEN_SECTIONS: Array<[string, string[]]> = [
   ["/dashboard", ["custodian--1-your-dashboard", "head--1-your-dashboard-and-register", "ict-maintenance--1-your-dashboard", "store-keeper--3-your-dashboard", "procurement--4-university-wide-view", "property-admin--1-university-wide-view", "staff--1-look-things-up"]],
-  ["/register", ["custodian--2-the-register", "ict-maintenance--3-build-a-maintenance-list", "store-keeper--2-hand-over-to-a-lab", "head--1-your-dashboard-and-register", "staff--1-look-things-up", "system-admin--6-corrections-and-the-change-log"]],
-  ["/university", ["custodian--13-university-resources-and-transfers"]],
+  ["/register", ["custodian--2-the-register", "custodian--13-university-resources-and-transfers", "ict-maintenance--3-build-a-maintenance-list", "store-keeper--2-hand-over-to-a-lab", "head--1-your-dashboard-and-register", "staff--1-look-things-up", "system-admin--6-corrections-and-the-change-log"]],
   ["/schedule", ["custodian--10-bookings-of-your-labs", "staff--2-book-a-lab"]],
   ["/external-requests", ["dean-avp--2-external-requests-avp", "head--10-external-requests", "custodian--15-hold-a-slot-for-an-outside-request"]],
   ["/lab-states", ["custodian--7-updates-in-a-drafts-department", "head--2-decide-lab-updates-and-ideals"]],

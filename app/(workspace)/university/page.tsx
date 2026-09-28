@@ -1,10 +1,7 @@
-import RequireRole from "@/components/RequireRole";
-import UniversityPage from "@/components/resources/UniversityPage";
+import { redirect } from "next/navigation";
 
+/** University resources is the Register's "Whole university" scope now — old links and
+ *  bookmarks land there. */
 export default function Page() {
-  return (
-    <RequireRole>
-      <UniversityPage />
-    </RequireRole>
-  );
+  redirect("/register?scope=university");
 }

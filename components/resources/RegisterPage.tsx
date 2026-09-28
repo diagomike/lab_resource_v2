@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { CategoryFieldDto, ContainerOptionDto, ResourceCategoryDto } from "@/lib/shared";
 import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
@@ -21,10 +22,12 @@ import { TransferModal } from "./TransferModal";
 import { ReturnToStoreModal } from "./ReturnToStoreModal";
 import { GroupByBar } from "./GroupByBar";
 import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
+import { RegisterScopeSwitch, mayBrowseUniversity } from "./RegisterScopeSwitch";
+import { WholeUniversityRegister } from "./WholeUniversityRegister";
 
 const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
-function RegisterPageInner() {
+function MyRegister({ canSwitch }: { canSwitch: boolean }) {
   const state = useRegisterState();
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -179,6 +182,7 @@ function RegisterPageInner() {
         title="Register"
         actions={
           <div className="flex items-center gap-10">
+            {canSwitch && <RegisterScopeSwitch scope="mine" />}
             {state.refreshing && <span className="text-10 text-faint">Updating…</span>}
             {canEdit && (
               <Button variant="primary" onClick={() => setAddOpen(true)}>
@@ -411,6 +415,15 @@ function RegisterPageInner() {
       )}
     </Screen>
   );
+}
+
+/** Mine, or the whole university (`?scope=university`) for those who may look that far. */
+function RegisterPageInner() {
+  const { me } = useAuth();
+  const searchParams = useSearchParams();
+  const canSwitch = mayBrowseUniversity(me?.user.roles);
+  // Keyed by scope: each view keeps its own register state, starting fresh on a switch.
+  return canSwitch && searchParams.get("scope") === "university" ? <WholeUniversityRegister key="university" /> : <MyRegister key="mine" canSwitch={canSwitch} />;
 }
 
 /** useSearchParams needs a Suspense boundary in the Next.js App Router. */

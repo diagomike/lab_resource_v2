@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { GroupByBar } from "./GroupByBar";
 import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
@@ -12,10 +12,14 @@ import { ResourceTable } from "./ResourceTable";
 import { FilterBar } from "./FilterBar";
 import { Inspector } from "./Inspector";
 import { PullTransferModal } from "./PullTransferModal";
+import { RegisterScopeSwitch } from "./RegisterScopeSwitch";
 
 const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
 /**
+ * The Register's "Whole university" scope (it was the separate University resources
+ * page until 2026-09-28; `RegisterPage` shows it for `?scope=university`).
+ *
  * "Does any department already have one of these, and is it working?" — the surface
  * a purchase-approving office or department head uses to answer that before
  * approving a purchase (10b of
@@ -33,13 +37,12 @@ const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
  * (current unit ≠ owning unit) is the owner/current split's whole point, so it is
  * called out explicitly rather than left for someone to notice in a column.
  *
- * Since Track 5 (~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md)
- * this is also where a transfer STARTS: transfers are pulled, so a custodian ticks
- * what another unit holds and asks for it into their own lab (`PullTransferModal`).
- * Still read-only — the request goes through the approval chain, nothing is written
- * from here directly.
+ * This is also where a transfer STARTS: transfers are pulled, so a custodian ticks
+ * what another unit holds and asks for it into their own lab (`PullTransferModal`) —
+ * as a loan, or permanently — including stock out of the Main Store. Still read-only:
+ * the request goes through its approval chain, nothing is written from here directly.
  */
-function UniversityPageInner() {
+export function WholeUniversityRegister() {
   const state = useRegisterState({ scope: "UNIVERSITY", defaultMode: "grouped", defaultGroupBy: ["owner"] });
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [pullOpen, setPullOpen] = useState(false);
@@ -83,9 +86,10 @@ function UniversityPageInner() {
     <Screen>
       {state.error && <ErrorNote>{state.error}</ErrorNote>}
       <Panel
-        title="University resources"
+        title="Register — whole university"
         actions={
           <div className="flex items-center gap-10">
+            <RegisterScopeSwitch scope="university" />
             {state.mode !== "flat" && (
               <button
                 onClick={() => state.setExpanded(allExpanded ? {} : true)}
@@ -124,7 +128,7 @@ function UniversityPageInner() {
               {pullItems.length === 0 ? "Everything selected is already yours" : `${pullItems.length} to request`}
             </span>
             <Button variant="primary" disabled={pullItems.length === 0} onClick={() => setPullOpen(true)}>
-              Request transfer to my lab…
+              Request for my lab…
             </Button>
             <button onClick={() => state.setSelection({})} className="text-10.5 text-faint ml-auto">
               Clear selection
@@ -202,14 +206,5 @@ function UniversityPageInner() {
         />
       )}
     </Screen>
-  );
-}
-
-/** useSearchParams needs a Suspense boundary in the Next.js App Router. */
-export default function UniversityPage() {
-  return (
-    <Suspense>
-      <UniversityPageInner />
-    </Suspense>
   );
 }

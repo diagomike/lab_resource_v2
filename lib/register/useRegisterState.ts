@@ -256,7 +256,7 @@ export function useRegisterState(opts?: {
   const groupByParam = searchParams.get("group");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const groupBy = useMemo(() => readGroupBy(searchParams, defaultGroupBy), [groupByParam]);
-  const storageKey = `lrms.register.view:${pathname}`;
+  const storageKey = `lrms.register.view:${pathname}${scope ? ":university" : ""}`;
   /** Filter/page changes keep the chosen grouping in the URL. */
   const keepGroup: Record<string, string> = groupByParam !== null ? { group: groupByParam } : {};
 

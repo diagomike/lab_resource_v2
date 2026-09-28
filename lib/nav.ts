@@ -44,14 +44,8 @@ export const NAV: NavGroup[] = [
       // role-gated item in this file already follows.
       { key: "dashboard", label: "Dashboard", icon: "▦", path: "/dashboard", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
       { key: "register", label: "Register", icon: "▤", path: "/register", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
-      // A capability gate, not scope-narrowed data — this file's own header note.
-      // Matches assertCanBrowseUniversity's exact permitted set (lib/server/resources/
-      // scope.ts): global roles are unrestricted already; MANAGER and STORE_KEEPER are
-      // the deliberate widening (10b of
-      // ~/.claude/plans/three-product-changes-dynamic-thompson.md).
-      // CUSTODIAN since Track 5: transfers are pulled, so a lab has to be able to find
-      // what another unit holds before asking for it.
-      { key: "university", label: "University resources", icon: "◫", path: "/university", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER", "CUSTODIAN"] },
+      // "University resources" is the Register's "Whole university" scope since
+      // 2026-09-28 (RegisterScopeSwitch); /university redirects there.
       // Track 6 — lab calendars. Students are booked for by their advisor, so the
       // screen is for the roles the booking service itself accepts.
       { key: "schedule", label: "Schedule", icon: "◴", path: "/schedule", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN", "STAFF"] },
@@ -103,8 +97,7 @@ const YOU_GROUP: NavGroup = {
 
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["", "Dashboard", "What the register looks like from where you stand"],
-  register: ["", "Register", "Hierarchy, rollup and search views over the resources you can see"],
-  university: ["", "University resources", "Every unit's resources — find what you need and request it into your lab"],
+  register: ["", "Register", "Your resources — or the whole university's, to find what you need and request it"],
   schedule: ["", "Schedule", "Lab calendars — weekly classes, and booking a room or machine"],
   "external-requests": ["", "External requests", "Workshops and trainings outside institutions have asked the university to host"],
   "lab-states": ["", "Lab states", "Each lab as it is, as drafted, and as it should be — edit, submit and approve"],

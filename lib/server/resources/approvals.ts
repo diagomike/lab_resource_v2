@@ -17,6 +17,7 @@ import {
   buildOrgIndex,
   canDecide,
   chainSettled,
+  collapseRepeatedApprovers,
   currentStep,
   movementChain,
   resolveApprover,
@@ -255,15 +256,17 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   const broken = validateChain(chain, { ownerNodeId, targetNodeId, nodes, orgIndex });
   if (broken) return { outcome: "DENIED", reason: broken };
 
-  const steps = buildChain(chain, {
-    item: domainItem,
-    ownerNodeId,
-    targetNodeId,
-    targetCustodianId,
-    requesterId: actorId,
-    nodes,
-    orgIndex,
-  });
+  const steps = collapseRepeatedApprovers(
+    buildChain(chain, {
+      item: domainItem,
+      ownerNodeId,
+      targetNodeId,
+      targetCustodianId,
+      requesterId: actorId,
+      nodes,
+      orgIndex,
+    }),
+  );
 
   // Every step skipped means one thing only: the requester holds every post on the
   // route, so each step is their own signature on their own request. Applying

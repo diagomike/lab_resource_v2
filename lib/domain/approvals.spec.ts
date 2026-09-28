@@ -9,6 +9,7 @@ import {
   describeChain,
   describeSelectors,
   isBlocked,
+  collapseRepeatedApprovers,
   movementChain,
   resolvePolicy,
   validateChain,
@@ -467,5 +468,29 @@ describe("movementChain — the line each movement walks", () => {
       item: { custodianId: "u9" } as Item,
     });
     expect(steps.map((s) => s.approverId)).toEqual(["u9", "p-head-se", "p-head-chem", "p-cmd", "p-property", "u1"]);
+  });
+});
+
+describe("collapseRepeatedApprovers — one person, one signature", () => {
+  it("skips a later consent step the same person already holds, but never an acceptance or a receipt", () => {
+    const steps = collapseRepeatedApprovers(
+      buildChain([{ type: "ITEM_CUSTODIAN" }, { type: "OWNER_HEAD" }, { type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }, { type: "REQUESTER_RECEIPT" }], {
+        ownerNodeId: "se",
+        targetNodeId: "se",
+        targetCustodianId: "p-head-se",
+        requesterId: "u1",
+        nodes: ORG_NODES,
+        orgIndex,
+        item: { custodianId: "u9" } as Item,
+      }),
+    );
+    expect(steps.map((s) => [s.selector, s.status])).toEqual([
+      ["ITEM_CUSTODIAN", "PENDING"],
+      ["OWNER_HEAD", "WAITING"],
+      ["TARGET_HEAD", "SKIPPED"],
+      ["TARGET_CUSTODIAN", "WAITING"],
+      ["REQUESTER_RECEIPT", "WAITING"],
+    ]);
+    expect(steps[2].skipReason).toBe("Already approved at an earlier step");
   });
 });
