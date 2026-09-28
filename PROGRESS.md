@@ -4695,3 +4695,25 @@ its model that make porting it as-is the wrong move.
     (… → Receiving head → receipt) and Permanent chain (… → College Managing Director → receipt).
   - Test DB note: a failed `purchasing.spec` teardown leaves `__test-purchasing-*` rows and an uncoded
     "Procurement Office"; they were cleaned out of `lrms_v2_test` with a one-off script.
+
+- **2026-09-28 (approval-line round: phase 5 — external requests, `ab44703`)**
+  - Migration `20260928195703_external_chain` (additive; **applied to `lrms_v2`**, Neon still needs it and
+    `20260928191510_import_records`).
+  - **Requester accounts:** `lib/server/auth/external-account.ts` — `/portal/signup` creates an INVITED
+    EXTERNAL user and emails an Invitation-backed link; `/portal/verify` activates it and attaches earlier
+    requests with the same contact email. Login refuses INVITED ("confirm your email"). EXTERNAL-only accounts
+    land on `/portal/requests`; the workspace redirects them there. `SessionUserDto.organisation` added.
+  - **The line** (`lib/server/external/requests.ts`, rewritten): AVP → colleges (`forward`) → dean → departments
+    (`forwardToDepartments`) → head → custodians (`assignCustodians`, `ExternalCustodianTask`) → custodians hold
+    rooms or machines and `finishTask` → head `submitDepartment` (cost sheet, amount, contact persons) → dean
+    `reviewAssignment` (approve / send back) and `submitCollege` → AVP `reviewAssignment` on the college → `sendQuote`.
+    `declineAssignment` for a dean (takes its departments) or a head; holds released. Routes:
+    `/api/external-requests/assignments/[id]/[action]`, `/api/external-requests/tasks/[id]/finish`,
+    requester routes under `/api/portal/requests/**`; `/api/public/track/**` and `/api/public/requests` removed.
+  - **Sample analysis:** `kind: SAMPLE_ANALYSIS` with `sample` (machine category, count, analysis); a custodian
+    holds a machine; the requester sees "XRD-1 — Lab".
+  - **Payment:** keyed by request id; a full payment makes it PAID and emails the AVP; the AVP's
+    `confirmPayment` books the holds (SCHEDULED) and sets `contactsRevealedAt`; the confirmation email lists the
+    contacts. The AVP sees a "Bank receipt" link when the verifier's response carries one.
+  - Specs rewritten: `requests.spec.ts` (9), `verify.spec.ts` (8), new `external-account.spec.ts` (2). **563/563**,
+    `tsc` clean, `next build` clean (after clearing stale `.next/dev/types`).
