@@ -4669,3 +4669,29 @@ its model that make porting it as-is the wrong move.
   - `test/seed-fixture.ts` now ensures the CMD and PROP offices and re-activates PROC/CMD/PROP, because
     a purchasing spec run that times out leaves them parked.
   - 554/554 tests, `tsc` clean.
+
+- **2026-09-28 (approval-line round: phases 3–4)**
+  - **Phase 3 (`bb50b52`) — import records and Staff holdings.**
+    - Migration `20260928191510_import_records` (**applied to `lrms_v2`**; Neon still needs it):
+      `ImportRecord` (IMP-YYYY-NNN, source PURCHASE_REQUEST|EGP, OPEN/LOADED/CANCELLED) and `ImportLine`.
+    - `lib/server/resources/imports.ts`: Property Admin records what arrived (from a PR at IN_STORE, capped
+      at what was ordered, or standalone with an EGP number); the store keeper loads it into the store
+      (the atomic cap + rollback moved over from `receivePurchaseLine`, which is **retired**, route
+      deleted); a load linked to a PR line adds to `receivedQty` and `closeIfFullyReceived` closes the PR.
+      Arrival (IN_STORE) now emails Property Admin; a new record emails the store keepers.
+    - `ImportsPanel` in Purchasing (record form for Property Admin, per-line loading for the keeper,
+      cancel before any load).
+    - `lib/server/resources/staff-holdings.ts`: the `staff-holdings` category is ensured by key; one
+      "Staff holdings — <Dept>" root per department, created on first use, the head as custodian.
+      Hand over → **To a person** (`issueToUserId`): STORE_OUT chain, the person is custodian and is emailed
+      at creation. Staff are eligible custodians only there. The head may return Staff holdings items to the
+      store.
+    - **Write-role gate** in `mutate.assertAuthorized`: register writes need CUSTODIAN or STORE_KEEPER
+      (custody alone isn't enough); a non-custodian still gets 404 for items that aren't theirs.
+  - **Phase 4 (`58f0b30`) — one Register.** `RegisterScopeSwitch` (Mine | Whole university,
+    `?scope=university`), `UniversityPage` → `WholeUniversityRegister`, `/university` redirects, nav item
+    removed. Transfers now collapse a repeated approver (same head owning and receiving) into one step.
+  - Verified in the browser (dev-nomail, as Ali): the redirect, the switch, and the pull modal's Loan chain
+    (… → Receiving head → receipt) and Permanent chain (… → College Managing Director → receipt).
+  - Test DB note: a failed `purchasing.spec` teardown leaves `__test-purchasing-*` rows and an uncoded
+    "Procurement Office"; they were cleaned out of `lrms_v2_test` with a one-off script.
