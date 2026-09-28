@@ -289,6 +289,13 @@ export const TransferItemChange = Base.extend({
     targetOrgNodeId: z.string(),
     targetCustodianId: z.string().nullable(),
     transferOwnership: z.boolean().optional(),
+    /** A pull between units: false or absent borrows it (the owner stays), true moves
+     *  ownership and custody to the receiving side for good — which the College
+     *  Managing Director approves. */
+    permanent: z.boolean().optional(),
+    /** Which movement this is — set by the server from the request's shape
+     *  (lib/server/resources/approvals.ts), never trusted from the client. */
+    movement: z.enum(["LOAN", "PERMANENT", "STORE_OUT", "FROM_STORE", "TO_STORE", "RETURN"]).optional(),
     /** Store handovers only (R2-3 of the 2026-09-23 run): name what arrives the way the
      *  destination already names that kind of thing. Received stock carries the order
      *  line's name ("Workstation Setup 147"); with `renameAs: "Workstation"` it lands as

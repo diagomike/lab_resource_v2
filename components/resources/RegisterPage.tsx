@@ -18,6 +18,7 @@ import { Inspector } from "./Inspector";
 import { AddModal } from "./AddModal";
 import { BulkPropModal } from "./BulkPropModal";
 import { TransferModal } from "./TransferModal";
+import { ReturnToStoreModal } from "./ReturnToStoreModal";
 import { GroupByBar } from "./GroupByBar";
 import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 
@@ -29,6 +30,7 @@ function RegisterPageInner() {
   const [addOpen, setAddOpen] = useState(false);
   const [propField, setPropField] = useState<CategoryFieldDto | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const allExpanded = state.expanded === true;
   const options = useEditOptions();
@@ -304,6 +306,7 @@ function RegisterPageInner() {
               </select>
             )}
             {canHandOver && <Button onClick={() => setTransferOpen(true)}>Hand over…</Button>}
+            {!canHandOver && <Button onClick={() => setReturnOpen(true)}>Return to store…</Button>}
             <button onClick={bulkDelete} className="text-10.5 text-bad ml-auto">
               Delete selected
             </button>
@@ -373,6 +376,20 @@ function RegisterPageInner() {
           onClose={() => setTransferOpen(false)}
           onDone={() => {
             setTransferOpen(false);
+            state.setSelection({});
+            state.refetch();
+            refreshMarkers();
+          }}
+        />
+      )}
+
+      {returnOpen && selectedRootIds.length > 0 && (
+        <ReturnToStoreModal
+          itemIds={selectedRootIds}
+          label={selectedRootIds.length === 1 ? `"${state.byId.get(selectedRootIds[0])?.name ?? "1 resource"}"` : `${selectedRootIds.length} resources`}
+          onClose={() => setReturnOpen(false)}
+          onDone={() => {
+            setReturnOpen(false);
             state.setSelection({});
             state.refetch();
             refreshMarkers();

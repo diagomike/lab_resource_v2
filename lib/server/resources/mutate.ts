@@ -182,7 +182,14 @@ async function assertAuthorized(
     throw new HttpError(403, "Transfers must be requested through the approvals flow — see Approvals.");
   }
 
-  if (input.kind === "transferItem" && !input.transfer.transferOwnership) {
+  if (input.kind === "transferItem" && input.transfer.movement === "TO_STORE") {
+    // Back into the Main Store: its chain (the holder or the store keeper asking, the
+    // owning head, Property Administration, the store keeper accepting) gathered every
+    // consent; the requester need hold neither end by now.
+    return;
+  }
+
+  if (input.kind === "transferItem" && !isStoreHandover(input)) {
     // A RETURN settling here (2026-09-20, F-039) is the one shape where the
     // REQUESTER need not hold the destination at all — the requester may be the
     // HOST releasing it, who has no standing whatsoever in the owner's own unit.
@@ -857,6 +864,14 @@ async function applyDeleteItem(
   return { applied: roots.length, itemIds: roots.map((r) => r.id) };
 }
 
+/** The store keeper handing stock out (a request raised before movements were
+ *  recorded says so only by moving ownership). Every other ownership move — a
+ *  permanent transfer, a request from or a return to the store — is authorized by its
+ *  settled chain, not by the requester holding what moves. */
+function isStoreHandover(input: Extract<ItemChangeInput, { kind: "transferItem" }>): boolean {
+  return input.transfer.movement ? input.transfer.movement === "STORE_OUT" : Boolean(input.transfer.transferOwnership);
+}
+
 async function applyTransferItem(
   tx: Tx,
   actorId: string,
@@ -893,7 +908,7 @@ async function applyTransferItem(
   // sibling-name lock every create and rename takes.
   const newNames = new Map<string, string>();
   if (input.transfer.renameAs) {
-    if (!transferOwnership) throw new HttpError(400, "Only a store handover can rename what it hands over.");
+    if (!isStoreHandover(input)) throw new HttpError(400, "Only a store handover can rename what it hands over.");
     if (new Set(roots.map((r) => r.categoryId)).size > 1) throw new HttpError(400, "Name one kind of resource at a time — this selection mixes categories.");
     const siblings = await lockAndLoadSiblingNames(tx, targetParentId, targetOrgNodeId, roots.map((r) => r.id));
     const ordered = [...roots].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -909,7 +924,7 @@ async function applyTransferItem(
     // A pull is authorized by its approved chain, not the requester's custody of what
     // they asked for (see assertAuthorized); a store handover still moves only what
     // the store keeper actually holds.
-    if (transferOwnership) await assertSubtreeInScope(actorId, subtree);
+    if (isStoreHandover(input)) await assertSubtreeInScope(actorId, subtree);
     for (const node of subtree) {
       await tx.item.update({
         where: { id: node.id },

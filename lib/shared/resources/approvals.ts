@@ -112,6 +112,8 @@ export const ChangeRequestDto = z.object({
   status: RequestStatusSchema,
   steps: z.array(ChainStepDto),
   summary: z.string(),
+  /** Which movement it is — a loan, a permanent transfer, a store handover, … */
+  movement: z.enum(["LOAN", "PERMANENT", "STORE_OUT", "FROM_STORE", "TO_STORE", "RETURN"]),
   note: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   resolution: z.string().nullable(),

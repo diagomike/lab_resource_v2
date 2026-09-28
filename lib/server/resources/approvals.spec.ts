@@ -43,6 +43,8 @@ let categories: CategoriesModule;
 let prisma: PrismaModule["prisma"];
 
 let sysAdminId: string;
+/** Property Administration's occupant (test/seed-fixture.ts makes sure it exists). */
+let propertyAdminId: string;
 let groupId: string;
 let categoryId: string;
 const testKey = `__test-approvals-${Date.now()}`;
@@ -113,6 +115,7 @@ beforeAll(async () => {
 
   const sysAdmin = await prisma.user.findFirstOrThrow({ where: { roles: { some: { kind: "SYS_ADMIN" } } } });
   sysAdminId = sysAdmin.id;
+  propertyAdminId = (await prisma.orgNode.findFirstOrThrow({ where: { code: "PROP", active: true } })).userId!;
 
   const group = await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } });
   groupId = group.id;
@@ -257,7 +260,7 @@ describe("requestTransfer — policy resolution (pull: the requester holds the d
     if (result.outcome !== "ROUTED") throw new Error("expected ROUTED");
     createdRequestIds.push(result.request.id);
     const stored = await prisma.changeRequest.findUniqueOrThrow({ where: { id: result.request.id } });
-    expect((stored.payload as { transfer: unknown }).transfer).toEqual({ targetParentId: destLabId, targetOrgNodeId: targetNodeId, targetCustodianId: null });
+    expect((stored.payload as { transfer: unknown }).transfer).toEqual({ targetParentId: destLabId, targetOrgNodeId: targetNodeId, targetCustodianId: null, movement: "LOAN" });
   });
 });
 
@@ -453,7 +456,7 @@ describe("store handover — the main store hands stock over to a department", (
     await makePolicy({ id: `${testKey}-chain-storekeeper`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: STORE_CHAIN });
   });
 
-  it("routes receiving head → receiving custodian; owner, current unit and custody all move only once the custodian accepts", async () => {
+  it("routes receiving head → Property Administration → receiving custodian; owner, current unit and custody all move only once the custodian accepts", async () => {
     const keeperId = await makeUser("store-keeper", ["STORE_KEEPER", "STAFF"]);
     const labHeadId = await makeUser("store-lab-head", ["MANAGER"]);
     const labCustodianId = await makeUser("store-lab-custodian", ["CUSTODIAN"]);
@@ -467,6 +470,7 @@ describe("store handover — the main store hands stock over to a department", (
     expect(preview.outcome).toBe("ROUTED");
     expect(preview.steps?.map((s) => [s.selector, s.approverId])).toEqual([
       ["TARGET_HEAD", labHeadId],
+      ["NODE_OCCUPANT", propertyAdminId],
       ["TARGET_CUSTODIAN", labCustodianId],
     ]);
 
@@ -475,9 +479,11 @@ describe("store handover — the main store hands stock over to a department", (
     createdRequestIds.push(result.request.id);
     expect(result.request.summary).toMatch(/^Store handover: 2 resources/);
 
-    // The custodian cannot accept before the head has approved.
+    // The custodian cannot accept before the head and Property Administration have approved.
     await expect(approvals.decideStep(labCustodianId, result.request.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
     await approvals.decideStep(labHeadId, result.request.id, "APPROVE");
+    await expect(approvals.decideStep(labCustodianId, result.request.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+    await approvals.decideStep(propertyAdminId, result.request.id, "APPROVE");
 
     let item = await prisma.item.findUniqueOrThrow({ where: { id: stockA } });
     expect([item.ownerOrgNodeId, item.custodianId, item.parentId]).toEqual([storeNodeId, keeperId, null]);
@@ -650,6 +656,7 @@ describe("R2-3 (2026-09-23 run) — a handover can name what arrives the way the
     if (r.outcome !== "ROUTED") throw new Error("expected ROUTED");
     createdRequestIds.push(r.request.id);
     await approvals.decideStep(headId, r.request.id, "APPROVE");
+    await approvals.decideStep(propertyAdminId, r.request.id, "APPROVE");
     expect((await approvals.decideStep(custodianId, r.request.id, "APPROVE")).status).toBe("APPLIED");
 
     // In store-name order: 147 takes the first free number.
@@ -808,6 +815,7 @@ describe("a tree selection — a container ticked together with what is inside i
     expect((stored.payload as { itemIds: string[] }).itemIds).toEqual([computerId]);
 
     await approvals.decideStep(headId, result.request.id, "APPROVE");
+    await approvals.decideStep(propertyAdminId, result.request.id, "APPROVE");
     await approvals.decideStep(custodianId, result.request.id, "APPROVE");
 
     const [computer, nestedRam] = await Promise.all([prisma.item.findUniqueOrThrow({ where: { id: computerId } }), prisma.item.findUniqueOrThrow({ where: { id: ram.id } })]);
@@ -820,5 +828,205 @@ describe("a tree selection — a container ticked together with what is inside i
     const [movedComputer, movedRam] = await Promise.all([prisma.item.findUniqueOrThrow({ where: { id: computerId } }), prisma.item.findUniqueOrThrow({ where: { id: ram.id } })]);
     expect(movedComputer.parentId).toBe(shelfId);
     expect(movedRam.parentId).toBe(computerId);
+  });
+});
+
+describe("movements — permanent transfers go to the CMD, Main Store movements to Property Administration", () => {
+  let cmdId: string;
+  let universityId: string;
+  let storeCategoryId: string;
+  let createdStoreCategory = false;
+
+  async function makeUnit(name: string, kind: "COLLEGE" | "DEPARTMENT", headId: string | null, collegeId?: string) {
+    const node = await prisma.orgNode.create({ data: { name: `${testKey}-${name}`, level: kind === "COLLEGE" ? 1 : 2, kind, active: true, userId: headId } });
+    createdNodeIds.push(node.id);
+    await prisma.orgClosure.create({ data: { ancestorId: node.id, descendantId: node.id, depth: 0 } });
+    if (collegeId) await prisma.orgClosure.create({ data: { ancestorId: collegeId, descendantId: node.id, depth: 1 } });
+    return node.id;
+  }
+
+  /** Two colleges: A with two departments, B with one — each with a head, a custodian and a lab. */
+  async function stage(tag: string) {
+    const collegeA = await makeUnit(`${tag}-college-a`, "COLLEGE", await makeUser(`${tag}-dean-a`, ["MANAGER"]));
+    const collegeB = await makeUnit(`${tag}-college-b`, "COLLEGE", await makeUser(`${tag}-dean-b`, ["MANAGER"]));
+    const dept = async (name: string, collegeId: string) => {
+      const headId = await makeUser(`${tag}-${name}-head`, ["MANAGER"]);
+      const custodianId = await makeUser(`${tag}-${name}-custodian`, ["CUSTODIAN"]);
+      const nodeId = await makeUnit(`${tag}-${name}`, "DEPARTMENT", headId, collegeId);
+      const labId = await makeItem(nodeId, custodianId, `${tag} ${name} Lab`);
+      return { headId, custodianId, nodeId, labId };
+    };
+    return { a1: await dept("a1", collegeA), a2: await dept("a2", collegeA), b1: await dept("b1", collegeB) };
+  }
+
+  async function walk(requestId: string, approvers: string[]) {
+    let last;
+    for (const id of approvers) last = await approvals.decideStep(id, requestId, "APPROVE");
+    return last!;
+  }
+
+  async function request(actorId: string, itemIds: string[], targetParentId: string, extra: Record<string, unknown> = {}) {
+    const r = await approvals.requestTransfer(actorId, { kind: "transferItem", itemIds, transfer: { targetParentId, targetOrgNodeId: "ignored", targetCustodianId: null, ...extra } });
+    if (r.outcome !== "ROUTED") throw new Error("expected ROUTED");
+    createdRequestIds.push(r.request.id);
+    return r.request;
+  }
+
+  /** A Main Store: a Store place owned by the university root, held by a store keeper. */
+  async function mainStore(tag: string) {
+    const keeperId = await makeUser(`${tag}-keeper`, ["STORE_KEEPER", "STAFF"]);
+    const store = await prisma.item.create({
+      data: { categoryId: storeCategoryId, name: `${tag} Main Store`, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: universityId, currentOrgNodeId: universityId, custodianId: keeperId },
+    });
+    createdItemIds.push(store.id);
+    const stock = await prisma.item.create({
+      data: { categoryId, parentId: store.id, name: `${tag} Stock`, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: universityId, currentOrgNodeId: universityId, custodianId: keeperId },
+    });
+    createdItemIds.push(stock.id);
+    return { keeperId, storeId: store.id, stockId: stock.id };
+  }
+
+  beforeAll(async () => {
+    cmdId = (await prisma.orgNode.findFirstOrThrow({ where: { code: "CMD", active: true } })).userId!;
+    universityId = (await prisma.orgNode.findFirstOrThrow({ where: { kind: "UNIVERSITY", level: 0 } })).id;
+    const existing = await prisma.resourceCategory.findUnique({ where: { key: "store" } });
+    if (existing) storeCategoryId = existing.id;
+    else {
+      const created = await categories.create(sysAdminId, {
+        key: "store",
+        name: "Store",
+        iconKey: "Warehouse",
+        groupId,
+        countingMode: "SERIALIZED",
+        impairRule: "NEVER",
+        canBeRoot: true,
+        placement: "ANYWHERE",
+        allowedParentCategoryIds: [],
+        fields: [],
+        templateChildren: [],
+      });
+      storeCategoryId = created.id;
+      createdStoreCategory = true;
+    }
+  });
+
+  afterAll(async () => {
+    // Stock sits inside the stores: children first (Item.parentId is RESTRICT).
+    await prisma.itemChange.deleteMany({ where: { itemId: { in: createdItemIds } } });
+    await prisma.item.deleteMany({ where: { id: { in: createdItemIds }, parentId: { not: null } } });
+    if (createdStoreCategory) {
+      await prisma.item.deleteMany({ where: { categoryId: storeCategoryId } });
+      await prisma.resourceCategory.delete({ where: { id: storeCategoryId } });
+    }
+  });
+
+  it("a loan keeps its departmental chain even across colleges, and the owner and custodian stay", async () => {
+    const s = await stage("mv-loan");
+    const item = await makeItem(s.b1.nodeId, s.b1.custodianId, "Loaned Scope");
+    const req = await request(s.a1.custodianId, [item], s.a1.labId);
+    expect(req.movement).toBe("LOAN");
+    expect(req.summary).toMatch(/^Loan between units: Loaned Scope/);
+    expect(req.steps.map((st) => st.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
+    expect((await walk(req.id, [s.b1.custodianId, s.b1.headId, s.a1.headId, s.a1.custodianId])).status).toBe("APPLIED");
+    const after = await prisma.item.findUniqueOrThrow({ where: { id: item } });
+    expect([after.parentId, after.ownerOrgNodeId, after.currentOrgNodeId, after.custodianId]).toEqual([s.a1.labId, s.b1.nodeId, s.a1.nodeId, s.b1.custodianId]);
+  });
+
+  it("a permanent transfer inside one college goes to the CMD, and moves ownership and custody", async () => {
+    const s = await stage("mv-perm-in");
+    const item = await makeItem(s.a1.nodeId, s.a1.custodianId, "Permanent Oscilloscope");
+    const req = await request(s.a2.custodianId, [item], s.a2.labId, { permanent: true });
+    expect(req.movement).toBe("PERMANENT");
+    expect(req.summary).toMatch(/^Permanent transfer: Permanent Oscilloscope/);
+    expect(req.steps.map((st) => [st.selector, st.approverId])).toEqual([
+      ["ITEM_CUSTODIAN", s.a1.custodianId],
+      ["OWNER_HEAD", s.a1.headId],
+      ["TARGET_HEAD", s.a2.headId],
+      ["NODE_OCCUPANT", cmdId],
+      ["REQUESTER_RECEIPT", s.a2.custodianId],
+    ]);
+    // The CMD decides only after both heads.
+    await expect(approvals.decideStep(cmdId, req.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+    expect((await walk(req.id, [s.a1.custodianId, s.a1.headId, s.a2.headId, cmdId, s.a2.custodianId])).status).toBe("APPLIED");
+    const after = await prisma.item.findUniqueOrThrow({ where: { id: item } });
+    expect([after.parentId, after.ownerOrgNodeId, after.currentOrgNodeId, after.custodianId]).toEqual([s.a2.labId, s.a2.nodeId, s.a2.nodeId, s.a2.custodianId]);
+    const log = await prisma.itemChange.findMany({ where: { itemId: item }, select: { kind: true } });
+    expect(log.map((l) => l.kind).sort()).toEqual(["setCustodian", "setOwnerOrg", "transferItem"]);
+  });
+
+  it("a permanent transfer between colleges goes to the CMD, then Property Administration", async () => {
+    const s = await stage("mv-perm-x");
+    const item = await makeItem(s.b1.nodeId, s.b1.custodianId, "Cross Oscilloscope");
+    const req = await request(s.a1.custodianId, [item], s.a1.labId, { permanent: true });
+    expect(req.steps.map((st) => [st.selector, st.approverId])).toEqual([
+      ["ITEM_CUSTODIAN", s.b1.custodianId],
+      ["OWNER_HEAD", s.b1.headId],
+      ["TARGET_HEAD", s.a1.headId],
+      ["NODE_OCCUPANT", cmdId],
+      ["NODE_OCCUPANT", propertyAdminId],
+      ["REQUESTER_RECEIPT", s.a1.custodianId],
+    ]);
+    expect((await walk(req.id, [s.b1.custodianId, s.b1.headId, s.a1.headId, cmdId, propertyAdminId, s.a1.custodianId])).status).toBe("APPLIED");
+    const after = await prisma.item.findUniqueOrThrow({ where: { id: item } });
+    expect([after.ownerOrgNodeId, after.custodianId]).toEqual([s.a1.nodeId, s.a1.custodianId]);
+  });
+
+  it("a request from the Main Store goes to the store keeper, the receiving head and Property Administration — never a loan", async () => {
+    const s = await stage("mv-from");
+    const store = await mainStore("mv-from");
+    const req = await request(s.a1.custodianId, [store.stockId], s.a1.labId);
+    expect(req.movement).toBe("FROM_STORE");
+    expect(req.summary).toMatch(/^Request from the store:/);
+    expect(req.steps.map((st) => [st.selector, st.approverId])).toEqual([
+      ["ITEM_CUSTODIAN", store.keeperId],
+      ["TARGET_HEAD", s.a1.headId],
+      ["NODE_OCCUPANT", propertyAdminId],
+      ["REQUESTER_RECEIPT", s.a1.custodianId],
+    ]);
+    expect((await walk(req.id, [store.keeperId, s.a1.headId, propertyAdminId, s.a1.custodianId])).status).toBe("APPLIED");
+    const after = await prisma.item.findUniqueOrThrow({ where: { id: store.stockId } });
+    expect([after.parentId, after.ownerOrgNodeId, after.custodianId]).toEqual([s.a1.labId, s.a1.nodeId, s.a1.custodianId]);
+  });
+
+  it("a return to the Main Store goes to the owning head and Property Administration, and the store keeper accepts it", async () => {
+    const s = await stage("mv-to");
+    const store = await mainStore("mv-to");
+    const item = await makeItem(s.a1.nodeId, s.a1.custodianId, "Surplus Monitor");
+    const req = await request(s.a1.custodianId, [item], store.storeId);
+    expect(req.movement).toBe("TO_STORE");
+    expect(req.summary).toMatch(/^Return to the store: Surplus Monitor/);
+    expect(req.steps.map((st) => [st.selector, st.approverId])).toEqual([
+      ["OWNER_HEAD", s.a1.headId],
+      ["NODE_OCCUPANT", propertyAdminId],
+      ["TARGET_CUSTODIAN", store.keeperId],
+    ]);
+    expect((await walk(req.id, [s.a1.headId, propertyAdminId, store.keeperId])).status).toBe("APPLIED");
+    const after = await prisma.item.findUniqueOrThrow({ where: { id: item } });
+    expect([after.parentId, after.ownerOrgNodeId, after.currentOrgNodeId, after.custodianId]).toEqual([store.storeId, universityId, universityId, store.keeperId]);
+  });
+
+  it("a store keeper asking for something back into the store asks its holder first", async () => {
+    const s = await stage("mv-to-keeper");
+    const store = await mainStore("mv-to-keeper");
+    const item = await makeItem(s.a1.nodeId, s.a1.custodianId, "Recalled Printer");
+    await makePolicy({ id: `${testKey}-mv-keeper`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: [{ type: "TARGET_HEAD" }] });
+    const preview = await approvals.previewTransfer(store.keeperId, { kind: "transferItem", itemIds: [item], transfer: { targetParentId: store.storeId, targetOrgNodeId: universityId, targetCustodianId: null } });
+    expect(preview.steps?.map((st) => st.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "NODE_OCCUPANT", "TARGET_CUSTODIAN"]);
+    expect(preview.steps?.at(-1)?.receipt).toBe(true);
+  });
+
+  it("refuses a Main Store movement, up front and named, while there is no Property Administration office", async () => {
+    const s = await stage("mv-noprop");
+    const store = await mainStore("mv-noprop");
+    const office = await prisma.orgNode.findFirstOrThrow({ where: { code: "PROP" } });
+    await prisma.orgNode.update({ where: { id: office.id }, data: { active: false } });
+    try {
+      await expect(approvals.previewTransfer(s.a1.custodianId, { kind: "transferItem", itemIds: [store.stockId], transfer: { targetParentId: s.a1.labId, targetOrgNodeId: s.a1.nodeId, targetCustodianId: null } })).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/No Property Administration exists/),
+      });
+    } finally {
+      await prisma.orgNode.update({ where: { id: office.id }, data: { active: true } });
+    }
   });
 });

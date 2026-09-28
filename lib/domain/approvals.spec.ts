@@ -9,6 +9,7 @@ import {
   describeChain,
   describeSelectors,
   isBlocked,
+  movementChain,
   resolvePolicy,
   validateChain,
   type ApprovalPolicy,
@@ -110,7 +111,7 @@ describe("resolvePolicy", () => {
     // ...but handing stock to a department changes who answers for it, so it does not.
     const handover = resolvePolicy({ operation: "transferItem", person: keeper, category: cat("computer"), policies: SEED_POLICIES });
     expect(handover.outcome).toBe("CHAIN");
-    expect(handover.policy?.chain).toEqual([{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }]);
+    expect(handover.policy?.chain).toEqual([{ type: "TARGET_HEAD" }, { type: "NODE_OCCUPANT", nodeId: "property-office" }, { type: "TARGET_CUSTODIAN" }]);
   });
 
   it("treats a routing rule that names no approver as a refusal", () => {
@@ -351,7 +352,7 @@ describe("describeSelectors states a rule without naming a department", () => {
 
   it("shows every step of a rule the old preview truncated", () => {
     const storeTransfer = SEED_POLICIES.find((p) => p.id === "pol-store-transfer")!;
-    expect(describeSelectors(storeTransfer.chain!, ORG_NODES)).toBe("Head of the receiving unit → Receiving custodian accepts");
+    expect(describeSelectors(storeTransfer.chain!, ORG_NODES)).toBe("Head of the receiving unit → Property Administration Office → Receiving custodian accepts");
 
     const headBorrow = SEED_POLICIES.find((p) => p.id === "pol-transfer-mgr")!;
     expect(describeSelectors(headBorrow.chain!, ORG_NODES)).toBe("Current custodian → Head of the owning unit → Requester confirms receipt");
@@ -414,5 +415,57 @@ describe("role coverage", () => {
       const person: Person = { id: "x", name: "x", homeOrgNodeId: "se", roles: [role] };
       expect(resolvePolicy({ operation: "setProperty", person, category: cat("computer"), policies: SEED_POLICIES }).outcome).toBe("AUTO");
     }
+  });
+});
+
+describe("movementChain — the line each movement walks", () => {
+  const offices = { cmdNodeId: "cmd-office", propertyNodeId: "property-office" };
+  const types = (selectors: StepSelector[]) => selectors.map((s) => (s.type === "NODE_OCCUPANT" ? s.nodeId : s.type));
+
+  it("a loan keeps its departmental chain and never reaches a central office", () => {
+    expect(types(movementChain("LOAN", { ...offices, crossesColleges: true, askReceivingCustodian: true }))).toEqual([
+      "ITEM_CUSTODIAN",
+      "OWNER_HEAD",
+      "TARGET_CUSTODIAN",
+      "TARGET_HEAD",
+      "REQUESTER_RECEIPT",
+    ]);
+  });
+
+  it("a permanent transfer inside one college goes to the CMD only", () => {
+    expect(types(movementChain("PERMANENT", { ...offices, crossesColleges: false }))).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "cmd-office", "REQUESTER_RECEIPT"]);
+  });
+
+  it("a permanent transfer between colleges goes to the CMD, then Property Administration", () => {
+    expect(types(movementChain("PERMANENT", { ...offices, crossesColleges: true }))).toEqual([
+      "ITEM_CUSTODIAN",
+      "OWNER_HEAD",
+      "TARGET_HEAD",
+      "cmd-office",
+      "property-office",
+      "REQUESTER_RECEIPT",
+    ]);
+  });
+
+  it("every Main Store movement goes to Property Administration, never Procurement", () => {
+    expect(types(movementChain("STORE_OUT", offices))).toEqual(["TARGET_HEAD", "property-office", "TARGET_CUSTODIAN"]);
+    expect(types(movementChain("FROM_STORE", offices))).toEqual(["ITEM_CUSTODIAN", "TARGET_HEAD", "property-office", "REQUESTER_RECEIPT"]);
+    expect(types(movementChain("TO_STORE", offices))).toEqual(["OWNER_HEAD", "property-office", "TARGET_CUSTODIAN"]);
+    expect(types(movementChain("TO_STORE", { ...offices, askItemCustodian: true }))).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "property-office", "TARGET_CUSTODIAN"]);
+    for (const shape of ["LOAN", "PERMANENT", "STORE_OUT", "FROM_STORE", "TO_STORE", "RETURN"] as const) {
+      expect(types(movementChain(shape, { ...offices, crossesColleges: true }))).not.toContain("proc-office");
+    }
+  });
+
+  it("resolves against the org chart: the CMD and Property Administration occupants decide their steps", () => {
+    const steps = buildChain(movementChain("PERMANENT", { ...offices, crossesColleges: true }), {
+      ownerNodeId: "se",
+      targetNodeId: "chem",
+      requesterId: "u1",
+      nodes: ORG_NODES,
+      orgIndex,
+      item: { custodianId: "u9" } as Item,
+    });
+    expect(steps.map((s) => s.approverId)).toEqual(["u9", "p-head-se", "p-head-chem", "p-cmd", "p-property", "u1"]);
   });
 });

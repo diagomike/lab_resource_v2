@@ -6,6 +6,7 @@ import { HttpError } from "../http-error";
 import * as scope from "./scope";
 import { applyChange, topMostItemIds, type Tx } from "./mutate";
 import { esc, notify, quoted } from "../mail/notify";
+import { CMD_OFFICE, PROPERTY_OFFICE, requireOffice } from "../org/offices";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { canPlace } from "@/lib/domain/placement";
 import { allocateNames } from "@/lib/domain/naming";
@@ -16,11 +17,13 @@ import {
   canDecide,
   chainSettled,
   currentStep,
+  movementChain,
   resolveApprover,
   resolvePolicy,
   validateChain,
   type ApprovalPolicy as DomainPolicy,
   type ChainStep as DomainChainStep,
+  type MovementShape,
 } from "@/lib/domain/approvals";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
 
@@ -164,7 +167,7 @@ type Resolution =
  * a bulk transfer and routing the other half leaves the register in a state nobody
  * asked for.
  */
-async function resolveTransfer(actorId: string, input: TransferInput, ctx: TransferContext, isReturn: boolean): Promise<Resolution> {
+async function resolveTransfer(actorId: string, input: TransferInput, ctx: TransferContext, movement: MovementShape): Promise<Resolution> {
   const person = await loadPerson(actorId);
   if (!person) return { outcome: "DENIED", reason: "Nobody is signed in." };
 
@@ -179,18 +182,19 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
     }
   }
 
-  if (isReturn) {
+  const first = ctx.items[0];
+  const nodes = await loadDomainOrgNodes();
+  const orgIndex = buildOrgIndex(nodes);
+  const firstRow = await prisma.item.findUnique({ where: { id: first.id } });
+  const domainItem = firstRow ? toDomainItem(firstRow, []) : undefined;
+
+  if (movement === "RETURN") {
     // A fixed, always-available two-step flow — not something an approval policy
     // row could misconfigure into oblivion, and not decided by resolvePolicy (which
     // has no "is this a return" dimension to match on). See assertTransferParties's
     // own header for why this is detected by shape rather than a client flag.
-    const first = ctx.items[0];
-    const nodes = await loadDomainOrgNodes();
-    const orgIndex = buildOrgIndex(nodes);
-    const firstRow = await prisma.item.findUnique({ where: { id: first.id } });
-    const domainItem = firstRow ? toDomainItem(firstRow, []) : undefined;
     const hostReleaserId = await resolveHostReleaserId(first.id);
-    const steps = buildChain([{ type: "HOST_RELEASE" }, { type: "OWNER_RECEIPT" }], {
+    const steps = buildChain(movementChain("RETURN", {}), {
       item: domainItem,
       ownerNodeId: first.ownerOrgNodeId,
       targetNodeId: input.transfer.targetOrgNodeId,
@@ -205,6 +209,8 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
     return { outcome: "ROUTED", reason: "Returning it to its own owning unit", steps };
   }
 
+  // Who may ASK: the policy table, by role (a staff member or a student has no rule,
+  // so they are refused). The steps themselves come from the movement's shape below.
   const policies = await loadPolicies("transferItem");
   const resolutions = ctx.items.map((item) => resolvePolicy({ operation: "transferItem", person, category: categories[item.categoryId], policies }));
 
@@ -212,48 +218,40 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   if (denied) return { outcome: "DENIED", reason: denied.reason };
 
   const routed = resolutions.find((r) => r.outcome === "CHAIN");
-  if (!routed?.policy?.chain) return { outcome: "APPLIED", reason: resolutions[0]?.reason ?? "Applied." };
+  if (!routed) return { outcome: "APPLIED", reason: resolutions[0]?.reason ?? "Applied." };
 
-  const first = ctx.items[0];
   const ownerNodeId = first.ownerOrgNodeId;
   const targetNodeId = input.transfer.targetOrgNodeId;
 
-  const nodes = await loadDomainOrgNodes();
-  const orgIndex = buildOrgIndex(nodes);
-
   // F-042 of the 2026-09-15 campaign: resolvePolicy matches by actor ROLE only, with
-  // no notion of the transfer's own SHAPE — so a store keeper's pull (not a
-  // handover) reused pol-store-transfer (built for handing stock OUT, whose chain
-  // is TARGET_HEAD → TARGET_CUSTODIAN only) and never asked the owning head at all,
-  // and a manager/dean's pull used pol-transfer-mgr, which omits TARGET_HEAD
-  // entirely — nobody at the RECEIVING end was ever asked. A pull's consent needs
-  // are the same shape regardless of the requester's role: whoever currently
-  // answers for the item, the unit that owns it, whoever runs the room it's about
-  // to sit in (the destination CONTAINER's own custodian — a plain pull never
-  // reassigns the ITEM's own custody, which stays with the lender; this is a
-  // courtesy/security consult for the room, not an accountability question, so it's
-  // skipped like any other post when the requester already holds it themselves),
-  // the receiving unit's head, and finally the requester's own confirmation that it
-  // arrived. Handovers (`transferOwnership: true`) are a different shape entirely
-  // (ownership itself changes hands) and keep using the resolved policy's own chain
-  // (`pol-store-transfer`) and its own client-supplied `targetCustodianId` (the
-  // person taking on custody) unchanged.
-  const targetCustodianId = input.transfer.transferOwnership ? (input.transfer.targetCustodianId ?? first.custodianId) : ctx.destination.custodianId;
-  const chain = input.transfer.transferOwnership
-    ? routed.policy.chain
-    : [
-        { type: "ITEM_CUSTODIAN" as const },
-        { type: "OWNER_HEAD" as const },
-        ...(targetCustodianId !== actorId ? [{ type: "TARGET_CUSTODIAN" as const }] : []),
-        { type: "TARGET_HEAD" as const },
-        { type: "REQUESTER_RECEIPT" as const },
-      ];
+  // no notion of the transfer's own SHAPE — so the chain is never the matched rule's
+  // own. Each movement has the university's own line (`movementChain`): local consent
+  // (whoever holds it, the unit that owns it, whoever runs the room it lands in, the
+  // unit receiving it), then the central office answering for it — the College
+  // Managing Director for a permanent transfer, Property Administration for anything
+  // in or out of the Main Store or leaving its college for good — then whoever ends up
+  // holding it confirms.
+  //
+  // Who that last person is: a handover names them (`targetCustodianId`, the person
+  // taking on custody); a return to the store is the store's own custodian; a pull is
+  // the destination CONTAINER's own custodian — for a loan a courtesy consult for the
+  // room (custody stays with the lender), for a permanent transfer the person who
+  // will answer for it — skipped like any other post when the requester holds it.
+  const targetCustodianId = movement === "STORE_OUT" ? (input.transfer.targetCustodianId ?? first.custodianId) : (input.transfer.targetCustodianId ?? ctx.destination.custodianId);
+  const needsProperty = movement === "STORE_OUT" || movement === "FROM_STORE" || movement === "TO_STORE";
+  const crossesColleges = movement === "PERMANENT" ? await crossesCollegeLine(ctx.items.map((i) => i.ownerOrgNodeId), targetNodeId) : false;
+  const cmd = movement === "PERMANENT" ? await requireOffice(CMD_OFFICE, nodes) : null;
+  const property = needsProperty || crossesColleges ? await requireOffice(PROPERTY_OFFICE, nodes) : null;
+  const chain = movementChain(movement, {
+    cmdNodeId: cmd?.id,
+    propertyNodeId: property?.id,
+    crossesColleges,
+    askReceivingCustodian: targetCustodianId !== actorId,
+    askItemCustodian: ctx.items.some((i) => i.custodianId !== actorId),
+  });
 
   const broken = validateChain(chain, { ownerNodeId, targetNodeId, nodes, orgIndex });
   if (broken) return { outcome: "DENIED", reason: broken };
-
-  const firstRow = await prisma.item.findUnique({ where: { id: first.id } });
-  const domainItem = firstRow ? toDomainItem(firstRow, []) : undefined;
 
   const steps = buildChain(chain, {
     item: domainItem,
@@ -276,9 +274,52 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   return { outcome: "ROUTED", reason: routed.reason, steps };
 }
 
+/** The colleges above a unit (itself too, when it is one). */
+async function collegesOf(nodeId: string): Promise<Set<string>> {
+  const rows = await prisma.orgClosure.findMany({ where: { descendantId: nodeId, ancestor: { kind: "COLLEGE" } }, select: { ancestorId: true } });
+  return new Set(rows.map((r) => r.ancestorId));
+}
+
+/** A permanent transfer leaves its college when any owning unit shares no college
+ *  with the receiving unit. A unit outside every college (the university itself, an
+ *  office) shares none, so moving its property for good is always university business. */
+async function crossesCollegeLine(ownerNodeIds: string[], targetNodeId: string): Promise<boolean> {
+  const target = await collegesOf(targetNodeId);
+  for (const ownerId of new Set(ownerNodeIds)) {
+    const owner = await collegesOf(ownerId);
+    if (![...owner].some((id) => target.has(id))) return true;
+  }
+  return false;
+}
+
+/** Which movement a stored request is — one raised before movements were recorded
+ *  is a handover or a loan. */
+export function movementOf(payload: { transfer?: { movement?: MovementShape; transferOwnership?: boolean } } | null | undefined): MovementShape {
+  return payload?.transfer?.movement ?? (payload?.transfer?.transferOwnership ? "STORE_OUT" : "LOAN");
+}
+
+const MOVEMENT_TITLE: Record<MovementShape, string> = {
+  LOAN: "Loan between units",
+  PERMANENT: "Permanent transfer",
+  STORE_OUT: "Store handover",
+  FROM_STORE: "Request from the store",
+  TO_STORE: "Return to the store",
+  RETURN: "Return to its owner",
+};
+
+/** "handover", "permanent transfer", … — for sentences. */
+const MOVEMENT_NOUN: Record<MovementShape, string> = {
+  LOAN: "transfer",
+  PERMANENT: "permanent transfer",
+  STORE_OUT: "handover",
+  FROM_STORE: "request from the store",
+  TO_STORE: "return to the store",
+  RETURN: "return",
+};
+
 function summarize(ctx: TransferContext, input: TransferInput, destination: string): string {
   const subject = ctx.items.length === 1 ? ctx.items[0].name : `${ctx.items.length} resources`;
-  return `${input.transfer.transferOwnership ? "Store handover" : "Transfer between units"}: ${subject} → ${destination}`;
+  return `${MOVEMENT_TITLE[movementOf(input)]}: ${subject} → ${destination}`;
 }
 
 /** "Switch Rack in Software Laboratory — B510-R11": a destination inside a lab is named
@@ -344,7 +385,7 @@ async function findPendingClash(db: Tx, itemIds: string[]): Promise<string | nul
   const names = items.map((i) => `"${i.name}"`);
   const shown = names.length > 5 ? `${names.slice(0, 5).join(", ")} and ${names.length - 5} more` : names.join(", ");
   const payload = first.payload as unknown as TransferInput;
-  const kind = payload.transfer?.transferOwnership ? "handover" : "transfer";
+  const kind = MOVEMENT_NOUN[movementOf(payload)];
   const to = payload.transfer?.targetParentId ? await destinationLabel(db, payload.transfer.targetParentId) : "another place";
   const more = clashing.size > 1 ? ` (and ${clashing.size - 1} more pending request${clashing.size > 2 ? "s" : ""})` : "";
   const plural = names.length > 1;
@@ -370,7 +411,7 @@ export async function pendingTransferMarkers(actorId: string): Promise<PendingTr
     const payload = r.payload as unknown as TransferInput;
     const target = payload.transfer?.targetParentId;
     if (target && !labels.has(target)) labels.set(target, await destinationLabel(prisma, target));
-    out[id] = { requestId: r.id, line: `In a pending ${payload.transfer?.transferOwnership ? "handover" : "transfer"} to ${target ? labels.get(target) : "another place"}` };
+    out[id] = { requestId: r.id, line: `In a pending ${MOVEMENT_NOUN[movementOf(payload)]} to ${target ? labels.get(target) : "another place"}` };
   }
   return out;
 }
@@ -438,36 +479,93 @@ async function resolveHostReleaserId(itemId: string): Promise<string | null> {
   return null;
 }
 
+/** The Main Store a place belongs to — its top-most container is a Store owned by the
+ *  university itself (not a department's own chemical store) — or null. */
+async function centralStoreRootOf(itemId: string): Promise<{ id: string; custodianId: string } | null> {
+  const [root] = await prisma.$queryRaw<{ id: string; custodianId: string; key: string; kind: string }[]>`
+    WITH RECURSIVE up AS (
+      SELECT id, "parentId" FROM "Item" WHERE id = ${itemId}
+      UNION ALL
+      SELECT i.id, i."parentId" FROM "Item" i INNER JOIN up u ON i.id = u."parentId"
+    )
+    SELECT i.id, i."custodianId", c.key, o.kind::text AS kind
+    FROM up JOIN "Item" i ON i.id = up.id JOIN "ResourceCategory" c ON c.id = i."categoryId" JOIN "OrgNode" o ON o.id = i."ownerOrgNodeId"
+    WHERE up."parentId" IS NULL
+  `;
+  return root && root.key === "store" && root.kind === "UNIVERSITY" ? { id: root.id, custodianId: root.custodianId } : null;
+}
+
+/** The Main Store(s) something can be returned into — every Store place owned by the
+ *  university itself, with who keeps it. */
+export async function listCentralStores(): Promise<Array<{ id: string; name: string; custodianName: string }>> {
+  const rows = await prisma.item.findMany({
+    where: { parentId: null, deletedAt: null, category: { key: "store" }, ownerOrg: { kind: "UNIVERSITY" } },
+    select: { id: true, name: true, custodian: { select: { name: true } } },
+    orderBy: { name: "asc" },
+  });
+  return rows.map((r) => ({ id: r.id, name: r.name, custodianName: r.custodian.name }));
+}
+
+async function allInCentralStore(itemIds: string[]): Promise<boolean> {
+  for (const id of itemIds) if (!(await centralStoreRootOf(id))) return false;
+  return itemIds.length > 0;
+}
+
 /**
- * Track 5 — who is on which end of a transfer. Transfers are PULLED: the unit that
- * needs something finds it (University resources) and asks for it into a place it
- * already holds, and the chain (`pol-transfer-cust`: the item's custodian → its owning
- * head → the requester's head → the requester's receipt) is how the other side says
- * yes. So a pull is checked against the DESTINATION — the requester must be able to
- * write it — and the source must not already be theirs (that is a Move, not a
+ * Track 5 — who is on which end of a transfer, and which movement it is. Transfers
+ * are PULLED: the unit that needs something finds it (the Register's whole-university
+ * view) and asks for it into a place it already holds, and the chain is how the other
+ * side says yes. So a pull is checked against the DESTINATION — the requester must be
+ * able to write it — and the source must not already be theirs (that is a Move, not a
  * transfer). The receiving unit is read off the destination rather than trusted from
- * the client, and custody stays with the lender, the same borrow semantics as before.
+ * the client. A pull is a LOAN unless the requester asks for it PERMANENTLY, and one
+ * out of the Main Store is always FROM_STORE — the store's stock is there to be given
+ * out, never lent.
  *
- * The one push left is the main store handing stock over (`transferOwnership`):
- * store keeper/SYS_ADMIN only, checked against the SOURCE as it always was.
+ * Two pushes are left:
+ *  - the store keeper handing stock over (`transferOwnership` from the client —
+ *    STORE_OUT): store keeper/SYS_ADMIN only, checked against the SOURCE as it always was;
+ *  - sending something back into the Main Store (TO_STORE), detected by the destination
+ *    being inside it: asked by whoever holds the item, or by the store's own keeper.
+ *
+ * Everything that changes hands for good is normalized here to `transferOwnership`
+ * plus the custodian who will answer for it, so the write path applies it the same way.
  */
-async function assertTransferParties(actorId: string, input: TransferInput): Promise<{ input: TransferInput; isReturn: boolean }> {
-  // Refused now rather than when the chain finally applies it (mutate.ts refuses it too).
-  if (input.transfer.renameAs && !input.transfer.transferOwnership) throw new HttpError(400, "Only a store handover can rename what it hands over.");
+async function assertTransferParties(actorId: string, input: TransferInput): Promise<{ input: TransferInput; movement: MovementShape }> {
   if (input.transfer.transferOwnership) {
     await assertMayTransferOwnership(actorId, input);
     await scope.assertCanMutate(actorId, input.itemIds);
-    return { input, isReturn: false };
+    const { permanent: _permanent, ...transfer } = input.transfer;
+    void _permanent;
+    return { input: { ...input, transfer: { ...transfer, movement: "STORE_OUT" } }, movement: "STORE_OUT" };
   }
+  // Refused now rather than when the chain finally applies it (mutate.ts refuses it too).
+  if (input.transfer.renameAs) throw new HttpError(400, "Only a store handover can rename what it hands over.");
 
   const destination = await prisma.item.findUnique({ where: { id: input.transfer.targetParentId } });
   if (!destination || destination.deletedAt) throw new HttpError(400, "The destination no longer exists.");
 
-  const items = await prisma.item.findMany({ where: { id: { in: input.itemIds } }, select: { ownerOrgNodeId: true, currentOrgNodeId: true } });
-  const normalized: TransferInput = {
-    ...input,
-    transfer: { targetParentId: destination.id, targetOrgNodeId: destination.currentOrgNodeId, targetCustodianId: null },
-  };
+  const items = await prisma.item.findMany({ where: { id: { in: input.itemIds } }, select: { id: true, ownerOrgNodeId: true, currentOrgNodeId: true } });
+  const onto = (movement: MovementShape, custodianId: string | null, ownership: boolean): { input: TransferInput; movement: MovementShape } => ({
+    input: {
+      ...input,
+      transfer: {
+        targetParentId: destination.id,
+        targetOrgNodeId: destination.currentOrgNodeId,
+        targetCustodianId: custodianId,
+        ...(ownership ? { transferOwnership: true } : {}),
+        movement,
+      },
+    },
+    movement,
+  });
+
+  if ((await centralStoreRootOf(destination.id)) && !(await allInCentralStore(input.itemIds))) {
+    // Back into the Main Store: the item's holder sends it, or the store keeper asks
+    // for it (then the holder is asked first — movementChain's askItemCustodian).
+    if (!(await mayWrite(actorId, input.itemIds)) && !(await mayWrite(actorId, [destination.id]))) throw new HttpError(404, "Resource not found");
+    return onto("TO_STORE", destination.custodianId, true);
+  }
 
   if (await isReturnShape(destination.currentOrgNodeId, items)) {
     // Sending something home is the lender's own standing already exercised, or the
@@ -476,7 +574,7 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
     // specifically (asking for something into a place you already run); it must not
     // block either return party, so this branches BEFORE reaching it.
     if (!(await mayInitiateReturn(actorId, input.itemIds))) throw new HttpError(404, "Resource not found");
-    return { input: normalized, isReturn: true };
+    return onto("RETURN", null, false);
   }
 
   await scope.assertCanMutate(actorId, [destination.id]);
@@ -486,7 +584,18 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
     throw new HttpError(400, "You already hold this resource — use Move to place it elsewhere in your own lab.");
   }
 
-  return { input: normalized, isReturn: false };
+  if (await allInCentralStore(input.itemIds)) return onto("FROM_STORE", destination.custodianId, true);
+  if (input.transfer.permanent) return onto("PERMANENT", destination.custodianId, true);
+  return onto("LOAN", null, false);
+}
+
+async function mayWrite(actorId: string, itemIds: string[]): Promise<boolean> {
+  try {
+    await scope.assertCanMutate(actorId, itemIds);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Preview only — resolves what WOULD happen, commits nothing. What `TransferModal`
@@ -505,7 +614,7 @@ async function normalizeTransfer(input: TransferInput): Promise<TransferInput> {
  *  only for a handover of one category; `planned` is a preview — the names are
  *  allocated live when the handover applies. */
 async function handoverNaming(input: TransferInput, ctx: TransferContext): Promise<TransferNamingDto | undefined> {
-  if (!input.transfer.transferOwnership) return undefined;
+  if (movementOf(input) !== "STORE_OUT") return undefined;
   const categoryIds = new Set(ctx.items.map((i) => i.categoryId));
   if (categoryIds.size !== 1) return undefined;
   const siblings = await prisma.item.findMany({
@@ -527,14 +636,14 @@ async function handoverNaming(input: TransferInput, ctx: TransferContext): Promi
 export async function previewTransfer(
   actorId: string,
   rawInput: TransferInput,
-): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[]; naming?: TransferNamingDto }> {
-  const { input, isReturn } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
+): Promise<{ outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; movement: MovementShape; steps?: ChainStepDto[]; naming?: TransferNamingDto }> {
+  const { input, movement } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
   const ctx = await loadTransferContext(input);
   const clash = await findPendingClash(prisma, input.itemIds);
-  if (clash) return { outcome: "DENIED", reason: clash };
-  const resolution = await resolveTransfer(actorId, input, ctx, isReturn);
+  if (clash) return { outcome: "DENIED", reason: clash, movement };
+  const resolution = await resolveTransfer(actorId, input, ctx, movement);
   const naming = resolution.outcome === "DENIED" ? undefined : await handoverNaming(input, ctx);
-  if (resolution.outcome !== "ROUTED") return { ...resolution, ...(naming ? { naming } : {}) };
+  if (resolution.outcome !== "ROUTED") return { ...resolution, movement, ...(naming ? { naming } : {}) };
 
   // buildChain already resolved each step's approver against LIVE org data a moment
   // ago, so the ids here are current — only the display names need a lookup.
@@ -545,20 +654,21 @@ export async function previewTransfer(
   return {
     outcome: "ROUTED",
     reason: resolution.reason,
+    movement,
     steps: resolution.steps.map((s) => toStepDto(s, s.approverId, s.approverId ? (nameById.get(s.approverId) ?? null) : null)),
     ...(naming ? { naming } : {}),
   };
 }
 
 export async function requestTransfer(actorId: string, rawInput: TransferInput): Promise<RequestTransferResultDto> {
-  const { input, isReturn } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
+  const { input, movement } = await assertTransferParties(actorId, await normalizeTransfer(rawInput));
 
   const ctx = await loadTransferContext(input);
   // Checked up front so an applied-at-once transfer can't carry off promised items
   // either, and again under the lock below for a routed one.
   const clash = await findPendingClash(prisma, input.itemIds);
   if (clash) throw new HttpError(409, clash);
-  const resolution = await resolveTransfer(actorId, input, ctx, isReturn);
+  const resolution = await resolveTransfer(actorId, input, ctx, movement);
 
   if (resolution.outcome === "DENIED") throw new HttpError(403, resolution.reason);
 
@@ -848,6 +958,7 @@ async function toDto(request: Awaited<ReturnType<typeof loadRequestWithSteps>>):
     status: request.status,
     steps,
     summary: request.summary,
+    movement: movementOf(request.payload as never),
     note: request.note,
     resolvedAt: request.resolvedAt ? request.resolvedAt.toISOString() : null,
     resolution: request.resolution,

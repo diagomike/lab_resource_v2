@@ -179,7 +179,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
                   ? isReceipt
                     ? "Confirms the resource has physically arrived — this is what applies the transfer to the register."
                     : isAcceptance
-                      ? "Confirms it has arrived and you now answer for it — this is what applies the handover to the register."
+                      ? "Confirms it has arrived and you now answer for it — this is what applies it to the register."
                       : "Advances this request to its next step."
                   : "Ends this request outright — the requester can raise a new one if circumstances change."}
               </span>

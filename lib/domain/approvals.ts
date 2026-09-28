@@ -358,6 +358,74 @@ export function validateChain(selectors: StepSelector[], ctx: Pick<ChainContext,
   return undefined;
 }
 
+// ── Movements between units ──────────────────────────────────────────────
+
+/**
+ * What kind of movement a transfer is, read off its shape by the server — never taken
+ * from the client:
+ *  - LOAN: a pull that keeps the owner (borrowing).
+ *  - PERMANENT: a pull that moves ownership and custody to the receiving side.
+ *  - STORE_OUT: the store keeper handing stock over to a lab or a person.
+ *  - FROM_STORE: a lab pulling stock out of the Main Store.
+ *  - TO_STORE: sending something back into the Main Store.
+ *  - RETURN: a loan going home to its owning unit.
+ */
+export type MovementShape = "LOAN" | "PERMANENT" | "STORE_OUT" | "FROM_STORE" | "TO_STORE" | "RETURN";
+
+export interface MovementContext {
+  /** The College Managing Director's office — every PERMANENT transfer. */
+  cmdNodeId?: string | null;
+  /** Property Administration — every Main Store movement, and a PERMANENT transfer
+   *  between colleges. */
+  propertyNodeId?: string | null;
+  /** The owning and receiving units share no college. */
+  crossesColleges?: boolean;
+  /** The destination's own custodian is someone other than the requester, so they
+   *  are asked (a pull) or accept (a store movement). */
+  askReceivingCustodian?: boolean;
+  /** The requester isn't the item's own custodian (a store keeper asking for
+   *  something back into the store). */
+  askItemCustodian?: boolean;
+}
+
+/**
+ * The university's line for each movement. Local consent first (whoever holds it, the
+ * unit that owns it, the room it lands in, the unit receiving it), then the central
+ * office that answers for it, then whoever ends up holding it confirms:
+ *  - a PERMANENT transfer always goes to the College Managing Director, and on to
+ *    Property Administration when it leaves its college;
+ *  - anything in or out of the Main Store goes to Property Administration;
+ *  - a LOAN keeps its departmental chain — ownership never changes hands.
+ * Procurement is never on a movement: it only buys.
+ */
+export function movementChain(shape: MovementShape, ctx: MovementContext): StepSelector[] {
+  const cmd: StepSelector[] = ctx.cmdNodeId ? [{ type: "NODE_OCCUPANT", nodeId: ctx.cmdNodeId }] : [];
+  const property: StepSelector[] = ctx.propertyNodeId ? [{ type: "NODE_OCCUPANT", nodeId: ctx.propertyNodeId }] : [];
+  const receivingCustodian: StepSelector[] = ctx.askReceivingCustodian ? [{ type: "TARGET_CUSTODIAN" }] : [];
+  switch (shape) {
+    case "LOAN":
+      return [{ type: "ITEM_CUSTODIAN" }, { type: "OWNER_HEAD" }, ...receivingCustodian, { type: "TARGET_HEAD" }, { type: "REQUESTER_RECEIPT" }];
+    case "PERMANENT":
+      return [
+        { type: "ITEM_CUSTODIAN" },
+        { type: "OWNER_HEAD" },
+        ...receivingCustodian,
+        { type: "TARGET_HEAD" },
+        ...cmd,
+        ...(ctx.crossesColleges ? property : []),
+        { type: "REQUESTER_RECEIPT" },
+      ];
+    case "FROM_STORE":
+      return [{ type: "ITEM_CUSTODIAN" }, ...receivingCustodian, { type: "TARGET_HEAD" }, ...property, { type: "REQUESTER_RECEIPT" }];
+    case "STORE_OUT":
+      return [{ type: "TARGET_HEAD" }, ...property, { type: "TARGET_CUSTODIAN" }];
+    case "TO_STORE":
+      return [...(ctx.askItemCustodian ? [{ type: "ITEM_CUSTODIAN" as const }] : []), { type: "OWNER_HEAD" }, ...property, { type: "TARGET_CUSTODIAN" }];
+    case "RETURN":
+      return [{ type: "HOST_RELEASE" }, { type: "OWNER_RECEIPT" }];
+  }
+}
+
 /** The first step that can actually be decided becomes PENDING; the rest wait. */
 export function activate(steps: ChainStep[]): ChainStep[] {
   let armed = false;
@@ -549,9 +617,12 @@ export const SEED_POLICIES: ApprovalPolicy[] = [
   p("pol-delete-mgr", "A head's deletion still needs the college", "deleteItem", "MANAGER", "CHAIN", { chain: [{ type: "HIERARCHY", stopAtKind: "COLLEGE" }] }),
 
   // ── Borrowing from another department ───────────────────────────────────
-  // The university's own sequence: the custodian who currently holds it, then the
-  // head of the unit that owns it, then the head of the unit receiving it, and
-  // finally back to whoever asked, to confirm the thing actually arrived.
+  // Who may ASK for a transfer at all. The steps a transfer actually walks are built
+  // from its shape by `movementChain` (loan, permanent, into or out of the Main
+  // Store), not read from these rows — the chains below describe the common case.
+  // The university's own sequence for a loan: the custodian who currently holds it,
+  // then the head of the unit that owns it, then the head of the unit receiving it,
+  // and finally back to whoever asked, to confirm the thing actually arrived.
   p("pol-transfer-cust", "Borrowing needs both units and a receipt", "transferItem", "CUSTODIAN", "CHAIN", {
     chain: [{ type: "ITEM_CUSTODIAN" }, { type: "OWNER_HEAD" }, { type: "TARGET_HEAD" }, { type: "REQUESTER_RECEIPT" }],
   }),
@@ -575,10 +646,11 @@ export const SEED_POLICIES: ApprovalPolicy[] = [
     p(`pol-store-${op}`, "The store keeps its own shelves", op, "STORE_KEEPER", "AUTO"),
   ),
   // Handing stock out to a department is not a shelf move: ownership changes, so the
-  // receiving department's head approves taking it on, then the receiving custodian
-  // accepts it into their lab — the moment custody actually changes hands.
-  p("pol-store-transfer", "Handing stock over needs the receiving head and custodian", "transferItem", "STORE_KEEPER", "CHAIN", {
-    chain: [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }],
+  // receiving department's head approves taking it on, Property Administration
+  // approves it leaving the Main Store, then the receiving custodian accepts it into
+  // their lab — the moment custody actually changes hands.
+  p("pol-store-transfer", "Handing stock over needs the receiving head, Property Administration and the custodian", "transferItem", "STORE_KEEPER", "CHAIN", {
+    chain: [{ type: "TARGET_HEAD" }, { type: "NODE_OCCUPANT", nodeId: "property-office" }, { type: "TARGET_CUSTODIAN" }],
   }),
 
   // ── The offices that hold the register ──────────────────────────────────

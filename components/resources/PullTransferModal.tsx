@@ -1,19 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ChainStepDto, ContainerOptionDto, RequestTransferResultDto } from "@/lib/shared";
+import type { ChainStepDto, ChangeRequestDto, ContainerOptionDto, RequestTransferResultDto } from "@/lib/shared";
 import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { api, ApiError } from "@/lib/api";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 
-type Preview = { outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] };
+type Preview = { outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; movement: ChangeRequestDto["movement"]; steps?: ChainStepDto[] };
 
 /**
- * Track 5 — transfers are PULLED. Someone who found what they need on University
- * resources asks for it into a place they already hold; the item's custodian, its
- * owning head, the requester's own head and finally the requester's receipt decide it
- * (`pol-transfer-cust`). It is a borrow: the owning unit and the custodian stay as
- * they are.
+ * Track 5 — transfers are PULLED. Someone who found what they need in the Register's
+ * whole-university view asks for it into a place they already hold; the item's
+ * custodian, its owning head, the requester's own head and finally the requester's
+ * receipt decide it.
+ *
+ * Two kinds of pull (the requester chooses):
+ *  - a LOAN: the owning unit and the custodian stay as they are;
+ *  - a PERMANENT transfer: ownership and custody move to the requester's unit, and the
+ *    College Managing Director approves it too (Property Administration as well when
+ *    it leaves its college).
+ * Anything pulled out of the Main Store is given, never lent — the server treats it as
+ * a request from the store (Property Administration approves), whatever is chosen here.
  *
  * Destinations come from the same container picker Add/Move use — already filtered to
  * what the requester may write and to what these categories may legally sit inside —
@@ -32,6 +39,7 @@ export function PullTransferModal({
   const [targets, setTargets] = useState<ContainerOptionDto[] | null>(null);
   const [targetId, setTargetId] = useState("");
   const [note, setNote] = useState("");
+  const [permanent, setPermanent] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +71,7 @@ export function PullTransferModal({
       kind: "transferItem" as const,
       itemIds,
       note: note.trim() || undefined,
-      transfer: { targetParentId: destinationId, targetOrgNodeId: "", targetCustodianId: null },
+      transfer: { targetParentId: destinationId, targetOrgNodeId: "", targetCustodianId: null, ...(permanent ? { permanent: true } : {}) },
     };
   }
 
@@ -76,7 +84,9 @@ export function PullTransferModal({
       .then(setPreview)
       .catch((e) => setPreviewError(e instanceof ApiError ? e.message : "Could not resolve this request"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetId]);
+  }, [targetId, permanent]);
+
+  const fromStore = preview?.movement === "FROM_STORE";
 
   async function submit() {
     if (!targetId) return;
@@ -97,7 +107,9 @@ export function PullTransferModal({
         <div className="text-11.5 text-dim">
           {done.outcome === "APPLIED"
             ? "Applied — it is already in your lab."
-            : "Requested. The holding unit decides first; you confirm receipt once it arrives. Track it under Approvals → Raised by me."}
+            : done.request.movement === "LOAN"
+              ? "Requested. The holding unit decides first; you confirm receipt once it arrives. Track it under Approvals → Raised by me."
+              : "Requested. The holding side and the offices on its chain decide first; you confirm receipt once it arrives, and it is then yours. Track it under Approvals → Raised by me."}
         </div>
         <Button variant="primary" onClick={onDone}>
           Done
@@ -116,6 +128,28 @@ export function PullTransferModal({
           <span className="text-10.5 text-bad">You don't hold a lab or container these resources may be placed in.</span>
         ) : (
           <TreePicker options={containerTreeOptions(targets)} value={targetId} onChange={setTargetId} placeholder="Choose where it should go…" />
+        )}
+      </div>
+
+      <div className="flex flex-col gap-6">
+        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">How</label>
+        {fromStore ? (
+          <span className="text-10.5 text-dim">From the Main Store — it becomes your unit's, with you as its custodian.</span>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {[
+              { value: false, title: "Loan", help: "Borrow it. The owning unit and its custodian stay as they are." },
+              { value: true, title: "Permanent transfer", help: "It becomes your unit's, with you as custodian. The College Managing Director approves too." },
+            ].map((o) => (
+              <label key={o.title} className="flex items-start gap-8 text-11 cursor-pointer">
+                <input type="radio" name="pull-kind" checked={permanent === o.value} onChange={() => setPermanent(o.value)} className="mt-2" />
+                <span>
+                  <span className="font-medium">{o.title}</span>
+                  <span className="block text-10.5 text-faint">{o.help}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         )}
       </div>
 
