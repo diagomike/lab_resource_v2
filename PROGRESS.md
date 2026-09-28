@@ -4644,3 +4644,28 @@ its model that make porting it as-is the wrong move.
     - Checks: 525/525 tests, `tsc` clean.
   - **Dev DB `lrms_v2`:** only the ICT additions (+1 user, +1 node) and the G-11 migration; items
     unchanged (9,685).
+
+- **2026-09-28 (approval-line round: phases 0–2 of `~/.claude/plans/so-i-want-you-serialized-gadget.md`)** — The
+  user corrected seven approval and workflow rules to match how ASTU works. Decisions: one CMD for the
+  university; Procurement only buys (never on a transfer); Property Admin approves Main Store movements;
+  pulls get Loan / Permanent; items issued to staff land in a per-department "Staff holdings" place;
+  imports from a PR or standalone EGP; Register and University resources merge; external users sign up;
+  after payment everything is offline via the revealed contacts.
+  - **Phase 0 (`b484343`):** `lib/server/org/offices.ts` (`findOffice`/`requireOffice` for PROC, CMD,
+    PROP). New `prisma/seed-property-office.ts`: Property Administration (code `PROP`) and
+    `property.admin@astu.edu.et` / `astu1234` (PROPERTY_ADMIN), called by `seed.ts`, **applied to
+    `lrms_v2`** (10 org nodes). HIERARCHY stopping at a level now keeps every ancestor at that level
+    (both deans of a two-college department).
+  - **Phase 1 (same commit):** the purchase ladder is **Head → Dean(s) → CMD → AVP → Procurement**.
+    In-flight requests keep their compiled steps. The guide/walkthrough text still says the old order;
+    it's updated in the phase 6 docs pass.
+  - **Phase 2 (`b2a87ec`):** transfer chains come from the movement's shape (`movementChain`), recorded
+    as `transfer.movement` and on `ChangeRequestDto.movement`:
+    LOAN (unchanged) · PERMANENT (… → CMD → [PROP if colleges differ] → receipt; owner and custody move) ·
+    STORE_OUT (receiving head → PROP → custodian) · FROM_STORE (keeper → receiving head → PROP → receipt) ·
+    TO_STORE (new "Return to store…": [holder] → owning head → PROP → keeper accepts).
+    "Main Store" = a top-level `store` place owned by the UNIVERSITY node. UI: Loan/Permanent radio in the
+    pull modal, `ReturnToStoreModal`, `GET /api/resources/transfers/stores`.
+  - `test/seed-fixture.ts` now ensures the CMD and PROP offices and re-activates PROC/CMD/PROP, because
+    a purchasing spec run that times out leaves them parked.
+  - 554/554 tests, `tsc` clean.
