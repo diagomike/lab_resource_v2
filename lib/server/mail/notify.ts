@@ -59,7 +59,7 @@ export async function notify(recipientIds: Array<string | null | undefined> | st
 }
 
 /** Everyone holding a role — e.g. the store keepers, when an order arrives at the store. */
-export async function usersWithRole(role: "STORE_KEEPER" | "PROCUREMENT"): Promise<string[]> {
+export async function usersWithRole(role: "STORE_KEEPER" | "PROCUREMENT" | "PROPERTY_ADMIN"): Promise<string[]> {
   const rows = await prisma.userRole.findMany({ where: { kind: role, user: { status: "ACTIVE" } }, select: { userId: true } });
   return rows.map((r) => r.userId);
 }

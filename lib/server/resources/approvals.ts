@@ -7,6 +7,7 @@ import * as scope from "./scope";
 import { applyChange, topMostItemIds, type Tx } from "./mutate";
 import { esc, notify, quoted } from "../mail/notify";
 import { CMD_OFFICE, PROPERTY_OFFICE, requireOffice } from "../org/offices";
+import { assertIssuable, ensureStaffHoldings, isStaffHoldingsPlace, staffHoldingsHeldBy } from "./staff-holdings";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { canPlace } from "@/lib/domain/placement";
 import { allocateNames } from "@/lib/domain/naming";
@@ -149,8 +150,9 @@ async function loadTransferContext(input: TransferInput): Promise<TransferContex
     // ever checked for existing, the same gap setCustodian and root creation had —
     // custody landing on a disabled account or a student stalls the receipt step
     // forever (they can never sign in to confirm it, or shouldn't hold assets at
-    // all).
-    await scope.assertEligibleCustodian(input.transfer.targetCustodianId);
+    // all). Issued to a person, it lands in Staff holdings, where any member of staff
+    // may answer for it.
+    await scope.assertEligibleCustodian(input.transfer.targetCustodianId, { staffHoldings: await isStaffHoldingsPlace(destination.id) });
   }
 
   return { items, destination };
@@ -535,8 +537,18 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
   if (input.transfer.transferOwnership) {
     await assertMayTransferOwnership(actorId, input);
     await scope.assertCanMutate(actorId, input.itemIds);
-    const { permanent: _permanent, ...transfer } = input.transfer;
+    const { permanent: _permanent, issueToUserId, ...transfer } = input.transfer;
     void _permanent;
+    if (issueToUserId) {
+      // Issued to a person: into their department's Staff holdings, in their custody.
+      // Named as they are in the store — a person's things aren't numbered like a lab's.
+      const person = await assertIssuable(issueToUserId);
+      const place = await ensureStaffHoldings(person.homeNodeId);
+      return {
+        input: { ...input, transfer: { targetParentId: place.id, targetOrgNodeId: person.homeNodeId, targetCustodianId: person.id, transferOwnership: true, issueToUserId, movement: "STORE_OUT" } },
+        movement: "STORE_OUT",
+      };
+    }
     return { input: { ...input, transfer: { ...transfer, movement: "STORE_OUT" } }, movement: "STORE_OUT" };
   }
   // Refused now rather than when the chain finally applies it (mutate.ts refuses it too).
@@ -561,9 +573,11 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
   });
 
   if ((await centralStoreRootOf(destination.id)) && !(await allInCentralStore(input.itemIds))) {
-    // Back into the Main Store: the item's holder sends it, or the store keeper asks
-    // for it (then the holder is asked first — movementChain's askItemCustodian).
-    if (!(await mayWrite(actorId, input.itemIds)) && !(await mayWrite(actorId, [destination.id]))) throw new HttpError(404, "Resource not found");
+    // Back into the Main Store: the item's holder sends it, the head for what sits in
+    // their department's Staff holdings, or the store keeper asks for it (then the
+    // holder is asked first — movementChain's askItemCustodian).
+    const mayAsk = (await mayWrite(actorId, input.itemIds)) || (await mayWrite(actorId, [destination.id])) || (await allInStaffHoldingsOf(actorId, input.itemIds));
+    if (!mayAsk) throw new HttpError(404, "Resource not found");
     return onto("TO_STORE", destination.custodianId, true);
   }
 
@@ -587,6 +601,14 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
   if (await allInCentralStore(input.itemIds)) return onto("FROM_STORE", destination.custodianId, true);
   if (input.transfer.permanent) return onto("PERMANENT", destination.custodianId, true);
   return onto("LOAN", null, false);
+}
+
+/** Every item sits directly in a Staff holdings place this person (its head) answers for. */
+async function allInStaffHoldingsOf(actorId: string, itemIds: string[]): Promise<boolean> {
+  const places = new Set(await staffHoldingsHeldBy(actorId));
+  if (!places.size) return false;
+  const rows = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { parentId: true } });
+  return rows.length === itemIds.length && rows.every((r) => r.parentId !== null && places.has(r.parentId));
 }
 
 async function mayWrite(actorId: string, itemIds: string[]): Promise<boolean> {
@@ -717,6 +739,7 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
 
   const request = await getRequest(actorId, requestId);
   await tellNextApprover(request, actorId);
+  if (movement === "STORE_OUT") await tellRecipient(request, input.transfer.targetCustodianId, actorId);
   return { outcome: "ROUTED", request };
 }
 
@@ -731,6 +754,22 @@ async function tellNextApprover(request: ChangeRequestDto, actorId: string): Pro
     paragraphs: [
       `${esc(request.requesterName)}'s request has reached your step (${esc(step.label)}): <strong>${esc(request.summary)}</strong>.${quoted(request.note)}`,
       step.receipt ? "Confirm it under <strong>Approvals → Transfers</strong> once it's with you." : "Approve or reject it under <strong>Approvals → Transfers</strong>.",
+    ],
+    path: "/approvals",
+    action: "Open Approvals",
+  });
+}
+
+/** A store handover or allocation: the person it is for hears about it now, not only
+ *  once it reaches them to accept — staff and lab assistants follow what is coming. */
+async function tellRecipient(request: ChangeRequestDto, recipientId: string | null, actorId: string): Promise<void> {
+  const pending = request.steps.find((s) => s.status === "PENDING");
+  if (!recipientId || pending?.approverId === recipientId) return;
+  await notify(recipientId, actorId, {
+    subject: `Coming to you from the store: ${request.summary}`,
+    paragraphs: [
+      `${esc(request.requesterName)} is handing over <strong>${esc(request.summary)}</strong> to you.${quoted(request.note)}`,
+      "Once your head and Property Administration approve it, accept it under <strong>Approvals → Transfers</strong> when it is in your hands.",
     ],
     path: "/approvals",
     action: "Open Approvals",

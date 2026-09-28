@@ -4,13 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ChainStepDto,
   CompilePurchaseInput,
-  ContainerOptionDto,
   DepartmentPurchasablesDto,
   NeedLineDto,
   PurchaseRequestDto,
   ResourceCategoryDto,
 } from "@/lib/shared";
-import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { PURCHASE_UNITS } from "@/lib/shared";
 import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished } from "@/lib/domain/purchasing";
 import { suggestedLines } from "@/lib/domain/purchasables";
@@ -18,6 +16,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
+import { ImportsPanel } from "./ImportsPanel";
 
 const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5";
 const labelCls = "text-9.5 uppercase tracking-label text-faint";
@@ -631,7 +630,6 @@ function RequestCard({
   viewerId,
   categories,
   onChanged,
-  showReceive,
   showAdvance,
   canRunPipeline,
   readOnly,
@@ -640,7 +638,6 @@ function RequestCard({
   viewerId: string;
   categories: ResourceCategoryDto[];
   onChanged: () => void;
-  showReceive?: boolean;
   showAdvance?: boolean;
   canRunPipeline?: boolean;
   /** Status-following only — no decide/revise/withdraw affordances. */
@@ -663,7 +660,6 @@ function RequestCard({
     })),
   );
   const [title, setTitle] = useState(request.title);
-  const [receiveState, setReceiveState] = useState<Record<string, { qty: string; categoryId: string; storeParentId: string; containers: ContainerOptionDto[] }>>({});
 
   const currentStep = request.steps.find((s) => s.status === "PENDING");
   const canDecide = !readOnly && request.stage === "APPROVING" && currentStep?.approverId === viewerId;
@@ -724,58 +720,6 @@ function RequestCard({
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not advance this request");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function receiveFieldsFor(lineId: string, defaultCategoryId: string | null) {
-    return receiveState[lineId] ?? { qty: "", categoryId: defaultCategoryId ?? "", storeParentId: "", containers: [] };
-  }
-
-  function updateReceive(lineId: string, defaultCategoryId: string | null, patch: Partial<{ qty: string; categoryId: string; storeParentId: string; containers: ContainerOptionDto[] }>) {
-    const current = receiveFieldsFor(lineId, defaultCategoryId);
-    setReceiveState((s) => ({ ...s, [lineId]: { ...current, ...patch } }));
-  }
-
-  async function loadContainers(lineId: string, defaultCategoryId: string | null, categoryId: string) {
-    if (!categoryId) {
-      updateReceive(lineId, defaultCategoryId, { categoryId, containers: [], storeParentId: "" });
-      return;
-    }
-    updateReceive(lineId, defaultCategoryId, { categoryId });
-    try {
-      const rows = await api.get<ContainerOptionDto[]>(`/resources/items/containers?categoryId=${encodeURIComponent(categoryId)}`);
-      updateReceive(lineId, defaultCategoryId, { categoryId, containers: rows });
-    } catch {
-      updateReceive(lineId, defaultCategoryId, { categoryId, containers: [] });
-    }
-  }
-
-  // A line usually arrives with its category already set (it was ordered as one), so the
-  // "Into" choices must be loaded for it up front — they used to load only when the
-  // category was CHANGED, which left the pre-filled lines with no destination at all.
-  useEffect(() => {
-    if (!showReceive) return;
-    for (const l of request.lines) {
-      if (!l.categoryId || receiveState[l.id]) continue;
-      if (l.receivedQty !== null && l.receivedQty >= l.qty) continue;
-      void loadContainers(l.id, l.categoryId, l.categoryId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showReceive, request.id]);
-
-  async function receive(lineId: string, defaultCategoryId: string | null) {
-    const f = receiveFieldsFor(lineId, defaultCategoryId);
-    if (!f.qty || !f.categoryId || !f.storeParentId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post(`/resources/purchase-requests/${request.id}/receive`, { lineId, qty: Number(f.qty), categoryId: f.categoryId, storeParentId: f.storeParentId });
-      setReceiveState((s) => ({ ...s, [lineId]: { qty: "", categoryId: f.categoryId, storeParentId: "", containers: f.containers } }));
-      onChanged();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not register this stock");
     } finally {
       setBusy(false);
     }
@@ -913,50 +857,6 @@ function RequestCard({
         </div>
       )}
 
-      {showReceive && (
-        <div className="pt-4 border-t border-border flex flex-col gap-8">
-          {request.lines
-            .filter((l) => l.receivedQty === null || l.receivedQty < l.qty)
-            .map((l) => {
-              const f = receiveFieldsFor(l.id, l.categoryId);
-              return (
-                <div key={l.id} className="flex flex-wrap items-end gap-8">
-                  <span className="text-10.5 min-w-[140px]">{l.name}</span>
-                  <label className="flex flex-col gap-3">
-                    <span className={labelCls}>Qty arrived</span>
-                    <input value={f.qty} onChange={(e) => updateReceive(l.id, l.categoryId, { qty: e.target.value })} type="number" min="0.0001" className={`${inputCls} w-[80px]`} />
-                  </label>
-                  <label className="flex flex-col gap-3">
-                    <span className={labelCls}>Category</span>
-                    <select value={f.categoryId} onChange={(e) => loadContainers(l.id, l.categoryId, e.target.value)} className={`${inputCls} min-w-[150px]`}>
-                      <option value="">Choose…</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-3">
-                    <span className={labelCls}>Into</span>
-                    <div className="min-w-[220px]">
-                      <TreePicker
-                        options={containerTreeOptions(f.containers)}
-                        value={f.storeParentId}
-                        onChange={(id) => updateReceive(l.id, l.categoryId, { storeParentId: id })}
-                        disabled={!f.categoryId}
-                        placeholder="Choose a store…"
-                      />
-                    </div>
-                  </label>
-                  <Button variant="primary" onClick={() => receive(l.id, l.categoryId)} disabled={busy || !f.qty || !f.categoryId || !f.storeParentId}>
-                    Register arrived stock
-                  </Button>
-                </div>
-              );
-            })}
-        </div>
-      )}
     </div>
   );
 }
@@ -1002,17 +902,15 @@ function RequestListPanel({
   viewerId,
   categories,
   emptyLabel,
-  showReceive,
   showAdvance,
   canRunPipeline,
   readOnly,
 }: {
   title: string;
-  box: "mine" | "pipeline" | "receiving" | "tracking";
+  box: "mine" | "pipeline" | "tracking";
   viewerId: string;
   categories: ResourceCategoryDto[];
   emptyLabel: string;
-  showReceive?: boolean;
   showAdvance?: boolean;
   /** F-047 of the 2026-09-15 campaign — procurement may cancel a request that's
    *  already ORDER_PLACED or beyond, with a required note; the raiser's own
@@ -1049,7 +947,6 @@ function RequestListPanel({
                 viewerId={viewerId}
                 categories={categories}
                 onChanged={load}
-                showReceive={showReceive}
                 showAdvance={showAdvance}
                 canRunPipeline={canRunPipeline}
                 readOnly={readOnly}
@@ -1081,7 +978,11 @@ export default function PurchasingPage() {
 
   const isStudent = roles.includes("STUDENT");
   const canRunPipeline = roles.includes("PROCUREMENT") || roles.includes("SYS_ADMIN");
-  const canReceive = roles.includes("STORE_KEEPER") || roles.includes("SYS_ADMIN");
+  // Import records: Property Administration records what arrived, the store keeper loads
+  // it, procurement follows along.
+  const canRecordImports = roles.includes("PROPERTY_ADMIN") || roles.includes("SYS_ADMIN");
+  const canLoadStore = roles.includes("STORE_KEEPER") || roles.includes("SYS_ADMIN");
+  const seesImports = canRecordImports || canLoadStore || roles.includes("PROCUREMENT");
   // Occupancy decides who heads a unit (F-017 of the 2026-09-15 campaign) — not the
   // MANAGER role label, which used to gate this panel independently of `ownNodeId`
   // and could silently disagree with it (a role change, or a fresh appointment,
@@ -1096,9 +997,7 @@ export default function PurchasingPage() {
       {canRunPipeline && (
         <RequestListPanel key={`pipeline-${refreshKey}`} title="Pipeline" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is currently on order." showAdvance canRunPipeline />
       )}
-      {canReceive && (
-        <RequestListPanel key={`receiving-${refreshKey}`} title="Receive" box="receiving" viewerId={user.id} categories={categories} emptyLabel="Nothing has arrived at the store yet." showReceive />
-      )}
+      {seesImports && <ImportsPanel key={`imports-${refreshKey}`} categories={categories} canRecord={canRecordImports} canLoad={canLoadStore} />}
       <RequestListPanel
         key={`tracking-${refreshKey}`}
         title="Purchase request status"

@@ -38,10 +38,12 @@ function loadDotEnv(): void {
 loadDotEnv();
 
 type PurchasingModule = typeof import("./purchasing");
+type ImportsModule = typeof import("./imports");
 type CategoriesModule = typeof import("./categories");
 type PrismaModule = typeof import("../prisma");
 
 let purchasing: PurchasingModule;
+let imports: ImportsModule;
 let categories: CategoriesModule;
 let prisma: PrismaModule["prisma"];
 
@@ -64,6 +66,7 @@ const createdNodeIds: string[] = [];
 const createdItemIds: string[] = [];
 const createdNeedIds: string[] = [];
 const createdRequestIds: string[] = [];
+const createdImportIds: string[] = [];
 
 let userCounter = 0;
 
@@ -115,6 +118,7 @@ function compileInput(orgNodeId: string, over: Partial<{ title: string; lines: u
 
 beforeAll(async () => {
   purchasing = await import("./purchasing");
+  imports = await import("./imports");
   categories = await import("./categories");
   ({ prisma } = await import("../prisma"));
 
@@ -192,6 +196,11 @@ async function withCmdOffice<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 afterAll(async () => {
+  // Import records first: their lines hold the test categories and their creators are test users.
+  await prisma.importRecord.deleteMany({ where: { id: { in: createdImportIds } } });
+  // Stock loaded into a test store that a failed assertion never got to record.
+  const strays = await prisma.item.findMany({ where: { parentId: { in: createdItemIds } }, select: { id: true } });
+  createdItemIds.push(...strays.map((i) => i.id).filter((id) => !createdItemIds.includes(id)));
   await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: createdItemIds } }, { categoryId: { in: [serializedCategoryId, bulkCategoryId] } }] } });
   // Children (received stock) before parents (the store item itself) — Item.parentId
   // is RESTRICT, and a single deleteMany over both in one batch isn't guaranteed to
@@ -585,122 +594,151 @@ describe("the reporting pipeline and receiving", () => {
     await expect(purchasing.listForActor(receivingId, "pipeline")).rejects.toMatchObject({ status: 403 });
   });
 
-  it("receivePurchaseLine (SERIALIZED) creates real Items, is cumulative, and auto-closes once fully received", async () => {
-    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("receive-ser");
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {}); // now IN_STORE
-
-    const storeKeeperId = await makeUser("receive-ser-keeper", ["STORE_KEEPER"]);
+  /** Walks a fresh request on to IN_STORE, with a store the keeper holds. */
+  async function setUpInStore(prefix: string, lines?: unknown[], bulk = false) {
+    const at = await setUpAtOrderPlaced(prefix, lines);
+    await purchasing.advanceStage(procurementUserId, at.requestId, {});
+    await purchasing.advanceStage(procurementUserId, at.requestId, {});
+    await purchasing.advanceStage(procurementUserId, at.requestId, {}); // now IN_STORE
+    const keeperId = await makeUser(`${prefix}-keeper`, ["STORE_KEEPER"]);
+    const propertyId = await makeUser(`${prefix}-property`, ["PROPERTY_ADMIN"]);
     const storeItem = await prisma.item.create({
-      data: { categoryId: serializedCategoryId, name: "Test Store", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
+      data: {
+        categoryId: bulk ? bulkCategoryId : serializedCategoryId,
+        name: `${prefix} Store`,
+        countingMode: bulk ? "BULK" : "SERIALIZED",
+        status: "WORKING",
+        ownerOrgNodeId: at.deptId,
+        currentOrgNodeId: at.deptId,
+        custodianId: keeperId,
+      },
     });
     createdItemIds.push(storeItem.id);
+    return { ...at, keeperId, propertyId, storeId: storeItem.id };
+  }
 
-    const nonKeeperId = await makeUser("receive-ser-nonkeeper");
-    await expect(purchasing.receivePurchaseLine(nonKeeperId, requestId, { lineId, qty: 1, categoryId: serializedCategoryId, storeParentId: storeItem.id })).rejects.toMatchObject({ status: 403 });
+  async function record(propertyId: string, requestId: string, lines: Array<{ name: string; categoryId: string; qty: number; purchaseLineId?: string; spec?: string }>) {
+    const dto = await imports.createImport(propertyId, { source: "PURCHASE_REQUEST", purchaseRequestId: requestId, lines });
+    createdImportIds.push(dto.id);
+    return dto;
+  }
 
-    const partial = await purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 2, categoryId: serializedCategoryId, storeParentId: storeItem.id });
-    expect(partial.stage).toBe("IN_STORE");
-    expect(partial.lines[0].receivedQty).toBe(2);
+  async function itemsIn(storeId: string) {
+    const rows = await prisma.item.findMany({ where: { parentId: storeId } });
+    createdItemIds.push(...rows.filter((i) => !createdItemIds.includes(i.id)).map((i) => i.id));
+    return rows;
+  }
 
-    const createdSoFar = await prisma.item.findMany({ where: { parentId: storeItem.id } });
-    createdItemIds.push(...createdSoFar.map((i) => i.id));
-    expect(createdSoFar).toHaveLength(2);
-    // The received item is named after what was actually ordered, not left at the
-    // category's own generic auto-numbered default.
-    expect(createdSoFar.every((i) => i.name.startsWith("Balance"))).toBe(true);
+  it("arrival at the store tells Property Administration, who records it; only they may", async () => {
+    const at = await setUpAtOrderPlaced("arrival-mail");
+    const propertyId = await makeUser("arrival-mail-property", ["PROPERTY_ADMIN"]);
+    await purchasing.advanceStage(procurementUserId, at.requestId, {});
+    await purchasing.advanceStage(procurementUserId, at.requestId, {});
+    const mark = sent.length;
+    const inStore = await purchasing.advanceStage(procurementUserId, at.requestId, {});
+    expect(await mailedTo(propertyId, mark)).toEqual([`${inStore.reference} has arrived at the main store`]);
+    expect((await purchasing.listForActor(propertyId, "receiving")).map((r) => r.id)).toContain(at.requestId);
 
-    const complete = await purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 1, categoryId: serializedCategoryId, storeParentId: storeItem.id });
-    expect(complete.stage).toBe("CLOSED");
-    expect(complete.lines[0].receivedQty).toBe(3);
-
-    const allCreated = await prisma.item.findMany({ where: { parentId: storeItem.id } });
-    createdItemIds.push(...allCreated.filter((i) => !createdItemIds.includes(i.id)).map((i) => i.id));
-    expect(allCreated).toHaveLength(3);
+    const keeperId = await makeUser("arrival-mail-keeper", ["STORE_KEEPER"]);
+    await expect(imports.createImport(keeperId, { source: "PURCHASE_REQUEST", purchaseRequestId: at.requestId, lines: [{ name: "Balance", categoryId: serializedCategoryId, qty: 3 }] })).rejects.toMatchObject({ status: 403 });
   });
 
-  it("receivePurchaseLine (BULK) creates one root item and sets its quantity via the ordinary setQuantity path", async () => {
-    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("receive-bulk", [{ name: "Ethanol", qty: 5, unit: "L", fromNeedIds: [] }]);
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
+  it("refuses an import record for a request that hasn't arrived yet", async () => {
+    const at = await setUpAtOrderPlaced("import-early");
+    const propertyId = await makeUser("import-early-property", ["PROPERTY_ADMIN"]);
+    await expect(record(propertyId, at.requestId, [{ name: "Balance", categoryId: serializedCategoryId, qty: 3, purchaseLineId: at.lineId }])).rejects.toMatchObject({ status: 409 });
+  });
 
-    const storeKeeperId = await makeUser("receive-bulk-keeper", ["STORE_KEEPER"]);
-    const storeItem = await prisma.item.create({
-      data: { categoryId: bulkCategoryId, name: "Test Bulk Store", countingMode: "BULK", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
-    });
-    createdItemIds.push(storeItem.id);
+  it("an import (SERIALIZED) is loaded in parts: real Items, counted on the request, which closes once complete", async () => {
+    const s = await setUpInStore("import-ser");
+    let mark = sent.length;
+    const dto = await record(s.propertyId, s.requestId, [{ name: "Balance", categoryId: serializedCategoryId, qty: 3, purchaseLineId: s.lineId, spec: "Ohaus PX224" }]);
+    expect(dto.reference).toMatch(/^IMP-\d{4}-\d{3}$/);
+    expect(await mailedTo(s.keeperId, mark)).toEqual([`${dto.reference} is ready to load into the store`]);
 
-    const received = await purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 5, categoryId: bulkCategoryId, storeParentId: storeItem.id });
-    expect(received.stage).toBe("CLOSED");
+    const nonKeeperId = await makeUser("import-ser-nonkeeper");
+    await expect(imports.loadImportLine(nonKeeperId, dto.id, { lineId: dto.lines[0].id, qty: 1, storeParentId: s.storeId })).rejects.toMatchObject({ status: 403 });
 
-    const created = await prisma.item.findMany({ where: { parentId: storeItem.id } });
-    createdItemIds.push(...created.map((i) => i.id));
+    const partial = await imports.loadImportLine(s.keeperId, dto.id, { lineId: dto.lines[0].id, qty: 2, storeParentId: s.storeId });
+    expect([partial.status, partial.lines[0].loadedQty]).toEqual(["OPEN", 2]);
+    let req = await purchasing.getRequest(s.keeperId, s.requestId);
+    expect([req.stage, req.lines[0].receivedQty]).toEqual(["IN_STORE", 2]);
+    const firstTwo = await itemsIn(s.storeId);
+    expect(firstTwo).toHaveLength(2);
+    // Named after what was ordered, not the category's generic default.
+    expect(firstTwo.every((i) => i.name.startsWith("Balance"))).toBe(true);
+    const log = await prisma.itemChange.findFirstOrThrow({ where: { itemId: firstTwo[0].id, kind: "createItem" } });
+    expect(log.note).toContain(`Loaded from import ${dto.reference} — Ohaus PX224`);
+
+    mark = sent.length;
+    const complete = await imports.loadImportLine(s.keeperId, dto.id, { lineId: dto.lines[0].id, qty: 1, storeParentId: s.storeId });
+    expect(complete.status).toBe("LOADED");
+    req = await purchasing.getRequest(s.keeperId, s.requestId);
+    expect([req.stage, req.lines[0].receivedQty]).toEqual(["CLOSED", 3]);
+    expect(await itemsIn(s.storeId)).toHaveLength(3);
+    expect(await mailedTo(req.raisedById, mark)).toEqual([`${req.reference} is in the store`]);
+  });
+
+  it("an import (BULK) loads one item holding the quantity, via the ordinary setQuantity path", async () => {
+    const s = await setUpInStore("import-bulk", [{ name: "Ethanol", qty: 5, unit: "L", fromNeedIds: [] }], true);
+    const dto = await record(s.propertyId, s.requestId, [{ name: "Ethanol", categoryId: bulkCategoryId, qty: 5, purchaseLineId: s.lineId }]);
+    expect((await imports.loadImportLine(s.keeperId, dto.id, { lineId: dto.lines[0].id, qty: 5, storeParentId: s.storeId })).status).toBe("LOADED");
+    expect((await purchasing.getRequest(s.keeperId, s.requestId)).stage).toBe("CLOSED");
+    const created = await itemsIn(s.storeId);
     expect(created).toHaveLength(1);
     expect(Number(created[0].qty)).toBe(5);
     expect(created[0].name.startsWith("Ethanol")).toBe(true);
   });
 
-  it("F-045: refuses a category that doesn't match what the line ordered", async () => {
-    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("f045-category", [{ name: "Oscilloscope", qty: 1, unit: "Unit", categoryId: serializedCategoryId, fromNeedIds: [] }]);
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-
-    const storeKeeperId = await makeUser("f045-category-keeper", ["STORE_KEEPER"]);
-    const storeItem = await prisma.item.create({
-      data: { categoryId: serializedCategoryId, name: "F045 Category Store", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
-    });
-    createdItemIds.push(storeItem.id);
-
-    await expect(purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 1, categoryId: bulkCategoryId, storeParentId: storeItem.id })).rejects.toMatchObject({ status: 400 });
-    const untouched = await purchasing.getRequest(storeKeeperId, requestId);
-    expect(untouched.lines[0].receivedQty).toBeNull();
+  it("F-045: an import line must be the category its request line ordered", async () => {
+    const s = await setUpInStore("f045-category", [{ name: "Oscilloscope", qty: 1, unit: "Unit", categoryId: serializedCategoryId, fromNeedIds: [] }]);
+    await expect(record(s.propertyId, s.requestId, [{ name: "Oscilloscope", categoryId: bulkCategoryId, qty: 1, purchaseLineId: s.lineId }])).rejects.toMatchObject({ status: 400 });
   });
 
-  it("F-045: refuses receiving more than what remains on the line", async () => {
-    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("f045-over", [{ name: "Balance", qty: 10, unit: "L", fromNeedIds: [] }]);
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-
-    const storeKeeperId = await makeUser("f045-over-keeper", ["STORE_KEEPER"]);
-    const storeItem = await prisma.item.create({
-      data: { categoryId: bulkCategoryId, name: "F045 Over Store", countingMode: "BULK", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
-    });
-    createdItemIds.push(storeItem.id);
-
-    await expect(purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 500, categoryId: bulkCategoryId, storeParentId: storeItem.id })).rejects.toMatchObject({ status: 409 });
-    const untouched = await purchasing.getRequest(storeKeeperId, requestId);
-    expect(untouched.lines[0].receivedQty).toBeNull();
-    expect(untouched.stage).toBe("IN_STORE"); // never closed on the strength of an over-receipt
+  it("F-045: refuses recording more than was ordered, or loading more than was recorded", async () => {
+    const s = await setUpInStore("f045-over", [{ name: "Balance", qty: 10, unit: "L", fromNeedIds: [] }], true);
+    await expect(record(s.propertyId, s.requestId, [{ name: "Balance", categoryId: bulkCategoryId, qty: 500, purchaseLineId: s.lineId }])).rejects.toMatchObject({ status: 409 });
+    const dto = await record(s.propertyId, s.requestId, [{ name: "Balance", categoryId: bulkCategoryId, qty: 6, purchaseLineId: s.lineId }]);
+    // A second record may only cover what is left on the order.
+    await expect(record(s.propertyId, s.requestId, [{ name: "Balance", categoryId: bulkCategoryId, qty: 5, purchaseLineId: s.lineId }])).rejects.toMatchObject({ status: 409 });
+    await expect(imports.loadImportLine(s.keeperId, dto.id, { lineId: dto.lines[0].id, qty: 7, storeParentId: s.storeId })).rejects.toMatchObject({ status: 409 });
+    const untouched = await purchasing.getRequest(s.keeperId, s.requestId);
+    expect([untouched.stage, untouched.lines[0].receivedQty]).toEqual(["IN_STORE", null]);
   });
 
-  it("F-045: parallel receipts on the same line sum correctly, no lost update", async () => {
-    const { requestId, deptId, lineId } = await setUpAtOrderPlaced("f045-parallel", [{ name: "Ethanol", qty: 10, unit: "L", fromNeedIds: [] }]);
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-    await purchasing.advanceStage(procurementUserId, requestId, {});
-
-    const storeKeeperId = await makeUser("f045-parallel-keeper", ["STORE_KEEPER"]);
-    const storeItem = await prisma.item.create({
-      data: { categoryId: bulkCategoryId, name: "F045 Parallel Store", countingMode: "BULK", status: "WORKING", ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId: storeKeeperId },
-    });
-    createdItemIds.push(storeItem.id);
-
+  it("F-045: parallel loads of the same line sum correctly, no lost update", async () => {
+    const s = await setUpInStore("f045-parallel", [{ name: "Ethanol", qty: 10, unit: "L", fromNeedIds: [] }], true);
+    const dto = await record(s.propertyId, s.requestId, [{ name: "Ethanol", categoryId: bulkCategoryId, qty: 10, purchaseLineId: s.lineId }]);
     const results = await Promise.allSettled([
-      purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 1, categoryId: bulkCategoryId, storeParentId: storeItem.id }),
-      purchasing.receivePurchaseLine(storeKeeperId, requestId, { lineId, qty: 1, categoryId: bulkCategoryId, storeParentId: storeItem.id }),
+      imports.loadImportLine(s.keeperId, dto.id, { lineId: dto.lines[0].id, qty: 1, storeParentId: s.storeId }),
+      imports.loadImportLine(s.keeperId, dto.id, { lineId: dto.lines[0].id, qty: 1, storeParentId: s.storeId }),
     ]);
     for (const r of results) if (r.status === "rejected") throw r.reason;
+    expect((await imports.getImport(s.keeperId, dto.id)).lines[0].loadedQty).toBe(2);
+    expect((await purchasing.getRequest(s.keeperId, s.requestId)).lines[0].receivedQty).toBe(2); // not 1 — the lost-update bug (B-10)
+    expect(await itemsIn(s.storeId)).toHaveLength(2);
+  });
 
-    const after = await purchasing.getRequest(storeKeeperId, requestId);
-    expect(after.lines[0].receivedQty).toBe(2); // not 1 — the pre-fix lost-update bug (B-10)
+  it("a standalone EGP record needs no purchase request, loads the same way, and can be cancelled only before loading", async () => {
+    const s = await setUpInStore("import-egp");
+    await expect(imports.createImport(s.propertyId, { source: "EGP", lines: [{ name: "Laptop", categoryId: serializedCategoryId, qty: 2 }] } as never)).rejects.toBeTruthy();
+    const egp = await imports.createImport(s.propertyId, { source: "EGP", egpReference: "EGP-77/2026", supplier: "Abyssinia Tech", lines: [{ name: "Laptop", categoryId: serializedCategoryId, qty: 2 }, { name: "Mouse", categoryId: serializedCategoryId, qty: 2 }] });
+    createdImportIds.push(egp.id);
+    expect([egp.source, egp.purchaseRequestId, egp.egpReference]).toEqual(["EGP", null, "EGP-77/2026"]);
 
-    const createdItems = await prisma.item.findMany({ where: { parentId: storeItem.id } });
-    createdItemIds.push(...createdItems.map((i) => i.id));
-    expect(createdItems).toHaveLength(2);
+    await imports.loadImportLine(s.keeperId, egp.id, { lineId: egp.lines[0].id, qty: 2, storeParentId: s.storeId });
+    await expect(imports.cancelImport(s.propertyId, egp.id, { note: "wrong supplier" })).rejects.toMatchObject({ status: 409 });
+    expect((await imports.loadImportLine(s.keeperId, egp.id, { lineId: egp.lines[1].id, qty: 2, storeParentId: s.storeId })).status).toBe("LOADED");
+    expect(await itemsIn(s.storeId)).toHaveLength(4);
+
+    const spare = await imports.createImport(s.propertyId, { source: "EGP", egpReference: "EGP-78/2026", lines: [{ name: "Cable", categoryId: serializedCategoryId, qty: 1 }] });
+    createdImportIds.push(spare.id);
+    const cancelled = await imports.cancelImport(s.propertyId, spare.id, { note: "duplicate of EGP-77" });
+    expect(cancelled.status).toBe("CANCELLED");
+    await expect(imports.loadImportLine(s.keeperId, spare.id, { lineId: spare.lines[0].id, qty: 1, storeParentId: s.storeId })).rejects.toMatchObject({ status: 409 });
+    // The store, procurement and Property Administration can all follow records; a head can't.
+    expect((await imports.listImports(procurementUserId)).map((r) => r.id)).toEqual(expect.arrayContaining([egp.id, spare.id]));
+    await expect(imports.listImports(await makeUser("import-egp-head", ["MANAGER"]))).rejects.toMatchObject({ status: 403 });
   });
 
   it("F-045: rejects a fractional quantity ordered against a SERIALIZED category, at compile time", async () => {

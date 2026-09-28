@@ -169,6 +169,21 @@ async function assertAuthorized(
 
   if (await scope.isSysAdmin(actorId)) return;
 
+  if (input.kind !== "transferItem") {
+    // Only custodians and the store keeper change resources (2026-09-22: "the head
+    // manages personnel and approves"). Custody alone isn't enough since 2026-09-28: a
+    // member of staff answers for what is issued to them in Staff holdings, and a head
+    // for the place itself, but neither edits the register — they ask (a transfer,
+    // a return to the store) like everyone else.
+    const roles = await scope.rolesOf(actorId);
+    if (!roles.includes("CUSTODIAN") && !roles.includes("STORE_KEEPER")) {
+      // Something that isn't theirs at all stays "not found", as for anyone else.
+      const touched = input.kind === "createItem" ? (input.parentId ? [input.parentId] : []) : input.itemIds;
+      await scope.assertCanMutate(actorId, touched);
+      throw new HttpError(403, "Only custodians and the store keeper change resources.");
+    }
+  }
+
   if (input.kind === "transferItem" && !viaApprovalEngine) {
     // Track 3 (~/.claude/plans/lets-merge-the-work-memoized-journal.md §6.2): every
     // transfer, even one where the actor already custodies both ends, must be

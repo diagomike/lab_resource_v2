@@ -9,14 +9,12 @@ import type {
   PurchaseLineDto,
   PurchaseRequestDto,
   RaiseNeedInput,
-  ReceivePurchaseLineInput,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
 import * as orgScope from "../org/scope";
 import { CMD_OFFICE, PROCUREMENT_OFFICE, findOffice, requireOffice } from "../org/offices";
-import { applyChange } from "./mutate";
 import {
   activate,
   buildChain,
@@ -28,7 +26,7 @@ import {
   type ChainStep as DomainChainStep,
   type StepSelector,
 } from "@/lib/domain/approvals";
-import { FIRST_PIPELINE_STAGE, STAGE_LABEL, canRaiseNeed, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
+import { FIRST_PIPELINE_STAGE, STAGE_LABEL, canRaiseNeed, canRecordImports, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
 import { esc, notify, quoted, usersWithRole } from "../mail/notify";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
 import type { RoleKind } from "@/lib/shared";
@@ -657,9 +655,11 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
   const dto = await loadDto(requestId, actorId);
   await tellRaiser(dto, actorId, `${dto.reference}: ${STAGE_LABEL[next]}`, [`${summary(dto)} moved on: <strong>${STAGE_LABEL[next]}</strong>.${quoted(input.note)}`]);
   if (next === "IN_STORE") {
-    await notify(await usersWithRole("STORE_KEEPER"), actorId, {
+    // Property Administration records what actually came (the import record); the
+    // store keeper loads the store from that record — never straight off the request.
+    await notify(await usersWithRole("PROPERTY_ADMIN"), actorId, {
       subject: `${dto.reference} has arrived at the main store`,
-      paragraphs: [`${summary(dto)} has arrived. Register what came in against its lines under <strong>Purchasing → Receive</strong>.`],
+      paragraphs: [`${summary(dto)} has arrived. Record what came in as an import record under <strong>Purchasing → Imports</strong>, so the store keeper can load it into the store.`],
       path: "/purchasing",
     });
   }
@@ -667,117 +667,24 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
 }
 
 /**
- * The one seam with the register (see `lib/shared/resources/purchasing.ts`'s own
- * header comment): from this moment the goods are an ordinary `Item`, created
- * through the existing `applyChange` write door — its own authorization (custody on
- * `storeParentId`) applies unchanged, so this module adds no second authorization
- * path for WHERE the item lands, only WHO may receive at all (`canReceive`). A
- * SERIALIZED category receives one root item per unit (`count`); a BULK category
- * receives one root item at `count: 1`, then a follow-up `setQuantity` to the
- * received amount, since a BULK item's own qty is not a `createItem` field.
- * Cumulative across several deliveries; closes the request once every line's own
- * received amount meets its ordered amount.
+ * Goods reach the register through an import record now (lib/server/resources/
+ * imports.ts): Property Administration records what arrived, the store keeper loads
+ * it, and each loaded line linked to one of this request's lines adds to that line's
+ * `receivedQty`. This closes the request once every line has been received in full,
+ * and tells the raiser — called by the import loader after each load.
  */
-export async function receivePurchaseLine(actorId: string, requestId: string, input: ReceivePurchaseLineInput): Promise<PurchaseRequestDto> {
-  const person = await loadPerson(actorId);
-  if (!canReceive(person)) throw new HttpError(403, "Only the store keeper may register arrived stock.");
-  if (!(input.qty > 0)) throw new HttpError(400, "Received quantity must be greater than zero.");
-
+export async function closeIfFullyReceived(requestId: string, actorId: string): Promise<boolean> {
   const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, include: { lines: true } });
-  if (!request) throw new HttpError(404, "Request not found");
-  if (request.stage !== "IN_STORE") throw new HttpError(409, "This request is not at the store yet.");
-
-  const line = request.lines.find((l) => l.id === input.lineId);
-  if (!line) throw new HttpError(404, "Line not found on this request");
-
-  // F-045 of the 2026-09-15 campaign: a line ordered as one category (Computer)
-  // could be received against a completely different one (Chair), creating an
-  // item nobody ordered and leaving the real order looking un-received.
-  if (line.categoryId && line.categoryId !== input.categoryId) {
-    throw new HttpError(400, "The received category does not match what this line ordered.");
-  }
-
-  const category = await prisma.resourceCategory.findUnique({ where: { id: input.categoryId } });
-  if (!category) throw new HttpError(400, "Choose an existing category.");
-
-  const isSerialized = category.countingMode === "SERIALIZED";
-  if (isSerialized && !Number.isInteger(input.qty)) {
-    throw new HttpError(400, "A serialized category must be received in whole units.");
-  }
-
-  // Atomic cap, not read-then-check: the threshold (ordered minus THIS call's own
-  // qty) is a constant known before the query runs, so the WHERE clause is
-  // correct against whatever the row's true current value is at execution time —
-  // no window for two concurrent receipts to each pass a check computed against
-  // the same stale reading. This closes both halves of F-045 at once: the lost
-  // update (two simultaneous 1-unit receipts on the same line, both creating an
-  // item but only one recorded) and the over-receipt hole (10 ordered, 500
-  // received, closing the request as though fully delivered) — each of the two
-  // attempts below either claims the row or it doesn't; nothing in between.
-  const orderedQty = dec(line.qty)!;
-  const threshold = orderedQty - input.qty;
-  if (threshold < 0) {
-    // This single call's own qty already exceeds the whole order, regardless of
-    // anything received before it — no need to touch the row to know that.
-    const remaining = orderedQty - (dec(line.receivedQty) ?? 0);
-    throw new HttpError(409, `Only ${remaining} ${line.unit ?? "unit(s)"} remain on this line — refusing to receive ${input.qty}.`);
-  }
-  const startingFromZero = await prisma.purchaseLine.updateMany({
-    where: { id: line.id, receivedQty: null },
-    data: { receivedQty: input.qty, receivedAt: new Date(), receivedById: actorId },
-  });
-  if (startingFromZero.count === 0) {
-    const claimed = await prisma.purchaseLine.updateMany({
-      where: { id: line.id, receivedQty: { lte: threshold } },
-      data: { receivedQty: { increment: input.qty }, receivedAt: new Date(), receivedById: actorId },
-    });
-    if (claimed.count === 0) {
-      const current = await prisma.purchaseLine.findUniqueOrThrow({ where: { id: line.id } });
-      const remaining = orderedQty - (dec(current.receivedQty) ?? 0);
-      throw new HttpError(409, `Only ${remaining} ${line.unit ?? "unit(s)"} remain on this line — refusing to receive ${input.qty}.`);
-    }
-  }
-
-  // The item creation below is a SEPARATE commit from the claim above (fix B of
-  // F-045's own write-up: a minimal patch, not the fully atomic tx-aware
-  // applyChange fix A would need) — a failure here leaves the line's own
-  // receivedQty already booked with no item behind it yet, a narrower and more
-  // honest gap than the pre-fix state (no accounting at all, and no cap).
-  let result;
-  try {
-    result = await applyChange(actorId, {
-      kind: "createItem",
-      parentId: input.storeParentId,
-      categoryId: input.categoryId,
-      count: isSerialized ? input.qty : 1,
-      name: line.name,
-      note: `Received against purchase request ${request.reference}`,
-    });
-    if (!isSerialized && result.itemIds[0]) {
-      await applyChange(actorId, { kind: "setQuantity", itemIds: [result.itemIds[0]], value: input.qty });
-    }
-  } catch (err) {
-    // Roll back the claim so a failed item creation doesn't book a receipt with
-    // nothing behind it — the two-updateMany dance above has no natural "undo"
-    // built in, so this reverses it explicitly.
-    await prisma.purchaseLine.update({ where: { id: line.id }, data: { receivedQty: { decrement: input.qty } } });
-    throw err;
-  }
-
-  const updatedLines = await prisma.purchaseLine.findMany({ where: { purchaseId: requestId } });
-  const allComplete = updatedLines.every((l) => l.receivedQty !== null && dec(l.receivedQty)! >= dec(l.qty)!);
-  if (allComplete) {
-    await prisma.$transaction([
-      prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "CLOSED" } }),
-      prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: "CLOSED", note: "Every line registered." } }),
-    ]);
-  }
-
+  if (!request || request.stage !== "IN_STORE") return false;
+  const complete = request.lines.every((l) => l.receivedQty !== null && dec(l.receivedQty)! >= dec(l.qty)!);
+  if (!complete) return false;
+  await prisma.$transaction([
+    prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: "CLOSED" } }),
+    prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: "CLOSED", note: "Every line registered." } }),
+  ]);
   const dto = await loadDto(requestId, actorId);
-  if (allComplete) {
-    await tellRaiser(dto, actorId, `${dto.reference} is in the store`, [`Everything on ${summary(dto)} is registered in the main store. The store keeper can now hand it over to your labs.`]);
-  }
-  return dto;
+  await tellRaiser(dto, actorId, `${dto.reference} is in the store`, [`Everything on ${summary(dto)} is registered in the main store. The store keeper can now hand it over to your labs.`]);
+  return true;
 }
 
 // ── Notifications (lib/server/mail/notify.ts) — always after the write commits ────
@@ -907,8 +814,10 @@ export async function listForActor(actorId: string, box: "inbox" | "mine" | "pip
   }
 
   if (box === "receiving") {
+    // What has arrived and needs an import record (Property Administration), or is
+    // about to be loaded (the store keeper).
     const person = await loadPerson(actorId);
-    if (!canReceive(person)) throw new HttpError(403, "Only the store keeper may browse what's ready to receive.");
+    if (!canRecordImports(person) && !canReceive(person)) throw new HttpError(403, "Only Property Administration and the store keeper browse what has arrived.");
     const rows = await prisma.purchaseRequest.findMany({ where: { stage: "IN_STORE" }, include: requestInclude, orderBy: { createdAt: "asc" } });
     return toRequestDtos(rows, actorId);
   }

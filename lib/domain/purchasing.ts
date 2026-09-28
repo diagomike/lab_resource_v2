@@ -164,9 +164,15 @@ export function canRunPipeline(person: Person | undefined): boolean {
   return has(person, "PROCUREMENT") || has(person, "SYS_ADMIN");
 }
 
-/** Booking goods onto the system is the store keeper's job, and theirs alone. */
+/** Loading goods into the store is the store keeper's job, and theirs alone. */
 export function canReceive(person: Person | undefined): boolean {
   return has(person, "STORE_KEEPER") || has(person, "SYS_ADMIN");
+}
+
+/** Recording what a purchase actually delivered — the import record the store is
+ *  loaded from — is Property Administration's. */
+export function canRecordImports(person: Person | undefined): boolean {
+  return has(person, "PROPERTY_ADMIN") || has(person, "SYS_ADMIN");
 }
 
 /** The next thing procurement can report, or null at the end of the pipeline. */

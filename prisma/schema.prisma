@@ -111,6 +111,8 @@ model User {
   purchaseRequestsRaised     PurchaseRequest[]           @relation("PurchaseRequestRaisedBy")
   purchaseLinesReceived      PurchaseLine[]              @relation("PurchaseLineReceivedBy")
   purchaseEventsLogged       PurchaseEvent[]             @relation("PurchaseEventBy")
+  importRecordsCreated       ImportRecord[]              @relation("ImportRecordCreatedBy")
+  importLinesLoaded          ImportLine[]                @relation("ImportLineLoadedBy")
   purchaseStepsToApprove     PurchaseStep[]              @relation("PurchaseStepApprover")
   purchaseStepsDecided       PurchaseStep[]              @relation("PurchaseStepDecidedBy")
   labCommitsRequested        LabCommitRequest[]          @relation("LabCommitRequester")
@@ -431,6 +433,7 @@ model ResourceCategory {
   templateAsChild  CategoryTemplateChild[] @relation("TemplateChild")
   needLines        NeedLine[]
   purchaseLines    PurchaseLine[]
+  importLines      ImportLine[]
 
   /// This category's own allow-list when its OWN placement is ONLY_LISTED — the
   /// categories it may be placed directly inside.
@@ -1052,6 +1055,7 @@ model PurchaseRequest {
   lines    PurchaseLine[]
   events   PurchaseEvent[]
   steps    PurchaseStep[]
+  imports  ImportRecord[]
 
   @@index([orgNodeId])
   @@index([stage])
@@ -1076,6 +1080,8 @@ model PurchaseLine {
   receivedBy    User?             @relation("PurchaseLineReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
   /// Which needs this line answers, so a line can be traced back to who felt it.
   answeredNeeds NeedLine[]
+  /// Import lines that brought this line's goods into the store.
+  importLines   ImportLine[]
 
   @@index([purchaseId])
 }
@@ -1092,6 +1098,75 @@ model PurchaseEvent {
   by       User            @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
 
   @@index([purchaseId, at])
+}
+
+// ── Import records (2026-09-28) ─────────────────────────────────────────────
+//
+// Goods reach the Main Store through an import record, never straight off a purchase
+// request. When a purchase lands (an LRMS request at IN_STORE, or an EGP purchase that
+// never went through LRMS), Property Administration records what actually arrived —
+// "10 chairs, 5 × 8 GB RAM, this machine" — and the store keeper loads the store from
+// that record, line by line. A line linked to a purchase line also counts towards that
+// purchase line's received quantity, so the purchase request still closes itself.
+
+enum ImportSource {
+  PURCHASE_REQUEST
+  EGP
+}
+
+enum ImportStatus {
+  /// Waiting for (or part-way through) loading into the store.
+  OPEN
+  /// Every line loaded.
+  LOADED
+  CANCELLED
+}
+
+model ImportRecord {
+  id                String        @id @default(cuid())
+  /// IMP-2026-001
+  reference         String        @unique
+  source            ImportSource
+  purchaseRequestId String?
+  /// The EGP purchase or contract number, for a standalone record (or as a cross-reference).
+  egpReference      String?
+  supplier          String?
+  note              String?
+  status            ImportStatus  @default(OPEN)
+  createdById       String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  createdBy       User             @relation("ImportRecordCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lines           ImportLine[]
+
+  @@index([status])
+  @@index([purchaseRequestId])
+}
+
+model ImportLine {
+  id             String    @id @default(cuid())
+  recordId       String
+  name           String
+  categoryId     String
+  qty            Decimal   @db.Decimal(18, 4)
+  unit           String?
+  /// Model, specification or serial numbers, as the delivery documents give them.
+  spec           String?
+  purchaseLineId String?
+  loadedQty      Decimal?  @db.Decimal(18, 4)
+  loadedAt       DateTime?
+  loadedById     String?
+  sortOrder      Int       @default(0)
+
+  record       ImportRecord     @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  category     ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  purchaseLine PurchaseLine?    @relation(fields: [purchaseLineId], references: [id], onDelete: SetNull)
+  loadedBy     User?            @relation("ImportLineLoadedBy", fields: [loadedById], references: [id], onDelete: SetNull)
+
+  @@index([recordId])
+  @@index([purchaseLineId])
 }
 
 /// A PurchaseRequest's own approval chain — the same shape as ChainStep, but ChainStep

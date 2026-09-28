@@ -293,6 +293,9 @@ export const TransferItemChange = Base.extend({
      *  ownership and custody to the receiving side for good — which the College
      *  Managing Director approves. */
     permanent: z.boolean().optional(),
+    /** A store handover to a PERSON rather than a lab: it lands in their department's
+     *  Staff holdings, in their custody. The server fills in the destination. */
+    issueToUserId: z.string().optional(),
     /** Which movement this is — set by the server from the request's shape
      *  (lib/server/resources/approvals.ts), never trusted from the client. */
     movement: z.enum(["LOAN", "PERMANENT", "STORE_OUT", "FROM_STORE", "TO_STORE", "RETURN"]).optional(),

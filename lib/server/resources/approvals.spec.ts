@@ -1029,4 +1029,80 @@ describe("movements — permanent transfers go to the CMD, Main Store movements 
       await prisma.orgNode.update({ where: { id: office.id }, data: { active: true } });
     }
   });
+
+  it("the store keeper issues stock to a person: it lands in their department's Staff holdings, in their custody", async () => {
+    const s = await stage("mv-issue");
+    const store = await mainStore("mv-issue");
+    const lecturerId = await makeUser("mv-issue-lecturer", ["STAFF"]);
+    await prisma.user.update({ where: { id: lecturerId }, data: { homeNodeId: s.a1.nodeId } });
+    await makePolicy({ id: `${testKey}-mv-issue-keeper`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: [{ type: "TARGET_HEAD" }] });
+
+    const mark = sent.length;
+    const r = await approvals.requestTransfer(store.keeperId, {
+      kind: "transferItem",
+      itemIds: [store.stockId],
+      transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: lecturerId },
+    });
+    if (r.outcome !== "ROUTED") throw new Error("expected ROUTED");
+    createdRequestIds.push(r.request.id);
+
+    const place = await prisma.item.findFirstOrThrow({ where: { parentId: null, ownerOrgNodeId: s.a1.nodeId, category: { key: "staff-holdings" } } });
+    createdItemIds.push(place.id);
+    expect([place.name, place.custodianId]).toEqual([`${testKey}-mv-issue-a1`.replace(/^/, "Staff holdings — "), s.a1.headId]);
+    expect(r.request.movement).toBe("STORE_OUT");
+    expect(r.request.steps.map((st) => [st.selector, st.approverId])).toEqual([
+      ["TARGET_HEAD", s.a1.headId],
+      ["NODE_OCCUPANT", propertyAdminId],
+      ["TARGET_CUSTODIAN", lecturerId],
+    ]);
+    // The person it's for hears about it now, not only when it reaches them.
+    const lecturer = await prisma.user.findUniqueOrThrow({ where: { id: lecturerId } });
+    expect(sent.slice(mark).filter((m) => m.to === lecturer.email).map((m) => m.subject)).toEqual([`Coming to you from the store: ${r.request.summary}`]);
+
+    expect((await walk(r.request.id, [s.a1.headId, propertyAdminId, lecturerId])).status).toBe("APPLIED");
+    const after = await prisma.item.findUniqueOrThrow({ where: { id: store.stockId } });
+    expect([after.parentId, after.ownerOrgNodeId, after.custodianId]).toEqual([place.id, s.a1.nodeId, lecturerId]);
+
+    // Answering for it isn't editing it: staff (and the head, for the place) ask instead.
+    await expect(mutate.applyChange(lecturerId, { kind: "setStatus", itemIds: [store.stockId], value: "BROKEN" })).rejects.toMatchObject({ status: 403 });
+    await expect(mutate.applyChange(s.a1.headId, { kind: "setName", itemIds: [place.id], value: "Mine" })).rejects.toMatchObject({ status: 403 });
+
+    // A second issue to the same department reuses its Staff holdings.
+    const second = await mainStore("mv-issue-2");
+    const again = await approvals.previewTransfer(second.keeperId, {
+      kind: "transferItem",
+      itemIds: [second.stockId],
+      transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: lecturerId },
+    });
+    expect(again.outcome).toBe("ROUTED");
+    expect(await prisma.item.count({ where: { parentId: null, ownerOrgNodeId: s.a1.nodeId, category: { key: "staff-holdings" }, deletedAt: null } })).toBe(1);
+
+    // The head sends it back to the store; the member of staff holding it is asked first.
+    await makePolicy({ id: `${testKey}-mv-issue-head`, actorRole: "MANAGER", outcome: "CHAIN", chain: [{ type: "OWNER_HEAD" }] });
+    const back = await request(s.a1.headId, [store.stockId], store.storeId);
+    expect(back.movement).toBe("TO_STORE");
+    expect(back.steps.filter((st) => st.status !== "SKIPPED").map((st) => [st.selector, st.approverId])).toEqual([
+      ["ITEM_CUSTODIAN", lecturerId],
+      ["NODE_OCCUPANT", propertyAdminId],
+      ["TARGET_CUSTODIAN", store.keeperId],
+    ]);
+    expect((await walk(back.id, [lecturerId, propertyAdminId, store.keeperId])).status).toBe("APPLIED");
+    const home = await prisma.item.findUniqueOrThrow({ where: { id: store.stockId } });
+    expect([home.parentId, home.ownerOrgNodeId, home.custodianId]).toEqual([store.storeId, universityId, store.keeperId]);
+  });
+
+  it("never issues to a student, nor into a department with no head to answer for the place", async () => {
+    const s = await stage("mv-issue-refuse");
+    const store = await mainStore("mv-issue-refuse");
+    const studentId = await makeUser("mv-issue-student", ["STUDENT"]);
+    await prisma.user.update({ where: { id: studentId }, data: { homeNodeId: s.a1.nodeId } });
+    const issue = (userId: string) =>
+      approvals.previewTransfer(store.keeperId, { kind: "transferItem", itemIds: [store.stockId], transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: userId } });
+    await expect(issue(studentId)).rejects.toMatchObject({ status: 400 });
+
+    const staffId = await makeUser("mv-issue-headless-staff", ["STAFF"]);
+    await prisma.user.update({ where: { id: staffId }, data: { homeNodeId: s.b1.nodeId } });
+    await prisma.orgNode.update({ where: { id: s.b1.nodeId }, data: { userId: null } });
+    await expect(issue(staffId)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/has no head yet/) });
+  });
 });
