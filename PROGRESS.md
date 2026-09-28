@@ -4717,3 +4717,25 @@ its model that make porting it as-is the wrong move.
     contacts. The AVP sees a "Bank receipt" link when the verifier's response carries one.
   - Specs rewritten: `requests.spec.ts` (9), `verify.spec.ts` (8), new `external-account.spec.ts` (2). **563/563**,
     `tsc` clean, `next build` clean (after clearing stale `.next/dev/types`).
+
+- **2026-09-29 (approval-line round: phase 6 — validation and docs, `43751a5`)**
+  - **End-to-end validation:** new `e2e/validate-approval-lines.ts` runs every changed path through the HTTP
+    API on a freshly reset clone (:3100) with the mail sink, and checks who was emailed (subjects decoded from
+    the `.eml`, since the sink's index keeps only a folded/encoded subject's first line). **68/68**
+    (`e2e/validation-2026-09-28.json`). The driver turns Ali's and Yohannes's notifications on through the
+    People API first (the 17 CSE ARAs start with them off).
+  - **Browser checks on the clone:** the requester's confirmed request (contacts, booked lab, quote breakdown,
+    bank details, payment), the AVP's "Line of communication" (college → department → two custodian tasks), the
+    Purchasing Imports panel, the Register's Mine / Whole university switch and the pull modal's Loan/Permanent
+    chains. No app console errors.
+  - **Docs:** user guide chapters 00, 02, 03, 04, 06, 07, 08, 10, 11 and the appendix (table; flows 2 and 4
+    re-rendered with playwright-core from the scratchpad, XML-serialised); stories s04–s06 and s08 rewritten;
+    the walkthrough README lists what changed since its screenshots. `npm run help:build`; the Help screen map
+    follows the renamed sections.
+  - **Not done:** new screenshots for the changed screens (portal, store keeper's Load, the external line,
+    Imports panel). The old ones that would mislead were dropped from the text or captioned as pre-change.
+  - **Observed, not changed:** an office occupant (Property Admin, CMD, Procurement) sees "Compile a purchase
+    request" on Purchasing, as any occupant does.
+  - **Production:** Neon needs migrations `20260928191510_import_records` and `20260928195703_external_chain`,
+    then `npx tsx prisma/seed-property-office.ts` (and a real person in the PROP office). Not pushed.
+  - 563/563 tests, `tsc` clean, `next build` clean.
