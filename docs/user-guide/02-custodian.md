@@ -20,7 +20,7 @@ Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.
 | Ask for something to be bought | [12. Raise a need](#12-raise-a-need) |
 | Find another unit's resource and request it | [13. University resources and transfers](#13-university-resources-and-transfers) |
 | Accept items handed over to you | [14. Accept a handover](#14-accept-a-handover) |
-| Hold your lab for an outside request | [15. Hold a slot for an outside request](#15-hold-a-slot-for-an-outside-request) |
+| Hold your lab or a machine for an outside request | [15. Hold rooms or a machine for an outside request](#15-hold-rooms-or-a-machine-for-an-outside-request) |
 
 
 ---
@@ -261,25 +261,29 @@ Much of what a lab needs is worked out for the head automatically: the gap betwe
 
 ## 13. University resources and transfers
 
-**University resources** shows every unit's resources, read-only, grouped by owning unit (university → college → department → lab). Use it to find something your lab needs that another unit holds.
+The **Register** has two views: **Mine** (what you look after) and **Whole university** (every unit's resources, read-only, grouped by owning unit). Switch to **Whole university** to find something your lab needs that another unit holds — or that is in the Main Store.
 
-![University resources](img/custodian/37-university.jpg)
+![The whole university in the Register](img/custodian/37-university.jpg)
 
-1. Search for it and open its details. Another unit's item offers **Request to my lab…**
+1. Search for it, tick it (or open its details), and click **Request for my lab…**
 
 ![Another unit's item: request it](img/custodian/38-other-units-item.jpg)
 
-2. Choose **Into**, the place in your lab it should go, and say **Why**.
-3. The dialog shows who has to agree, in order. For example: **the current custodian → their department's head → your department's head → you confirm receipt**.
-4. Click **Request transfer**. Follow it in **Approvals → Transfers → Raised by me**.
+2. Choose **Into**, the place in your lab it should go.
+3. Choose **How**:
+   - **Loan** — you borrow it. It stays the other unit's, in its custodian's custody.
+   - **Permanent transfer** — it becomes your unit's, in your custody. The **College Managing Director** approves it too, and **Property Administration** as well when it comes from another college.
+   Something from the **Main Store** is always given, not lent: the store keeper releases it, your head and Property Administration approve.
+4. Say **Why**. The dialog shows who has to agree, in order — for a loan: **the current custodian → their department's head → your department's head → you confirm receipt**.
+5. Click **Request transfer**. Follow it in **Approvals → Transfers → Raised by me**.
 
-![Request it into your lab](img/custodian/39-request-transfer.jpg)
+When everyone has agreed and you confirm it arrived, the item moves into your lab.
 
-When everyone has agreed, the item moves into your lab and into your custody.
+**Return to the store.** Something your lab no longer needs can go back to the Main Store: tick it in the Register and click **Return to store…** Your head and Property Administration approve, and the store keeper accepts it; it then belongs to the university again.
 
 ## 14. Accept a handover
 
-When the store keeper hands new stock over to your lab and your head approves, it comes to you to accept. Open **Approvals → Transfers** and click **Accept into my custody** (or **Reject**).
+When the store keeper hands new stock over to your lab, you are emailed that it's coming; once your head and Property Administration approve, it comes to you to accept. Open **Approvals → Transfers** and click **Accept into my custody** (or **Reject**).
 
 ![Accept a handover into your custody](img/custodian/34-accept-handover.jpg)
 
@@ -289,14 +293,15 @@ The items then sit in your lab, owned by your department and in your custody. He
 
 Your lab's **Ideal vs Current** gap closes accordingly.
 
-## 15. Hold a slot for an outside request
+## 15. Hold rooms or a machine for an outside request
 
-When the AVP forwards an outside institution's request to your department, it appears in **External requests**. Hold your lab so nobody else books those dates:
+When an outside institution asks for rooms or a sample analysis, your head may ask you to hold something for it — you're emailed ("Hold rooms for EXT-2026-…") and it appears in **External requests**, with what your head asked for.
 
 1. Open the request and click **Hold a slot…**
-2. Choose the **Room**, optionally only some machines, and the **Requested window**.
+2. Choose the **Room**, or only some machines in it (for a sample analysis, the machine), and the **Requested window**.
 3. Click **Hold slot**. Repeat for each day you can host.
+4. Then report back on your line: **Done…** (you've held what was asked), or **Can't…** with the reason.
 
 ![Hold a slot for an outside request](img/custodian/36-hold-slot.jpg)
 
-A hold blocks the calendar. Staff trying to book that time are refused. It lapses on its own unless the request is quoted and paid by the deadline. Once it's paid, the hold becomes a confirmed booking on your calendar. You can only hold the dates the request asked for.
+A hold blocks the calendar: staff trying to book that time are refused. It lapses on its own unless the request is quoted and paid by the deadline. You can only hold the dates the request asked for, and only in rooms you keep. Once the payment is confirmed, the hold becomes a booking on your calendar, and the requester may call you if your head named you as a contact.

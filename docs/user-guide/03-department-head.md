@@ -148,22 +148,25 @@ Click **Edit & resubmit**, change what was asked (lines, quantities, justificati
 
 ## 9. Approve a handover
 
-When the store keeper hands stock over to one of your labs (after a purchase arrives, for example), you approve it first. Then the lab's custodian accepts it. Open **Approvals → Transfers**. The card names the items and the destination lab.
+When the store keeper hands stock over to one of your labs (after a purchase arrives, for example), or issues something to one of your staff, you approve it first. Then Property Administration approves it, and the lab's custodian (or the member of staff) accepts it. Things issued to your staff sit in your department's **Staff holdings**, which you answer for; you can send them back to the store with **Return to store…** in the Register. Open **Approvals → Transfers**. The card names the items and the destination lab.
 
 ![A handover into your department](img/head/21-approve-handover.jpg)
 
-**Approve**, or **Reject** with a reason. Nothing moves until you and the custodian have both said yes.
+**Approve**, or **Reject** with a reason. Nothing moves until everyone on the chain has said yes.
+
+Transfers between units come to you too: as the owning head when another unit asks for one of your resources, and as the receiving head when one of your custodians asks for something. A **permanent transfer** goes on to the College Managing Director after the heads (and to Property Administration when it crosses colleges); a **loan** ends with you.
 
 Bookings of your labs are decided by each lab's **custodian**, not by you. You can see them, but they don't wait on you.
 
 ## 10. External requests
 
-When the AVP forwards an outside institution's request to your department, it appears in **External requests** as **Waiting for the head**. Your custodians can already hold lab slots for it.
+When your dean sends an outside institution's request to your department, you are emailed and it appears in **External requests**, with what they asked for (rooms or labs, or a sample analysis on a machine) and on which dates.
 
-1. Open it and click **Accept…**
-2. Enter a link to your **pricing breakdown** (a spreadsheet), **your department's amount** in ETB, and an optional note.
-3. Click **Accept**. Or **Decline…**, with a note, if you can't host it.
+1. Click **Ask custodians…** on your department's line. Say what each custodian should hold — "B510-R8, mornings", "the XRD" — for as many labs as it takes. Leave the others empty. They're emailed.
+2. Each custodian holds slots and reports back (**Held** or **Can't**, with a reason). The line shows how many slots each has held.
+3. When everyone has answered, click **Send to the dean…** and give:
+   - a link to your **cost breakdown** (a spreadsheet) and **your department's amount** in ETB;
+   - the **contact persons** the requester should call once they have paid — name, role, phone (and email). The requester sees them only after the AVP confirms the payment.
+4. Or **Decline…**, with a reason, if your department can't host it; anything held for it is released.
 
-![Accept an outside request, with your price](img/head/22-accept-external.jpg)
-
-The AVP adds up the departments' amounts into one quote for the requester. Once it's paid, the held slots become bookings.
+The dean approves your answer or sends it back with a note (then answer again). The dean sends the college's answer to the AVP, who quotes the requester. Once the payment is confirmed, the held slots become bookings and you're told.

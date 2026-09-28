@@ -1,52 +1,27 @@
 # Outside institutions
 
-## H1. Host an outside training
+## H1. Host an outside training, or run their samples
 
-**As** an outside institution, **I want** to ask ASTU to host a workshop, get one quote and pay online, **so that** the booking is confirmed without an account or paperwork. **As** the AVP, departments and custodians, we each do our part.
+**As** an outside institution, **I want** to ask ASTU for rooms or labs (a workshop, a training) or for samples to be analysed on a machine, get one quote and pay, **so that** it's booked and I know whom to call. **As** the AVP, deans, heads and custodians, we each do our part, along the university's line of communication.
 
-**Flow:** Portal request ✉ AVP → AVP forwards ✉ department heads → custodians hold slots; each head accepts with a price ✉ AVP → AVP sends one quote ✉ requester → requester pays → verified → **Confirmed**: holds become bookings ✉ requester, custodians and heads.
+**Flow:** Requester signs up and confirms their email → sends the request with a letter ✉ AVP → **forwards to colleges** ✉ Deans → **forward to departments** ✉ Heads → **ask custodians** ✉ Custodians → hold rooms (or a machine) and report back ✉ Head → **sends the dean** the cost breakdown and contact persons ✉ Dean → approves each department (or sends it back) and **sends the AVP** the college's answer ✉ AVP → approves each college (or sends it back) and **quotes** ✉ requester → pays (checked with the bank) ✉ AVP → **Confirm payment**: holds become bookings, the requester sees the contact persons ✉ requester, custodians and heads. Everything after that is arranged offline, with those contacts.
 
-1. The public portal and the request form, with the official letter.
+![AVP: the request and its letter](../img/12-external/04-avp-request.jpg)
 
-   ![Public portal: anyone can see what ASTU offers](../img/12-external/01-portal.jpg)
+![Custodian: hold the lab so nobody else books it](../img/12-external/06-hold-slot.jpg)
 
-   ![The request, with an official letter](../img/12-external/02-request-form.jpg)
+![AVP: send one quote](../img/12-external/08-send-quote.jpg)
 
-2. The AVP forwards it to the departments that can host it.
+![Custodian: the held slots are now bookings](../img/12-external/12-on-the-calendar.jpg)
 
-   ![AVP: the request and its letter](../img/12-external/04-avp-request.jpg)
+*(Screenshots from before 2026-09-28; the flow above is current.)*
 
-   ![Forward it to the departments that can host it](../img/12-external/05-forward.jpg)
+## H2. Follow a request in my account
 
-3. The custodian holds the lab; the head accepts with the department's price.
+**As** an outside requester, **I want** my own account, **so that** I can follow every request, see the quote with each department's part and the bank account, pay, and — once the payment is confirmed — see what is booked for me and whom to call.
 
-   ![Custodian: hold the lab so nobody else books it](../img/12-external/06-hold-slot.jpg)
+## H3. Decline, send back, or check a payment by hand
 
-   ![Head: accept, with the department's price](../img/12-external/07-head-accept.jpg)
-
-4. The AVP sends the quote; the requester pays; it's confirmed.
-
-   ![AVP: send one quote for every department's part](../img/12-external/08-send-quote.jpg)
-
-   ![Requester: enter the payment reference](../img/12-external/10-pay.jpg)
-
-   ![Paid in full — the booking is confirmed](../img/12-external/11-confirmed.jpg)
-
-   ![Custodian: the held slots are now bookings](../img/12-external/12-on-the-calendar.jpg)
-
-## H2. Track a request without an account
-
-**As** an outside requester, **I want** a private tracking link, **so that** I can follow my request, see the quote and pay, without signing up.
-
-![A reference and a tracking link, also emailed](../img/12-external/03-request-sent.jpg)
-
-![Tracking your request](../../user-guide/img/portal/04-tracking.jpg)
-
-![Requester: the quote, and how to pay](../img/12-external/09-quote.jpg)
-
-## H3. Decline, or review a payment by hand
-
-- **Decline** (the AVP, with a reason): the whole request ends, and the requester is ✉ told on their tracking page. A department head can also decline their department's part.
-- **Manual review:** if the payment check can't reach the bank or telebirr, the requester asks for a review, and the AVP confirms the payment by hand.
-
-![An outside institution's request](../../user-guide/img/approvers/06-external-request.jpg)
+- **Decline** — the AVP (the whole request), a dean (the college's part, with its departments), or a head (their department's part), each with a reason; anything held is released.
+- **Send back** — a dean returns a department's answer to its head, the AVP a college's to its dean, each with a note; they answer again.
+- **Manual review** — if the payment check can't reach the bank or telebirr, the requester asks for a review, and the AVP accepts or rejects the payment by hand before confirming it.

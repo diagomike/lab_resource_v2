@@ -96,7 +96,7 @@ If a request is withdrawn, its needs come back ("Returned from PR-…") and can 
 ## 6. Follow a purchase request
 
 **Purchase request status** lists every request involving your department. For each one it shows:
-- its chain (head → dean → AVP → College Managing Director → Procurement Office), with the current step highlighted;
+- its chain (head → dean → College Managing Director → AVP → Procurement Office), with the current step highlighted;
 - its history;
 - its lines;
 - **Waiting on …**, the person it's with now.

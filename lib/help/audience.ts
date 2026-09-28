@@ -56,19 +56,19 @@ export function helpChaptersFor(me: MeContextDto | null | undefined, allChapterI
  * opens on its contents. Section ids are "<chapter>--<heading slug>" from the build.
  */
 const SCREEN_SECTIONS: Array<[string, string[]]> = [
-  ["/dashboard", ["custodian--1-your-dashboard", "head--1-your-dashboard-and-register", "ict-maintenance--1-your-dashboard", "store-keeper--3-your-dashboard", "procurement--4-university-wide-view", "property-admin--1-university-wide-view", "staff--1-look-things-up"]],
+  ["/dashboard", ["custodian--1-your-dashboard", "head--1-your-dashboard-and-register", "ict-maintenance--1-your-dashboard", "store-keeper--5-your-dashboard", "procurement--4-university-wide-view", "property-admin--1-university-wide-view", "staff--1-look-things-up"]],
   ["/register", ["custodian--2-the-register", "custodian--13-university-resources-and-transfers", "ict-maintenance--3-build-a-maintenance-list", "store-keeper--2-hand-over-to-a-lab", "head--1-your-dashboard-and-register", "staff--1-look-things-up", "system-admin--6-corrections-and-the-change-log"]],
   ["/schedule", ["custodian--10-bookings-of-your-labs", "staff--2-book-a-lab"]],
-  ["/external-requests", ["dean-avp--2-external-requests-avp", "head--10-external-requests", "custodian--15-hold-a-slot-for-an-outside-request"]],
+  ["/external-requests", ["dean-avp--3-external-requests", "head--10-external-requests", "custodian--15-hold-rooms-or-a-machine-for-an-outside-request"]],
   ["/lab-states", ["custodian--7-updates-in-a-drafts-department", "head--2-decide-lab-updates-and-ideals"]],
-  ["/approvals", ["dean-avp--1-purchase-requests", "procurement--1-approve-a-request", "head--2-decide-lab-updates-and-ideals", "custodian--14-accept-a-handover", "student--what-you-see"]],
-  ["/purchasing", ["head--5-compile-a-purchase-request", "procurement--2-your-pipeline", "store-keeper--1-receive-arrived-stock", "custodian--12-raise-a-need", "staff--5-raise-a-need"]],
+  ["/approvals", ["dean-avp--1-purchase-requests", "property-admin--3-approving-movements", "procurement--1-approve-a-request", "head--2-decide-lab-updates-and-ideals", "custodian--14-accept-a-handover", "student--what-you-see"]],
+  ["/purchasing", ["head--5-compile-a-purchase-request", "procurement--2-your-pipeline", "property-admin--2-import-records", "store-keeper--1-load-an-import-record", "custodian--12-raise-a-need", "staff--5-raise-a-need"]],
   ["/change-log", ["head--3-the-change-log", "system-admin--6-corrections-and-the-change-log"]],
-  ["/categories", ["system-admin--4-categories", "property-admin--2-categories"]],
+  ["/categories", ["system-admin--4-categories", "property-admin--4-categories"]],
   ["/admin/dashboard", ["system-admin--1-overview"]],
   ["/admin/org-structure", ["system-admin--2-org-structure"]],
   ["/admin/people", ["system-admin--3-people--roles", "head--7-your-people"]],
-  ["/admin/access-views", ["system-admin--5-access-views", "property-admin--3-access-views"]],
+  ["/admin/access-views", ["system-admin--5-access-views", "property-admin--5-access-views"]],
   ["/me/profile", ["getting-started--7-your-profile"]],
 ];
 

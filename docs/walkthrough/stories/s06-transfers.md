@@ -1,26 +1,24 @@
 # Transfers between units
 
-## F1. Borrow or take over another unit's resource
+## F1. Borrow, or take over, another unit's resource
 
-**As** a custodian, **I want** to find what another unit holds and request it into my lab, **so that** equipment moves where it's needed, with everyone responsible agreeing.
+**As** a custodian, **I want** to find what another unit holds and request it into my lab — borrowed, or for good — **so that** equipment moves where it's needed, with everyone responsible agreeing.
 
-**Flow:** Cust. requests ✉ the lending custodian → approves ✉ the owning unit's head → approves ✉ the receiving head → approves ✉ the requesting custodian → confirms receipt → it moves ✉ requester ("done"). A rejection at any step ends it ✉ requester.
+**Flow — a loan:** Cust. requests ✉ the lending custodian → approves ✉ the owning unit's head → approves ✉ the receiving head → approves ✉ the requesting custodian → confirms receipt → it moves; it stays the owning unit's ✉ requester ("done").
 
-1. **University resources** shows every unit's resources, read-only.
+**Flow — a permanent transfer:** the same, then ✉ the **College Managing Director** approves (and ✉ **Property Administration** when it comes from another college) → the requester confirms receipt → it becomes their unit's, in their custody.
 
-   ![University resources](../../user-guide/img/custodian/37-university.jpg)
+A rejection at any step ends it ✉ requester. When one head is both the owning and the receiving head, they're asked once.
 
-2. Open another unit's item and ask for it.
+1. The **Register → Whole university** view shows every unit's resources, read-only.
 
-   ![Another unit's item: request it](../../user-guide/img/custodian/38-other-units-item.jpg)
+   ![The whole university](../../user-guide/img/custodian/37-university.jpg)
 
-3. Pick your lab. The request shows exactly who has to agree, in order.
+2. Tick what you need and click **Request for my lab…** Choose where it goes and **Loan** or **Permanent transfer**. The request shows exactly who has to agree, in order.
 
    ![Request it into your lab](../../user-guide/img/custodian/39-request-transfer.jpg)
 
-4. Each person decides it in **Approvals → Transfers**, the same card used for handovers ([E2](s05-store.md#e2-hand-new-stock-over-to-a-lab)).
-
-   ![Head: a handover into your department](../img/10-handover/01-head-approve.jpg)
+3. Each person decides it in **Approvals → Transfers**.
 
 > **Good to know**
 > - An item already in a pending transfer or handover is marked ⇄, and can't be requested again until that one ends.

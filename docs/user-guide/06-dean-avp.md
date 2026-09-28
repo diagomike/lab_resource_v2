@@ -1,19 +1,20 @@
 # Dean, AVP and CMD (approvers)
 
-*You are a college dean, the Academic Vice President (AVP), or the College Managing Director (CMD).* Purchase requests pass through your step in their approval chain: a dean's for their college's departments, and the AVP's and CMD's for every department. The **AVP** also receives every request from **outside institutions** that want to hold a workshop or training at ASTU, and turns it into a quote.
+*You are a college dean, the Academic Vice President (AVP), or the College Managing Director (CMD).* Purchase requests pass through your step in their approval chain: a dean's for their college's departments, the CMD's and the AVP's for every department. The **CMD** also approves every **permanent transfer** of a resource from one unit to another. Requests from **outside institutions** come down the same line: the AVP sends them to colleges, each dean to departments, and the answers come back up the same way.
 
-Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.md) first. Like everyone, you can browse the **Dashboard**, **Register** and **University resources** for your scope. The dean sees their college, the AVP the whole university. The CMD's office sits beside the AVP's and Procurement's on the org chart, so their work happens in **Approvals**.
+Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.md) first. Like everyone, you can browse the **Dashboard** and the **Register** (switch it to **Whole university** to look beyond your own units). The dean sees their college, the AVP the whole university. The CMD's office sits beside the AVP's and Procurement's on the org chart, so their work happens in **Approvals**.
 
 | Task | Section |
 |---|---|
 | Approve, reject or send back a purchase request | [1. Purchase requests](#1-purchase-requests) |
-| *(AVP)* Handle an outside institution's request | [2. External requests (AVP)](#2-external-requests-avp) |
+| *(CMD)* Approve a permanent transfer | [2. Permanent transfers (CMD)](#2-permanent-transfers-cmd) |
+| Handle an outside institution's request | [3. External requests](#3-external-requests) |
 
 ---
 
 ## 1. Purchase requests
 
-A department head compiles a request, and it climbs the chain: **head → dean → AVP → College Managing Director → Procurement Office**. When it reaches your step, you get an email ("PR-2026-… is waiting for your approval"), and it appears in **Approvals → Purchasing** under **Routed to me**. The CMD is the last approval before the order goes to Procurement.
+A department head compiles a request, and it climbs the chain: **head → dean → College Managing Director → AVP → Procurement Office**. When it reaches your step, you get an email ("PR-2026-… is waiting for your approval"), and it appears in **Approvals → Purchasing** under **Routed to me**. The CMD decides after the dean and before the AVP; the AVP's approval is the last before the order goes to Procurement.
 
 ![A purchase request waiting for you](img/approvers/01-purchase-card.jpg)
 
@@ -35,38 +36,55 @@ Sending back, with a note:
 
 ![Send back for revision, with a note](img/approvers/02-send-back.jpg)
 
-Approving, with a note that stays in the request's history:
-
-![Approve, with a note](img/approvers/03-approve.jpg)
-
 > **Good to know**
-> - Only the person holding the step decides it. If a post is vacant, the chain shows *(vacant)* until the administrator assigns someone.
+> - Only the person holding the step decides it, and only in turn: the AVP can't approve before the CMD has. If a post is vacant, the chain shows *(vacant)* until the administrator assigns someone.
+> - A department under two colleges needs both deans.
 > - After the last approval, the request goes to the Procurement Office as **Order placed on EGP**. From then on, only procurement can cancel it, with a note.
 
-## 2. External requests (AVP)
+## 2. Permanent transfers (CMD)
 
-Outside institutions ask through the public portal ([Public portal chapter](11-external-portal.md)). Each request lands in **External requests**, with the institution, contact, dates, purpose, what they need and their **official letter** (1).
+A custodian who asks for another unit's resource chooses **Loan** (it stays the other unit's) or **Permanent transfer** (it becomes their unit's, in their custody). A permanent transfer always comes to you after both department heads; when it leaves its college, **Property Administration** approves after you. It appears in **Approvals → Transfers**, titled *Permanent transfer: …*, with the whole chain on the card. **Approve** moves it on; **Reject** ends it with your reason. Loans never come to you.
+
+## 3. External requests
+
+Outside institutions sign up on the portal and ask for **rooms or labs** (a workshop, a training) or a **sample analysis** on one of the university's machines ([Public portal chapter](11-external-portal.md)). Each request travels the university's line of communication and back. **External requests** shows the request (the institution, contact, dates, purpose, what they need, the samples, the **official letter**) and, under **Line of communication**, every college and department on it with its status and what it has answered.
 
 ![An outside institution's request](img/approvers/06-external-request.jpg)
 
-### Forward it to the departments
+### The AVP: send it to the colleges
 
-1. Click **Forward…** (2), tick the departments that could host it, and add a note to their heads.
+1. Click **Forward to colleges…**, tick the colleges that could host it, and add a note to their deans.
+2. Or click **Decline…** to refuse the whole request, with a reason. The requester sees it on their page.
 
-![Forward to the departments that can host it](img/approvers/07-forward.jpg)
+### The dean: send it to the departments
 
-2. Each department's head **accepts** (with a price and a pricing-sheet link) or **declines**. Meanwhile their lab custodians **hold** slots on the lab calendars, so the dates are protected.
-3. Or click **Decline…** (3) to refuse the whole request, with a reason. The requester sees it on their tracking page.
+The request reaches you by email. On the college's line, click **Forward to departments…** and tick your departments that could host it — or **Decline…** the college's part, with a reason (its departments' parts end too, and anything they held is released).
 
-### Send the quote
+Each department's head then asks their custodians to hold rooms or machines, and answers you with the **cost breakdown** (a sheet link and an amount) and the **contact persons** the requester should call once they have paid. For each department's answer:
 
-When the departments have answered, **Send quote…** adds up their prices. Adjust the **Amount (ETB)** if needed, set **Pay by**, and add a note to the requester.
+- **Approve…** — it goes into the college's answer;
+- **Send back…** — it goes back to the head with your note, to answer again.
+
+When every department has been decided (at least one approved), click **Send to the AVP…** on the college's line.
+
+### The AVP: approve each college, quote
+
+A college's answer reaches you by email. **Approve…** it, or **Send back…** to the dean with a note. When every college is decided, **Send quote…** starts from the approved departments' total. Adjust the **Amount (ETB)** if needed, set **Pay by**, and add a note.
 
 ![Send the quote](img/approvers/08-send-quote.jpg)
 
-The requester gets an email with a new tracking link (the old one stops working) and pays through their tracking page. Payments are verified with the bank or telebirr directly. Once the request is paid in full, it becomes **Confirmed**: the held slots turn into bookings, and the requester, custodians and heads are told.
+The requester is emailed and sees, signed in: the total, each department's part with its breakdown, the university's **bank account**, and what is held for them and when.
+
+### The AVP: confirm the payment
+
+The requester enters their payment reference; it is checked with the bank or telebirr. When the whole amount is in, the request is **Paid — awaiting confirmation** and you are emailed. Check the receipts under **Payments** (open **Bank receipt** where the check returned one), then click **Confirm payment**. That:
+
+- turns every held slot into a booking;
+- shows the requester the departments' **contact persons** — from then on, arrival, samples and everything on the day are arranged with them directly;
+- emails the requester, the custodians and the heads.
 
 > **Good to know**
-> - If no department accepted, there is nothing to quote. Decline the request with a reason instead.
-> - A hold lapses on its own unless the request is quoted and paid by the deadline.
-> - If the payment check can't reach the bank, the requester can ask for **manual review**. The AVP then confirms the payment by hand.
+> - If no department can host it, decline the request with a reason instead of quoting.
+> - A hold lapses on its own unless the request is quoted and paid by the deadline. The AVP, a dean or a head on the request can extend holds up to that deadline.
+> - If the payment check can't reach the bank, the requester can ask for **manual review**; you accept or reject it under **Payments**, then confirm the payment as usual.
+> - If a held slot was lost while a payment waited, **Confirm payment** says so and keeps the request paid; have a custodian hold a replacement, then confirm again.

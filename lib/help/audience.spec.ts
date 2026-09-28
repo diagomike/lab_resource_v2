@@ -46,7 +46,7 @@ describe("Help: who reads which chapter", () => {
 
   it("the top-bar Help opens the section for this screen and this role", () => {
     expect(helpHrefFor("/purchasing", helpChaptersFor(me(["MANAGER", "STAFF"], { kind: "DEPARTMENT" }), ALL))).toBe("/help?c=head#head--5-compile-a-purchase-request");
-    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["STORE_KEEPER", "STAFF"]), ALL))).toBe("/help?c=store-keeper#store-keeper--1-receive-arrived-stock");
+    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["STORE_KEEPER", "STAFF"]), ALL))).toBe("/help?c=store-keeper#store-keeper--1-load-an-import-record");
     expect(helpHrefFor("/approvals", helpChaptersFor(me(["MANAGER"], { kind: "OFFICE", code: "CMD" }), ALL))).toBe("/help?c=dean-avp#dean-avp--1-purchase-requests");
     expect(helpHrefFor("/nowhere", helpChaptersFor(me(["STAFF"]), ALL))).toBe("/help");
   });

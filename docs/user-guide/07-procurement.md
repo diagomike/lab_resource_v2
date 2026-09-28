@@ -2,7 +2,7 @@
 
 *You run the Procurement Office.* Every purchase request ends its approval chain with you. After your approval you own the order: you place it, find the supplier, and follow it until it reaches the Main Store.
 
-Read [Getting started](00-getting-started.md) first. Your **scope is university-wide**, so the **Dashboard**, **Register** and **University resources** cover every unit.
+Read [Getting started](00-getting-started.md) first. Your **scope is university-wide**, so the **Dashboard** and **Register** (its **Whole university** view) cover every unit.
 
 | Task | Section |
 |---|---|
@@ -15,7 +15,7 @@ Read [Getting started](00-getting-started.md) first. Your **scope is university-
 
 ## 1. Approve a request
 
-A request reaches you after the head, the dean, the AVP and the College Managing Director. It appears in **Approvals → Purchasing**, the same card the other approvers see ([Dean, AVP and CMD](06-dean-avp.md#1-purchase-requests)). **Approve** (with a note), **Reject** or **Send back for revision**.
+A request reaches you after the head, the dean, the College Managing Director and the AVP. It appears in **Approvals → Purchasing**, the same card the other approvers see ([Dean, AVP and CMD](06-dean-avp.md#1-purchase-requests)). **Approve** (with a note), **Reject** or **Send back for revision**.
 
 ![Approve, with a note](img/approvers/05-procurement-approve.jpg)
 
@@ -34,7 +34,7 @@ Each card shows the current stage and what it means ("Procurement has placed the
 | **Order placed on EGP** | The order is on the government e-procurement portal |
 | **Buyer found** | A supplier has been selected |
 | **On delivery** | It's on its way |
-| **Arrived at the main store** | It's physically at the ASTU Main Store; the store keeper takes over |
+| **Arrived at the main store** | It's physically at the ASTU Main Store; Property Administration records what came (an import record) and the store keeper loads it |
 
 ![Advance, with a note](img/procurement/02-advance.jpg)
 

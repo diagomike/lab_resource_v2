@@ -89,7 +89,7 @@ The menu items you may see:
 |---|---|
 | **Dashboard** | The condition of everything in your scope at a glance |
 | **Register** | The resources themselves: browse, search, filter and, if you are a custodian, update |
-| **University resources** | Every unit's resources, to find something and request it into your lab |
+| **Register → Whole university** | Every unit's resources, to find something and request it into your lab (a loan or a permanent transfer) |
 | **Schedule** | Lab calendars: weekly classes and bookings |
 | **External requests** | Workshops and trainings that outside institutions asked the university to host |
 | **Lab states** | Each lab as it is (Current), as updated (Draft) and as it should be (Ideal) |

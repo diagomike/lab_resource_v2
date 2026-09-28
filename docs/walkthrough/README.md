@@ -1,5 +1,14 @@
 # Before you start
 
+> **Changed on 2026-09-28.** These acts were recorded before the approval-line round. What differs now, and where the current behaviour is described:
+> - the purchase chain is **Head → Dean → College Managing Director → AVP → Procurement** (acts 5–8 run in that order);
+> - a delivery is recorded by **Property Administration** as an import record, and the store keeper **loads** it (act 9) — see [Store keeper](../user-guide/08-store-keeper.md);
+> - a store handover asks the receiving head, then **Property Administration**, then the custodian (act 10);
+> - an outside request needs a **requester account** and travels **AVP → dean → head → custodians** and back; the AVP **confirms the payment**, which reveals the contact persons (act 12) — see [the portal](../user-guide/11-external-portal.md) and [Dean, AVP and CMD](../user-guide/06-dean-avp.md#3-external-requests);
+> - "University resources" is the Register's **Whole university** view.
+>
+> The user stories ([stories/](stories/s00-index.md)) describe the current flows. `e2e/validate-approval-lines.ts` runs every changed path through the app.
+
 *A cross-role walkthrough of ASTU Lab Resources:* one lab's cycle, from a broken monitor to new workstations on the bench, plus an outside institution's booking. Each act is one person's turn. They sign in, do their part, and hand over to the next person. Run the acts in order, and every screen will look as it does here.
 
 ## The story

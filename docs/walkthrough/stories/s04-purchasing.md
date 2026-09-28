@@ -1,6 +1,6 @@
 # Purchasing
 
-The chain every purchase request climbs: **Head → Dean → AVP → College Managing Director → Procurement Office**, then procurement's pipeline: **Order placed on EGP → Buyer found → On delivery → Arrived at the main store → Registered and closed**.
+The chain every purchase request climbs: **Head → Dean → College Managing Director → AVP → Procurement Office**, then procurement's pipeline: **Order placed on EGP → Buyer found → On delivery → Arrived at the main store** → Property Administration records the import → the store keeper loads it → **Registered and closed**.
 
 ## D1. Ask for something to be bought
 
@@ -28,13 +28,13 @@ The person who raised it follows where it went:
 
 ![Request lines, plus the carried need — edit before submitting](../img/04-head/05-request-lines.jpg)
 
-![Submitted: dean → AVP → CMD → Procurement](../img/04-head/06-request-submitted.jpg)
+![Submitted (screenshot from before 2026-09-28: the chain now runs dean → CMD → AVP → Procurement)](../img/04-head/06-request-submitted.jpg)
 
 ## D3. Approve a purchase request
 
 **As** a dean, the AVP, the College Managing Director or the procurement officer, **I want** each request to reach me in turn, with its lines, costs, justifications and history, **so that** I can approve, reject or send it back.
 
-**Flow:** ✉ Dean → approves ✉ AVP → approves ✉ CMD → approves ✉ Procurement → approves ✉ Head ("is approved"). Each approver only gets the buttons at their own step.
+**Flow:** ✉ Dean → approves ✉ CMD → approves ✉ AVP → approves ✉ Procurement → approves ✉ Head ("is approved"). Each approver only gets the buttons at their own step; the AVP can't decide before the CMD.
 
 ![A purchase request at the dean's step](../img/05-dean/01-waiting.jpg)
 
