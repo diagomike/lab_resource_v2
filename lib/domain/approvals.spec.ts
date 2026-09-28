@@ -136,6 +136,12 @@ describe("buildChain — the org chart is the route", () => {
     expect(steps.map((s) => s.nodeId)).toEqual(["coeec"]);
   });
 
+  it("stopping at the college keeps both colleges of a department with two", () => {
+    const nodes = [...ORG_NODES, { id: "mecha", name: "Mechatronics", kind: "DEPARTMENT" as const, level: 2, parentIds: ["coeec", "comcme"], occupantId: "p-head-mecha", active: true }];
+    const steps = buildChain([{ type: "HIERARCHY", stopAtKind: "COLLEGE" }], { ownerNodeId: "mecha", requesterId: "u1", nodes, orgIndex: indexOrgChain(nodes) });
+    expect(steps.map((s) => s.nodeId).sort()).toEqual(["coeec", "comcme"]);
+  });
+
   it("never puts the owning department on its own hierarchy walk", () => {
     const steps = chain([{ type: "HIERARCHY", stopAtKind: "UNIVERSITY" }]);
     expect(steps.map((s) => s.nodeId)).not.toContain("se");

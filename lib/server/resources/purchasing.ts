@@ -15,6 +15,7 @@ import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
 import * as orgScope from "../org/scope";
+import { CMD_OFFICE, PROCUREMENT_OFFICE, findOffice, requireOffice } from "../org/offices";
 import { applyChange } from "./mutate";
 import {
   activate,
@@ -37,10 +38,10 @@ import type { RoleKind } from "@/lib/shared";
  * ~/.claude/plans/replicated-sparking-gray.md for the full design.
  *
  * The approval ladder is the org chart itself, not a fixed named sequence: the
- * owning unit's head, then every ancestor up to the university root (both branches
- * of a multi-parent department required, not a choice between them — the same
- * HIERARCHY selector / `ancestorsOfChain()` Track 3 already relies on), then the
- * College Managing Director's office when there is one, then the Procurement Office.
+ * owning unit's head, then every college above it (both branches of a multi-parent
+ * department required, not a choice between them — the same HIERARCHY selector /
+ * `ancestorsOfChain()` Track 3 already relies on), then the College Managing Director's office when there is one, then the AVP,
+ * then the Procurement Office.
  * Reuses `lib/domain/approvals.ts`'s chain engine completely
  * unchanged — a `PurchaseStep` Prisma row is a sibling of `ChainStep`, not a
  * variant of it (ChainStep is hard-tied to ChangeRequest's Item-shaped payload,
@@ -101,65 +102,22 @@ async function assertHeadsNode(actorId: string, orgNodeId: string): Promise<void
   if (!(await orgScope.isHeadOf(actorId, orgNodeId))) throw new HttpError(403, "Only this unit's head may do this.");
 }
 
-/** The Procurement Office — the one real rollout prerequisite (see the plan's §6).
- *  Resolved by the node's stable `code` ("PROC") first (F-006 of the 2026-09-15
- *  campaign: a name lookup broke purchasing university-wide the moment the office was
- *  renamed, an ordinary Org Studio edit). Falls back to the exact-name match for an
- *  install that hasn't set the code yet, so nothing breaks before an admin does.
- *  Resolved live, never cached, same discipline as every other chain-building call in
- *  this codebase. Missing or ambiguous refuses clearly rather than silently building a
- *  broken or short chain. */
-async function findProcurementOffice(nodes: DomainOrgNode[]): Promise<DomainOrgNode> {
-  const byCode = await prisma.orgNode.findFirst({ where: { kind: "OFFICE", active: true, code: "PROC" } });
-  if (byCode) return nodes.find((n) => n.id === byCode.id) ?? { ...byCode, parentIds: [], occupantId: byCode.userId };
-
-  const matches = nodes.filter((n) => n.kind === "OFFICE" && n.active && n.name === "Procurement Office");
-  if (matches.length === 0) {
-    throw new HttpError(
-      400,
-      'No Procurement Office exists on the org chart yet. Ask an administrator to create one (an Office-kind node with code "PROC", or named exactly "Procurement Office") before raising a purchase request.',
-    );
-  }
-  if (matches.length > 1) {
-    throw new HttpError(
-      400,
-      'More than one active "Procurement Office" node exists on the org chart. Ask an administrator to give the real one the code "PROC", or deactivate the extra one.',
-    );
-  }
-  return matches[0];
-}
-
-/** The College Managing Director's office — the last approval before Procurement,
- *  after the AVP. Optional, unlike Procurement: an install without one keeps the
- *  shorter ladder rather than refusing every request. Resolved like the Procurement
- *  Office: its stable code ("CMD") first, then the exact name. Ambiguity refuses, for
- *  the same reason — silently picking one of two offices would route money wrongly. */
-const CMD_OFFICE_NAME = "College Managing Director";
-async function findCmdOffice(nodes: DomainOrgNode[]): Promise<DomainOrgNode | null> {
-  const byCode = await prisma.orgNode.findFirst({ where: { kind: "OFFICE", active: true, code: "CMD" } });
-  if (byCode) return nodes.find((n) => n.id === byCode.id) ?? { ...byCode, parentIds: [], occupantId: byCode.userId };
-
-  const matches = nodes.filter((n) => n.kind === "OFFICE" && n.active && n.name === CMD_OFFICE_NAME);
-  if (matches.length > 1) {
-    throw new HttpError(
-      400,
-      `More than one active "${CMD_OFFICE_NAME}" office exists on the org chart. Ask an administrator to give the real one the code "CMD", or deactivate the extra one.`,
-    );
-  }
-  return matches[0] ?? null;
-}
-
-/** Head → dean → AVP (the org chart, up to the university) → College Managing
- *  Director (when the office exists) → Procurement Office. */
+/** Head → dean(s) → College Managing Director (when the office exists) → AVP →
+ *  Procurement Office. The CMD sits between the college and the university: a request
+ *  reaches the AVP only once the CMD has approved it. The deans are every COLLEGE above
+ *  the unit (both, for a department under two colleges); the AVP is the university root's
+ *  occupant. Procurement is required (a request with nowhere to be bought refuses up
+ *  front); the CMD is optional, so an install without one keeps the shorter ladder. */
 async function buildLadderSteps(orgNodeId: string, actorId: string): Promise<DomainChainStep[]> {
   const nodes = await loadDomainOrgNodes();
-  const procurement = await findProcurementOffice(nodes);
-  const cmd = await findCmdOffice(nodes);
+  const procurement = await requireOffice(PROCUREMENT_OFFICE, nodes);
+  const cmd = await findOffice(CMD_OFFICE, nodes);
   const orgIndex = buildOrgIndex(nodes);
   const ladder: StepSelector[] = [
     { type: "OWNER_HEAD" },
-    { type: "HIERARCHY", stopAtKind: "UNIVERSITY" },
+    { type: "HIERARCHY", stopAtKind: "COLLEGE" },
     ...(cmd ? [{ type: "NODE_OCCUPANT" as const, nodeId: cmd.id }] : []),
+    { type: "OWNER_ANCESTOR", kind: "UNIVERSITY" },
     { type: "NODE_OCCUPANT", nodeId: procurement.id },
   ];
   return buildChain(ladder, { ownerNodeId: orgNodeId, requesterId: actorId, nodes, orgIndex });

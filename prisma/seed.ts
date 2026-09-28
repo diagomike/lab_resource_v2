@@ -12,7 +12,8 @@
  *   │   └─ Computer Science and Engineering (CSE head)
  *   ├─ College of Mechanical, Chemical and Materials Engineering
  *   │   └─ Chemical Engineering (head.chem)
- *   ├─ College Managing Director, code CMD (cmd@ — purchase approval after the AVP)
+ *   ├─ College Managing Director, code CMD (cmd@ — purchases after the dean, permanent transfers)
+ *   ├─ Property Administration, code PROP (property.admin@ — Main Store movements)
  *   └─ Procurement Office, code PROC (procurement officer)
  *
  * Idempotent by wipe-and-rebuild: every run clears the tables it owns and regenerates
@@ -27,6 +28,7 @@ import * as argon2 from "@node-rs/argon2";
 import { computeClosureRows } from "../lib/server/org/closure-algorithm";
 import { ensureIctMaintenance } from "./seed-ict-maintenance";
 import { ensureCmdOffice } from "./seed-cmd-office";
+import { ensurePropertyOffice } from "./seed-property-office";
 
 if (process.env.NODE_ENV === "production") {
   console.error("prisma/seed.ts refuses to run with NODE_ENV=production — this wipes every User/OrgNode. Use prisma/bootstrap.ts instead.");
@@ -108,11 +110,13 @@ async function main() {
 
   // The ICT Maintenance Office: a view-only, university-wide post (see its own file).
   await ensureIctMaintenance(prisma, SEED_PASSWORD);
-  // The College Managing Director: the purchase-approval step after the AVP (see its own file).
+  // The College Managing Director: purchases after the dean, and permanent transfers (see its own file).
   await ensureCmdOffice(prisma, SEED_PASSWORD);
+  // Property Administration: every Main Store movement (see its own file).
+  await ensurePropertyOffice(prisma, SEED_PASSWORD);
 
-  console.log(`  9 org nodes: ASTU > CoEEC > {SE, CSE}; CoMCME > ChemE; Procurement Office (PROC); ICT Maintenance Office (ICT); College Managing Director (CMD)`);
-  console.log(`  admin@astu.edu.et, avp@, cmd@, coeec.dean@, cse.head@, se.head@, procurement@, store.keeper@ (all / ${SEED_PASSWORD})`);
+  console.log(`  10 org nodes: ASTU > CoEEC > {SE, CSE}; CoMCME > ChemE; Procurement Office (PROC); ICT Maintenance Office (ICT); College Managing Director (CMD); Property Administration (PROP)`);
+  console.log(`  admin@astu.edu.et, avp@, cmd@, property.admin@, coeec.dean@, cse.head@, se.head@, procurement@, store.keeper@ (all / ${SEED_PASSWORD})`);
   console.log(`  Chemical Engineering: head.chem@, custodian.chem@ (Hanna Bekele)`);
   console.log(`  The 17 CSE lab custodians come with their labs — run prisma/resource-seed.ts next.`);
 }

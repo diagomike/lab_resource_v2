@@ -275,14 +275,14 @@ describe("compilePurchaseRequest — the org chart as the ladder", () => {
     createdRequestIds.push(result.id);
 
     expect(result.stage).toBe("APPROVING");
-    expect(result.steps.map((s) => s.selector)).toEqual(["OWNER_HEAD", "HIERARCHY", "HIERARCHY", "NODE_OCCUPANT"]);
+    expect(result.steps.map((s) => s.selector)).toEqual(["OWNER_HEAD", "HIERARCHY", "OWNER_ANCESTOR", "NODE_OCCUPANT"]);
     expect(result.steps[0].approverId).toBe(deptHeadId);
     expect(result.steps[1].approverId).toBe(collegeHeadId);
     expect(result.steps[2].approverId).toBe(universityHeadId);
     expect(result.steps[3].approverId).toBe(procurementUserId);
   });
 
-  it("with a College Managing Director office, the ladder is head, dean, AVP, CMD, then Procurement", async () => {
+  it("with a College Managing Director office, the ladder is head, dean, CMD, AVP, then Procurement", async () => {
     await withCmdOffice(async () => {
       const deptHeadId = await makeUser("cmd-chain-dept-head", ["MANAGER"]);
       const deanId = await makeUser("cmd-chain-dean");
@@ -296,30 +296,32 @@ describe("compilePurchaseRequest — the org chart as the ladder", () => {
       createdRequestIds.push(result.id);
       // Each approver is told when the request reaches them — and only then.
       expect(await mailedTo(deanId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
-      expect(await mailedTo(avpId, mark)).toEqual([]);
+      expect(await mailedTo(cmdUserId, mark)).toEqual([]);
       expect(await mailedTo(deptHeadId, mark)).toEqual([]); // not about their own action
-      expect(result.steps.map((s) => s.selector)).toEqual(["OWNER_HEAD", "HIERARCHY", "HIERARCHY", "NODE_OCCUPANT", "NODE_OCCUPANT"]);
-      expect(result.steps.map((s) => s.approverId)).toEqual([deptHeadId, deanId, avpId, cmdUserId, procurementUserId]);
-      expect(result.steps[3].label).toBe("College Managing Director");
+      expect(result.steps.map((s) => s.selector)).toEqual(["OWNER_HEAD", "HIERARCHY", "NODE_OCCUPANT", "OWNER_ANCESTOR", "NODE_OCCUPANT"]);
+      expect(result.steps.map((s) => s.approverId)).toEqual([deptHeadId, deanId, cmdUserId, avpId, procurementUserId]);
+      expect(result.steps[2].label).toBe("College Managing Director");
 
-      // The CMD decides only in turn: not before the dean and the AVP.
+      // The CMD decides only in turn: after the dean, and before the AVP.
       await expect(purchasing.decideStep(cmdUserId, result.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
       mark = sent.length;
       await purchasing.decideStep(deanId, result.id, "APPROVE");
-      expect(await mailedTo(avpId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
-      mark = sent.length;
-      await purchasing.decideStep(avpId, result.id, "APPROVE");
       expect(await mailedTo(cmdUserId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
       // Named on the chain, so the CMD can follow it, and it is in their inbox now.
       expect((await purchasing.getRequest(cmdUserId, result.id)).id).toBe(result.id);
       expect((await purchasing.listForActor(cmdUserId, "inbox")).map((r) => r.id)).toContain(result.id);
-      await expect(purchasing.decideStep(procurementUserId, result.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+      await expect(purchasing.decideStep(avpId, result.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
 
       mark = sent.length;
       const afterCmd = await purchasing.decideStep(cmdUserId, result.id, "APPROVE", "Within the college budget");
-      expect(await mailedTo(procurementUserId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
+      expect(await mailedTo(avpId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
       expect(afterCmd.stage).toBe("APPROVING");
-      expect(afterCmd.steps[3]).toMatchObject({ status: "APPROVED", decidedById: cmdUserId });
+      expect(afterCmd.steps[2]).toMatchObject({ status: "APPROVED", decidedById: cmdUserId });
+      await expect(purchasing.decideStep(procurementUserId, result.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+
+      mark = sent.length;
+      await purchasing.decideStep(avpId, result.id, "APPROVE");
+      expect(await mailedTo(procurementUserId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
       mark = sent.length;
       const done = await purchasing.decideStep(procurementUserId, result.id, "APPROVE");
       expect(done.stage).toBe("ORDER_PLACED");
@@ -338,7 +340,6 @@ describe("compilePurchaseRequest — the org chart as the ladder", () => {
       const compiled = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId));
       createdRequestIds.push(compiled.id);
       await purchasing.decideStep(deanId, compiled.id, "APPROVE");
-      await purchasing.decideStep(avpId, compiled.id, "APPROVE");
 
       const mark = sent.length;
       const revised = await purchasing.decideStep(cmdUserId, compiled.id, "REVISE", "Split the order by quarter");

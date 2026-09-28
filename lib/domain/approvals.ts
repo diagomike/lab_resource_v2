@@ -260,11 +260,12 @@ export function buildChain(selectors: StepSelector[], ctx: ChainContext): ChainS
         if (!ctx.ownerNodeId) break;
         const stopLevel = ctx.nodes.find((n) => n.kind === selector.stopAtKind)?.level;
         for (const { node } of ancestorsOfChain(ctx.ownerNodeId, ctx.orgIndex)) {
-          push("HIERARCHY", `${KIND_LABEL[node.kind]} — ${node.name}`, node.id, node.occupantId);
           // Inclusive: stopping "at the college" means the college decides and the
-          // walk ends there rather than carrying on to the university.
-          if (node.kind === selector.stopAtKind) break;
-          if (stopLevel !== undefined && node.level <= stopLevel) break;
+          // walk ends there rather than carrying on to the university. EVERY ancestor
+          // at that level is on the route — a department under two colleges needs
+          // both deans, which stopping at the first college found silently dropped.
+          if (stopLevel !== undefined && node.level < stopLevel) break;
+          push("HIERARCHY", `${KIND_LABEL[node.kind]} — ${node.name}`, node.id, node.occupantId);
         }
         break;
       }

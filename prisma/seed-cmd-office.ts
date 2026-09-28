@@ -1,13 +1,13 @@
 /**
- * The College Managing Director's office — the purchase-approval step between the AVP
- * and the Procurement Office.
+ * The College Managing Director's office — the purchase-approval step between the
+ * deans and the AVP, and the approval every permanent transfer of ownership needs.
  *
  *   ASTU → College Managing Director (OFFICE, code CMD)
  *   cmd@astu.edu.et — "College Managing Director (CMD)", MANAGER, occupies the office
  *
  * lib/server/resources/purchasing.ts finds the office by its code (or exact name) and
  * adds its occupant to every purchase request compiled from then on:
- * Head → Dean → AVP → College Managing Director → Procurement Office. Requests already
+ * Head → Dean → College Managing Director → AVP → Procurement Office. Requests already
  * in the chain keep the steps they were compiled with.
  *
  * Idempotent: matches the node by code and the person by email, creates only what is
@@ -58,7 +58,7 @@ export async function ensureCmdOffice(prisma: PrismaClient, password = "astu1234
     await prisma.orgNode.update({ where: { id: office.id }, data: { userId: director.id } });
     await prisma.orgNodeAssignment.create({ data: { nodeId: office.id, userId: director.id, assignedById: admin?.id ?? director.id, reason: "Seeded" } });
   }
-  console.log(`  College Managing Director (CMD) · ${CMD_EMAIL} — approves purchases after the AVP, before Procurement`);
+  console.log(`  College Managing Director (CMD) · ${CMD_EMAIL} — approves purchases after the dean, before the AVP; and permanent transfers`);
 }
 
 // Run on its own: `npx tsx prisma/seed-cmd-office.ts`.

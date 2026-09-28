@@ -129,7 +129,7 @@ export interface PurchaseRequest {
 }
 
 /**
- * The ladder: Department Head → Dean of College → AVP → CMD → Procurement Office.
+ * The ladder: Department Head → Dean of College → CMD → AVP → Procurement Office.
  * The first three come out of the org chart (the AVP occupies the university root);
  * the last two are named offices, which is exactly why NODE_OCCUPANT exists — the
  * College Managing Director and Procurement are not ancestors of any department, so
