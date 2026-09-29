@@ -37,3 +37,28 @@ export async function normalizeImage(input: Buffer, maxInputPixels: number): Pro
     throw new HttpError(400, "That image could not be read — it may be damaged. Try saving it again as a JPEG or PNG.");
   }
 }
+
+/**
+ * A photo or scan attached to a purchase request (a stamped letter, signed minutes).
+ * Like `normalizeImage` it is turned upright and stripped of metadata, but it keeps
+ * more resolution — DOCUMENT_MAX_EDGE across an A4 page is about 190 dpi, enough to
+ * read small print and a stamp — and it is stored as JPEG, which every mail client,
+ * office suite and printer at the university opens. A typical page lands at
+ * 300–700 KB.
+ */
+export const DOCUMENT_MAX_EDGE = 2200;
+const DOCUMENT_JPEG_QUALITY = 80;
+
+export async function normalizeDocumentImage(input: Buffer, maxInputPixels: number): Promise<{ bytes: Buffer; contentType: "image/jpeg"; width: number; height: number }> {
+  try {
+    const { data, info } = await sharp(input, { limitInputPixels: maxInputPixels, failOn: "error" })
+      .rotate()
+      .resize({ width: DOCUMENT_MAX_EDGE, height: DOCUMENT_MAX_EDGE, fit: "inside", withoutEnlargement: true })
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality: DOCUMENT_JPEG_QUALITY, mozjpeg: true })
+      .toBuffer({ resolveWithObject: true });
+    return { bytes: data, contentType: "image/jpeg", width: info.width, height: info.height };
+  } catch {
+    throw new HttpError(400, "That image could not be read — it may be damaged. Try saving it again as a JPEG or PNG.");
+  }
+}

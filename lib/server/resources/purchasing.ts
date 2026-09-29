@@ -28,6 +28,7 @@ import {
 } from "@/lib/domain/approvals";
 import { FIRST_PIPELINE_STAGE, STAGE_LABEL, canRaiseNeed, canRecordImports, canReceive, canRunPipeline, isEditable, isFinished, nextStage } from "@/lib/domain/purchasing";
 import { esc, notify, quoted, usersWithRole } from "../mail/notify";
+import * as attachments from "./purchase-attachments";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
 import type { RoleKind } from "@/lib/shared";
 
@@ -263,7 +264,7 @@ const requestInclude = {
   orgNode: { select: { name: true } },
   raisedBy: { select: { name: true } },
   lines: { include: { answeredNeeds: { select: { id: true } } } },
-  events: { orderBy: { at: "asc" }, include: { by: { select: { name: true } } } },
+  events: { orderBy: { at: "asc" }, include: { by: { select: { name: true } }, attachments: attachments.eventAttachmentsInclude } },
   steps: { orderBy: { order: "asc" } },
 } satisfies Prisma.PurchaseRequestInclude;
 
@@ -340,7 +341,14 @@ async function toRequestDto(row: RequestRow, showCost: boolean): Promise<Purchas
     title: row.title,
     lines: row.lines.map((l) => toLineDto(l, showCost)),
     stage: row.stage,
-    history: row.events.map((e) => ({ at: e.at.toISOString(), byId: e.byId, byName: e.by.name, stage: e.stage, note: e.note })),
+    history: row.events.map((e) => ({
+      at: e.at.toISOString(),
+      byId: e.byId,
+      byName: e.by.name,
+      stage: e.stage,
+      note: e.note,
+      attachments: e.attachments.map(attachments.toAttachmentDto),
+    })),
     feedback: row.feedback,
     steps,
   };
@@ -397,7 +405,8 @@ export async function compilePurchaseRequest(actorId: string, input: CompilePurc
         await tx.purchaseStep.createMany({
           data: steps.map((s) => ({ requestId: request.id, order: s.order, selector: s.selector, label: s.label, nodeId: s.nodeId, approverId: s.approverId, status: s.status, skipReason: s.skipReason })),
         });
-        await tx.purchaseEvent.create({ data: { purchaseId: request.id, byId: actorId, stage: "APPROVING", note: "Submitted for approval." } });
+        const event = await tx.purchaseEvent.create({ data: { purchaseId: request.id, byId: actorId, stage: "APPROVING", note: "Submitted for approval." } });
+        await attachments.claim(tx, actorId, input.attachmentIds, request.id, event.id);
 
         return request.id;
       });
@@ -490,7 +499,8 @@ export async function reviseAndResubmit(actorId: string, requestId: string, inpu
     });
 
     await tx.purchaseRequest.update({ where: { id: requestId }, data: { title: input.title, stage: "APPROVING", feedback: null } });
-    await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: "APPROVING", note: "Revised and resubmitted." } });
+    const event = await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: "APPROVING", note: "Revised and resubmitted." } });
+    await attachments.claim(tx, actorId, input.attachmentIds, requestId, event.id);
   });
 
   await settleIfComplete(requestId, actorId, steps);
@@ -522,7 +532,13 @@ async function reopenCarriedNeeds(tx: Prisma.TransactionClient, requestId: strin
   });
 }
 
-export async function decideStep(actorId: string, requestId: string, decision: "APPROVE" | "REJECT" | "REVISE", note?: string): Promise<PurchaseRequestDto> {
+export async function decideStep(
+  actorId: string,
+  requestId: string,
+  decision: "APPROVE" | "REJECT" | "REVISE",
+  note?: string,
+  attachmentIds?: string[],
+): Promise<PurchaseRequestDto> {
   // Serialised per request (F-040's own closing note: "apply the same pattern to
   // purchasing decideStep"): before this, an APPROVE and a REVISE by the same
   // approver on the same step, fired together, both passed the stage/step check and
@@ -552,7 +568,8 @@ export async function decideStep(actorId: string, requestId: string, decision: "
     if (decision === "REJECT") {
       await tx.purchaseStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } });
       await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REJECTED", feedback: note ?? null } });
-      await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote() } });
+      const event = await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REJECTED", note: eventNote() } });
+      await attachments.claim(tx, actorId, attachmentIds, requestId, event.id);
       await reopenCarriedNeeds(tx, requestId, request.reference, `rejected${note ? `: ${note}` : ""}`);
       return;
     }
@@ -560,12 +577,14 @@ export async function decideStep(actorId: string, requestId: string, decision: "
     if (decision === "REVISE") {
       await tx.purchaseStep.deleteMany({ where: { requestId } });
       await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: "REVISING", feedback: note ?? "Sent back for revision." } });
-      await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REVISING", note: eventNote() } });
+      const event = await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "REVISING", note: eventNote() } });
+      await attachments.claim(tx, actorId, attachmentIds, requestId, event.id);
       return;
     }
 
     await tx.purchaseStep.update({ where: { id: step!.id }, data: { status: "APPROVED", decidedById: actorId, decidedAt: at, note: note ?? null } });
-    await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "APPROVING", note: eventNote("Approved") } });
+    const event = await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, at, stage: "APPROVING", note: eventNote("Approved") } });
+    await attachments.claim(tx, actorId, attachmentIds, requestId, event.id);
 
     const refreshedRows = await tx.purchaseStep.findMany({ where: { requestId }, orderBy: { order: "asc" } });
     const advanced = activate(refreshedRows.map(toDomainStep));
@@ -580,10 +599,15 @@ export async function decideStep(actorId: string, requestId: string, decision: "
   });
 
   const dto = await loadDto(requestId, actorId);
+  const cited = documentsSentWith(dto);
   if (dto.stage === "APPROVING") await tellNextApprover(dto, actorId);
-  else if (dto.stage === "REJECTED") await tellRaiser(dto, actorId, `${dto.reference} was rejected`, [`${summary(dto)} was rejected and won't go further. Any needs carried into it are open again.${quoted(note)}`]);
+  else if (dto.stage === "REJECTED")
+    await tellRaiser(dto, actorId, `${dto.reference} was rejected`, [`${summary(dto)} was rejected and won't go further. Any needs carried into it are open again.${quoted(note)}`, ...cited]);
   else if (dto.stage === "REVISING")
-    await tellRaiser(dto, actorId, `${dto.reference} was sent back for revision`, [`${summary(dto)} was sent back to you. Edit it and resubmit; the approval chain starts again.${quoted(note)}`]);
+    await tellRaiser(dto, actorId, `${dto.reference} was sent back for revision`, [
+      `${summary(dto)} was sent back to you. Edit it and resubmit; the approval chain starts again.${quoted(note)}`,
+      ...cited,
+    ]);
   else if (dto.stage === FIRST_PIPELINE_STAGE)
     await tellRaiser(dto, actorId, `${dto.reference} is approved`, [`${summary(dto)} passed every approval and is with procurement: <strong>${STAGE_LABEL[dto.stage]}</strong>.`]);
   return dto;
@@ -598,7 +622,7 @@ export async function decideStep(actorId: string, requestId: string, decision: "
  * cancelling is procurement's own act (`canRunPipeline`), with a required note —
  * their pipeline history is where the store and everyone tracking it will read why.
  */
-export async function cancelPurchaseRequest(actorId: string, requestId: string, note?: string): Promise<void> {
+export async function cancelPurchaseRequest(actorId: string, requestId: string, note?: string, attachmentIds?: string[]): Promise<void> {
   const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId } });
   if (!request) throw new HttpError(404, "Request not found");
   if (isFinished(request.stage)) throw new HttpError(409, "This request has already finished.");
@@ -616,9 +640,10 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string, 
 
   await prisma.$transaction(async (tx) => {
     await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: "CANCELLED" } });
-    await tx.purchaseEvent.create({
+    const event = await tx.purchaseEvent.create({
       data: { purchaseId: requestId, byId: actorId, stage: "CANCELLED", note: isRaiser ? "Withdrawn by the requester." : `Cancelled by procurement: ${note}` },
     });
+    await attachments.claim(tx, actorId, attachmentIds, requestId, event.id);
     await reopenCarriedNeeds(tx, requestId, request.reference, "cancelled");
   });
 
@@ -632,7 +657,10 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string, 
       path: "/approvals",
     });
   } else {
-    await tellRaiser(dto, actorId, `${dto.reference} was cancelled by procurement`, [`Procurement cancelled ${summary(dto)}. Any needs carried into it are open again.${quoted(note)}`]);
+    await tellRaiser(dto, actorId, `${dto.reference} was cancelled by procurement`, [
+      `Procurement cancelled ${summary(dto)}. Any needs carried into it are open again.${quoted(note)}`,
+      ...documentsSentWith(dto),
+    ]);
   }
 }
 
@@ -693,14 +721,29 @@ function summary(dto: PurchaseRequestDto): string {
   return `<strong>${esc(dto.reference)}</strong> “${esc(dto.title)}” (${esc(dto.orgNodeName)}, ${dto.lines.length} line${dto.lines.length === 1 ? "" : "s"})`;
 }
 
+function fileList(files: PurchaseRequestDto["history"][number]["attachments"]): string {
+  return files.map((f) => `“${esc(f.fileName)}”`).join(", ");
+}
+
+/** The documents sent with the latest action, as a mail paragraph. The files stay in
+ *  the app (never attached to mail): they are read there, behind the request's own
+ *  read check. */
+function documentsSentWith(dto: PurchaseRequestDto): string[] {
+  const files = dto.history.at(-1)?.attachments ?? [];
+  if (!files.length) return [];
+  return [`Documents sent with it: ${fileList(files)}. Open the request in the app to read them.`];
+}
+
 /** The approver the request is now waiting on, if anyone holds that post. */
 async function tellNextApprover(dto: PurchaseRequestDto, actorId: string): Promise<void> {
   const step = dto.steps.find((s) => s.status === "PENDING");
   if (!step?.approverId) return;
+  const files = dto.history.flatMap((e) => e.attachments);
   await notify(step.approverId, actorId, {
     subject: `${dto.reference} is waiting for your approval`,
     paragraphs: [
       `A purchase request has reached your step (${esc(step.label)}): ${summary(dto)}, raised by ${esc(dto.raisedByName)}.`,
+      ...(files.length ? [`It carries ${files.length} supporting document${files.length === 1 ? "" : "s"}: ${fileList(files)}.`] : []),
       "Approve it, send it back for revision, or reject it under <strong>Approvals → Purchasing</strong>.",
     ],
     path: "/approvals",
@@ -778,10 +821,16 @@ async function readableRequestWhere(actorId: string): Promise<Prisma.PurchaseReq
 /** 404 when unreadable (Track 3's own discipline: a 403 would confirm the row
  *  exists) — see `readableRequestWhere` for who may read. */
 export async function getRequest(actorId: string, requestId: string): Promise<PurchaseRequestDto> {
+  await assertCanReadRequest(actorId, requestId);
+  return loadDto(requestId, actorId);
+}
+
+/** The same "who may follow this request" gate, on its own — also guards the request's
+ *  documents (app/api/resources/purchase-attachments/[id]). */
+export async function assertCanReadRequest(actorId: string, requestId: string): Promise<void> {
   const where = await readableRequestWhere(actorId);
   const visible = await prisma.purchaseRequest.count({ where: where ? { AND: [{ id: requestId }, where] } : { id: requestId } });
   if (!visible) throw new HttpError(404, "Resource not found");
-  return loadDto(requestId, actorId);
 }
 
 const PIPELINE_STAGES = ["ORDER_PLACED", "BUYER_FOUND", "ON_DELIVERY", "IN_STORE"] as const;

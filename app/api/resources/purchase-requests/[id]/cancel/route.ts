@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const user = await requireSession(request);
     const { id } = await params;
     const body = await parseBody(CancelPurchaseRequestInput, request);
-    await cancelPurchaseRequest(user.id, id, body.note);
+    await cancelPurchaseRequest(user.id, id, body.note, body.attachmentIds);
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
     return errorResponse(err);

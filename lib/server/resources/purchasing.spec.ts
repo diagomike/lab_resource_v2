@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /** Approval notifications (lib/server/mail/notify.ts), captured instead of sent. */
@@ -39,11 +40,13 @@ loadDotEnv();
 
 type PurchasingModule = typeof import("./purchasing");
 type ImportsModule = typeof import("./imports");
+type AttachmentsModule = typeof import("./purchase-attachments");
 type CategoriesModule = typeof import("./categories");
 type PrismaModule = typeof import("../prisma");
 
 let purchasing: PurchasingModule;
 let imports: ImportsModule;
+let attachments: AttachmentsModule;
 let categories: CategoriesModule;
 let prisma: PrismaModule["prisma"];
 
@@ -108,17 +111,19 @@ async function makeChain(prefix: string, headId: string) {
   return { universityId, collegeId, deptId };
 }
 
-function compileInput(orgNodeId: string, over: Partial<{ title: string; lines: unknown[] }> = {}) {
+function compileInput(orgNodeId: string, over: Partial<{ title: string; lines: unknown[]; attachmentIds: string[] }> = {}) {
   return {
     title: over.title ?? "Test purchase request",
     orgNodeId,
     lines: over.lines ?? [{ name: "Digital balance", qty: 1, unit: "Unit", fromNeedIds: [] }],
+    attachmentIds: over.attachmentIds ?? [],
   } as never;
 }
 
 beforeAll(async () => {
   purchasing = await import("./purchasing");
   imports = await import("./imports");
+  attachments = await import("./purchase-attachments");
   categories = await import("./categories");
   ({ prisma } = await import("../prisma"));
 
@@ -196,6 +201,12 @@ async function withCmdOffice<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 afterAll(async () => {
+  // Attachment bytes live in storage, not the database: remove them before their rows go
+  // (with their requests, or as unsent files of test users, whose deletion they'd block).
+  const { attachmentStorage } = await import("./storage");
+  const files = await prisma.purchaseAttachment.findMany({ where: { OR: [{ uploadedById: { in: createdUserIds } }, { purchaseId: { in: createdRequestIds } }] } });
+  for (const f of files) await attachmentStorage.remove(f.storageKey);
+  await prisma.purchaseAttachment.deleteMany({ where: { id: { in: files.map((f) => f.id) } } });
   // Import records first: their lines hold the test categories and their creators are test users.
   await prisma.importRecord.deleteMany({ where: { id: { in: createdImportIds } } });
   // Stock loaded into a test store that a failed assertion never got to record.
@@ -872,5 +883,134 @@ describe("F-048 — estimated costs follow the same rule as item costs", () => {
     createdRequestIds.push(own.id);
     expect(own.lines[0].estimatedUnitCost).toBe(90000);
     await setHead(deptId, deptHeadId);
+  });
+});
+
+describe("attachments — minutes, letters and spreadsheets on a request", () => {
+  /** A small but complete PDF; `tag` makes each one's bytes (and hash) distinct. */
+  const pdf = (tag: string) => Buffer.from(`%PDF-1.4\n% ${tag}\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n`, "latin1");
+  const photo = (w: number, h: number) => sharp({ create: { width: w, height: h, channels: 3, background: { r: 250, g: 250, b: 245 } } }).png().toBuffer();
+
+  async function ladder(prefix: string) {
+    const deptHeadId = await makeUser(`${prefix}-dept-head`, ["MANAGER"]);
+    const deanId = await makeUser(`${prefix}-dean`);
+    const avpId = await makeUser(`${prefix}-avp`);
+    const { universityId, collegeId, deptId } = await makeChain(prefix, deptHeadId);
+    await setHead(collegeId, deanId);
+    await setHead(universityId, avpId);
+    return { deptHeadId, deanId, avpId, deptId };
+  }
+
+  it("a head submits with minutes and a photographed letter; the photo is stored as a smaller, upright JPEG", async () => {
+    const { deptHeadId, deanId, deptId } = await ladder("att-submit");
+    const minutes = await attachments.stage(deptHeadId, "Dept minutes 14.pdf", pdf("minutes-14"));
+    const letter = await attachments.stage(deptHeadId, "letter.png", await photo(3000, 4000));
+    expect(minutes).toMatchObject({ kind: "PDF", contentType: "application/pdf", fileName: "Dept minutes 14.pdf" });
+    expect(letter).toMatchObject({ kind: "IMAGE", contentType: "image/jpeg", fileName: "letter.jpg" });
+
+    const staged = await prisma.purchaseAttachment.findUniqueOrThrow({ where: { id: letter.id } });
+    const stored = await (await import("./storage")).attachmentStorage.read(staged.storageKey);
+    const meta = await sharp(stored!).metadata();
+    expect(meta.format).toBe("jpeg");
+    expect(Math.max(meta.width!, meta.height!)).toBe(2200);
+
+    const from = sent.length;
+    const request = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId, { attachmentIds: [minutes.id, letter.id] }));
+    createdRequestIds.push(request.id);
+    expect(request.history[0].attachments.map((a) => a.fileName)).toEqual(["Dept minutes 14.pdf", "letter.jpg"]);
+    const rows = await prisma.purchaseAttachment.findMany({ where: { id: { in: [minutes.id, letter.id] } } });
+    expect(rows.every((r) => r.status === "ATTACHED" && r.purchaseId === request.id && r.expiresAt === null)).toBe(true);
+    expect(await mailedTo(deanId, from)).toContain(`${request.reference} is waiting for your approval`);
+
+    // Following the request is what lets you read its documents.
+    await purchasing.assertCanReadRequest(deanId, request.id);
+    const outsiderId = await makeUser("att-outsider", ["STAFF"]);
+    await expect(purchasing.assertCanReadRequest(outsiderId, request.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("a dean rejects citing a letter; it stays on the REJECTED entry of the history", async () => {
+    const { deptHeadId, deanId, deptId } = await ladder("att-reject");
+    const request = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId));
+    createdRequestIds.push(request.id);
+
+    const circular = await attachments.stage(deanId, "Budget circular.pdf", pdf("circular"));
+    const decided = await purchasing.decideStep(deanId, request.id, "REJECT", "Not within this year's allocation — see the circular", [circular.id]);
+    expect(decided.stage).toBe("REJECTED");
+    const entry = decided.history.at(-1)!;
+    expect(entry.stage).toBe("REJECTED");
+    expect(entry.attachments).toEqual([expect.objectContaining({ id: circular.id, uploadedById: deanId, fileName: "Budget circular.pdf" })]);
+  });
+
+  it("send-back and resubmission keep every earlier document, and the same file can't be attached twice", async () => {
+    const { deptHeadId, deanId, deptId } = await ladder("att-revise");
+    const minutes = await attachments.stage(deptHeadId, "minutes.pdf", pdf("revise-minutes"));
+    const request = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId, { attachmentIds: [minutes.id] }));
+    createdRequestIds.push(request.id);
+
+    const note = await attachments.stage(deanId, "what's missing.pdf", pdf("revise-dean"));
+    await purchasing.decideStep(deanId, request.id, "REVISE", "Attach the stamped authority letter", [note.id]);
+
+    // The same minutes again, under another name: refused, and the resubmission with it rolled back.
+    const again = await attachments.stage(deptHeadId, "minutes (1).pdf", pdf("revise-minutes"));
+    await expect(purchasing.reviseAndResubmit(deptHeadId, request.id, compileInput(deptId, { attachmentIds: [again.id] }))).rejects.toMatchObject({ status: 409 });
+    expect((await purchasing.getRequest(deptHeadId, request.id)).stage).toBe("REVISING");
+    await attachments.discard(deptHeadId, again.id);
+
+    const authority = await attachments.stage(deptHeadId, "authority letter.pdf", pdf("revise-authority"));
+    const resubmitted = await purchasing.reviseAndResubmit(deptHeadId, request.id, compileInput(deptId, { attachmentIds: [authority.id] }));
+    expect(resubmitted.stage).toBe("APPROVING");
+    expect(resubmitted.history.flatMap((e) => e.attachments.map((a) => a.fileName))).toEqual(["minutes.pdf", "what's missing.pdf", "authority letter.pdf"]);
+    // A sent file is part of the record: its uploader can't take it back.
+    await expect(attachments.discard(deptHeadId, authority.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("only the uploader's own unsent files can be sent, and a failed claim leaves the decision unmade", async () => {
+    const { deptHeadId, deanId, deptId } = await ladder("att-owner");
+    const request = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId));
+    createdRequestIds.push(request.id);
+    const headsFile = await attachments.stage(deptHeadId, "mine.pdf", pdf("owner-head"));
+
+    await expect(purchasing.decideStep(deanId, request.id, "APPROVE", undefined, [headsFile.id])).rejects.toMatchObject({ status: 409 });
+    const after = await purchasing.getRequest(deptHeadId, request.id);
+    expect(after.steps.find((s) => s.status === "PENDING")?.approverId).toBe(deanId);
+    expect(after.history).toHaveLength(1);
+    await expect(attachments.discard(deanId, headsFile.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("refuses what isn't a PDF, image or .xlsx, files over the size limit, and more than 5 with one action", async () => {
+    const userId = await makeUser("att-refuse", ["STAFF"]);
+    await expect(attachments.stage(userId, "x.html", Buffer.from("<html></html>"))).rejects.toMatchObject({ status: 400 });
+    await expect(attachments.stage(userId, "empty.pdf", Buffer.alloc(0))).rejects.toMatchObject({ status: 400 });
+    const tooBig = Buffer.concat([pdf("big"), Buffer.alloc(4 * 1024 * 1024)]);
+    await expect(attachments.stage(userId, "big.pdf", tooBig)).rejects.toMatchObject({ status: 400 });
+
+    const { deptHeadId, deptId } = await ladder("att-many");
+    const six = [];
+    for (let i = 0; i < 6; i++) six.push((await attachments.stage(deptHeadId, `p${i}.pdf`, pdf(`many-${i}`))).id);
+    await expect(purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId, { attachmentIds: six }))).rejects.toMatchObject({ status: 400 });
+    for (const id of six) await attachments.discard(deptHeadId, id);
+  });
+
+  it("caps what one person may hold unsent, and sweeps unsent files once they expire", async () => {
+    const userId = await makeUser("att-staged", ["STAFF"]);
+    const ids = [];
+    for (let i = 0; i < 10; i++) ids.push((await attachments.stage(userId, `s${i}.pdf`, pdf(`staged-${i}`))).id);
+    await expect(attachments.stage(userId, "eleventh.pdf", pdf("staged-10"))).rejects.toMatchObject({ status: 409 });
+
+    await prisma.purchaseAttachment.updateMany({ where: { id: { in: ids } }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const keys = (await prisma.purchaseAttachment.findMany({ where: { id: { in: ids } }, select: { storageKey: true } })).map((r) => r.storageKey);
+    await attachments.sweepExpired();
+    expect(await prisma.purchaseAttachment.count({ where: { id: { in: ids } } })).toBe(0);
+    const { attachmentStorage } = await import("./storage");
+    expect(await attachmentStorage.read(keys[0])).toBeNull();
+
+    // Room again once they're gone.
+    const next = await attachments.stage(userId, "after.pdf", pdf("staged-after"));
+    expect(next.kind).toBe("PDF");
+  });
+
+  it("a requester-portal account can't upload", async () => {
+    const externalId = await makeUser("att-external", ["EXTERNAL"]);
+    await expect(attachments.stage(externalId, "x.pdf", pdf("external"))).rejects.toMatchObject({ status: 403 });
   });
 });

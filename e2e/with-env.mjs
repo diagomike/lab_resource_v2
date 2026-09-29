@@ -33,6 +33,7 @@ export const e2eEnv = {
   MAIL_FROM: "LRMS E2E <e2e@localhost>",
   IMAGE_STORAGE_DRIVER: "local",
   IMAGE_STORAGE_DIR: ".local-storage-e2e/images",
+  ATTACHMENT_STORAGE_DIR: ".local-storage-e2e/attachments",
   CRON_SECRET: "e2e-cron-secret",
   UNIVERSITY_BANK_NAME: "Commercial Bank of Ethiopia",
   UNIVERSITY_BANK_ACCOUNT_NAME: "Adama Science and Technology University (TEST)",

@@ -1,7 +1,7 @@
 import "server-only";
 import type { StorageDriver } from "./driver";
-import { localFsDriver } from "./local-fs-driver";
-import { vercelBlobDriver } from "./vercel-blob-driver";
+import { localFsAttachmentDriver, localFsDriver } from "./local-fs-driver";
+import { vercelBlobAttachmentDriver, vercelBlobDriver } from "./vercel-blob-driver";
 
 /**
  * The storage backend is chosen once, here, by `IMAGE_STORAGE_DRIVER` — everywhere
@@ -12,19 +12,21 @@ import { vercelBlobDriver } from "./vercel-blob-driver";
  * target later means writing one new file next to these two and adding one branch
  * below, nothing else in the codebase changes.
  */
-function selectDriver(): StorageDriver {
+function selectDriver(namespace: "images" | "attachments"): StorageDriver {
   // On Vercel (which sets VERCEL=1) the local disk is read-only and per-invocation, so
   // a missing setting there must not quietly fall back to it: every photo was a 404.
   const kind = process.env.IMAGE_STORAGE_DRIVER ?? (process.env.VERCEL ? "vercel-blob" : "local");
   switch (kind) {
     case "local":
-      return localFsDriver;
+      return namespace === "images" ? localFsDriver : localFsAttachmentDriver;
     case "vercel-blob":
-      return vercelBlobDriver;
+      return namespace === "images" ? vercelBlobDriver : vercelBlobAttachmentDriver;
     default:
       throw new Error(`Unknown IMAGE_STORAGE_DRIVER "${kind}" — no driver registered for it. Use "local" or "vercel-blob", or add one to lib/server/resources/storage/.`);
   }
 }
 
-export const storage: StorageDriver = selectDriver();
+export const storage: StorageDriver = selectDriver("images");
+/** Purchase-request attachments — same backend as photos, its own namespace. */
+export const attachmentStorage: StorageDriver = selectDriver("attachments");
 export type { StorageDriver } from "./driver";

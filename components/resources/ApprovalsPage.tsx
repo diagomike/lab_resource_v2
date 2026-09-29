@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ChainStepDto, ChangeRequestDto, ClashDto, ItemChangeInput, LabCommitRequestDto, PurchaseRequestDto, ReservationDto, ResourceCategoryDto } from "@/lib/shared";
+import type {
+  ChainStepDto,
+  ChangeRequestDto,
+  ClashDto,
+  ItemChangeInput,
+  LabCommitRequestDto,
+  PurchaseAttachmentDto,
+  PurchaseRequestDto,
+  ReservationDto,
+  ResourceCategoryDto,
+} from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
@@ -9,6 +19,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { HistoryTimeline } from "./PurchasingPage";
+import { AttachmentPicker, RequestDocuments, discardAttachments } from "./PurchaseAttachments";
 import { STAGE_LABEL } from "@/lib/domain/purchasing";
 import { LabCommitCard } from "./LabCommitCard";
 import { ClashList } from "@/components/scheduling/SchedulePage";
@@ -351,6 +362,8 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | "REVISE" | null>(null);
   const [note, setNote] = useState("");
+  const [files, setFiles] = useState<PurchaseAttachmentDto[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const currentStep = request.steps.find((s) => s.status === "PENDING");
   const canDecide = request.stage === "APPROVING" && currentStep?.approverId === viewerId;
@@ -359,9 +372,10 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note || undefined });
+      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note || undefined, attachmentIds: files.map((f) => f.id) });
       setConfirming(null);
       setNote("");
+      setFiles([]);
       onDecided();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not record this decision");
@@ -398,8 +412,9 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
       </div>
 
       {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
+      <RequestDocuments history={request.history} />
       <HistoryTimeline history={request.history} />
-      {error && <ErrorNote>{error}</ErrorNote>}
+      {error && !confirming && <ErrorNote>{error}</ErrorNote>}
 
       {canDecide && (
         <div className="flex items-center gap-8 pt-4">
@@ -425,8 +440,8 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
           title={confirming === "APPROVE" ? "Approve this step" : confirming === "REJECT" ? "Reject this request" : "Send back for revision"}
           tone={confirming === "REJECT" ? "danger" : "primary"}
           confirmLabel={confirming === "APPROVE" ? "Approve" : confirming === "REJECT" ? "Reject" : "Send back"}
-          busy={busy}
-          error={null}
+          busy={busy || uploading}
+          error={error}
           message={
             <div className="flex flex-col gap-8">
               <span>
@@ -442,10 +457,23 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
                 placeholder="Optional note"
                 className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
               />
+              <AttachmentPicker
+                value={files}
+                onChange={setFiles}
+                onBusyChange={setUploading}
+                disabled={busy}
+                label={confirming === "APPROVE" ? "Attach minutes or a letter" : "Attach the letter you're citing"}
+                hint="Optional — kept with your decision on the request"
+              />
             </div>
           }
           onConfirm={() => decide(confirming)}
-          onCancel={() => setConfirming(null)}
+          onCancel={() => {
+            discardAttachments(files);
+            setConfirming(null);
+            setFiles([]);
+            setError(null);
+          }}
         />
       )}
     </div>

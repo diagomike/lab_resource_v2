@@ -6,6 +6,7 @@ import type {
   CompilePurchaseInput,
   DepartmentPurchasablesDto,
   NeedLineDto,
+  PurchaseAttachmentDto,
   PurchaseRequestDto,
   ResourceCategoryDto,
 } from "@/lib/shared";
@@ -17,6 +18,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { ImportsPanel } from "./ImportsPanel";
+import { AttachmentPicker, RequestDocuments, discardAttachments } from "./PurchaseAttachments";
 
 const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5";
 const labelCls = "text-9.5 uppercase tracking-label text-faint";
@@ -443,6 +445,10 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
   const [openNeeds, setOpenNeeds] = useState<NeedLineDto[]>([]);
   const [title, setTitle] = useState("");
   const [lines, setLines] = useState<EditableLine[]>([emptyLine()]);
+  const [files, setFiles] = useState<PurchaseAttachmentDto[]>([]);
+  const [uploading, setUploading] = useState(false);
+  /** Bumped on each submission, so the picker starts fresh (no leftover refusal notes). */
+  const [submitted, setSubmitted] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -460,9 +466,11 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
     setBusy(true);
     setError(null);
     try {
-      await api.post<PurchaseRequestDto>("/resources/purchase-requests", { title: title.trim(), orgNodeId, lines: inputLines });
+      await api.post<PurchaseRequestDto>("/resources/purchase-requests", { title: title.trim(), orgNodeId, lines: inputLines, attachmentIds: files.map((f) => f.id) });
       setTitle("");
       setLines([emptyLine()]);
+      setFiles([]);
+      setSubmitted((n) => n + 1);
       loadOpenNeeds();
       onCompiled();
     } catch (e) {
@@ -495,8 +503,20 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
         </label>
         <PurchasablesSection orgNodeId={orgNodeId} onFill={setLines} />
         <LinesEditor lines={lines} onChange={setLines} categories={categories} openNeeds={openNeeds} />
+        <div className="flex flex-col gap-3">
+          <span className={labelCls}>Supporting documents</span>
+          <AttachmentPicker
+            key={submitted}
+            value={files}
+            onChange={setFiles}
+            onBusyChange={setUploading}
+            disabled={busy}
+            label="Attach minutes or letters"
+            hint="Approval minutes, stamped letters of authority, quotations (PDF, photo or scan, .xlsx)"
+          />
+        </div>
         <div>
-          <Button variant="primary" onClick={submit} disabled={busy || !title.trim() || !toInputLines(lines).length}>
+          <Button variant="primary" onClick={submit} disabled={busy || uploading || !title.trim() || !toInputLines(lines).length}>
             Submit for approval
           </Button>
         </div>
@@ -619,6 +639,12 @@ export function HistoryTimeline({ history }: { history: PurchaseRequestDto["hist
         <div key={`${e.at}-${i}`} className="text-10 text-dim">
           <span className="text-faint">{new Date(e.at).toLocaleString()}</span> · <span className="font-medium">{e.byName}</span> · {STAGE_LABEL[e.stage]}
           {e.note ? <span> — {e.note}</span> : null}
+          {e.attachments.length ? (
+            <span className="text-faint">
+              {" "}
+              · {e.attachments.length} document{e.attachments.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
         </div>
       ))}
     </div>
@@ -647,6 +673,8 @@ function RequestCard({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
+  const [files, setFiles] = useState<PurchaseAttachmentDto[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [lines, setLines] = useState<EditableLine[]>(() =>
     request.lines.map((l) => ({
       key: l.id,
@@ -671,8 +699,9 @@ function RequestCard({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note.trim() || undefined });
+      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note.trim() || undefined, attachmentIds: files.map((f) => f.id) });
       setNote("");
+      setFiles([]);
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not record this decision");
@@ -687,7 +716,8 @@ function RequestCard({
     setBusy(true);
     setError(null);
     try {
-      await api.put(`/resources/purchase-requests/${request.id}`, { title: title.trim(), orgNodeId: request.orgNodeId, lines: inputLines });
+      await api.put(`/resources/purchase-requests/${request.id}`, { title: title.trim(), orgNodeId: request.orgNodeId, lines: inputLines, attachmentIds: files.map((f) => f.id) });
+      setFiles([]);
       setRevising(false);
       onChanged();
     } catch (e) {
@@ -698,11 +728,11 @@ function RequestCard({
   }
 
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
-  async function cancel(procurementNote?: string) {
+  async function cancel(procurementNote?: string, attachmentIds: string[] = []) {
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/cancel`, procurementNote !== undefined ? { note: procurementNote } : undefined);
+      await api.post(`/resources/purchase-requests/${request.id}/cancel`, procurementNote !== undefined ? { note: procurementNote, attachmentIds } : undefined);
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not cancel this request");
@@ -742,6 +772,7 @@ function RequestCard({
       <ChainTrail steps={request.steps} ended={isFinished(request.stage)} />
       {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
       <HistoryTimeline history={request.history} />
+      <RequestDocuments history={request.history} />
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="flex flex-col gap-4">
@@ -767,17 +798,27 @@ function RequestCard({
       )}
 
       {canDecide && !revising && (
-        <div className="flex flex-wrap items-center gap-8 pt-4">
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (why — shown to everyone following this request)" className={`${inputCls} min-w-[260px] flex-1`} />
-          <Button variant="primary" onClick={() => decide("APPROVE")} disabled={busy}>
-            Approve
-          </Button>
-          <Button variant="danger" onClick={() => decide("REJECT")} disabled={busy}>
-            Reject
-          </Button>
-          <Button onClick={() => decide("REVISE")} disabled={busy}>
-            Send back for revision
-          </Button>
+        <div className="flex flex-col gap-6 pt-4">
+          <div className="flex flex-wrap items-center gap-8">
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (why — shown to everyone following this request)" className={`${inputCls} min-w-[260px] flex-1`} />
+            <Button variant="primary" onClick={() => decide("APPROVE")} disabled={busy || uploading}>
+              Approve
+            </Button>
+            <Button variant="danger" onClick={() => decide("REJECT")} disabled={busy || uploading}>
+              Reject
+            </Button>
+            <Button onClick={() => decide("REVISE")} disabled={busy || uploading}>
+              Send back for revision
+            </Button>
+          </div>
+          <AttachmentPicker
+            value={files}
+            onChange={setFiles}
+            onBusyChange={setUploading}
+            disabled={busy}
+            label="Attach a letter or minutes"
+            hint="Goes with your decision — e.g. the letter or constraint you're citing"
+          />
         </div>
       )}
       {request.stage === "APPROVING" && !canDecide && currentStep && (
@@ -800,11 +841,26 @@ function RequestCard({
             <input value={title} onChange={(e) => setTitle(e.target.value)} className={`${inputCls} max-w-[360px]`} />
           </label>
           <LinesEditor lines={lines} onChange={setLines} categories={categories} openNeeds={[]} />
+          <AttachmentPicker
+            value={files}
+            onChange={setFiles}
+            onBusyChange={setUploading}
+            disabled={busy}
+            label="Attach documents"
+            hint="Add what was asked for — earlier documents stay on the request"
+          />
           <div className="flex items-center gap-8">
-            <Button variant="primary" onClick={resubmit} disabled={busy || !title.trim() || !toInputLines(lines).length}>
+            <Button variant="primary" onClick={resubmit} disabled={busy || uploading || !title.trim() || !toInputLines(lines).length}>
               Resubmit
             </Button>
-            <Button onClick={() => setRevising(false)} disabled={busy}>
+            <Button
+              onClick={() => {
+                discardAttachments(files);
+                setFiles([]);
+                setRevising(false);
+              }}
+              disabled={busy}
+            >
               Cancel
             </Button>
           </div>
@@ -865,9 +921,11 @@ function RequestCard({
  *  order, which (unlike the raiser's plain withdrawal) requires a note: this is
  *  what everyone tracking the order — the store, whoever's watching the pipeline —
  *  will read to understand why it stopped. */
-function ProcurementCancel({ busy, onCancel }: { busy: boolean; onCancel: (note: string) => void }) {
+function ProcurementCancel({ busy, onCancel }: { busy: boolean; onCancel: (note: string, attachmentIds: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [files, setFiles] = useState<PurchaseAttachmentDto[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   if (!open) {
     return (
@@ -882,11 +940,19 @@ function ProcurementCancel({ busy, onCancel }: { busy: boolean; onCancel: (note:
         <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Reason (required — visible to everyone tracking this order)</span>
         <input value={note} onChange={(e) => setNote(e.target.value)} className="border border-border2 bg-panel h-26 px-8 rounded-2 text-11.5 outline-none focus:border-accent" />
       </label>
+      <AttachmentPicker value={files} onChange={setFiles} onBusyChange={setUploading} disabled={busy} label="Attach a letter" hint="e.g. the supplier's withdrawal" />
       <div className="flex items-center gap-8">
-        <Button variant="danger" disabled={busy || !note.trim()} onClick={() => onCancel(note.trim())}>
+        <Button variant="danger" disabled={busy || uploading || !note.trim()} onClick={() => onCancel(note.trim(), files.map((f) => f.id))}>
           Confirm cancellation
         </Button>
-        <Button onClick={() => setOpen(false)} disabled={busy}>
+        <Button
+          onClick={() => {
+            discardAttachments(files);
+            setFiles([]);
+            setOpen(false);
+          }}
+          disabled={busy}
+        >
           Never mind
         </Button>
       </div>

@@ -16,27 +16,39 @@ import type { StorageDriver } from "./driver";
  */
 const ROOT = process.env.IMAGE_STORAGE_DIR ? path.resolve(process.env.IMAGE_STORAGE_DIR) : path.resolve(process.cwd(), ".local-storage", "images");
 
+/** Purchase-request attachments (`purchase-attachments.ts`) keep their own directory, so
+ *  item photos and scanned letters never share a namespace: `ATTACHMENT_STORAGE_DIR` if
+ *  set, else `.local-storage/attachments`. */
+const ATTACHMENT_ROOT = process.env.ATTACHMENT_STORAGE_DIR
+  ? path.resolve(process.env.ATTACHMENT_STORAGE_DIR)
+  : path.resolve(process.cwd(), ".local-storage", "attachments");
+
 /** Keys are always server-generated (`crypto.randomUUID()`, see images.ts) — this
  *  charset check is defense in depth against a key ever reaching here malformed, not
  *  the primary guarantee. Rejects anything that could path-traverse (`..`, `/`, `\`). */
-function pathFor(key: string): string {
+function pathFor(root: string, key: string): string {
   if (!/^[A-Za-z0-9_-]+$/.test(key)) throw new Error(`Refusing to touch storage for an invalid key: ${JSON.stringify(key)}`);
-  return path.join(ROOT, key);
+  return path.join(root, key);
 }
 
-export const localFsDriver: StorageDriver = {
-  async write(key, bytes) {
-    await mkdir(ROOT, { recursive: true });
-    await writeFile(pathFor(key), bytes);
-  },
-  async read(key) {
-    try {
-      return await readFile(pathFor(key));
-    } catch {
-      return null;
-    }
-  },
-  async remove(key) {
-    await rm(pathFor(key), { force: true });
-  },
-};
+function createLocalFsDriver(root: string): StorageDriver {
+  return {
+    async write(key, bytes) {
+      await mkdir(root, { recursive: true });
+      await writeFile(pathFor(root, key), bytes);
+    },
+    async read(key) {
+      try {
+        return await readFile(pathFor(root, key));
+      } catch {
+        return null;
+      }
+    },
+    async remove(key) {
+      await rm(pathFor(root, key), { force: true });
+    },
+  };
+}
+
+export const localFsDriver: StorageDriver = createLocalFsDriver(ROOT);
+export const localFsAttachmentDriver: StorageDriver = createLocalFsDriver(ATTACHMENT_ROOT);

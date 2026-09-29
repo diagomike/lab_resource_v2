@@ -104,13 +104,26 @@ Anyone in your department (staff, custodians) can **raise a need**: "a projector
 
 ![Request lines, filled — edit before submitting](img/head/13-request-lines.jpg)
 
-5. Click **Submit for approval**. The request gets a reference (**PR-2026-…**) and starts its chain: **your step is already done** (you raised it) → **dean** → **AVP** → **College Managing Director** → **Procurement Office**. Each card shows who it's waiting on.
+5. Under **Supporting documents**, click **Attach minutes or letters** and choose the scanned approval minutes, stamped letters of authority, quotations, and so on. Each file uploads as soon as you choose it; click **×** to remove one before you submit. See [Attaching documents](#attaching-documents) for what's accepted.
+6. Click **Submit for approval**. The request gets a reference (**PR-2026-…**) and starts its chain: **your step is already done** (you raised it) → **dean** → **AVP** → **College Managing Director** → **Procurement Office**. Each card shows who it's waiting on.
 
 ![Submitted: the approval chain](img/head/14-request-submitted.jpg)
 
 > **Good to know**
 > - Serialized items (computers, chairs…) are ordered in whole units. A quantity like 2.5 is refused.
 > - Anyone in your department can follow the request's stage. Only roles that may see costs see the estimated costs.
+
+### Attaching documents
+
+Every card shows a **Documents** list: each file, who sent it, and with which action (submitting, approving, sending back, rejecting). Anyone who can follow the request can open them; nobody else can, even with the link.
+
+- **Accepted:** PDF; a photo or scan (JPEG, PNG, WebP); an Excel workbook (**.xlsx**). Macro-enabled workbooks (.xlsm), old .xls/.doc files and password-protected files are refused.
+- **Size:** up to **4 MB a file**, **5 files** with one action, and **20 files / 25 MB** on one request over its whole life.
+- **Photos shrink themselves.** A phone photo of a letter is resized and saved as a JPEG before it uploads, usually a few hundred KB.
+- **PDFs don't.** If a scan is over 4 MB, scan again at **150–200 dpi** (grayscale for plain text), or split a long document into parts. A one-page letter at 200 dpi is well under 1 MB.
+- **The same file twice** on one request is refused, even under a different name.
+- **Once sent, a file is part of the request's record** and can't be removed. A file you uploaded but never sent is removed when you cancel the form, or after 12 hours.
+- Emails say which documents came with a request or decision, but don't carry the files: open the request in the app to read them.
 
 ## 6. Withdraw a request
 
@@ -142,7 +155,7 @@ If an approver (the dean, say) sends your request back, it shows **Sent back for
 
 ![Sent back for revision](img/head/19-sent-back.jpg)
 
-Click **Edit & resubmit**, change what was asked (lines, quantities, justifications), then **Resubmit**. The chain starts again at the dean, and the history keeps the note and your revision.
+Click **Edit & resubmit**, change what was asked (lines, quantities, justifications), attach anything that was asked for (the documents already on the request stay), then **Resubmit**. The chain starts again at the dean, and the history keeps the note and your revision.
 
 ![Edit and resubmit](img/head/20-revise.jpg)
 

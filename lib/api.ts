@@ -107,20 +107,27 @@ export const api = {
    *  server-issued `uploadUrl`. The declared Content-Type travels along as a hint
    *  only; the server never trusts it (lib/server/resources/image-sniff.ts sniffs the
    *  real bytes) and this call's caller must not either. */
-  async putFile<T>(path: string, blob: Blob): Promise<T> {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "PUT",
-      credentials: "include",
-      headers: { "Content-Type": blob.type || "application/octet-stream" },
-      body: blob,
-    });
-    if (!res.ok) {
-      const parsed = await res.json().catch(() => ({ message: res.statusText }));
-      throw new ApiError(res.status, parsed.message ?? "Request failed", parsed.issues, parsed);
-    }
-    return res.json() as Promise<T>;
-  },
+  putFile: <T>(path: string, blob: Blob) => sendFile<T>("PUT", path, blob),
+  /** A raw-body POST of file bytes — a purchase-request attachment's upload. Like
+   *  putFile, the Content-Type is a hint the server doesn't trust. */
+  postFile: <T>(path: string, blob: Blob) => sendFile<T>("POST", path, blob),
 };
+
+async function sendFile<T>(method: "PUT" | "POST", path: string, blob: Blob): Promise<T> {
+  // A server-issued upload URL (the photo upload's `uploadUrl`) already starts with
+  // /api; prefixing it again sent every photo to /api/api/... and a 404 page.
+  const res = await fetch(path.startsWith(`${API_BASE}/`) ? path : `${API_BASE}${path}`, {
+    method,
+    credentials: "include",
+    headers: { "Content-Type": blob.type || "application/octet-stream" },
+    body: blob,
+  });
+  if (!res.ok) {
+    const parsed = await res.json().catch(() => ({ message: res.status === 413 ? "That file is too large to upload." : res.statusText }));
+    throw new ApiError(res.status, parsed.message ?? "Request failed", parsed.issues, parsed);
+  }
+  return res.json() as Promise<T>;
+}
 
 /** Triggers a browser save-as for a blob fetched via getBlob/postBlob — object URLs are
  *  revoked immediately after the click since the download itself doesn't need them kept. */

@@ -22,6 +22,7 @@ The card shows:
 - the reference and title, the department and who raised it;
 - the **chain**, with your step highlighted;
 - every **line**, with its quantity and justification. Long justifications open with **more**; ones compiled from many labs name the labs contributing most;
+- **Documents**: the minutes, letters of authority or quotations the head attached, and any letter an earlier approver cited. Click one to open it;
 - the history so far.
 
 You have three answers:
@@ -35,6 +36,8 @@ You have three answers:
 Sending back, with a note:
 
 ![Send back for revision, with a note](img/approvers/02-send-back.jpg)
+
+Each answer's dialog also has **Attach** (minutes or a letter). Use it to send the document you're relying on with your decision: approving minutes, say, or when rejecting, the letter or circular that sets the constraint the request doesn't meet. It stays on the request's **Documents** with your name and decision, and the head's email lists it. Files follow the same rules as the head's ([Attaching documents](03-department-head.md#attaching-documents)): PDF, photo or scan, or .xlsx, up to 4 MB each and 5 at a time.
 
 > **Good to know**
 > - Only the person holding the step decides it, and only in turn: the AVP can't approve before the CMD has. If a post is vacant, the chain shows *(vacant)* until the administrator assigns someone.

@@ -14,7 +14,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const user = await requireSession(request);
     const { id } = await params;
     const body = await parseBody(DecidePurchaseInput, request);
-    const result = await decideStep(user.id, id, body.decision, body.note);
+    const result = await decideStep(user.id, id, body.decision, body.note, body.attachmentIds);
     return NextResponse.json<PurchaseRequestDto>(result, { status: 200 });
   } catch (err) {
     return errorResponse(err);

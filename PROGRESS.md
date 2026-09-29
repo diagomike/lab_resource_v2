@@ -4739,3 +4739,47 @@ its model that make porting it as-is the wrong move.
   - **Production:** Neon needs migrations `20260928191510_import_records` and `20260928195703_external_chain`,
     then `npx tsx prisma/seed-property-office.ts` (and a real person in the PROP office). Not pushed.
   - 563/563 tests, `tsc` clean, `next build` clean.
+
+- **2026-09-29 (purchase-request attachments)**
+  - **What:** documents on purchase requests. The head attaches approval minutes, stamped letters of
+    authority, quotations (PDF, JPEG/PNG/WebP, .xlsx) when submitting or resubmitting; any approver attaches
+    a letter when approving, rejecting or sending back (e.g. the circular whose constraint the request
+    breaks); procurement can attach one when cancelling a placed order. Each file hangs off the action's
+    `PurchaseEvent` (the permanent history), so it survives REVISE deleting the steps.
+  - Migration `20260929004510_purchase_attachments` (additive: `PurchaseAttachment`, enums `AttachmentKind`,
+    `AttachmentStatus`; **applied to `lrms_v2`**, Neon still needs it with the two earlier ones).
+  - **Two steps:** `POST /api/resources/purchase-attachments?name=` (raw bytes) stages a file for its uploader;
+    `attachmentIds` on compile / resubmit / decide / cancel claims it inside that action's transaction
+    (`purchase-attachments.claim`), so a refused action leaves the files unsent. `GET …/[id]` serves it behind
+    the request's own read gate (`purchasing.assertCanReadRequest`, 404 otherwise; a staged file only to its
+    uploader); `DELETE …/[id]` removes an unsent one (a sent one is part of the record: 409).
+  - **Size management** (`ATTACHMENT_LIMITS` in `lib/shared/resources/purchasing.ts`, enforced on both sides):
+    4 MB a file (under Vercel's 4.5 MB body limit; refused on Content-Length before reading), 5 per action,
+    20 files / 25 MB per request, 10 files / 20 MB staged per person; unsent files expire after 12 h and are
+    swept on every upload (row first, bytes only if the row was really deleted). Images are shrunk in the
+    browser (2200px JPEG) and re-encoded on the server (`normalizeDocumentImage`: upright, metadata stripped,
+    2200px, mozjpeg q80). The same bytes twice on one request are refused (sha256).
+  - **Type from bytes** (`attachment-sniff.ts`): PDF needs `%PDF-` and a trailing `%%EOF` (truncated scans
+    refused); .xlsx = ZIP with `xl/workbook.xml`; .xlsm/.xlsb, legacy OLE (.xls/.doc, password-protected) and
+    anything else refused with a fix-it message. File names cleaned and given the real extension.
+  - **Storage:** drivers are namespaced now: `attachmentStorage` = `.local-storage/attachments`
+    (`ATTACHMENT_STORAGE_DIR`) locally, `attachments/` prefix (private) on Vercel Blob. Same
+    `BLOB_READ_WRITE_TOKEN`, no new production env.
+  - **UI:** `components/resources/PurchaseAttachments.tsx` (`AttachmentPicker`, `RequestDocuments`,
+    `discardAttachments`): in the compile form, the inline decide row and resubmit form (Purchasing), the
+    Approvals decision dialog (which now also shows the decision's error inside it), and procurement's cancel.
+    Cards list **Documents (n)** with who sent each file with which action; the history shows a count per entry.
+    Mails name the documents (never attach them).
+  - **Pre-existing bug fixed on the way:** `api.putFile` prefixed `/api` onto the server's `uploadUrl`
+    (already `/api/...`), so item-photo uploads went to `/api/api/...` (a 404 page). `sendFile` now leaves an
+    `/api/` path alone. Verified by probing both URLs; not re-run as a UI photo upload (would add a photo to
+    the kept CHEM/CSE labs).
+  - Tests: new `attachment-sniff.spec.ts` (7), 7 attachment cases in `purchasing.spec.ts`. **577/577**, `tsc`
+    clean, `next build` clean, Help rebuilt (guide ch. 03 "Attaching documents", 06, 07).
+  - **Browser check (dev-nomail, lrms_v2):** CSE head submitted PR-2026-001 with minutes (PDF), a 3000×4000
+    photo (stored as a 2200px .jpg) and an .xlsx; an HTML file named .pdf was refused by the server and a 5 MB
+    PDF by the browser (never sent). The CoEEC Dean saw the three documents and rejected it citing a circular
+    from the dialog; the head sees Documents (4). The SE head gets 404 on the files, signed-out 401. PR-2026-001
+    is left in the dev DB (rejected).
+  - **Production, still to do:** Neon needs `20260928191510_import_records`, `20260928195703_external_chain`,
+    `20260929004510_purchase_attachments`, then `npx tsx prisma/seed-property-office.ts`. Not pushed.

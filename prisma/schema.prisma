@@ -112,6 +112,7 @@ model User {
   purchaseLinesReceived      PurchaseLine[]              @relation("PurchaseLineReceivedBy")
   purchaseEventsLogged       PurchaseEvent[]             @relation("PurchaseEventBy")
   importRecordsCreated       ImportRecord[]              @relation("ImportRecordCreatedBy")
+  purchaseAttachments        PurchaseAttachment[]        @relation("PurchaseAttachmentUploadedBy")
   importLinesLoaded          ImportLine[]                @relation("ImportLineLoadedBy")
   purchaseStepsToApprove     PurchaseStep[]              @relation("PurchaseStepApprover")
   purchaseStepsDecided       PurchaseStep[]              @relation("PurchaseStepDecidedBy")
@@ -1058,6 +1059,8 @@ model PurchaseRequest {
   events   PurchaseEvent[]
   steps    PurchaseStep[]
   imports  ImportRecord[]
+  /// Documents put on it with its submissions, decisions and cancellation.
+  attachments PurchaseAttachment[]
 
   @@index([orgNodeId])
   @@index([stage])
@@ -1098,8 +1101,59 @@ model PurchaseEvent {
 
   purchase PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
   by       User            @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
+  /// Documents the actor put on the request with this action.
+  attachments PurchaseAttachment[]
 
   @@index([purchaseId, at])
+}
+
+enum AttachmentKind {
+  PDF
+  IMAGE
+  SPREADSHEET
+}
+
+enum AttachmentStatus {
+  /// Uploaded, not yet sent with an action. Swept once `expiresAt` passes.
+  STAGED
+  /// Sent with a submission, decision or cancellation; part of the request's record.
+  ATTACHED
+}
+
+/// A document put on a purchase request with one of its actions: the minutes and
+/// stamped letters of authority at submission, an approver's letter when approving,
+/// rejecting or sending it back. Uploaded first (STAGED, owned by the uploader), then
+/// claimed by the action, which ties it to that action's PurchaseEvent. The bytes live
+/// in object storage under `attachments/`, never in Postgres; see
+/// lib/server/resources/purchase-attachments.ts for the size limits.
+model PurchaseAttachment {
+  id           String           @id @default(cuid())
+  storageKey   String           @unique
+  /// The uploader's file name, cleaned, with the extension of what it really is.
+  fileName     String
+  kind         AttachmentKind
+  /// Derived from the bytes, never the browser's claim.
+  contentType  String
+  /// Stored size (after an image's re-encoding).
+  byteSize     Int
+  /// Of the stored bytes: the same letter attached twice to one request is refused.
+  sha256       String
+  status       AttachmentStatus @default(STAGED)
+  uploadedById String
+  createdAt    DateTime         @default(now())
+  /// A STAGED file not sent by then is removed. Null once ATTACHED.
+  expiresAt    DateTime?
+  purchaseId   String?
+  eventId      String?
+
+  uploadedBy User             @relation("PurchaseAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  purchase   PurchaseRequest? @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  event      PurchaseEvent?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseId])
+  @@index([eventId])
+  @@index([status, expiresAt])
+  @@index([uploadedById, status])
 }
 
 // ── Import records (2026-09-28) ─────────────────────────────────────────────

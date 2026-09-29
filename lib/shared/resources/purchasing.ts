@@ -61,6 +61,7 @@ export type DeclineNeedInput = z.infer<typeof DeclineNeedInput>;
 export const CancelPurchaseRequestInput = z
   .object({
     note: z.string().min(1).optional(),
+    attachmentIds: z.array(z.string()).max(5).default([]),
   })
   .default({}); // the raiser's own withdrawal sends no body at all
 export type CancelPurchaseRequestInput = z.infer<typeof CancelPurchaseRequestInput>;
@@ -81,12 +82,57 @@ export const PurchaseLineDto = z.object({
 });
 export type PurchaseLineDto = z.infer<typeof PurchaseLineDto>;
 
+/**
+ * Documents on a purchase request — the minutes and stamped letters of authority that
+ * go with a submission, and the letter an approver cites when approving, rejecting or
+ * sending it back. One set of numbers for the browser (which checks before uploading)
+ * and the server (which enforces them):
+ *
+ *  - `fileBytes`: 4 MB a file. The hosting platform refuses a request body over 4.5 MB
+ *    before the app sees it. Photos and scans are shrunk in the browser first, so
+ *    only a PDF or workbook can really reach it; a letter scanned at 150–200 dpi is
+ *    well under 1 MB a page.
+ *  - `perAction`: 5 files sent with one submission or decision.
+ *  - `perRequest` / `requestBytes`: 20 files and 25 MB across the request's whole life.
+ *  - `stagedFiles` / `stagedBytes`: what one person may have uploaded but not yet sent
+ *    (a form they closed without sending); unsent files are removed after 12 hours.
+ */
+export const ATTACHMENT_LIMITS = {
+  fileBytes: 4 * 1024 * 1024,
+  perAction: 5,
+  perRequest: 20,
+  requestBytes: 25 * 1024 * 1024,
+  stagedFiles: 10,
+  stagedBytes: 20 * 1024 * 1024,
+} as const;
+
+/** What the file picker offers; the server decides from the bytes, not this list. */
+export const ATTACHMENT_ACCEPT = ".pdf,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp";
+
+export const AttachmentKindSchema = z.enum(["PDF", "IMAGE", "SPREADSHEET"]);
+
+export const PurchaseAttachmentDto = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  kind: AttachmentKindSchema,
+  contentType: z.string(),
+  byteSize: z.number(),
+  uploadedById: z.string(),
+  uploadedByName: z.string(),
+  createdAt: z.string(),
+  /** Opens (PDF, image) or downloads (workbook) the file, after the same read check as the request. */
+  url: z.string(),
+});
+export type PurchaseAttachmentDto = z.infer<typeof PurchaseAttachmentDto>;
+
 export const PurchaseEventDto = z.object({
   at: z.string(),
   byId: z.string(),
   byName: z.string(),
   stage: PurchaseStageSchema,
   note: z.string().nullable(),
+  /** Documents sent with this action. */
+  attachments: z.array(PurchaseAttachmentDto),
 });
 export type PurchaseEventDto = z.infer<typeof PurchaseEventDto>;
 
@@ -126,12 +172,16 @@ export const CompilePurchaseInput = z.object({
   title: z.string().min(1),
   orgNodeId: z.string(),
   lines: z.array(PurchaseLineInput).min(1),
+  /** Staged uploads (POST /api/resources/purchase-attachments) sent with this submission. */
+  attachmentIds: z.array(z.string()).max(5).default([]),
 });
 export type CompilePurchaseInput = z.infer<typeof CompilePurchaseInput>;
 
 export const DecidePurchaseInput = z.object({
   decision: z.enum(["APPROVE", "REJECT", "REVISE"]),
   note: z.string().optional(),
+  /** A letter or minutes the approver cites; kept on the request's history. */
+  attachmentIds: z.array(z.string()).max(5).default([]),
 });
 export type DecidePurchaseInput = z.infer<typeof DecidePurchaseInput>;
 

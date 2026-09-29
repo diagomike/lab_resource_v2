@@ -42,7 +42,7 @@ Every stage is timestamped in the request's history with your note: "Supplier se
 
 ## 3. Cancel an order
 
-Once an order has been placed, only procurement can cancel it. Use **Cancel this order…** on the pipeline card, and give a note: it's required, because the department needs to know why. Any needs carried into the request reopen for the department.
+Once an order has been placed, only procurement can cancel it. Use **Cancel this order…** on the pipeline card, and give a note: it's required, because the department needs to know why. You can attach the letter behind it too (the supplier's withdrawal, say). Any needs carried into the request reopen for the department.
 
 ## 4. University-wide view
 
