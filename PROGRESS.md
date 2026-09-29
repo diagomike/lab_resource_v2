@@ -4783,3 +4783,16 @@ its model that make porting it as-is the wrong move.
     is left in the dev DB (rejected).
   - **Production, still to do:** Neon needs `20260928191510_import_records`, `20260928195703_external_chain`,
     `20260929004510_purchase_attachments`, then `npx tsx prisma/seed-property-office.ts`. Not pushed.
+
+- **2026-09-29 (production: Neon migrated; push left to the user)**
+  - Backup first: `backups/neon-prod-2026-09-29-before-attachments.dump` (pg_dump -Fc of Neon, 53 tables).
+  - `prisma migrate deploy` on Neon applied `20260928191510_import_records`, `20260928195703_external_chain`,
+    `20260929004510_purchase_attachments`; status: 29 migrations, **schema up to date**.
+  - `prisma/seed-property-office.ts` on Neon: Property Administration (PROP) under ASTU, occupied by
+    `property.admin@astu.edu.et` (seed password — change it or put the real person in the post). Counts after:
+    items 9702 (unchanged), users 32 (31 + the new account), attachments 0.
+  - The old deployed code is safe on the new schema: the three migrations only add tables, enum values, and
+    nullable or defaulted columns, and drop one NOT NULL (`ExternalRequest.trackingTokenHash`).
+  - **Push not done:** `git push origin master` was refused by the session's permission system. The user pushes
+    (12 commits ahead of `c1f8191`); Vercel then deploys. Neon credentials were read from `neon.env` by a
+    scratchpad wrapper that sets DATABASE_URL (pooled) and DIRECT_URL (unpooled) without printing them.
