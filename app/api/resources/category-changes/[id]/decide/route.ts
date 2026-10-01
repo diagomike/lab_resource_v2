@@ -1,21 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { UpdateCategoryInput, type CategoryImpactDto } from "@/lib/shared";
+import { DecideCategoryChangeInput, type CategoryChangeDto } from "@/lib/shared";
 import { parseBody } from "@/lib/server/validate";
 import { errorResponse } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
-import { previewEdit } from "@/lib/server/resources/category-governance";
+import { decideChange } from "@/lib/server/resources/category-governance";
 
 type Params = { params: Promise<{ id: string }> };
 
-const ImpactDraft = UpdateCategoryInput.omit({ expectedVersion: true, note: true });
-
-/** What a pending edit would do, and who decides it — computed, never persisted. */
 export async function POST(request: NextRequest, { params }: Params) {
   try {
     const user = await requireSession(request);
     const { id } = await params;
-    const draft = await parseBody(ImpactDraft, request);
-    return NextResponse.json<CategoryImpactDto>(await previewEdit(user.id, id, draft), { status: 200 });
+    const body = await parseBody(DecideCategoryChangeInput, request);
+    return NextResponse.json<CategoryChangeDto>(await decideChange(user.id, id, body), { status: 200 });
   } catch (err) {
     return errorResponse(err);
   }

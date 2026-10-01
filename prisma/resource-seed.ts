@@ -29,6 +29,7 @@ import type { Category, Item as DomainItem } from "../lib/domain/types";
 import { toDomainCategoryMap } from "../lib/server/resources/adapt";
 import { sniffImage } from "../lib/server/resources/image-sniff";
 import { REAL_CATEGORY_SPECS, REAL_GROUP_NAMES, loadOrCreateRealPeople, buildRealDataItems } from "./real-data-seed";
+import { CATALOGUE_GROUPS, CATALOGUE_SPECS, CHEMICAL_FIELDS } from "./catalogue-data";
 import { buildCseLabItems, loadOrCreateCseAras } from "./cse-lab-data";
 
 const prisma = new PrismaClient();
@@ -70,12 +71,14 @@ async function assertSafeToReset(): Promise<void> {
 export interface FieldSpec {
   key: string;
   label: string;
-  type: "TEXT" | "NUMBER" | "ENUM" | "BOOLEAN";
+  type: "TEXT" | "NUMBER" | "ENUM" | "BOOLEAN" | "DATE";
   options?: string[];
   unit?: string;
   summary?: boolean;
   required?: boolean;
   longText?: boolean;
+  /** A short example shown in the empty input. */
+  hint?: string;
 }
 
 interface ChildSpec {
@@ -104,6 +107,11 @@ export interface CategorySpec {
   bookingMode?: "NOT_BOOKABLE" | "ROOM" | "EQUIPMENT";
   /// Its working count shows on the public portal (counts only).
   publicListed?: boolean;
+  /// What it is for, in a sentence.
+  description?: string;
+  /// The org code of the department that looks after it; absent: university-wide
+  /// (Property Administration).
+  steward?: string;
 }
 
 const CATEGORY_SPECS: CategorySpec[] = [
@@ -111,7 +119,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   //    Property Administration for the Main Store), run by an assigned custodian. ──
   {
     key: "lab", name: "Lab", iconKey: "FlaskConical", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
-    isPlace: true, bookingMode: "ROOM", publicListed: true,
+    isPlace: true, bookingMode: "ROOM", publicListed: true, description: "A teaching or research laboratory: a bookable room.",
     fields: [
       { key: "block", label: "Block", type: "TEXT", summary: true, required: true },
       { key: "room", label: "Room", type: "TEXT", summary: true, required: true },
@@ -121,7 +129,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   },
   {
     key: "workshop", name: "Workshop", iconKey: "Hammer", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
-    isPlace: true, bookingMode: "ROOM",
+    isPlace: true, bookingMode: "ROOM", description: "A machine shop or practical workshop: a bookable room.",
     fields: [
       { key: "block", label: "Block", type: "TEXT", summary: true, required: true },
       { key: "room", label: "Room", type: "TEXT", summary: true, required: true },
@@ -131,7 +139,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   },
   {
     key: "studio", name: "Studio", iconKey: "PencilRuler", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
-    isPlace: true, bookingMode: "ROOM",
+    isPlace: true, bookingMode: "ROOM", description: "A design studio (architecture, planning): a bookable room.",
     fields: [
       { key: "block", label: "Block", type: "TEXT", summary: true, required: true },
       { key: "room", label: "Room", type: "TEXT", summary: true, required: true },
@@ -141,7 +149,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   },
   {
     key: "store", name: "Store", iconKey: "Warehouse", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
-    isPlace: true,
+    isPlace: true, description: "Where stock and spares are kept: the Main Store, a college store or a department's.",
     fields: [
       { key: "level", label: "Level", type: "ENUM", options: ["Main store", "College store", "Department store"], summary: true, required: true },
       { key: "block", label: "Block", type: "TEXT", summary: true },
@@ -149,7 +157,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
     ],
   },
   {
-    key: "setup", name: "Workstation Setup", iconKey: "Boxes", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "setup", name: "Workstation Setup", iconKey: "Boxes", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     defaultChildren: [
       { key: "computer", qty: 1, critical: true },
       { key: "table", qty: 1, critical: false },
@@ -157,7 +165,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
     ],
   },
   {
-    key: "computer", name: "Computer", iconKey: "Laptop", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "computer", name: "Computer", iconKey: "Laptop", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     fields: [
       { key: "brand", label: "Brand", type: "ENUM", options: ["Dell", "HP", "Lenovo", "Custom build"], summary: true },
       { key: "model", label: "Model", type: "TEXT", summary: true },
@@ -174,7 +182,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
     ],
   },
   {
-    key: "motherboard", name: "Motherboard", iconKey: "Cpu", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "motherboard", name: "Motherboard", iconKey: "Cpu", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     fields: [{ key: "model", label: "Model", type: "TEXT", summary: true }],
     defaultChildren: [
       { key: "ram", qty: 1, critical: true },
@@ -183,38 +191,38 @@ const CATEGORY_SPECS: CategorySpec[] = [
     ],
   },
   {
-    key: "ram", name: "RAM", iconKey: "MemoryStick", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "ram", name: "RAM", iconKey: "MemoryStick", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     fields: [
       { key: "ddrType", label: "DDR type", type: "ENUM", options: ["DDR3", "DDR4", "DDR5"], summary: true },
       { key: "sizeGB", label: "Size", type: "NUMBER", unit: "GB", summary: true },
     ],
   },
   {
-    key: "storage", name: "Storage", iconKey: "HardDrive", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "storage", name: "Storage", iconKey: "HardDrive", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     fields: [
       { key: "kind", label: "Kind", type: "ENUM", options: ["SSD", "HDD"], summary: true },
       { key: "sizeGB", label: "Size", type: "NUMBER", unit: "GB", summary: true },
     ],
   },
   {
-    key: "gpu", name: "GPU", iconKey: "CircuitBoard", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "gpu", name: "GPU", iconKey: "CircuitBoard", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     fields: [
       { key: "model", label: "Model", type: "TEXT", summary: true },
       { key: "memGB", label: "Memory", type: "NUMBER", unit: "GB", summary: true },
     ],
   },
   {
-    key: "monitor", name: "Monitor", iconKey: "Monitor", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "monitor", name: "Monitor", iconKey: "Monitor", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     fields: [
       { key: "brand", label: "Brand", type: "ENUM", options: ["Dell", "HP", "Samsung", "LG"], summary: true },
       { key: "sizeIn", label: "Size", type: "NUMBER", unit: '"', summary: true },
     ],
   },
-  { key: "keyboard", name: "Keyboard", iconKey: "Keyboard", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
-  { key: "mouse", name: "Mouse", iconKey: "Mouse", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
-  { key: "speaker", name: "Speaker", iconKey: "Speaker", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
+  { key: "keyboard", name: "Keyboard", iconKey: "Keyboard", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
+  { key: "mouse", name: "Mouse", iconKey: "Mouse", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
+  { key: "speaker", name: "Speaker", iconKey: "Speaker", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
   {
-    key: "cable", name: "Cable", iconKey: "Cable", group: "IT", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
+    key: "cable", name: "Cable", iconKey: "Cable", group: "Computing & AV", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
     fields: [{ key: "kind", label: "Kind", type: "ENUM", options: ["Power", "HDMI", "VGA", "Ethernet"], summary: true }],
   },
   {
@@ -232,32 +240,31 @@ const CATEGORY_SPECS: CategorySpec[] = [
     ],
   },
   { key: "outlet", name: "Network Outlet", iconKey: "Link2", group: "Network", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
-  { key: "table", name: "Table", iconKey: "Table2", group: "Furniture", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
-  { key: "chair", name: "Chair", iconKey: "Armchair", group: "Furniture", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
-  { key: "whiteboard", name: "Whiteboard", iconKey: "Presentation", group: "Furniture", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
+  { key: "table", name: "Table", iconKey: "Table2", group: "Furniture & safety", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
+  { key: "chair", name: "Chair", iconKey: "Armchair", group: "Furniture & safety", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
+  { key: "whiteboard", name: "Whiteboard", iconKey: "Presentation", group: "Furniture & safety", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL" },
   {
-    key: "chemical", name: "Chemical", iconKey: "FlaskConical", group: "Chemical", countingMode: "BULK", unit: "ml", impairRule: "ANY_CRITICAL",
-    fields: [
-      { key: "casNumber", label: "CAS no.", type: "TEXT", summary: true },
-      { key: "hazard", label: "Hazard", type: "ENUM", options: ["Corrosive", "Flammable", "Toxic", "Oxidiser", "Irritant", "None"], summary: true },
-      { key: "purity", label: "Purity", type: "NUMBER", unit: "%" },
-    ],
+    key: "chemical", name: "Chemical or reagent", iconKey: "FlaskConical", group: "Chemicals & consumables", countingMode: "BULK", unit: "ml", impairRule: "ANY_CRITICAL",
+    description: "A chemical or reagent, counted by quantity, with its hazard, grade, storage and expiry.",
+    fields: CHEMICAL_FIELDS,
   },
   {
-    key: "glassware", name: "Glassware", iconKey: "Beaker", group: "Chemical", countingMode: "BULK", unit: "pcs", impairRule: "ANY_CRITICAL",
+    key: "glassware", name: "Glassware", iconKey: "Beaker", group: "Chemicals & consumables", countingMode: "BULK", unit: "pcs", impairRule: "ANY_CRITICAL",
     fields: [
-      { key: "type", label: "Type", type: "ENUM", options: ["Beaker", "Flask", "Pipette", "Burette"], summary: true },
+      { key: "type", label: "Type", type: "ENUM", options: ["Beaker", "Flask", "Pipette", "Burette", "Measuring cylinder", "Test tube", "Petri dish", "Funnel", "Other"], summary: true },
       { key: "volumeMl", label: "Volume", type: "NUMBER", unit: "ml", summary: true },
     ],
   },
 ];
 
-const GROUP_NAMES = ["Places", "IT", "Network", "Furniture", "Chemical"] as const;
+const GROUP_NAMES = ["Places", "Computing & AV", "Network", "Furniture & safety", "Chemicals & consumables"] as const;
 /** The synthetic fixture's own groups plus the Chemical Engineering department's
  *  real category groupings (real-data-seed.ts) — one combined category vocabulary,
  *  created together so both sit in the same category picker. */
-const ALL_GROUP_NAMES = [...GROUP_NAMES, ...REAL_GROUP_NAMES];
-const ALL_CATEGORY_SPECS = [...CATEGORY_SPECS, ...REAL_CATEGORY_SPECS];
+const ALL_GROUP_NAMES = [...GROUP_NAMES, ...CATALOGUE_GROUPS, ...REAL_GROUP_NAMES];
+/** The fixture's categories, the ASTU catalogue (prisma/catalogue-data.ts), and
+ *  Chemical Engineering's own — looked after by that department. */
+const ALL_CATEGORY_SPECS: CategorySpec[] = [...CATEGORY_SPECS, ...CATALOGUE_SPECS, ...REAL_CATEGORY_SPECS.map((spec) => ({ ...spec, steward: "CHEM" }))];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wipe — leaves-first for Item (self-referential onDelete: Restrict means an
@@ -290,6 +297,7 @@ async function createCategories(): Promise<{ categories: Record<string, Category
     groupId.set(ALL_GROUP_NAMES[i], row.id);
   }
 
+  const stewards = new Map((await prisma.orgNode.findMany({ where: { code: { not: null } }, select: { id: true, code: true } })).map((n) => [n.code!, n.id]));
   const idByKey = new Map<string, string>();
   for (const spec of ALL_CATEGORY_SPECS) {
     const row = await prisma.resourceCategory.create({
@@ -304,6 +312,8 @@ async function createCategories(): Promise<{ categories: Record<string, Category
         isPlace: spec.isPlace ?? false,
         bookingMode: spec.bookingMode ?? "NOT_BOOKABLE",
         publicListed: spec.publicListed ?? false,
+        description: spec.description ?? null,
+        stewardNodeId: spec.steward ? (stewards.get(spec.steward) ?? null) : null,
         fields: spec.fields?.length
           ? {
               create: spec.fields.map((f, i) => ({
@@ -315,6 +325,7 @@ async function createCategories(): Promise<{ categories: Record<string, Category
                 summary: f.summary ?? false,
                 required: f.required ?? false,
                 longText: f.longText ?? false,
+                hint: f.hint ?? null,
                 sortOrder: i,
               })),
             }

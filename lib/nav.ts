@@ -100,7 +100,7 @@ export const META: Record<string, [string, string, string]> = {
   approvals: ["", "Approvals", "Requests routed to you, and what you have asked for yourself"],
   purchasing: ["", "Purchasing", "Needs raised, purchase requests, and what has arrived"],
   "change-log": ["", "Change log", "Every applied change, who made it, and when"],
-  categories: ["", "Categories", "The typed schema every resource is filed under"],
+  categories: ["", "Categories", "The kinds of things we record, and the details each one keeps"],
 
   "admin-dashboard": ["Administration ›", "Overview", "Org nodes, personnel, and where to start"],
   "admin-people": ["Administration ›", "People & roles", "Invite someone, change what they may do, or retire their account"],

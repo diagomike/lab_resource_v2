@@ -20,11 +20,12 @@ import type { Category, CustomProp, FieldDef, FieldType, Item, ItemImage, PropVa
  * translation at each call site.
  */
 
-const FIELD_TYPE: Record<PrismaCategoryField["type"], FieldType> = {
+export const FIELD_TYPE: Record<PrismaCategoryField["type"], FieldType> = {
   TEXT: "text",
   NUMBER: "number",
   ENUM: "enum",
   BOOLEAN: "boolean",
+  DATE: "date",
 };
 
 function decimalToNumber(v: Prisma.Decimal | number): number {

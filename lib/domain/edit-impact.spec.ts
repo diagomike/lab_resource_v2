@@ -80,12 +80,14 @@ describe("categoryImpact", () => {
     item("c", { props: { brand: null, type: "Desktop" } }),
   ];
 
-  it("counts the items holding a value for a removed field", () => {
+  it("counts the items holding a value for a removed field — kept as an extra detail, not lost", () => {
     const after = category({ fields: [category().fields[1]] }); // drop `brand`
     const note = categoryImpact(category(), after, items).find((n) => n.id === "cat-field-removed-brand")!;
-    expect(note.severity).toBe("destructive");
+    expect(note.severity).toBe("warning");
     expect(note.detail).toContain("2 items");
+    expect(note.detail).toContain("extra detail");
     expect(note.orphanKeys).toEqual(["brand"]);
+    expect(note.examples).toHaveLength(2);
   });
 
   it("downgrades a removal nothing is using to a warning with no orphans", () => {
@@ -99,16 +101,18 @@ describe("categoryImpact", () => {
   it("counts values that cannot survive a type change", () => {
     const after = category({ fields: [{ key: "brand", label: "Brand", type: "number" }, category().fields[1]] });
     const note = categoryImpact(category(), after, items).find((n) => n.id === "cat-field-type-brand")!;
-    expect(note.severity).toBe("destructive");
+    expect(note.severity).toBe("warning");
     // "Dell" and "HP" are not numbers; the null is not counted.
-    expect(note.detail).toContain("2 stored values");
+    expect(note.detail).toContain("2 values can't be read as a number");
+    expect(note.orphanKeys).toEqual(["brand"]);
   });
 
   it("counts items stranded by dropping an enum choice", () => {
     const after = category({ fields: [category().fields[0], { key: "type", label: "Type", type: "enum", options: ["Desktop"] }] });
     const note = categoryImpact(category(), after, items).find((n) => n.id === "cat-option-type-Laptop")!;
-    expect(note.severity).toBe("destructive");
+    expect(note.severity).toBe("warning");
     expect(note.detail).toContain("1 item");
+    expect(note.optionMove).toEqual({ key: "type", label: "Type", option: "Laptop", count: 1 });
   });
 
   it("treats a default-parts change as future-only, not destructive", () => {

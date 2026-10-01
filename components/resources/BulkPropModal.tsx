@@ -91,7 +91,7 @@ export function BulkPropModal({
         ) : (
           <input
             autoFocus
-            type={field.type === "NUMBER" ? "number" : "text"}
+            type={field.type === "NUMBER" ? "number" : field.type === "DATE" ? "date" : "text"}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={field.unit ? `Value in ${field.unit}` : "New value"}

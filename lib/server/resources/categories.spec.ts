@@ -368,39 +368,65 @@ describe("F-029 — required fields", () => {
   });
 });
 
-describe("F-028 — a field type change cannot leave unreadable values behind", () => {
-  it("is refused while an item holds an incompatible value, and allowed when the field is purged in the same save", async () => {
-    const cat = await categories.create(sysAdminId, {
-      key: key("type-change"), name: "F028 Type", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
-      isPlace: true, templateChildren: [],
-      fields: [{ key: "reading", label: "Reading", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
-    });
+describe("F-028 — changing a detail never loses what items hold", () => {
+  const field = (over: Record<string, unknown>) => ({ label: "Reading", type: "TEXT" as const, options: [], summary: false, longText: false, required: false, sortOrder: 0, ...over });
+
+  async function withItems(name: string, fields: ReturnType<typeof field>[], props: Record<string, unknown>[]) {
+    const cat = await categories.create(sysAdminId, { name: `${name} ${Date.now()}`, iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: true, templateChildren: [], fields });
     const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
-    const item = await prisma.item.create({
-      data: { categoryId: cat.id, name: "F028 Item", countingMode: "SERIALIZED", qty: 1, status: "WORKING", props: { reading: "about five" }, ownerOrgNodeId: orgNode.id, currentOrgNodeId: orgNode.id, custodianId: sysAdminId },
-    });
-    const numeric = [{ key: "reading", label: "Reading", type: "NUMBER" as const, options: [], summary: false, longText: false, required: false, sortOrder: 0 }];
+    const items: { id: string }[] = [];
+    for (const [i, p] of props.entries()) {
+      items.push(
+        await prisma.item.create({
+          data: { categoryId: cat.id, name: `${name} ${i + 1}`, countingMode: "SERIALIZED", qty: 1, status: "WORKING", props: p as never, ownerOrgNodeId: orgNode.id, currentOrgNodeId: orgNode.id, custodianId: sysAdminId },
+        }),
+      );
+    }
+    const read = async () => (await prisma.item.findMany({ where: { id: { in: items.map((i) => i.id) } }, orderBy: { name: "asc" } })).map((i) => ({ props: i.props as Record<string, unknown>, customProps: i.customProps as Record<string, { value: unknown }> }));
+    const cleanup = () => prisma.item.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
+    return { cat, read, cleanup };
+  }
 
-    await expect(categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, fields: numeric, purgeKeys: [] })).rejects.toMatchObject({ status: 409 });
-    expect((await categories.getOne(cat.id)).fields[0].type).toBe("TEXT");
-
-    const done = await categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, fields: numeric, purgeKeys: ["reading"] });
-    expect(done.fields[0].type).toBe("NUMBER");
-    const after = await prisma.item.findUniqueOrThrow({ where: { id: item.id } });
-    expect((after.props as Record<string, unknown>).reading).toBeUndefined();
-    await prisma.item.delete({ where: { id: item.id } });
+  it("gives new details and categories keys of their own — nobody types a key", async () => {
+    const cat = await categories.create(sysAdminId, { name: `Generated Keys ${Date.now()}`, iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: false, templateChildren: [], fields: [field({ label: "RAM" }), field({ label: "Ram size" })] });
+    expect(cat.key).toMatch(/^generated-keys-/);
+    expect(cat.fields.map((f) => f.key)).toEqual(["ram", "ram_size"]);
+    const next = await categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, fields: [...cat.fields.map((f) => ({ ...f, unit: f.unit ?? undefined })), field({ label: "RAM!", sortOrder: 2 })] });
+    expect(next.fields.map((f) => f.key)).toEqual(["ram", "ram_size", "ram_2"]);
   });
 
-  it("allows a change every stored value survives", async () => {
-    const cat = await categories.create(sysAdminId, {
-      key: key("type-safe"), name: "F028 Safe", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
-      isPlace: true, templateChildren: [],
-      fields: [{ key: "reading", label: "Reading", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
-    });
-    const done = await categories.update(sysAdminId, cat.id, {
-      expectedVersion: cat.version, purgeKeys: [],
-      fields: [{ key: "reading", label: "Reading", type: "NUMBER", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
-    });
+  it("text to number converts what it can and keeps the rest on each item as an extra detail", async () => {
+    const { cat, read, cleanup } = await withItems("F028 Convert", [field({ key: "reading" })], [{ reading: "16 GB" }, { reading: "about five" }]);
+    const done = await categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, fields: [field({ key: "reading", type: "NUMBER" })] });
     expect(done.fields[0].type).toBe("NUMBER");
+    const [a, b] = await read();
+    expect(a.props.reading).toBe(16);
+    expect(b.props.reading).toBeUndefined();
+    expect(b.customProps["Earlier Reading"]).toMatchObject({ value: "about five" });
+    await cleanup();
+  });
+
+  it("erases leftovers only when asked", async () => {
+    const { cat, read, cleanup } = await withItems("F028 Erase", [field({ key: "reading" })], [{ reading: "about five" }]);
+    await categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, fields: [field({ key: "reading", type: "NUMBER" })], purgeKeys: ["reading"] });
+    const [a] = await read();
+    expect(a.props.reading).toBeUndefined();
+    expect(a.customProps).toEqual({});
+    await cleanup();
+  });
+
+  it("fills a newly required detail, and moves a removed choice's values", async () => {
+    const level = (options: string[]) => field({ key: "level", label: "Level", type: "ENUM", options });
+    const { cat, read, cleanup } = await withItems("F028 Fill", [level(["Central", "Departmental"]), field({ key: "block", label: "Block", sortOrder: 1 })], [{ level: "Central", block: "5" }, { level: "Departmental" }]);
+    await categories.update(sysAdminId, cat.id, {
+      expectedVersion: cat.version,
+      fields: [level(["Main store", "Department store"]), field({ key: "block", label: "Block", required: true, sortOrder: 1 })],
+      fills: { block: "Unknown" },
+      optionMoves: { level: { Central: "Main store", Departmental: "Department store" } },
+    });
+    const [a, b] = await read();
+    expect(a.props).toEqual({ level: "Main store", block: "5" });
+    expect(b.props).toEqual({ level: "Department store", block: "Unknown" });
+    await cleanup();
   });
 });

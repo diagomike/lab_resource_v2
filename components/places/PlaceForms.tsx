@@ -65,7 +65,7 @@ export function DetailFields({ fields, draft, onChange }: { fields: CategoryFiel
           ) : f.longText ? (
             <textarea value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} rows={2} className={`${inputCls} h-auto py-6`} />
           ) : (
-            <input value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} type={f.type === "NUMBER" ? "number" : "text"} className={inputCls} />
+            <input value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} type={f.type === "NUMBER" ? "number" : f.type === "DATE" ? "date" : "text"} placeholder={f.hint ?? undefined} className={inputCls} />
           )}
         </label>
       ))}

@@ -19,7 +19,8 @@ import type { OrgNodeKind, RoleKind } from "@/lib/shared";
 // ── Categories ───────────────────────────────────────────────────────────
 
 export type CountingMode = "SERIALIZED" | "BULK";
-export type FieldType = "text" | "number" | "enum" | "boolean";
+/** "date" values are stored as "YYYY-MM-DD" text (calibration due, expiry). */
+export type FieldType = "text" | "number" | "enum" | "boolean" | "date";
 
 /** One "defined metric" on a category: Computer has model, serial, brand, type. */
 export interface FieldDef {

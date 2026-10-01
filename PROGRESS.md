@@ -4891,3 +4891,52 @@ its model that make porting it as-is the wrong move.
     - The browser pane was unavailable, so this was a read-only API smoke on the production build with mail off, one
       login per role. The CSE head manages 31 CSE places and may add only in CSE. A CSE custodian runs 2 and manages
       none. Property Admin manages the Main Store. The admin manages all 39.
+
+- **2026-10-01 (UX-flow round, P3: categories that can't be broken, and who looks after them)**
+  - **The editor bugs the user listed, fixed at the root:**
+    - **Keys:** nobody types a storage key anymore. A new detail's key comes from its label and is unique against
+      every key in use (`room`, `room_2`); an existing detail keeps its key for ever. A category's key comes from its
+      name. So a collision can't happen and nothing can be "locked" by one (`lib/domain/field-migration.ts`
+      `fieldKeyFor`, `categoryKeyFor`).
+    - **Renaming a detail that holds values** asks: "the same detail, renamed?" or "a new detail". The second keeps
+      the old one and adds a new one (the Seats → Room Number corruption).
+    - **Changing a type converts, it doesn't purge or refuse:** "16 GB" → 16, "yes" → true, text → choice (options
+      start from the values in use), any → text, dates "1/3/2027" → 2027-03-01. What can't convert stays on its item
+      as an extra detail ("Earlier Room"); erasing is an explicit choice. A removed detail's values are kept the same
+      way, so nothing is ever stranded unseen (`planCategoryMigration`, applied inside the edit's transaction).
+    - **A removed choice in use:** the review asks which option its items move to (or keep it as an extra detail).
+    - **Making a detail required** on a category with items offers "fill them with ___" or leave blank. Items the
+      system creates (import loads: `applyChange(..., { systemCreate: true })`) are never refused for a required
+      detail.
+    - New **Date** detail type (calibration due, expiry), a per-detail **example hint** ("e.g. 64-17-5"), a
+      **description** per category, unique category names and detail names.
+  - **Governance** (`lib/domain/category-governance.ts` + `lib/server/resources/category-governance.ts`):
+    - custodians and heads add categories for their department (it looks after them — `stewardNodeId`); the
+      admin and Property Admin add university-wide ones; the head is told when a custodian adds or changes one;
+    - an edit that only adds applies at once; one that changes what items hold (retype/rename/remove a detail with
+      values, a choice in use, a new required detail, counting, failure rule, booking, portal) waits for the
+      proposer's head as a `CategoryChange`; reaching other departments' items it also passes the admin, then
+      Property Administration. The admin and Property Admin apply directly. A vacant head's stage is skipped.
+    - approval applies against the version it was proposed on; if the category moved on, it goes **stale** and the
+      proposer is asked to redo it. Proposers can withdraw. "Make a copy for my department" is offered — and
+      recommended for cross-department changes. Labs, workshops, studios and stores stay with Property Admin.
+    - Migration `20261001230000_category_governance` (DATE type, hint, description, steward, createdBy,
+      `CategoryChange`). Routes: categories POST/PATCH/DELETE through governance, `[id]/impact` (adds who decides),
+      `[id]/copy`, `[id]/field-usage` (counts + distinct values), `category-changes`, `…/[id]/decide|withdraw`.
+  - **UI:** Categories page with search, `?id=`/`?change=`/`?new=1` links, an unsaved-edits guard, "Waiting for your
+    approval" at the top; the editor in plain words (Details to record, Comes with, More options; common details in
+    one click; reorder; review step saying "applies now" or "waits for: the head of CSE → …"); a Category changes
+    panel on Approvals; date inputs and hints everywhere values are typed.
+  - **Catalogue (seed, not yet loaded):** `prisma/catalogue-data.ts` — 125 categories across ASTU's colleges
+    (computing & AV, furniture & safety, electrical, mechanical, materials testing, civil/water/surveying,
+    architecture, analytical & life sciences, geology & physics), each instrument with the shared record-keeping
+    details; bookable/portal flags; a richer "Chemical or reagent" (GHS hazard, grade, storage, expiry). ChemE's own
+    categories are looked after by CHEM.
+  - **Fixed in passing:** saving a category whose icon is a lucide alias (Layers3, Waves — ChemE's) was refused as
+    "unknown icon".
+  - **Checks:** `tsc` clean, 564/564 tests (new: field-migration 12, category-governance 9 + 12 DB-backed, F-028
+    rewritten), `next build` clean; API smoke on the production build (custodian creates/removes a category, is
+    refused on Lab; the admin's preview of Lab Room → number lists the 36 values that would be kept).
+  - **Waiting on the user:** the single dev reseed (`migrate reset` + seeds: ASTU org with ADAA offices, the
+    catalogue, block/room on labs) needs their go-ahead. A backup is at
+    `backups/lrms_v2-2026-10-01-before-p2-reseed.dump`.

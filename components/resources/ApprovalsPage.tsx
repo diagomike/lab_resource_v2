@@ -10,8 +10,7 @@ import type {
   PurchaseAttachmentDto,
   PurchaseRequestDto,
   ReservationDto,
-  ResourceCategoryDto,
-} from "@/lib/shared";
+  ResourceCategoryDto, CategoryChangesDto } from "@/lib/shared";
 import { CHANGE_LABEL } from "@/lib/domain/types";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
@@ -22,6 +21,7 @@ import { HistoryTimeline } from "./PurchasingPage";
 import { AttachmentPicker, RequestDocuments, discardAttachments } from "./PurchaseAttachments";
 import { STAGE_LABEL } from "@/lib/domain/purchasing";
 import { LabCommitCard } from "./LabCommitCard";
+import { CategoryChangeCard } from "./CategoryChangeCard";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
 
@@ -518,6 +518,44 @@ function PurchasingPanel({ viewerId }: { viewerId: string }) {
   );
 }
 
+/** Category changes that touch data: those waiting for this person, and their own. */
+function CategoryChangesPanel() {
+  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
+  const [data, setData] = useState<CategoryChangesDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    setError(null);
+    api
+      .get<CategoryChangesDto>("/resources/category-changes")
+      .then(setData)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load category changes"));
+  }
+  useEffect(load, []);
+
+  const rows = data ? (tab === "inbox" ? data.waiting : data.mine) : null;
+  // Nothing to show either way: keep the page short.
+  if (data && !data.waiting.length && !data.mine.length) return null;
+  return (
+    <>
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <Panel title="Category changes" actions={<TabBar tab={tab} onChange={setTab} />}>
+        {rows === null ? (
+          <PanelLoading rows={2} />
+        ) : rows.length === 0 ? (
+          <div className="px-14 py-14 text-11.5 text-dim">{tab === "inbox" ? "Nothing waiting on your decision." : "You haven't proposed any category changes lately."}</div>
+        ) : (
+          <div className="p-12 flex flex-col gap-10">
+            {rows.map((c) => (
+              <CategoryChangeCard key={c.id} change={c} onChanged={load} />
+            ))}
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ApprovalsPage() {
@@ -529,6 +567,7 @@ export default function ApprovalsPage() {
       <TransfersPanel viewerId={user.id} />
       <LabCommitsPanel />
       <PurchasingPanel viewerId={user.id} />
+      <CategoryChangesPanel />
       {user.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN") && <BookingsPanel />}
     </Screen>
   );

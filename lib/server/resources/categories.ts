@@ -1,13 +1,16 @@
 import "server-only";
 import { Prisma, type PrismaClient } from "@prisma/client";
-import type { CategoryFieldType, CategoryImpactDto, CreateCategoryInput, ResourceCategoryDto, UpdateCategoryInput } from "@/lib/shared";
+import type { CategoryFieldType, CategoryImpactDto, CreateCategoryInput, ItemPropValue, ResourceCategoryDto, UpdateCategoryInput } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
-import { categoryImpact, coerces } from "@/lib/domain/edit-impact";
+import { categoryImpact } from "@/lib/domain/edit-impact";
+import { categoryKeyFor, distinctValues, fieldKeyFor, planCategoryMigration } from "@/lib/domain/field-migration";
 import { icons as LUCIDE_ICONS } from "lucide-react";
-import type { Category } from "@/lib/domain/types";
-import { toDomainCategory, toDomainItem } from "./adapt";
+import { CATEGORY_ICONS } from "@/lib/domain/icons";
+import type { Category, Item } from "@/lib/domain/types";
+import { FIELD_TYPE, toDomainCategory, toDomainItem } from "./adapt";
 import { wouldCreateTemplateCycle } from "./template-cycle";
+import { validatePropWrite } from "./category-props";
 import { LIVE_STATES } from "../scheduling/context";
 
 type Tx = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
@@ -16,15 +19,21 @@ const CATEGORY_INCLUDE = {
   group: { select: { name: true } },
   fields: { orderBy: { sortOrder: "asc" as const } },
   templateAsParent: { include: { childCategory: { select: { name: true } } } },
+  steward: { select: { name: true } },
+  createdBy: { select: { name: true } },
+  _count: { select: { changes: { where: { status: "PENDING" as const } } } },
 } as const;
 
-type CategoryRow = Awaited<ReturnType<typeof loadOne>>;
+type CategoryRow = NonNullable<Awaited<ReturnType<typeof loadOne>>>;
 
-async function loadOne(id: string) {
-  return prisma.resourceCategory.findUnique({ where: { id }, include: CATEGORY_INCLUDE });
+async function loadOne(id: string, client: Tx = prisma) {
+  return client.resourceCategory.findUnique({ where: { id }, include: CATEGORY_INCLUDE });
 }
 
-function toDto(row: NonNullable<CategoryRow>): ResourceCategoryDto {
+/** The university-wide steward's name, for categories no department looks after. */
+const UNIVERSITY_STEWARD = "Property Administration (university-wide)";
+
+function toDto(row: CategoryRow): ResourceCategoryDto {
   return {
     id: row.id,
     key: row.key,
@@ -41,6 +50,12 @@ function toDto(row: NonNullable<CategoryRow>): ResourceCategoryDto {
     isPlace: row.isPlace,
     bookingMode: row.bookingMode,
     publicListed: row.publicListed,
+    description: row.description,
+    stewardNodeId: row.stewardNodeId,
+    stewardName: row.steward?.name ?? UNIVERSITY_STEWARD,
+    createdById: row.createdById,
+    createdByName: row.createdBy?.name ?? null,
+    pendingChanges: row._count.changes,
     fields: row.fields.map((f) => ({
       id: f.id,
       key: f.key,
@@ -52,6 +67,7 @@ function toDto(row: NonNullable<CategoryRow>): ResourceCategoryDto {
       longText: f.longText,
       required: f.required,
       sortOrder: f.sortOrder,
+      hint: f.hint,
     })),
     templateChildren: row.templateAsParent.map((c) => ({
       id: c.id,
@@ -86,41 +102,36 @@ export async function usageCounts(): Promise<Record<string, number>> {
   return Object.fromEntries(rows.map((r) => [r.categoryId, r._count._all]));
 }
 
-/** How many items already hold a non-empty value under each of this category's field
- *  keys — what locks a field's key input in the Studio editor (renaming a key in use
- *  would silently strand its values) and what the impact preview's own field-removed
- *  note counts. Scoped to ONE category at a time — an editor only ever needs this for
- *  the category currently open, not every row in a list. */
-export async function fieldUsageCounts(categoryId: string): Promise<Record<string, number>> {
-  const items = await prisma.item.findMany({ where: { categoryId, deletedAt: null }, select: { props: true } });
+/** For each detail of one category: how many items hold a value, and the distinct
+ *  values (up to 40) — what the editor shows ("25 in use"), asks about before a rename,
+ *  and turns into a choice's options when a text detail becomes a choice. */
+export async function fieldUsage(categoryId: string): Promise<{ counts: Record<string, number>; values: Record<string, string[]> }> {
+  const row = await loadOne(categoryId);
+  if (!row) throw new HttpError(404, "Category not found");
+  const items = (await prisma.item.findMany({ where: { categoryId, deletedAt: null } })).map((i) => toDomainItem(i));
   const counts: Record<string, number> = {};
-  for (const item of items) {
-    const props = item.props as Record<string, unknown>;
-    for (const [key, value] of Object.entries(props)) {
-      if (value === null || value === undefined || value === "") continue;
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
+  const values: Record<string, string[]> = {};
+  for (const f of row.fields) {
+    counts[f.key] = items.filter((i) => i.props[f.key] !== null && i.props[f.key] !== undefined && i.props[f.key] !== "").length;
+    if (counts[f.key]) values[f.key] = distinctValues(items, f.key, { key: f.key, label: f.label, type: FIELD_TYPE[f.type], unit: f.unit ?? undefined });
   }
-  return counts;
+  return { counts, values };
 }
 
 function assertEnumFieldsHaveOptions(fields: { type: CategoryFieldType; options: string[]; label: string }[]): void {
   for (const f of fields) {
     if (f.type === "ENUM" && f.options.length === 0) {
-      throw new HttpError(400, `"${f.label}" is an enum field and needs at least one option`);
+      throw new HttpError(400, `“${f.label}” is a choice and needs at least one option`);
     }
   }
 }
 
-/** Two categories filed under the same storage key would silently overwrite each
- *  other's stored values — caught here as a clean 400 rather than left to become a
- *  Zod-schema-compile surprise the first time category-props.ts builds a shape from
- *  these rows. */
-function assertNoDuplicateFieldKeys(fields: { key: string }[]): void {
+function assertNoDuplicateLabels(fields: { label: string }[]): void {
   const seen = new Set<string>();
   for (const f of fields) {
-    if (seen.has(f.key)) throw new HttpError(400, `The field key "${f.key}" is used more than once`);
-    seen.add(f.key);
+    const k = f.label.trim().toLowerCase();
+    if (seen.has(k)) throw new HttpError(400, `Two details are called “${f.label.trim()}” — give each its own name`);
+    seen.add(k);
   }
 }
 
@@ -137,9 +148,7 @@ function assertNoDuplicateTemplateChildren(children: { childCategoryId: string }
 
 /** Every default-child id must exist, and adding this set must not create a direct or
  *  indirect cycle in the template graph (`wouldCreateTemplateCycle` covers direct
- *  self-reference too — a category cannot be built from itself). Takes a `client`
- *  parameter (plain `prisma` from `create`, the transaction's `tx` from `update`) so
- *  the same validation runs whether or not it is already inside a transaction. */
+ *  self-reference too — a category cannot be built from itself). */
 async function assertTemplateChildrenValid(client: Tx, parentId: string | null, childCategoryIds: string[]): Promise<void> {
   if (!childCategoryIds.length) return;
   const found = await client.resourceCategory.findMany({ where: { id: { in: childCategoryIds } }, select: { id: true } });
@@ -164,87 +173,175 @@ function assertBookableCountingMode(bookingMode: string | undefined, countingMod
 
 /** F-030: an unknown icon key silently rendered the fallback glyph; refuse it at the door. */
 function assertKnownIcon(iconKey: string | undefined): void {
-  if (iconKey !== undefined && !Object.prototype.hasOwnProperty.call(LUCIDE_ICONS, iconKey)) {
+  // The curated set (lib/domain/icons.ts) includes lucide aliases — Layers3, Waves —
+  // that lucide's own `icons` map lists only under their newer names.
+  if (iconKey !== undefined && !Object.prototype.hasOwnProperty.call(LUCIDE_ICONS, iconKey) && !Object.prototype.hasOwnProperty.call(CATEGORY_ICONS, iconKey)) {
     throw new HttpError(400, "Unknown icon \"" + iconKey + "\" — pick one from the icon list.");
   }
 }
 
-export async function create(actorId: string, input: CreateCategoryInput): Promise<ResourceCategoryDto> {
+type FieldInput = NonNullable<UpdateCategoryInput["fields"]>[number];
+type KeyedField = FieldInput & { key: string };
+
+/**
+ * A detail's key is its identity, never shown: an existing detail keeps the key it has;
+ * a new one is given one from its label, unique against every key in use or used
+ * before (`taken`) — so two details can never collide, whatever they are called.
+ */
+function withKeys(fields: FieldInput[], taken: string[]): KeyedField[] {
+  const given = fields.map((f) => f.key).filter((k): k is string => !!k);
+  if (new Set(given).size !== given.length) throw new HttpError(400, "Two details share one identity — reload the category and try again");
+  const used = new Set([...taken, ...given]);
+  return fields.map((f) => {
+    if (f.key) return { ...f, key: f.key };
+    const key = fieldKeyFor(f.label, used);
+    used.add(key);
+    return { ...f, key };
+  });
+}
+
+const fieldRowData = (f: KeyedField, i: number) => ({
+  key: f.key,
+  label: f.label.trim(),
+  type: f.type,
+  options: f.type === "ENUM" ? f.options.map((o) => o.trim()).filter(Boolean) : [],
+  unit: f.type === "NUMBER" ? (f.unit?.trim() || null) : null,
+  summary: f.summary,
+  longText: f.type === "TEXT" ? f.longText : false,
+  required: f.required,
+  sortOrder: i,
+  hint: f.hint?.trim() || null,
+});
+
+export async function create(actorId: string, input: CreateCategoryInput, opts: { stewardNodeId?: string | null } = {}): Promise<ResourceCategoryDto> {
   assertKnownIcon(input.iconKey);
   assertBookableCountingMode(input.bookingMode, input.countingMode);
   assertEnumFieldsHaveOptions(input.fields);
-  assertNoDuplicateFieldKeys(input.fields);
+  assertNoDuplicateLabels(input.fields);
   assertNoDuplicateTemplateChildren(input.templateChildren);
   const group = await prisma.categoryGroup.findUnique({ where: { id: input.groupId } });
   if (!group) throw new HttpError(400, "Choose an existing group");
-  const existingKey = await prisma.resourceCategory.findUnique({ where: { key: input.key } });
-  if (existingKey) throw new HttpError(400, `A category with key "${input.key}" already exists`);
+  const takenNames = await prisma.resourceCategory.findFirst({ where: { name: { equals: input.name.trim(), mode: "insensitive" } }, select: { id: true } });
+  if (takenNames) throw new HttpError(400, `A category called “${input.name.trim()}” already exists — open it, or give this one a more specific name`);
+  let key = input.key;
+  if (key) {
+    if (await prisma.resourceCategory.findUnique({ where: { key } })) throw new HttpError(400, `A category with key "${key}" already exists`);
+  } else {
+    key = categoryKeyFor(input.name, (await prisma.resourceCategory.findMany({ select: { key: true } })).map((r) => r.key));
+  }
   await assertTemplateChildrenValid(prisma, null, input.templateChildren.map((c) => c.childCategoryId));
+  const fields = withKeys(input.fields, []);
 
   let created;
   try {
     created = await prisma.$transaction(async (tx) => {
       const row = await tx.resourceCategory.create({
         data: {
-          key: input.key,
+          key: key!,
           name: input.name,
           iconKey: input.iconKey,
           groupId: input.groupId,
           countingMode: input.countingMode,
-          unit: input.unit ?? null,
+          unit: input.countingMode === "BULK" ? (input.unit ?? null) : null,
           impairRule: input.impairRule,
           isPlace: input.isPlace,
           bookingMode: input.bookingMode ?? "NOT_BOOKABLE",
           publicListed: input.publicListed ?? false,
+          description: input.description || null,
+          stewardNodeId: opts.stewardNodeId ?? null,
+          createdById: actorId,
         },
       });
-      if (input.fields.length) {
-        await tx.categoryField.createMany({
-          data: input.fields.map((f) => ({
-            categoryId: row.id,
-            key: f.key,
-            label: f.label,
-            type: f.type,
-            options: f.options,
-            unit: f.unit ?? null,
-            summary: f.summary,
-            longText: f.longText,
-            required: f.required,
-            sortOrder: f.sortOrder,
-          })),
-        });
-      }
+      if (fields.length) await tx.categoryField.createMany({ data: fields.map((f, i) => ({ categoryId: row.id, ...fieldRowData(f, i) })) });
       if (input.templateChildren.length) {
         await tx.categoryTemplateChild.createMany({
-          data: input.templateChildren.map((c) => ({
-            parentCategoryId: row.id,
-            childCategoryId: c.childCategoryId,
-            qty: c.qty,
-            critical: c.critical,
-          })),
+          data: input.templateChildren.map((c) => ({ parentCategoryId: row.id, childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
         });
       }
       await tx.itemChange.create({
-        data: {
-          actorId,
-          kind: "editCategory",
-          targetKind: "CATEGORY",
-          itemName: row.name,
-          categoryId: row.id,
-          field: "created",
-          after: row.name,
-        },
+        data: { actorId, kind: "editCategory", targetKind: "CATEGORY", itemName: row.name, categoryId: row.id, field: "created", after: row.name },
       });
       return row;
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      throw new HttpError(400, `A category with key "${input.key}" already exists`);
+      throw new HttpError(400, `A category with key "${key}" already exists`);
     }
     throw err;
   }
 
   return getOne(created.id);
+}
+
+/** An edit as services pass it: the erase/fill/move choices are optional (the route's
+ *  schema defaults them). */
+export type UpdateArgs = Omit<UpdateCategoryInput, "purgeKeys" | "fills" | "optionMoves"> & Partial<Pick<UpdateCategoryInput, "purgeKeys" | "fills" | "optionMoves">>;
+export type EditDraft = Omit<UpdateArgs, "expectedVersion" | "note">;
+
+/** Everything an edit is judged against: the category as it is, as it would be, and the
+ *  items it reaches — shared by the impact preview, the governance check and the write. */
+export interface EditContext {
+  row: CategoryRow;
+  before: Category & { bookingMode: string; publicListed: boolean; description: string | null };
+  after: Category & { bookingMode: string; publicListed: boolean; description: string | null };
+  fields: KeyedField[];
+  items: Array<{ id: string; name: string; ownerOrgNodeId: string }>;
+  domainItems: Item[];
+}
+
+export async function editContext(id: string, draft: EditDraft, client: Tx = prisma): Promise<EditContext> {
+  const row = await loadOne(id, client);
+  if (!row) throw new HttpError(404, "Category not found");
+  const fields = draft.fields ? withKeys(draft.fields, row.fields.map((f) => f.key)) : row.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
+  const children = draft.templateChildren ?? row.templateAsParent.map((c) => ({ childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical }));
+  const beforeDomain = toDomainCategory(row, row.fields, row.templateAsParent);
+  const before = { ...beforeDomain, bookingMode: row.bookingMode, publicListed: row.publicListed, description: row.description };
+  const after = {
+    ...before,
+    name: draft.name ?? before.name,
+    iconKey: draft.iconKey ?? before.iconKey,
+    countingMode: draft.countingMode ?? before.countingMode,
+    unit: draft.unit === undefined ? before.unit : (draft.unit ?? undefined),
+    impairRule: draft.impairRule ?? before.impairRule,
+    isPlace: draft.isPlace ?? before.isPlace,
+    bookingMode: draft.bookingMode ?? before.bookingMode,
+    publicListed: draft.publicListed ?? before.publicListed,
+    description: draft.description === undefined ? before.description : draft.description,
+    fields: fields.map((f) => ({
+      key: f.key,
+      label: f.label.trim(),
+      type: FIELD_TYPE[f.type],
+      options: f.type === "ENUM" && f.options?.length ? f.options : undefined,
+      unit: f.type === "NUMBER" ? (f.unit ?? undefined) : undefined,
+      summary: f.summary,
+      long: f.longText,
+      required: f.required || undefined,
+    })),
+    defaultChildren: children.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
+  };
+  const rows = await client.item.findMany({ where: { categoryId: id, deletedAt: null } });
+  return { row, before, after, fields, items: rows.map((r) => ({ id: r.id, name: r.name, ownerOrgNodeId: r.ownerOrgNodeId })), domainItems: rows.map((r) => toDomainItem(r)) };
+}
+
+/** Fill values, typed and checked against the detail they fill. */
+function typedFills(ctx: EditContext, fills: Record<string, ItemPropValue>): Record<string, ItemPropValue> {
+  const out: Record<string, ItemPropValue> = {};
+  for (const [key, value] of Object.entries(fills)) {
+    if (value === null || value === "") continue;
+    const f = ctx.fields.find((x) => x.key === key);
+    if (!f) throw new HttpError(400, "Fill in only details this category has.");
+    out[key] = validatePropWrite({ key: f.key, label: f.label, type: f.type, options: f.options }, value);
+  }
+  return out;
+}
+
+function assertOptionMoves(ctx: EditContext, moves: NonNullable<UpdateArgs["optionMoves"]>): void {
+  for (const [key, map] of Object.entries(moves)) {
+    const f = ctx.after.fields.find((x) => x.key === key);
+    for (const target of Object.values(map)) {
+      if (target !== null && !(f?.options ?? []).includes(target)) throw new HttpError(400, `Move values to one of “${f?.label ?? key}”’s options.`);
+    }
+  }
 }
 
 /**
@@ -253,255 +350,190 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
  * Warranty" rather than one opaque "edited" — mirroring
  * temp_works/src/lib/store.ts's `describeCategoryEdit`.
  *
- * The version check and every read the diff/impact computation depends on now run
- * INSIDE the same transaction as the write, against a `SELECT ... FOR UPDATE` lock —
- * see lib/server/resources/mutate.ts's own note (the item-level twin of this bug,
- * fixed first) on why a check made before the transaction opens can be invalidated by
- * a second writer in between. `getOne(id)` re-reads after the transaction commits,
- * outside the lock, since nothing about rendering the final DTO needs it held.
+ * The version check and every read the edit depends on run INSIDE the transaction,
+ * against a `SELECT ... FOR UPDATE` lock (lib/server/resources/mutate.ts explains why a
+ * check made before the transaction opens can be invalidated by a second writer).
  *
- * Two side effects a category edit can trigger on every item already filed under it:
- * a counting-mode change rewrites the denormalised `Item.countingMode` (and forces
- * `qty` back to 1 for BULK → SERIALIZED, the direction that actually invalidates a
- * stored quantity); `purgeKeys` deletes the named prop keys from every item's `props`
- * — explicit and opt-in, since simply dropping a field from the schema strands its
- * values (dormant, not deleted) by default.
+ * Values items hold follow the definition (lib/domain/field-migration.ts): a retyped
+ * detail's values are converted; what can't be converted, a removed detail's values and
+ * a removed choice's values are kept on each item as an extra detail — or erased when
+ * named in `purgeKeys`; `optionMoves` moves a removed choice's values to another option;
+ * `fills` fills a detail on the items that have none. Nothing is stranded unseen.
+ *
+ * This is the write itself; who may make it, and whether it waits for approval, is
+ * lib/server/resources/category-governance.ts.
  */
-export async function update(actorId: string, id: string, input: UpdateCategoryInput): Promise<ResourceCategoryDto> {
+export async function update(actorId: string, id: string, input: UpdateArgs): Promise<ResourceCategoryDto> {
   assertKnownIcon(input.iconKey);
-  await prisma.$transaction(async (tx) => {
-    const lock = await tx.$queryRaw<{ id: string; version: number }[]>`
-      SELECT id, version FROM "ResourceCategory" WHERE id = ${id} FOR UPDATE
-    `;
-    if (!lock.length) throw new HttpError(404, "Category not found");
-    if (lock[0].version !== input.expectedVersion) {
-      throw new HttpError(409, "Version conflict", {
-        message: "This category has changed since you loaded it.",
-        code: "VERSION_CONFLICT",
-        expectedVersion: input.expectedVersion,
-        actualVersion: lock[0].version,
-      });
-    }
-
-    const before = await tx.resourceCategory.findUnique({ where: { id }, include: CATEGORY_INCLUDE });
-    if (!before) throw new HttpError(404, "Category not found");
-
-    assertBookableCountingMode(input.bookingMode ?? before.bookingMode, input.countingMode ?? before.countingMode);
-
-    // F-051 of the 2026-09-15 campaign: turning a category away from ROOM/EQUIPMENT
-    // used to leave every future reservation and class session against its items
-    // live but orphaned — the room simply vanished from Schedule (getLab/
-    // listCalendar 404 for a non-ROOM category), with nobody told and nothing left
-    // to manage it from. Refused while any future live reservation exists; the
-    // custodian cancels them first (which notifies people) or waits them out.
-    if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode && before.bookingMode !== "NOT_BOOKABLE") {
-      const futureReservations = await tx.reservation.count({
-        where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
-      });
-      if (futureReservations > 0) {
-        throw new HttpError(409, `Cannot change booking mode — ${futureReservations} future reservation(s) still depend on it.`);
-      }
-    }
-
-    const nextFields = input.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
-    assertEnumFieldsHaveOptions(nextFields);
-    if (input.fields) assertNoDuplicateFieldKeys(input.fields);
-
-    if (input.groupId && input.groupId !== before.groupId) {
-      const group = await tx.categoryGroup.findUnique({ where: { id: input.groupId } });
-      if (!group) throw new HttpError(400, "Choose an existing group");
-    }
-
-    // The stable key seeds/imports target — editable, but Item.categoryId is a cuid
-    // FK that never references it, so renaming it moves nothing else.
-    if (input.key !== undefined && input.key !== before.key) {
-      const clash = await tx.resourceCategory.findUnique({ where: { key: input.key } });
-      if (clash) throw new HttpError(400, `A category with key "${input.key}" already exists`);
-    }
-
-    const nextTemplateChildren = input.templateChildren ?? before.templateAsParent.map((c) => ({ childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical }));
-    if (input.templateChildren) {
-      assertNoDuplicateTemplateChildren(input.templateChildren);
-      await assertTemplateChildrenValid(tx, id, nextTemplateChildren.map((c) => c.childCategoryId));
-    }
-
-    const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent);
-    const afterDomain: Category = {
-      ...beforeDomain,
-      name: input.name ?? beforeDomain.name,
-      iconKey: input.iconKey ?? beforeDomain.iconKey,
-      countingMode: input.countingMode ?? beforeDomain.countingMode,
-      unit: input.unit === undefined ? beforeDomain.unit : (input.unit ?? undefined),
-      impairRule: input.impairRule ?? beforeDomain.impairRule,
-      isPlace: input.isPlace ?? beforeDomain.isPlace,
-      fields: nextFields.map((f) => ({
-        key: f.key,
-        label: f.label,
-        type: f.type === "TEXT" ? "text" : f.type === "NUMBER" ? "number" : f.type === "ENUM" ? "enum" : "boolean",
-        options: f.options?.length ? f.options : undefined,
-        unit: f.unit ?? undefined,
-        summary: f.summary,
-        long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
-        required: f.required || undefined,
-      })),
-      defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
-    };
-
-    const items = await tx.item.findMany({ where: { categoryId: id, deletedAt: null } });
-    const domainItems = items.map((i) => toDomainItem(i));
-    const diff = describeCategoryEdit(beforeDomain, afterDomain);
-    // "key" lives on the Prisma row, not the domain Category shape describeCategoryEdit
-    // diffs against, so it gets its own scalar line here rather than joining that list.
-    if (input.key !== undefined && input.key !== before.key) {
-      diff.push({ field: "key", before: before.key, after: input.key });
-    }
-    // Scheduling/portal flags live on the Prisma row only, same as "key" above.
-    if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode) {
-      diff.push({ field: "booking mode", before: before.bookingMode, after: input.bookingMode });
-    }
-    if (input.publicListed !== undefined && input.publicListed !== before.publicListed) {
-      diff.push({ field: "public portal", before: before.publicListed, after: input.publicListed });
-    }
-
-    const countingModeChanged = input.countingMode !== undefined && input.countingMode !== before.countingMode;
-    const purgeKeys = input.purgeKeys ?? [];
-
-    // F-027 of the 2026-09-15 campaign: BULK -> SERIALIZED used to fail with a raw
-    // 500 (the code set countingMode first, then qty = 1 in a second statement,
-    // and the CHECK constraint fired on the first) — and even fixed to run
-    // atomically, the switch silently turns "25 L of ethanol" into "1", with no
-    // warning beyond a generic preview line. Refused outright while any item of
-    // the category still holds a quantity other than 1; splitting into individual
-    // units is a distinct, explicit action this does not attempt.
-    if (countingModeChanged && input.countingMode === "SERIALIZED") {
-      const withRealQty = items.filter((i) => Number(i.qty) !== 1);
-      if (withRealQty.length) {
-        throw new HttpError(409, "Cannot switch to serialized counting", {
-          message: `${withRealQty.length} item(s) of this category hold a quantity other than 1 (e.g. "${withRealQty[0].name}" at ${Number(withRealQty[0].qty)}) — switching to serialized counting would silently reset them to 1. Split them into individual units first.`,
-          itemIds: withRealQty.map((i) => i.id),
+  await prisma.$transaction(
+    async (tx) => {
+      const lock = await tx.$queryRaw<{ id: string; version: number }[]>`
+        SELECT id, version FROM "ResourceCategory" WHERE id = ${id} FOR UPDATE
+      `;
+      if (!lock.length) throw new HttpError(404, "Category not found");
+      if (lock[0].version !== input.expectedVersion) {
+        throw new HttpError(409, "Version conflict", {
+          message: "This category has changed since you loaded it.",
+          code: "VERSION_CONFLICT",
+          expectedVersion: input.expectedVersion,
+          actualVersion: lock[0].version,
         });
       }
-    }
 
-    // F-028: changing a field's type used to leave values the new type can't read
-    // sitting in Item.props ("about five" in a NUMBER field). Refused unless the caller
-    // erases that field's values in the same save (purgeKeys) — the same explicit,
-    // audited opt-in a removed field's stranded values already use.
-    for (const next of afterDomain.fields) {
-      const prev = beforeDomain.fields.find((f) => f.key === next.key);
-      if (!prev || prev.type === next.type || purgeKeys.includes(next.key)) continue;
-      const bad = domainItems.filter((i) => {
-        const v = i.props[next.key];
-        return v !== null && v !== undefined && v !== "" && !coerces(v, next);
+      const ctx = await editContext(id, input, tx);
+      const { row: before } = ctx;
+
+      assertBookableCountingMode(input.bookingMode ?? before.bookingMode, input.countingMode ?? before.countingMode);
+
+      // F-051: turning a category away from ROOM/EQUIPMENT used to leave every future
+      // reservation and class session against its items live but orphaned. Refused
+      // while any future live reservation exists; the custodian cancels them first.
+      if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode && before.bookingMode !== "NOT_BOOKABLE") {
+        const futureReservations = await tx.reservation.count({
+          where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
+        });
+        if (futureReservations > 0) {
+          throw new HttpError(409, `Cannot change booking mode — ${futureReservations} future reservation(s) still depend on it.`);
+        }
+      }
+
+      assertEnumFieldsHaveOptions(ctx.fields.map((f) => ({ type: f.type, options: f.options ?? [], label: f.label })));
+      if (input.fields) assertNoDuplicateLabels(input.fields);
+
+      if (input.groupId && input.groupId !== before.groupId) {
+        const group = await tx.categoryGroup.findUnique({ where: { id: input.groupId } });
+        if (!group) throw new HttpError(400, "Choose an existing group");
+      }
+      if (input.name !== undefined && input.name.trim().toLowerCase() !== before.name.trim().toLowerCase()) {
+        const clash = await tx.resourceCategory.findFirst({ where: { id: { not: id }, name: { equals: input.name.trim(), mode: "insensitive" } }, select: { id: true } });
+        if (clash) throw new HttpError(400, `A category called “${input.name.trim()}” already exists`);
+      }
+      // The stable key seeds/imports target — Item.categoryId never references it.
+      if (input.key !== undefined && input.key !== before.key) {
+        const clash = await tx.resourceCategory.findUnique({ where: { key: input.key } });
+        if (clash) throw new HttpError(400, `A category with key "${input.key}" already exists`);
+      }
+
+      if (input.templateChildren) {
+        assertNoDuplicateTemplateChildren(input.templateChildren);
+        await assertTemplateChildrenValid(tx, id, input.templateChildren.map((c) => c.childCategoryId));
+      }
+
+      const countingModeChanged = input.countingMode !== undefined && input.countingMode !== before.countingMode;
+      // F-027: BULK → SERIALIZED would silently turn "25 L of ethanol" into "1".
+      // Refused while any item holds a quantity other than 1.
+      if (countingModeChanged && input.countingMode === "SERIALIZED") {
+        const rows = await tx.item.findMany({ where: { categoryId: id, deletedAt: null, NOT: { qty: 1 } }, select: { id: true, name: true, qty: true } });
+        if (rows.length) {
+          throw new HttpError(409, "Cannot switch to serialized counting", {
+            message: `${rows.length} item(s) of this category hold a quantity other than 1 (e.g. "${rows[0].name}" at ${Number(rows[0].qty)}) — switching to serialized counting would silently reset them to 1. Split them into individual units first.`,
+            itemIds: rows.map((i) => i.id),
+          });
+        }
+      }
+
+      assertOptionMoves(ctx, input.optionMoves ?? {});
+      const plan = planCategoryMigration(ctx.before, ctx.after, ctx.domainItems, { erase: input.purgeKeys ?? [], fills: typedFills(ctx, input.fills ?? {}), optionMoves: input.optionMoves ?? {} });
+
+      const diff = describeCategoryEdit(ctx.before, ctx.after);
+      if (input.key !== undefined && input.key !== before.key) diff.push({ field: "key", before: before.key, after: input.key });
+      if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode) diff.push({ field: "booking mode", before: before.bookingMode, after: input.bookingMode });
+      if (input.publicListed !== undefined && input.publicListed !== before.publicListed) diff.push({ field: "public portal", before: before.publicListed, after: input.publicListed });
+      if (input.description !== undefined && (input.description || null) !== before.description) diff.push({ field: "description", before: before.description, after: input.description || null });
+
+      await tx.resourceCategory.update({
+        where: { id },
+        data: {
+          version: { increment: 1 },
+          ...(input.key !== undefined ? { key: input.key } : {}),
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
+          ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
+          ...(input.countingMode !== undefined ? { countingMode: input.countingMode } : {}),
+          ...(input.unit !== undefined ? { unit: input.unit } : {}),
+          ...(input.impairRule !== undefined ? { impairRule: input.impairRule } : {}),
+          ...(input.active !== undefined ? { active: input.active } : {}),
+          ...(input.isPlace !== undefined ? { isPlace: input.isPlace } : {}),
+          ...(input.bookingMode !== undefined ? { bookingMode: input.bookingMode } : {}),
+          ...(input.publicListed !== undefined ? { publicListed: input.publicListed } : {}),
+          ...(input.description !== undefined ? { description: input.description || null } : {}),
+        },
       });
-      if (bad.length) {
-        throw new HttpError(409, "Cannot change field type", {
-          message: bad.length + " item(s) hold a value for \"" + next.label + "\" that can't be read as " + next.type + " (e.g. \"" + String(bad[0].props[next.key]) + "\" on \"" + bad[0].name + "\"). Erase the stranded values with the change, or fix them first.",
-          itemIds: bad.map((i) => i.id),
+
+      if (input.fields) {
+        await tx.categoryField.deleteMany({ where: { categoryId: id } });
+        if (ctx.fields.length) await tx.categoryField.createMany({ data: ctx.fields.map((f, i) => ({ categoryId: id, ...fieldRowData(f, i) })) });
+      }
+
+      if (input.templateChildren) {
+        await tx.categoryTemplateChild.deleteMany({ where: { parentCategoryId: id } });
+        if (input.templateChildren.length) {
+          await tx.categoryTemplateChild.createMany({
+            data: input.templateChildren.map((c) => ({ parentCategoryId: id, childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
+          });
+        }
+      }
+
+      if (countingModeChanged) {
+        await tx.item.updateMany({ where: { categoryId: id }, data: { countingMode: input.countingMode! } });
+        if (input.countingMode === "SERIALIZED") {
+          await tx.item.updateMany({ where: { categoryId: id }, data: { qty: 1 } });
+        }
+      }
+
+      // The values items hold, following the new definition.
+      for (const m of plan.items) {
+        await tx.item.update({
+          where: { id: m.itemId },
+          data: { props: m.props as Prisma.InputJsonValue, customProps: m.customProps as unknown as Prisma.InputJsonValue, version: { increment: 1 } },
         });
       }
-    }
 
-    await tx.resourceCategory.update({
-      where: { id },
-      data: {
-        version: { increment: 1 },
-        ...(input.key !== undefined ? { key: input.key } : {}),
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
-        ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
-        ...(input.countingMode !== undefined ? { countingMode: input.countingMode } : {}),
-        ...(input.unit !== undefined ? { unit: input.unit } : {}),
-        ...(input.impairRule !== undefined ? { impairRule: input.impairRule } : {}),
-        ...(input.active !== undefined ? { active: input.active } : {}),
-        ...(input.isPlace !== undefined ? { isPlace: input.isPlace } : {}),
-        ...(input.bookingMode !== undefined ? { bookingMode: input.bookingMode } : {}),
-        ...(input.publicListed !== undefined ? { publicListed: input.publicListed } : {}),
-      },
-    });
-
-    if (input.fields) {
-      await tx.categoryField.deleteMany({ where: { categoryId: id } });
-      if (input.fields.length) {
-        await tx.categoryField.createMany({
-          data: input.fields.map((f) => ({
+      for (const d of diff) {
+        await tx.itemChange.create({
+          data: {
+            actorId,
+            kind: "editCategory",
+            targetKind: "CATEGORY",
+            itemName: ctx.after.name,
             categoryId: id,
-            key: f.key,
-            label: f.label,
-            type: f.type,
-            options: f.options,
-            unit: f.unit ?? null,
-            summary: f.summary,
-            longText: f.longText,
-            required: f.required,
-            sortOrder: f.sortOrder,
-          })),
+            field: d.field,
+            before: d.before === undefined ? undefined : d.before === null ? Prisma.DbNull : (d.before as Prisma.InputJsonValue),
+            after: d.after === undefined ? undefined : d.after === null ? Prisma.DbNull : (d.after as Prisma.InputJsonValue),
+            note: input.note,
+          },
         });
       }
-    }
-
-    if (input.templateChildren) {
-      await tx.categoryTemplateChild.deleteMany({ where: { parentCategoryId: id } });
-      if (input.templateChildren.length) {
-        await tx.categoryTemplateChild.createMany({
-          data: input.templateChildren.map((c) => ({ parentCategoryId: id, childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
+      if (plan.items.length) {
+        const parts = [
+          plan.converted && `${plan.converted} converted`,
+          plan.filled && `${plan.filled} filled in`,
+          plan.kept.length && `${plan.kept.length} kept as extra details`,
+          plan.erased.length && `${plan.erased.length} erased`,
+        ].filter(Boolean);
+        await tx.itemChange.create({
+          data: {
+            actorId,
+            kind: "editCategory",
+            targetKind: "CATEGORY",
+            itemName: ctx.after.name,
+            categoryId: id,
+            field: "values",
+            after: `${parts.join(", ")} on ${plan.items.length} item(s)`,
+            note: input.note,
+          },
         });
       }
-    }
-
-    if (countingModeChanged) {
-      await tx.item.updateMany({ where: { categoryId: id }, data: { countingMode: input.countingMode! } });
-      if (input.countingMode === "SERIALIZED") {
-        await tx.item.updateMany({ where: { categoryId: id }, data: { qty: 1 } });
-      }
-    }
-
-    for (const key of purgeKeys) {
-      await tx.$executeRawUnsafe(`UPDATE "Item" SET props = props - $1 WHERE "categoryId" = $2`, key, id);
-    }
-
-    for (const d of diff) {
-      await tx.itemChange.create({
-        data: {
-          actorId,
-          kind: "editCategory",
-          targetKind: "CATEGORY",
-          itemName: afterDomain.name,
-          categoryId: id,
-          field: d.field,
-          before: d.before === undefined ? undefined : d.before === null ? Prisma.DbNull : (d.before as Prisma.InputJsonValue),
-          after: d.after === undefined ? undefined : d.after === null ? Prisma.DbNull : (d.after as Prisma.InputJsonValue),
-          note: input.note,
-        },
-      });
-    }
-    if (purgeKeys.length) {
-      await tx.itemChange.create({
-        data: {
-          actorId,
-          kind: "editCategory",
-          targetKind: "CATEGORY",
-          itemName: afterDomain.name,
-          categoryId: id,
-          field: "purgeKeys",
-          before: purgeKeys,
-          after: Prisma.DbNull,
-          note: `Purged from ${domainItems.length} item(s)`,
-        },
-      });
-    }
-  });
+    },
+    { timeout: 120_000, maxWait: 10_000 },
+  );
 
   return getOne(id);
 }
 
 /** Deleting a category that ANOTHER category still lists as a default part would
- *  silently cascade-delete that `CategoryTemplateChild` row (the schema's own
- *  `onDelete: Cascade` on `childCategory`) — quietly rewriting a different category's
- *  default subtree with no one having agreed to that. Blocked by default; the caller
- *  explicitly confirms the collateral removal (`opts.confirmTemplateRemoval`) rather
- *  than being blocked outright, matching this project's "present and confirm, don't
- *  silently cascade" rule for consequential writes. */
+ *  silently cascade-delete that `CategoryTemplateChild` row — blocked by default; the
+ *  caller explicitly confirms the collateral removal (`opts.confirmTemplateRemoval`). */
 export async function remove(actorId: string, id: string, opts?: { confirmTemplateRemoval?: boolean }): Promise<void> {
   const row = await loadOne(id);
   if (!row) throw new HttpError(404, "Category not found");
@@ -549,47 +581,18 @@ export async function remove(actorId: string, id: string, opts?: { confirmTempla
   });
 }
 
-/** The blast-radius preview for a pending category edit — computed, never persisted.
- *  Draft carries the same optional fields UpdateCategoryInput does, minus
- *  expectedVersion/purgeKeys/note (a preview does not commit anything). */
-export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput, "expectedVersion" | "purgeKeys" | "note">): Promise<CategoryImpactDto> {
-  const before = await loadOne(id);
-  if (!before) throw new HttpError(404, "Category not found");
+/** What an edit would do — computed, never persisted. Who decides it is added by
+ *  category-governance.ts `previewEdit`. */
+export async function previewImpact(id: string, draft: EditDraft): Promise<Omit<CategoryImpactDto, "decision">> {
+  const ctx = await editContext(id, draft);
+  const notes = categoryImpact(ctx.before, ctx.after, ctx.domainItems);
 
-  const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent);
-  const nextFields = draft.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
-  const nextTemplateChildren = draft.templateChildren ?? before.templateAsParent.map((c) => ({ childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical }));
-  const afterDomain: Category = {
-    ...beforeDomain,
-    name: draft.name ?? beforeDomain.name,
-    iconKey: draft.iconKey ?? beforeDomain.iconKey,
-    countingMode: draft.countingMode ?? beforeDomain.countingMode,
-    unit: draft.unit === undefined ? beforeDomain.unit : (draft.unit ?? undefined),
-    impairRule: draft.impairRule ?? beforeDomain.impairRule,
-    isPlace: draft.isPlace ?? beforeDomain.isPlace,
-    fields: nextFields.map((f) => ({
-      key: f.key,
-      label: f.label,
-      type: f.type === "TEXT" ? "text" : f.type === "NUMBER" ? "number" : f.type === "ENUM" ? "enum" : "boolean",
-      options: f.options?.length ? f.options : undefined,
-      unit: f.unit ?? undefined,
-      summary: f.summary,
-      long: "longText" in f ? f.longText : (f as { long?: boolean }).long,
-      required: f.required || undefined,
-    })),
-    defaultChildren: nextTemplateChildren.map((c) => ({ categoryId: c.childCategoryId, qty: c.qty, critical: c.critical })),
-  };
-
-  const items = await prisma.item.findMany({ where: { categoryId: id, deletedAt: null } });
-  const domainItems = items.map((i) => toDomainItem(i));
-  const notes = categoryImpact(beforeDomain, afterDomain, domainItems);
-
-  const placementWarning = await placementContradictionWarning(id, afterDomain);
+  const placementWarning = await placementContradictionWarning(ctx.after);
   if (placementWarning) notes.push(placementWarning);
 
   // F-051: the preview used to say only "Reaches N existing items" while every future
-  // booking and class on those rooms stayed live — the same count update() now refuses on.
-  if (draft.bookingMode !== undefined && draft.bookingMode !== before.bookingMode && before.bookingMode !== "NOT_BOOKABLE") {
+  // booking and class on those rooms stayed live — the same count update() refuses on.
+  if (draft.bookingMode !== undefined && draft.bookingMode !== ctx.row.bookingMode && ctx.row.bookingMode !== "NOT_BOOKABLE") {
     const future = await prisma.reservation.count({
       where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
     });
@@ -604,15 +607,26 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
   }
 
   return {
-    affectedItemCount: domainItems.length,
-    notes: notes.map((n) => ({ id: n.id, severity: n.severity, title: n.title, detail: n.detail, orphanKeys: n.orphanKeys ?? [] })),
+    affectedItemCount: ctx.domainItems.length,
+    notes: notes.map((n) => {
+      const field = ctx.fields.find((f) => f.key === (n.optionMove?.key ?? n.fill?.key));
+      return {
+        id: n.id,
+        severity: n.severity,
+        title: n.title,
+        detail: n.detail,
+        orphanKeys: n.orphanKeys ?? [],
+        examples: n.examples ?? [],
+        ...(n.optionMove ? { optionMove: { ...n.optionMove, options: field?.options ?? [] } } : {}),
+        ...(n.fill && field ? { fill: { ...n.fill, type: field.type, options: field.options ?? [] } } : {}),
+      };
+    }),
   };
 }
 
 /** A place can't be anyone's part (it never sits inside anything) — said in the preview
  *  rather than left to fail when the template is first used. */
-async function placementContradictionWarning(categoryId: string, afterDomain: Category): Promise<CategoryImpactDto["notes"][number] | null> {
-  void categoryId;
+async function placementContradictionWarning(afterDomain: Category): Promise<ReturnType<typeof categoryImpact>[number] | null> {
   if (!afterDomain.defaultChildren.length) return null;
   const places = await prisma.resourceCategory.findMany({ where: { id: { in: afterDomain.defaultChildren.map((c) => c.categoryId) }, isPlace: true }, select: { name: true } });
   if (!places.length) return null;
@@ -622,7 +636,6 @@ async function placementContradictionWarning(categoryId: string, afterDomain: Ca
     severity: "warning",
     title: "A place can't be a part",
     detail: `${names.join(", ")} ${names.length === 1 ? "is a place" : "are places"} (top level only), so ${names.length === 1 ? "it" : "they"} can't be built into this.`,
-    orphanKeys: [],
   };
 }
 

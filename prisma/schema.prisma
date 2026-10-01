@@ -124,6 +124,9 @@ model User {
   externalTasks              ExternalCustodianTask[]     @relation("ExternalTaskCustodian")
   externalRequestEvents      ExternalRequestEvent[]      @relation("ExternalRequestEventActor")
   paymentsReviewed           PaymentVerification[]       @relation("PaymentVerificationReviewedBy")
+  categoriesCreated          ResourceCategory[]          @relation("CategoryCreator")
+  categoryChangesProposed    CategoryChange[]            @relation("CategoryChangeProposer")
+  categoryChangesDecided     CategoryChange[]            @relation("CategoryChangeDecider")
 
   @@index([emailLower])
   @@index([homeNodeId])
@@ -244,6 +247,8 @@ model OrgNode {
   purchaseRequests    PurchaseRequest[]
   purchaseStepsAt     PurchaseStep[]              @relation("PurchaseStepNode")
   externalAssignments ExternalRequestAssignment[]
+  stewardOf           ResourceCategory[]          @relation("CategorySteward")
+  categoryChanges     CategoryChange[]            @relation("CategoryChangeUnit")
 
   @@index([level])
 }
@@ -342,6 +347,26 @@ enum CategoryFieldType {
   NUMBER
   ENUM
   BOOLEAN
+  /// Stored as "YYYY-MM-DD" text — calibration due, expiry.
+  DATE
+}
+
+/// Where a category change waiting for approval stands: with the proposer's head, then —
+/// for a change that reaches other departments' items — the admin, then Property
+/// Administration (lib/domain/category-governance.ts).
+enum CategoryChangeStage {
+  HEAD
+  ADMIN
+  PROPERTY_ADMIN
+}
+
+enum CategoryChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+  /// The category changed under it before it was approved; the proposer redoes it.
+  STALE
 }
 
 /// How a parent reacts to broken critical children.
@@ -412,6 +437,18 @@ model ResourceCategory {
   /// appears on the unauthenticated catalog. Counts only, never the tree.
   publicListed Boolean     @default(false)
 
+  /// What it is for, in a sentence — shown when choosing a category.
+  description   String?
+  /// The department that looks after it (made it): its custodians and head edit it, the
+  /// head approves changes that touch data. Null: university-wide (the catalogue),
+  /// looked after by Property Administration.
+  stewardNodeId String?
+  createdById   String?
+
+  steward   OrgNode?         @relation("CategorySteward", fields: [stewardNodeId], references: [id], onDelete: SetNull)
+  createdBy User?            @relation("CategoryCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  changes   CategoryChange[]
+
   group  CategoryGroup   @relation(fields: [groupId], references: [id], onDelete: Restrict)
   fields CategoryField[]
   items  Item[]
@@ -424,6 +461,45 @@ model ResourceCategory {
 
   @@index([groupId])
   @@index([active])
+  @@index([stewardNodeId])
+}
+
+/// A category edit that changes data, waiting for approval (an edit that only adds —
+/// a new detail, an option, a part, a new name — applies at once). `payload` is the
+/// UpdateCategoryInput to apply, against `baseVersion`; if the category moved on first,
+/// the change goes STALE rather than overwrite what happened since.
+model CategoryChange {
+  id           String                @id @default(cuid())
+  categoryId   String
+  proposedById String
+  /// The proposer's department (or college, for an ADAA) — whose head decides at HEAD.
+  unitId       String?
+  payload      Json
+  baseVersion  Int
+  /// What it changes, in plain lines ("Changes Room from text to number (40 values)").
+  summary      String[]
+  /// Other units whose items it reaches — a cross-department change.
+  reaches      String[]
+  /// The stages it passes, in order, and the one it is at.
+  stages       CategoryChangeStage[]
+  stage        CategoryChangeStage
+  status       CategoryChangeStatus  @default(PENDING)
+  note         String?
+  /// Every decision so far: [{ stage, byId, byName, at, approved, note }].
+  trail        Json                  @default("[]")
+  decidedById  String?
+  decidedAt    DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  category   ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  proposedBy User             @relation("CategoryChangeProposer", fields: [proposedById], references: [id], onDelete: Cascade)
+  decidedBy  User?            @relation("CategoryChangeDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  unit       OrgNode?         @relation("CategoryChangeUnit", fields: [unitId], references: [id], onDelete: SetNull)
+
+  @@index([status, stage])
+  @@index([categoryId, status])
+  @@index([proposedById, status])
 }
 
 model CategoryField {
@@ -440,6 +516,8 @@ model CategoryField {
   longText   Boolean           @default(false)
   required   Boolean           @default(false)
   sortOrder  Int               @default(0)
+  /// A short example shown in the empty input ("e.g. 64-17-5" for a CAS number).
+  hint       String?
 
   category ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 

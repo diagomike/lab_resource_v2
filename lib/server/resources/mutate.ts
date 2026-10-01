@@ -62,6 +62,10 @@ export async function applyChange(
      *  made through Labs & stores — lib/server/resources/places.ts has already checked
      *  that the actor manages places for the owning unit. */
     asPlaceManager?: boolean;
+    /** Created by the system rather than typed in by a person — an import load, an
+     *  arrival recorded into the store: a category's required details are filled in
+     *  later, never a reason to refuse the goods. */
+    systemCreate?: boolean;
     /**
      * F-035 of the 2026-09-15 campaign — a caller-supplied transaction, so several
      * operations (a lab commit's whole staged batch — see lab-drafts.ts's
@@ -102,7 +106,7 @@ export async function applyChange(
 
   if (opts?.tx) {
     await assertVersionsMatch(opts.tx, input);
-    return performChange(opts.tx, actorId, input, opts.cleanupKeys ?? [], isAdmin);
+    return performChange(opts.tx, actorId, input, opts.cleanupKeys ?? [], isAdmin, opts.systemCreate ?? false);
   }
 
   let captured: ItemChangeResultDto | undefined;
@@ -118,7 +122,7 @@ export async function applyChange(
       // Version check and write must be atomic — see assertVersionsMatch's own header
       // on why this runs INSIDE the transaction, not before it opens.
       await assertVersionsMatch(tx, input);
-      captured = await performChange(tx, actorId, input, cleanupKeys, isAdmin);
+      captured = await performChange(tx, actorId, input, cleanupKeys, isAdmin, opts?.systemCreate ?? false);
       if (opts?.dryRun) throw DRY_RUN_ABORT;
     });
   } catch (err) {
@@ -327,11 +331,11 @@ async function assertVersionsMatch(tx: Tx, input: ItemChangeInput): Promise<void
 
 // ── The write itself — WHAT happens. ────────────────────────────────────────────────
 
-async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cleanupKeys: string[], isAdmin: boolean): Promise<ItemChangeResultDto> {
+async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cleanupKeys: string[], isAdmin: boolean, systemCreate = false): Promise<ItemChangeResultDto> {
   const at = new Date();
   switch (input.kind) {
     case "createItem":
-      return applyCreateItem(tx, actorId, at, input, isAdmin);
+      return applyCreateItem(tx, actorId, at, input, isAdmin, systemCreate);
     case "deleteItem":
       return applyDeleteItem(tx, actorId, at, input, cleanupKeys, isAdmin);
     case "transferItem":
@@ -457,6 +461,7 @@ async function applyCreateItem(
   at: Date,
   input: Extract<ItemChangeInput, { kind: "createItem" }>,
   isAdmin: boolean,
+  systemCreate = false,
 ): Promise<ItemChangeResultDto> {
   const category = await tx.resourceCategory.findUnique({ where: { id: input.categoryId }, include: { fields: true } });
   if (!category) throw new HttpError(400, "Choose an existing category.");
@@ -477,8 +482,9 @@ async function applyCreateItem(
 
   // F-029: a category's `required` fields must be filled on the root item(s) being created.
   // (Template children keep their blank start — they are auto-generated parts, not
-  // something the caller could fill in — and existing rows are never forced.)
-  const missingRequired = category.fields
+  // something the caller could fill in — existing rows are never forced, and items the
+  // system creates, like an import load, are filled in afterwards.)
+  const missingRequired = systemCreate ? [] : category.fields
     .filter((f) => f.required && (initialProps[f.key] === undefined || initialProps[f.key] === null || initialProps[f.key] === ""))
     .map((f) => f.label);
   if (missingRequired.length) {

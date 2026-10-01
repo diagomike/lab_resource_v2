@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { BookingModeSchema, CategoryFieldTypeSchema, CountingModeSchema, ImpairRuleSchema } from "./enums";
+import { ItemPropValue } from "./item";
 
 export const CategoryGroupDto = z.object({
   id: z.string(),
@@ -39,6 +40,8 @@ export const CategoryFieldDto = z.object({
   longText: z.boolean(),
   required: z.boolean(),
   sortOrder: z.number().int(),
+  /** A short example shown in the empty input ("e.g. 64-17-5"). */
+  hint: z.string().nullable(),
 });
 export type CategoryFieldDto = z.infer<typeof CategoryFieldDto>;
 
@@ -72,6 +75,15 @@ export const ResourceCategoryDto = z.object({
   bookingMode: BookingModeSchema,
   /** Public portal (Track 7): does its working count appear on the public catalog. */
   publicListed: z.boolean(),
+  /** What it is for, in a sentence. */
+  description: z.string().nullable(),
+  /** The department that looks after it; null: university-wide (Property Administration). */
+  stewardNodeId: z.string().nullable(),
+  stewardName: z.string(),
+  createdById: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  /** Changes to it waiting for approval. */
+  pendingChanges: z.number().int(),
   fields: z.array(CategoryFieldDto),
   templateChildren: z.array(CategoryTemplateChildDto),
 });
@@ -82,10 +94,13 @@ export type ResourceCategoryDto = z.infer<typeof ResourceCategoryDto>;
  *  icon registry server-side (categories.ts) — this file stays free of lucide imports. */
 const categoryName = z.string().trim().min(1, "Name is required").max(160, "Name must be at most 160 characters");
 const categoryKey = z.string().trim().regex(/^[a-z][a-z0-9-]{1,40}$/, "Key: 2-41 chars, lowercase letters, digits and -, starting with a letter");
+const description = z.string().trim().max(400, "Keep the description under 400 characters");
 
+/** `key` is a detail's identity: an existing detail sends the key it has; a new one sends
+ *  none and is given one from its label (categories.ts). People never see keys. */
 const CategoryFieldInput = z.object({
-  key: z.string().min(1),
-  label: z.string().min(1),
+  key: z.string().min(1).optional(),
+  label: z.string().trim().min(1, "Every detail needs a name").max(80),
   type: CategoryFieldTypeSchema,
   options: z.array(z.string()).default([]),
   unit: z.string().optional(),
@@ -93,6 +108,7 @@ const CategoryFieldInput = z.object({
   longText: z.boolean().default(false),
   required: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
+  hint: z.string().trim().max(60).nullable().optional(),
 });
 
 const CategoryTemplateChildInput = z.object({
@@ -102,8 +118,10 @@ const CategoryTemplateChildInput = z.object({
 });
 
 export const CreateCategoryInput = z.object({
-  key: categoryKey,
+  /** Given by seeds and imports; otherwise made from the name. */
+  key: categoryKey.optional(),
   name: categoryName,
+  description: description.optional(),
   iconKey: z.string().min(1),
   groupId: z.string(),
   countingMode: CountingModeSchema,
@@ -144,7 +162,15 @@ export const UpdateCategoryInput = z.object({
   fields: z.array(CategoryFieldInput).optional(),
   templateChildren: z.array(CategoryTemplateChildInput).optional(),
   active: z.boolean().optional(),
+  description: description.nullable().optional(),
+  /** Details whose leftover values (unreadable as a new type, a removed choice, a removed
+   *  detail) are erased instead of kept on each item as an extra detail. */
   purgeKeys: z.array(z.string()).default([]),
+  /** A value to fill into the items that have none, by detail key (a detail becoming required). */
+  fills: z.record(z.string(), ItemPropValue).default({}),
+  /** Where a removed choice's values go, by detail key then old option: a remaining
+   *  option, or null to keep them as an extra detail. */
+  optionMoves: z.record(z.string(), z.record(z.string(), z.string().nullable())).default({}),
   note: z.string().optional(),
 });
 export type UpdateCategoryInput = z.infer<typeof UpdateCategoryInput>;
@@ -162,11 +188,74 @@ export const CategoryImpactNote = z.object({
   title: z.string(),
   detail: z.string(),
   orphanKeys: z.array(z.string()).default([]),
+  /** A few of the values concerned: “B528-RG16” on Software Lab 8. */
+  examples: z.array(z.string()).default([]),
+  /** A choice being removed while items use it — the editor asks where its values go. */
+  optionMove: z.object({ key: z.string(), label: z.string(), option: z.string(), count: z.number().int(), options: z.array(z.string()) }).optional(),
+  /** A detail becoming required while items lack it — the editor offers to fill them. */
+  fill: z.object({ key: z.string(), label: z.string(), count: z.number().int(), type: CategoryFieldTypeSchema, options: z.array(z.string()) }).optional(),
 });
 export type CategoryImpactNote = z.infer<typeof CategoryImpactNote>;
+
+/** Who decides this edit (lib/domain/category-governance.ts). */
+export const CategoryEditDecisionDto = z.object({
+  /** It applies when saved; otherwise it waits for `approvers`. */
+  applies: z.boolean(),
+  /** How it changes data items hold; empty when it only adds. */
+  reasons: z.array(z.string()),
+  /** Who must approve, in order ("Head, Computer Science and Engineering", "the admin"…). */
+  approvers: z.array(z.string()),
+  /** Other units whose items it reaches. */
+  reaches: z.array(z.string()),
+});
+export type CategoryEditDecisionDto = z.infer<typeof CategoryEditDecisionDto>;
 
 export const CategoryImpactDto = z.object({
   affectedItemCount: z.number().int(),
   notes: z.array(CategoryImpactNote),
+  decision: CategoryEditDecisionDto,
 });
 export type CategoryImpactDto = z.infer<typeof CategoryImpactDto>;
+
+export const categoryChangeStages = ["HEAD", "ADMIN", "PROPERTY_ADMIN"] as const;
+export const categoryChangeStatuses = ["PENDING", "APPROVED", "REJECTED", "WITHDRAWN", "STALE"] as const;
+
+export const CategoryChangeDto = z.object({
+  id: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  categoryIconKey: z.string(),
+  proposedById: z.string(),
+  proposedByName: z.string(),
+  unitName: z.string().nullable(),
+  summary: z.array(z.string()),
+  reaches: z.array(z.string()),
+  stages: z.array(z.enum(categoryChangeStages)),
+  stage: z.enum(categoryChangeStages),
+  status: z.enum(categoryChangeStatuses),
+  note: z.string().nullable(),
+  /** Who must decide now, in words. */
+  waitingOn: z.string(),
+  trail: z.array(z.object({ stage: z.enum(categoryChangeStages), byName: z.string(), at: z.string(), approved: z.boolean(), note: z.string().nullable() })),
+  createdAt: z.string(),
+  /** The viewer decides it now. */
+  canDecide: z.boolean(),
+  isMine: z.boolean(),
+});
+export type CategoryChangeDto = z.infer<typeof CategoryChangeDto>;
+
+export const CategoryChangesDto = z.object({ waiting: z.array(CategoryChangeDto), mine: z.array(CategoryChangeDto) });
+export type CategoryChangesDto = z.infer<typeof CategoryChangesDto>;
+
+export const DecideCategoryChangeInput = z.object({ approve: z.boolean(), note: z.string().trim().max(500).optional() });
+export type DecideCategoryChangeInput = z.infer<typeof DecideCategoryChangeInput>;
+
+/** Saving an edit: it applied, or it waits for approval. */
+export const SaveCategoryResultDto = z.object({
+  status: z.enum(["APPLIED", "PENDING"]),
+  category: ResourceCategoryDto,
+  change: CategoryChangeDto.nullable(),
+  /** What happened, in a sentence for the person who saved. */
+  notice: z.string(),
+});
+export type SaveCategoryResultDto = z.infer<typeof SaveCategoryResultDto>;

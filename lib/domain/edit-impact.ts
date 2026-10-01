@@ -9,6 +9,7 @@
  */
 import type { Category, FieldDef, Item, PropValue } from "./types";
 import { subtreeIds, type TreeIndex } from "./tree";
+import { convertValue } from "./field-migration";
 
 export type ImpactSeverity = "info" | "warning" | "destructive";
 
@@ -17,26 +18,25 @@ export interface ImpactNote {
   severity: ImpactSeverity;
   title: string;
   detail: string;
-  /** Property keys whose stored values would become unreachable. */
+  /** Details whose values leave the detail (kept on each item as an extra detail, or
+   *  erased if the editor chooses) — what the "erase instead" choice covers. */
   orphanKeys?: string[];
+  /** A few of the values concerned: “B528-RG16” on Software Lab 8. */
+  examples?: string[];
+  /** A choice being removed while items use it: the editor picks where its values go. */
+  optionMove?: { key: string; label: string; option: string; count: number };
+  /** A detail becoming required while items lack it: the editor may fill them. */
+  fill?: { key: string; label: string; count: number };
 }
 
 const filled = (v: PropValue | undefined) => v !== null && v !== undefined && v !== "";
 
-/** Would this stored value survive the field's new type? */
-export function coerces(value: PropValue, field: FieldDef): boolean {
-  if (!filled(value)) return true;
-  switch (field.type) {
-    case "number":
-      return Number.isFinite(Number(value));
-    case "boolean":
-      return typeof value === "boolean" || value === "true" || value === "false";
-    case "enum":
-      return (field.options ?? []).includes(String(value));
-    default:
-      return true;
-  }
+/** Would this stored value survive the field's new type (lib/domain/field-migration.ts)? */
+export function coerces(value: PropValue, field: FieldDef, from?: FieldDef): boolean {
+  return convertValue(value, field, from).ok;
 }
+
+const example = (i: Item, v: PropValue | undefined) => `“${String(v)}” on ${i.name}`;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -129,10 +129,13 @@ function requiredGapNote(f: { key: string; label: string }, lacking: number): Im
   return {
     id: `cat-field-required-${f.key}`,
     severity: "warning",
-    title: `"${f.label || f.key}" becomes required — ${plural(lacking, "existing item")} lack${lacking === 1 ? "s" : ""} a value`,
-    detail: "Existing items are left as they are; the field is enforced only when a new item is created.",
+    title: `“${f.label || f.key}” becomes required — ${plural(lacking, "existing item")} ${lacking === 1 ? "has" : "have"} none`,
+    detail: "Fill them in now with one value, or leave them blank: they are asked for it on their next edit. Imports and automatic parts are never blocked.",
+    fill: { key: f.key, label: f.label || f.key, count: lacking },
   };
 }
+
+const TYPE_WORD: Record<FieldDef["type"], string> = { text: "text", number: "a number", enum: "a choice", boolean: "yes/no", date: "a date" };
 
 export function categoryImpact(before: Category, after: Category, items: Item[]): ImpactNote[] {
   const notes: ImpactNote[] = [];
@@ -153,16 +156,18 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
   const afterKeys = new Set(after.fields.map((f) => f.key));
   const removed = before.fields.filter((f) => !afterKeys.has(f.key));
   for (const f of removed) {
-    const n = withValue(f.key);
+    const holders = mine.filter((i) => filled(i.props[f.key]));
+    const n = holders.length;
     notes.push({
       id: `cat-field-removed-${f.key}`,
-      severity: n > 0 ? "destructive" : "warning",
-      title: `Removing the "${f.label}" field`,
+      severity: "warning",
+      title: `Removing “${f.label}”`,
       detail:
         n > 0
-          ? `${plural(n, "item")} currently ${n === 1 ? "holds" : "hold"} a value here. The values stay in storage but nothing will show or search them again unless the field comes back.`
-          : "No item holds a value for it, so nothing is lost.",
+          ? `${plural(n, "item")} ${n === 1 ? "has" : "have"} a value here. Each keeps it as an extra detail (“Earlier ${f.label}”), unless you choose to erase them.`
+          : "No item has a value for it, so nothing is lost.",
       orphanKeys: n > 0 ? [f.key] : undefined,
+      examples: holders.slice(0, 3).map((i) => example(i, i.props[f.key])),
     });
   }
 
@@ -205,14 +210,34 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
       if (lacking > 0) notes.push(requiredGapNote(next, lacking));
     }
 
+    if (prev.label.trim() !== next.label.trim()) {
+      const n = withValue(next.key);
+      if (n > 0) {
+        notes.push({
+          id: `cat-field-renamed-${next.key}`,
+          severity: "warning",
+          title: `“${prev.label}” is renamed “${next.label}”`,
+          detail: `The ${plural(n, "value")} already recorded now read as “${next.label}”. If “${next.label}” is a different detail, go back and add it as a new one instead.`,
+          examples: mine.filter((i) => filled(i.props[next.key])).slice(0, 3).map((i) => example(i, i.props[next.key])),
+        });
+      }
+    }
+
     if (prev.type !== next.type) {
-      const bad = mine.filter((i) => filled(i.props[next.key]) && !coerces(i.props[next.key], next)).length;
+      const holders = mine.filter((i) => filled(i.props[next.key]));
+      const bad = holders.filter((i) => !coerces(i.props[next.key], next, prev));
+      const word = TYPE_WORD[next.type];
       notes.push({
         id: `cat-field-type-${next.key}`,
-        severity: bad > 0 ? "destructive" : "warning",
-        title: `"${next.label}" changes from ${prev.type} to ${next.type}`,
-        detail: bad > 0 ? `${plural(bad, "stored value")} cannot be read as ${next.type}. Saving is refused unless the stranded values are erased with the change.` : "Every stored value survives the change.",
-        orphanKeys: bad > 0 ? [next.key] : undefined,
+        severity: "warning",
+        title: `“${next.label}” changes from ${TYPE_WORD[prev.type]} to ${word}`,
+        detail: !holders.length
+          ? "No item has a value for it yet."
+          : bad.length
+            ? `${plural(holders.length - bad.length, "value")} convert. ${plural(bad.length, "value")} can't be read as ${word}: each stays on its item as an extra detail (“Earlier ${next.label}”), unless you choose to erase them.`
+            : `All ${plural(holders.length, "value")} convert.`,
+        orphanKeys: bad.length ? [next.key] : undefined,
+        examples: bad.slice(0, 3).map((i) => example(i, i.props[next.key])),
       });
     }
 
@@ -223,9 +248,10 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
         if (n === 0) continue;
         notes.push({
           id: `cat-option-${next.key}-${option}`,
-          severity: "destructive",
-          title: `Dropping the "${option}" choice from ${next.label}`,
-          detail: `${plural(n, "item")} ${n === 1 ? "is" : "are"} set to it and will show an invalid value.`,
+          severity: "warning",
+          title: `Removing the choice “${option}” from ${next.label}`,
+          detail: `${plural(n, "item")} ${n === 1 ? "is" : "are"} set to it. Choose the option they move to, or keep it on each as an extra detail.`,
+          optionMove: { key: next.key, label: next.label, option, count: n },
         });
       }
     }

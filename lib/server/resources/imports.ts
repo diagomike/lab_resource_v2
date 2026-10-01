@@ -238,7 +238,7 @@ export async function loadImportLine(actorId: string, recordId: string, input: L
 
   const note = `Loaded from import ${record.reference}${line.spec ? ` — ${line.spec}` : ""}`;
   try {
-    const result = await applyChange(actorId, { kind: "createItem", parentId: input.storeParentId, categoryId: line.categoryId, count: isSerialized ? input.qty : 1, name: line.name, note });
+    const result = await applyChange(actorId, { kind: "createItem", parentId: input.storeParentId, categoryId: line.categoryId, count: isSerialized ? input.qty : 1, name: line.name, note }, { systemCreate: true });
     if (!isSerialized && result.itemIds[0]) await applyChange(actorId, { kind: "setQuantity", itemIds: [result.itemIds[0]], value: input.qty });
   } catch (err) {
     // Give the claim back, so a failed creation doesn't count as loaded.

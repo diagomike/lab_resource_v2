@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { CreateCategoryInput, type ResourceCategoryDto } from "@/lib/shared";
 import { parseBody } from "@/lib/server/validate";
 import { errorResponse } from "@/lib/server/http-error";
-import { requireSession, requireRole } from "@/lib/server/auth/session";
-import { list, create } from "@/lib/server/resources/categories";
+import { requireSession } from "@/lib/server/auth/session";
+import { list } from "@/lib/server/resources/categories";
+import { createCategory } from "@/lib/server/resources/category-governance";
 
 /** Categories are shared vocabulary, not scoped data — readable by anyone signed in. */
 export async function GET(request: NextRequest) {
@@ -16,16 +17,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** Who administers categories is an open item in the replatforming plan (§10.4) —
- *  SYS_ADMIN/PROPERTY_ADMIN is the conservative default until that is settled;
- *  leaving it wide open would let any signed-in user redefine "Computer" for
- *  everyone in the register. */
+/** Custodians and heads add categories for their department; the admin and Property
+ *  Administration add university-wide ones (category-governance.ts). */
 export async function POST(request: NextRequest) {
   try {
     const user = await requireSession(request);
-    requireRole(user, ["SYS_ADMIN", "PROPERTY_ADMIN"]);
     const body = await parseBody(CreateCategoryInput, request);
-    const category = await create(user.id, body);
+    const category = await createCategory(user.id, body);
     return NextResponse.json<ResourceCategoryDto>(category, { status: 201 });
   } catch (err) {
     return errorResponse(err);

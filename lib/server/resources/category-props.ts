@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CategoryFieldType, ItemPropValue } from "@/lib/shared";
 import { HttpError } from "../http-error";
+import { parseDate } from "@/lib/domain/field-migration";
 
 /**
  * Compiles CategoryField rows into a Zod schema on every write, so `Item.props` is
@@ -32,6 +33,11 @@ function baseSchemaFor(field: CategoryFieldRow): z.ZodType<Exclude<ItemPropValue
       // guards a value that somehow predates that rule; it must fail closed, not accept
       // anything.
       return field.options.length ? z.enum(field.options as [string, ...string[]]) : z.never();
+    case "DATE":
+      // "YYYY-MM-DD", a real calendar day; "1/3/2027" (day first) is read too.
+      return z
+        .string()
+        .transform((v, ctx) => parseDate(v) ?? (ctx.addIssue({ code: "custom", message: "date" }), z.NEVER));
     case "TEXT":
     default:
       return z.string();
@@ -58,6 +64,7 @@ const TYPE_MESSAGE: Record<CategoryFieldType, (label: string) => string> = {
   BOOLEAN: (label) => `${label} must be yes or no.`,
   ENUM: (label) => `Choose a valid ${label.toLowerCase()} value.`,
   TEXT: (label) => `${label} is not valid.`,
+  DATE: (label) => `${label} must be a date, like 2027-03-01.`,
 };
 
 /**

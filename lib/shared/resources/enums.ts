@@ -17,7 +17,7 @@ export const countingModes = ["SERIALIZED", "BULK"] as const;
 export const CountingModeSchema = z.enum(countingModes);
 export type CountingMode = (typeof countingModes)[number];
 
-export const categoryFieldTypes = ["TEXT", "NUMBER", "ENUM", "BOOLEAN"] as const;
+export const categoryFieldTypes = ["TEXT", "NUMBER", "ENUM", "BOOLEAN", "DATE"] as const;
 export const CategoryFieldTypeSchema = z.enum(categoryFieldTypes);
 export type CategoryFieldType = (typeof categoryFieldTypes)[number];
 

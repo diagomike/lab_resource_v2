@@ -839,8 +839,9 @@ export function PropInput({
   }
   return (
     <input
-      type={field.type === "NUMBER" ? "number" : "text"}
+      type={field.type === "NUMBER" ? "number" : field.type === "DATE" ? "date" : "text"}
       value={value}
+      placeholder={field.hint ?? undefined}
       onChange={(e) => onChange(e.target.value)}
       onBlur={onCommit}
       onKeyDown={onKeyDown}
