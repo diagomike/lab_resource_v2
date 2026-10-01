@@ -26,6 +26,7 @@ import {
   type MovementShape,
 } from "@/lib/domain/approvals";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
+import { paths } from "@/lib/paths";
 
 /**
  * Track 3 — cross-lab transfers, the multi-office chain engine's first real use. See
@@ -715,8 +716,8 @@ async function tellNextApprover(request: ChangeRequestDto, actorId: string): Pro
       `${esc(request.requesterName)}'s request has reached your step (${esc(step.label)}): <strong>${esc(request.summary)}</strong>.${quoted(request.note)}`,
       step.receipt ? "Confirm it under <strong>Approvals → Transfers</strong> once it's with you." : "Approve or reject it under <strong>Approvals → Transfers</strong>.",
     ],
-    path: "/approvals",
-    action: "Open Approvals",
+    path: paths.decide("transfer", request.id),
+    action: "Open the request",
   });
 }
 
@@ -731,8 +732,8 @@ async function tellRecipient(request: ChangeRequestDto, recipientId: string | nu
       `${esc(request.requesterName)} is handing over <strong>${esc(request.summary)}</strong> to you.${quoted(request.note)}`,
       "Once your head and Property Administration approve it, accept it under <strong>Approvals → Transfers</strong> when it is in your hands.",
     ],
-    path: "/approvals",
-    action: "Open Approvals",
+    path: paths.decide("transfer", request.id),
+    action: "Open the request",
   });
 }
 
@@ -746,7 +747,7 @@ async function tellRequesterOutcome(request: ChangeRequestDto, actorId: string):
   await notify(request.requesterId, actorId, {
     subject: `Your transfer ${outcome[0]}: ${request.summary}`,
     paragraphs: [`<strong>${esc(request.summary)}</strong>: ${outcome[1]}${quoted(request.resolution)}`],
-    path: "/approvals",
+    path: paths.mine("transfer", request.id),
   });
 }
 

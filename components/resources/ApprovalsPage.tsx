@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   ChainStepDto,
   ChangeRequestDto,
   ClashDto,
-  ItemChangeInput,
   LabCommitRequestDto,
   PurchaseAttachmentDto,
   PurchaseRequestDto,
   ReservationDto,
-  ResourceCategoryDto, CategoryChangesDto } from "@/lib/shared";
-import { CHANGE_LABEL } from "@/lib/domain/types";
-import { STATUS_LABEL } from "@/lib/domain/status";
+  CategoryChangeDto,
+  CategoryChangesDto,
+} from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
+import { useHomeCounts } from "@/lib/home-counts";
+import { parseFocus, type ApprovalKind } from "@/lib/paths";
+import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog, Tabs } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { HistoryTimeline } from "./PurchasingPage";
 import { AttachmentPicker, RequestDocuments, discardAttachments } from "./PurchaseAttachments";
@@ -33,62 +35,13 @@ const STATUS_TONE: Record<string, "warn" | "good" | "bad" | "neutral"> = {
   STALE: "bad",
 };
 
-function TabBar({ tab, onChange }: { tab: "inbox" | "mine"; onChange: (t: "inbox" | "mine") => void }) {
-  return (
-    <div className="flex items-center gap-4">
-      {(["inbox", "mine"] as const).map((t) => (
-        <button
-          key={t}
-          onClick={() => onChange(t)}
-          style={{ background: tab === t ? "var(--accent)" : "var(--panel2)", color: tab === t ? "#fff" : "var(--dim)" }}
-          className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
-        >
-          {t === "inbox" ? "Routed to me" : "Raised by me"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ── Lab commits (a Draft to merge, or an Ideal proposal — one decider: the lab's head) ────
-
-function LabCommitsPanel() {
-  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
-  const [rows, setRows] = useState<LabCommitRequestDto[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function load() {
-    setRows(null);
-    setError(null);
-    api
-      .get<LabCommitRequestDto[]>(`/resources/lab-commits?box=${tab}`)
-      .then(setRows)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load requests"));
-  }
-
-  useEffect(load, [tab]);
-
-  return (
-    <>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <Panel title="Lab commits" actions={<TabBar tab={tab} onChange={setTab} />}>
-        {rows === null ? (
-          <PanelLoading rows={3} />
-        ) : rows.length === 0 ? (
-          <div className="px-14 py-14 text-11.5 text-dim">
-            {tab === "inbox" ? "Nothing waiting on your decision." : "You haven't submitted anything for approval."}
-          </div>
-        ) : (
-          <div className="p-12 flex flex-col gap-10">
-            {rows.map((r) => (
-              <LabCommitCard key={r.id} request={r} onDecided={load} />
-            ))}
-          </div>
-        )}
-      </Panel>
-    </>
-  );
-}
+const STATUS_TEXT: Record<string, string> = {
+  PENDING: "Waiting",
+  APPLIED: "Done",
+  REJECTED: "Rejected",
+  CANCELLED: "Withdrawn",
+  STALE: "Couldn't be applied",
+};
 
 // ── Track 3 — transfers (multi-step chain: owner head → target head → receipt) ────
 
@@ -152,7 +105,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
             by {request.requesterName} · {new Date(request.createdAt).toLocaleString()}
           </div>
         </div>
-        <Tag tone={STATUS_TONE[request.status] ?? "neutral"}>{request.status}</Tag>
+        <Tag tone={STATUS_TONE[request.status] ?? "neutral"}>{STATUS_TEXT[request.status] ?? request.status}</Tag>
       </div>
 
       <ChainTrail steps={request.steps} />
@@ -207,44 +160,6 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
         />
       )}
     </div>
-  );
-}
-
-function TransfersPanel({ viewerId }: { viewerId: string }) {
-  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
-  const [rows, setRows] = useState<ChangeRequestDto[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function load() {
-    setRows(null);
-    setError(null);
-    api
-      .get<ChangeRequestDto[]>(`/resources/transfers?box=${tab}`)
-      .then(setRows)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load requests"));
-  }
-
-  useEffect(load, [tab]);
-
-  return (
-    <>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <Panel title="Transfers" actions={<TabBar tab={tab} onChange={setTab} />}>
-        {rows === null ? (
-          <PanelLoading rows={3} />
-        ) : rows.length === 0 ? (
-          <div className="px-14 py-14 text-11.5 text-dim">
-            {tab === "inbox" ? "Nothing waiting on your decision." : "You haven't requested any transfers."}
-          </div>
-        ) : (
-          <div className="p-12 flex flex-col gap-10">
-            {rows.map((r) => (
-              <TransferRequestCard key={r.id} request={r} viewerId={viewerId} onDecided={load} />
-            ))}
-          </div>
-        )}
-      </Panel>
-    </>
   );
 }
 
@@ -313,42 +228,6 @@ function BookingCard({ booking, onDecided }: { booking: ReservationDto; onDecide
         </div>
       )}
     </div>
-  );
-}
-
-function BookingsPanel() {
-  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
-  const [rows, setRows] = useState<ReservationDto[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function load() {
-    setRows(null);
-    setError(null);
-    api
-      .get<ReservationDto[]>(`/scheduling/bookings?box=${tab}`)
-      .then(setRows)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load bookings"));
-  }
-
-  useEffect(load, [tab]);
-
-  return (
-    <>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <Panel title="Lab bookings" actions={<TabBar tab={tab} onChange={setTab} />}>
-        {rows === null ? (
-          <PanelLoading rows={2} />
-        ) : rows.length === 0 ? (
-          <div className="px-14 py-14 text-11.5 text-dim">{tab === "inbox" ? "Nothing waiting on your decision." : "You haven't booked anything."}</div>
-        ) : (
-          <div className="p-12 flex flex-col gap-10">
-            {rows.map((r) => (
-              <BookingCard key={r.id} booking={r} onDecided={load} />
-            ))}
-          </div>
-        )}
-      </Panel>
-    </>
   );
 }
 
@@ -480,96 +359,256 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
   );
 }
 
-function PurchasingPanel({ viewerId }: { viewerId: string }) {
-  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
-  const [rows, setRows] = useState<PurchaseRequestDto[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+// ── One inbox ────────────────────────────────────────────────────────────────────
+//
+// Everything waiting for this person's decision in one list, oldest first, with chips
+// to narrow it to one kind; and a second tab for what they sent. Links from email, the
+// bell and Home say which item to open: `?focus=transfer:<id>` scrolls to it and marks
+// it; `?box=mine` opens "Sent by me"; `?kind=` picks the chip.
 
-  function load() {
-    setRows(null);
-    setError(null);
-    api
-      .get<PurchaseRequestDto[]>(`/resources/purchase-requests?box=${tab}`)
-      .then(setRows)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load requests"));
+type Box = "inbox" | "mine";
+
+type Entry =
+  | { kind: "transfer"; id: string; at: string; row: ChangeRequestDto }
+  | { kind: "lab-commit"; id: string; at: string; row: LabCommitRequestDto }
+  | { kind: "purchase"; id: string; at: string; row: PurchaseRequestDto }
+  | { kind: "booking"; id: string; at: string; row: ReservationDto }
+  | { kind: "category-change"; id: string; at: string; row: CategoryChangeDto };
+
+const KIND_LABEL: Record<ApprovalKind, string> = {
+  transfer: "Transfers",
+  "lab-commit": "Lab changes",
+  purchase: "Purchases",
+  booking: "Bookings",
+  "category-change": "Category changes",
+};
+const KINDS = Object.keys(KIND_LABEL) as ApprovalKind[];
+
+const EMPTY: Record<Box, string> = {
+  inbox: "Nothing is waiting for your decision.",
+  mine: "Nothing you sent is in the last while. Transfers, lab changes, purchase requests, bookings and category changes you send show here.",
+};
+
+/** Loads one box from every source. A source that refuses this person (they don't
+ *  book, say) is simply empty; one that fails is named so it can be retried. */
+async function loadBox(box: Box, mayBook: boolean): Promise<{ entries: Entry[]; failed: string[] }> {
+  const failed: string[] = [];
+  const get = async <T,>(label: string, path: string, fallback: T): Promise<T> => {
+    try {
+      return await api.get<T>(path);
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 403)) failed.push(label);
+      return fallback;
+    }
+  };
+  const [transfers, commits, purchases, bookings, changes] = await Promise.all([
+    get<ChangeRequestDto[]>("transfers", `/resources/transfers?box=${box}`, []),
+    get<LabCommitRequestDto[]>("lab changes", `/resources/lab-commits?box=${box}`, []),
+    get<PurchaseRequestDto[]>("purchase requests", `/resources/purchase-requests?box=${box}`, []),
+    mayBook ? get<ReservationDto[]>("bookings", `/scheduling/bookings?box=${box}`, []) : Promise.resolve([]),
+    get<CategoryChangesDto>("category changes", "/resources/category-changes", { waiting: [], mine: [] }),
+  ]);
+  const entries: Entry[] = [
+    ...transfers.map((row) => ({ kind: "transfer" as const, id: row.id, at: row.createdAt, row })),
+    ...commits.map((row) => ({ kind: "lab-commit" as const, id: row.id, at: row.createdAt, row })),
+    ...purchases.map((row) => ({ kind: "purchase" as const, id: row.id, at: row.createdAt, row })),
+    ...bookings.map((row) => ({ kind: "booking" as const, id: row.id, at: row.startsAt, row })),
+    ...(box === "inbox" ? changes.waiting : changes.mine).map((row) => ({ kind: "category-change" as const, id: row.id, at: row.createdAt, row })),
+  ];
+  // Waiting: oldest first (it has waited longest). Sent: newest first.
+  entries.sort((a, b) => (box === "inbox" ? a.at.localeCompare(b.at) : b.at.localeCompare(a.at)));
+  return { entries, failed };
+}
+
+function EntryCard({ entry, viewerId, onChanged }: { entry: Entry; viewerId: string; onChanged: () => void }) {
+  switch (entry.kind) {
+    case "transfer":
+      return <TransferRequestCard request={entry.row} viewerId={viewerId} onDecided={onChanged} />;
+    case "lab-commit":
+      return <LabCommitCard request={entry.row} onDecided={onChanged} />;
+    case "purchase":
+      return <PurchaseRequestCard request={entry.row} viewerId={viewerId} onDecided={onChanged} />;
+    case "booking":
+      return <BookingCard booking={entry.row} onDecided={onChanged} />;
+    case "category-change":
+      return <CategoryChangeCard change={entry.row} onChanged={onChanged} />;
   }
+}
 
-  useEffect(load, [tab]);
-
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <Panel title="Purchasing" actions={<TabBar tab={tab} onChange={setTab} />}>
-        {rows === null ? (
-          <PanelLoading rows={3} />
-        ) : rows.length === 0 ? (
-          <div className="px-14 py-14 text-11.5 text-dim">
-            {tab === "inbox" ? "Nothing waiting on your decision." : "You haven't compiled any purchase requests."}
-          </div>
-        ) : (
-          <div className="p-12 flex flex-col gap-10">
-            {rows.map((r) => (
-              <PurchaseRequestCard key={r.id} request={r} viewerId={viewerId} onDecided={load} />
-            ))}
-          </div>
-        )}
-      </Panel>
-    </>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={`border rounded-full h-24 px-10 text-11 flex items-center gap-5 whitespace-nowrap ${on ? "border-accent bg-soft text-accent font-medium" : "border-border2 bg-panel text-dim hover:text-text"}`}
+    >
+      {children}
+    </button>
   );
 }
 
-/** Category changes that touch data: those waiting for this person, and their own. */
-function CategoryChangesPanel() {
-  const [tab, setTab] = useState<"inbox" | "mine">("inbox");
-  const [data, setData] = useState<CategoryChangesDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function Inbox() {
+  const { user } = useAuth();
+  const { refresh: refreshCounts } = useHomeCounts();
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const focus = useMemo(() => parseFocus(params.get("focus")), [params]);
+  const box: Box = params.get("box") === "mine" ? "mine" : "inbox";
+  const kindParam = params.get("kind") as ApprovalKind | null;
+  const kind: ApprovalKind | null = kindParam && KINDS.includes(kindParam) ? kindParam : null;
+  const mayBook = !!user?.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN");
 
-  function load() {
-    setError(null);
-    api
-      .get<CategoryChangesDto>("/resources/category-changes")
-      .then(setData)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load category changes"));
-  }
-  useEffect(load, []);
+  const [data, setData] = useState<{ box: Box; entries: Entry[]; failed: string[] } | null>(null);
+  const [waitingCount, setWaitingCount] = useState<number | null>(null);
+  const scrolledTo = useRef<string | null>(null);
 
-  const rows = data ? (tab === "inbox" ? data.waiting : data.mine) : null;
-  // Nothing to show either way: keep the page short.
-  if (data && !data.waiting.length && !data.mine.length) return null;
+  /** Changes the query (box, kind, focus) without a new history entry or a jump. */
+  const setQuery = useCallback(
+    (next: { box?: Box; kind?: ApprovalKind | null; focus?: string | null }) => {
+      const q = new URLSearchParams(params.toString());
+      const put = (key: string, value: string | null | undefined) => (value ? q.set(key, value) : q.delete(key));
+      if ("box" in next) put("box", next.box === "mine" ? "mine" : null);
+      if ("kind" in next) put("kind", next.kind ?? null);
+      if ("focus" in next) put("focus", next.focus ?? null);
+      const qs = q.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [params, pathname, router],
+  );
+
+  const load = useCallback(() => {
+    loadBox(box, mayBook).then((r) => {
+      setData({ box, ...r });
+      if (box === "inbox") setWaitingCount(r.entries.length);
+    });
+  }, [box, mayBook]);
+
+  useEffect(() => {
+    setData(null);
+    load();
+  }, [load]);
+
+  // The waiting count for the tab, even while "Sent by me" is open.
+  useEffect(() => {
+    if (box === "mine" && waitingCount === null) loadBox("inbox", mayBook).then((r) => setWaitingCount(r.entries.length));
+  }, [box, mayBook, waitingCount]);
+
+  const onChanged = useCallback(() => {
+    load();
+    refreshCounts();
+  }, [load, refreshCounts]);
+
+  const entries = data?.box === box ? data.entries : null;
+  const focused = entries && focus ? entries.find((e) => e.kind === focus.kind && e.id === focus.id) ?? null : null;
+
+  // A link to something already decided, or sent by this person: look in the other box.
+  useEffect(() => {
+    if (!entries || !focus || focused || box === "mine") return;
+    loadBox("mine", mayBook).then((r) => {
+      if (r.entries.some((e) => e.kind === focus.kind && e.id === focus.id)) setQuery({ box: "mine" });
+    });
+  }, [entries, focus, focused, box, mayBook, setQuery]);
+
+  // Scroll the linked item into view once, after it renders.
+  useEffect(() => {
+    if (!focused) return;
+    const key = `${focused.kind}:${focused.id}`;
+    if (scrolledTo.current === key) return;
+    scrolledTo.current = key;
+    requestAnimationFrame(() => document.getElementById(`approval-${focused.kind}-${focused.id}`)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  }, [focused]);
+
+  if (!user) return null;
+
+  const counts = new Map<ApprovalKind, number>();
+  for (const e of entries ?? []) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
+  const shown = (entries ?? []).filter((e) => !kind || e.kind === kind || (focused && e === focused));
+  const missingFocus = entries && focus && !focused;
+
   return (
-    <>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <Panel title="Category changes" actions={<TabBar tab={tab} onChange={setTab} />}>
-        {rows === null ? (
-          <PanelLoading rows={2} />
-        ) : rows.length === 0 ? (
-          <div className="px-14 py-14 text-11.5 text-dim">{tab === "inbox" ? "Nothing waiting on your decision." : "You haven't proposed any category changes lately."}</div>
+    <Screen>
+      <Tabs<Box>
+        label="Approvals"
+        value={box}
+        onChange={(b) => setQuery({ box: b, kind: null, focus: null })}
+        tabs={[
+          { key: "inbox", label: "Waiting for me", count: waitingCount ?? undefined },
+          { key: "mine", label: "Sent by me" },
+        ]}
+      />
+
+      {entries && entries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-6" role="group" aria-label="Show only">
+          <Chip on={!kind} onClick={() => setQuery({ kind: null })}>
+            All <span className="font-mono">{entries.length}</span>
+          </Chip>
+          {KINDS.filter((k) => counts.get(k)).map((k) => (
+            <Chip key={k} on={kind === k} onClick={() => setQuery({ kind: k })}>
+              {KIND_LABEL[k]} <span className="font-mono">{counts.get(k)}</span>
+            </Chip>
+          ))}
+        </div>
+      )}
+
+      {data?.failed.length ? (
+        <ErrorNote>
+          Couldn&apos;t load {data.failed.join(", ")}.{" "}
+          <button type="button" onClick={load} className="border-0 bg-transparent p-0 text-bad underline cursor-pointer text-11">
+            Try again
+          </button>
+        </ErrorNote>
+      ) : null}
+
+      {missingFocus && (
+        <div className="flex gap-10 border border-border2 bg-panel2 rounded-3 px-12 py-9 text-11.5 text-dim">
+          <span className="w-3 bg-warn rounded-2 flex-none" />
+          <span className="flex-1">The item you followed isn&apos;t waiting for you any more — it was decided, withdrawn, or moved on to someone else.</span>
+          <button type="button" onClick={() => setQuery({ focus: null })} className="border-0 bg-transparent text-accent cursor-pointer text-11.5 p-0">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      <Panel>
+        {entries === null ? (
+          <PanelLoading rows={4} />
+        ) : shown.length === 0 ? (
+          <div className="px-14 py-14 text-11.5 text-dim leading-loose">{kind ? `No ${KIND_LABEL[kind].toLowerCase()} here.` : EMPTY[box]}</div>
         ) : (
           <div className="p-12 flex flex-col gap-10">
-            {rows.map((c) => (
-              <CategoryChangeCard key={c.id} change={c} onChanged={load} />
-            ))}
+            {shown.map((e) => {
+              const on = e === focused;
+              return (
+                <div
+                  key={`${e.kind}-${e.id}`}
+                  id={`approval-${e.kind}-${e.id}`}
+                  className={`flex flex-col gap-4 rounded-4 ${on ? "border-2 border-accent bg-soft p-4" : ""}`}
+                  aria-current={on ? "true" : undefined}
+                >
+                  <div className="flex items-center gap-6 text-10 uppercase tracking-label font-semibold text-faint px-2">
+                    {KIND_LABEL[e.kind]}
+                    {on && <span className="text-accent normal-case tracking-normal">· the one you followed</span>}
+                  </div>
+                  <EntryCard entry={e} viewerId={user.id} onChanged={onChanged} />
+                </div>
+              );
+            })}
           </div>
         )}
       </Panel>
-    </>
+    </Screen>
   );
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ApprovalsPage() {
-  const { user } = useAuth();
-  if (!user) return null;
-
   return (
-    <Screen>
-      <TransfersPanel viewerId={user.id} />
-      <LabCommitsPanel />
-      <PurchasingPanel viewerId={user.id} />
-      <CategoryChangesPanel />
-      {user.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN") && <BookingsPanel />}
-    </Screen>
+    <Suspense fallback={<Screen><Panel><PanelLoading rows={4} /></Panel></Screen>}>
+      <Inbox />
+    </Suspense>
   );
 }
 

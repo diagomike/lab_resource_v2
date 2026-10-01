@@ -32,6 +32,7 @@ import { esc, notify, quoted, usersWithRole } from "../mail/notify";
 import * as attachments from "./purchase-attachments";
 import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
 import type { RoleKind } from "@/lib/shared";
+import { paths } from "@/lib/paths";
 
 /**
  * Track 4 — purchasing/procurement. See
@@ -814,7 +815,7 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
     await notify(await usersWithRole("PROPERTY_ADMIN"), actorId, {
       subject: `${dto.reference} has arrived at the main store`,
       paragraphs: [`${summary(dto)} has arrived. Record what came in as an import record under <strong>Purchasing → Imports</strong>, so the store keeper can load it into the store.`],
-      path: "/purchasing",
+      path: paths.arrivals(),
     });
   }
   return dto;
@@ -872,13 +873,13 @@ async function tellNextApprover(dto: PurchaseRequestDto, actorId: string): Promi
       ...(files.length ? [`It carries ${files.length} supporting document${files.length === 1 ? "" : "s"}: ${fileList(files)}.`] : []),
       "Approve it, send it back for revision, or reject it under <strong>Approvals → Purchasing</strong>.",
     ],
-    path: "/approvals",
-    action: "Review it in Approvals",
+    path: paths.decide("purchase", dto.id),
+    action: "Review the request",
   });
 }
 
 async function tellRaiser(dto: PurchaseRequestDto, actorId: string, subject: string, paragraphs: string[]): Promise<void> {
-  await notify(dto.raisedById, actorId, { subject, paragraphs, path: "/purchasing" });
+  await notify(dto.raisedById, actorId, { subject, paragraphs, path: paths.mine("purchase", dto.id) });
 }
 
 // ── Reading ──────────────────────────────────────────────────────────────────────

@@ -6,8 +6,8 @@ import { useAuth } from "@/lib/auth-context";
 import { landingPathFor } from "@/lib/nav";
 import { SessionCheck } from "@/components/states";
 
-/** Sends everyone to the same first screen — the resource dashboard. What they see
- *  there differs by scope, not by which page they land on. */
+/** Sends everyone to Home (an outside requester to the portal): what they see there
+ *  is what is waiting for them. */
 export default function LandingRedirect() {
   const { me, loading } = useAuth();
   const router = useRouter();

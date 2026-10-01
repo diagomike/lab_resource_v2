@@ -127,6 +127,8 @@ model User {
   categoriesCreated          ResourceCategory[]          @relation("CategoryCreator")
   categoryChangesProposed    CategoryChange[]            @relation("CategoryChangeProposer")
   categoryChangesDecided     CategoryChange[]            @relation("CategoryChangeDecider")
+  notifications              Notification[]              @relation("NotificationRecipient")
+  notificationsSent          Notification[]              @relation("NotificationActor")
 
   @@index([emailLower])
   @@index([homeNodeId])
@@ -1735,4 +1737,26 @@ model PaymentVerification {
 
   @@index([requestId, createdAt])
   @@index([status])
+}
+
+/// What happened that concerns someone — written for every recipient of a notice
+/// (lib/server/mail/notify.ts), whatever their email setting, and shown under the bell
+/// and on Home. `path` opens the exact item. Swept after 90 days.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  actorId   String?
+  title     String
+  /// The notice's first paragraph as plain text.
+  body      String
+  path      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user  User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }

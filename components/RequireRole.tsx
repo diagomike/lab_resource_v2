@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { RoleKind } from "@/lib/shared";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, useNavFacts } from "@/lib/auth-context";
 import { canAccessPath } from "@/lib/nav";
 import { PermissionDenied } from "./states";
 
@@ -17,10 +17,11 @@ import { PermissionDenied } from "./states";
  */
 export default function RequireRole({ children }: { children: ReactNode }) {
   const { me } = useAuth();
+  const facts = useNavFacts();
   const pathname = usePathname();
   const roles = (me?.user.roles ?? []) as RoleKind[];
 
-  if (!canAccessPath(pathname, roles)) {
+  if (!canAccessPath(pathname, facts)) {
     return <PermissionDenied attempted={pathname} roles={roles} />;
   }
   return <>{children}</>;

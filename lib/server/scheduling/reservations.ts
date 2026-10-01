@@ -5,6 +5,7 @@ import { HttpError } from "../http-error";
 import { esc, notify, quoted } from "../mail/notify";
 import { findClashes } from "@/lib/domain/availability";
 import { DEFAULT_TIME_ZONE, MAX_HORIZON_DAYS, addDays, civilToInstant, instantToCivil, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
+import { paths } from "@/lib/paths";
 import {
   RESERVATION_INCLUDE,
   assertMayBook,
@@ -179,8 +180,8 @@ export async function createStaffBooking(userId: string, input: BookingInput): P
         `${esc(dto.requestedByName ?? "Someone")} asked to book ${when(dto)}: “${esc(dto.title)}”.${quoted(dto.note)}`,
         "Approve or decline it under <strong>Approvals → Lab bookings</strong> (or Schedule → My labs).",
       ],
-      path: "/approvals",
-      action: "Decide in Approvals",
+      path: paths.decide("booking", dto.id),
+      action: "Decide it",
     });
   }
   return dto;
@@ -203,7 +204,7 @@ async function tellRequester(dto: ReservationDto, actorId: string, verb: string)
   await notify(dto.requestedById, actorId, {
     subject: `Your booking of ${dto.labName} on ${dto.date} was ${verb}`,
     paragraphs: [`“${esc(dto.title)}”, ${when(dto)}, was <strong>${verb}</strong>${dto.decidedByName ? ` by ${esc(dto.decidedByName)}` : ""}.${quoted(dto.note)}`],
-    path: "/schedule",
+    path: paths.mine("booking", dto.id),
   });
 }
 
@@ -287,7 +288,7 @@ export async function cancelBooking(userId: string, id: string, note?: string): 
     await notify(await custodianOf(dto.labItemId), userId, {
       subject: `Booking withdrawn: ${dto.labName} on ${dto.date}`,
       paragraphs: [`${esc(dto.requestedByName ?? "The requester")} withdrew “${esc(dto.title)}”, ${when(dto)}. The slot is free again.`],
-      path: "/schedule",
+      path: paths.calendar(dto.labItemId),
     });
   } else {
     await tellRequester(dto, userId, "cancelled");

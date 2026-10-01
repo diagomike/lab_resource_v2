@@ -532,7 +532,11 @@ function useCalendar(labId: string | null, weekStart: string) {
 }
 
 function MyLabsTab({ labs, reloadLabs }: { labs: SchedulingLabDto[]; reloadLabs: () => void }) {
-  const [labId, setLabId] = useState(labs[0]?.id ?? "");
+  // `?lab=<id>` (a link from a notice or a lab's page) opens that lab's calendar.
+  const [labId, setLabId] = useState(() => {
+    const linked = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("lab");
+    return labs.find((l) => l.id === linked)?.id ?? labs[0]?.id ?? "";
+  });
   const lab = labs.find((l) => l.id === labId) ?? labs[0];
   const [weekStart, setWeekStart] = useState(startOfWeek(today()));
   const calendar = useCalendar(lab?.id ?? null, weekStart);

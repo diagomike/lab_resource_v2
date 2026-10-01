@@ -4940,3 +4940,46 @@ its model that make porting it as-is the wrong move.
   - **Waiting on the user:** the single dev reseed (`migrate reset` + seeds: ASTU org with ADAA offices, the
     catalogue, block/room on labs) needs their go-ahead. A backup is at
     `backups/lrms_v2-2026-10-01-before-p2-reseed.dump`.
+
+- **2026-10-02 (UX-flow round, P4: Home, the bell, links that open the exact item, sidebar by role)**
+  - Picked up from the session that ran out of tokens mid-P4 (the Notification model, `notify()` rows, `lib/paths.ts`
+    and `home-logic.ts` were written but uncommitted); finished and verified here.
+  - **Notifications:** `Notification` model (migration `20261002080000_notifications`). `notify()` writes a row for
+    every active recipient whatever their email setting, then emails the opted-in; `mailStaff` (outside requests)
+    records one too. Swept after 90 days by the existing cron. Routes `GET /api/notifications`, `POST
+    /api/notifications/read` (`{ids}` or `{all}`; only your own).
+  - **Links open the exact item** (`lib/paths.ts`): every notice now points at `/approvals?focus=<kind>:<id>`
+    (`&box=mine` for your own), `/categories?id=&change=`, `/places/<id>?tab=draft`, `/purchasing?tab=needs|arrivals`,
+    `/schedule?lab=`. Approvals scrolls to and marks the item ("the one you followed"), switching to "Sent by me" if
+    that's where it is, and says so plainly when it was already decided. The register opens `?item=` in the
+    inspector; Bookings opens `?lab=`.
+  - **Sign-in returns you:** `proxy.ts` (server) and `ProtectedRoute` (client) carry `?next=`; login honours it
+    (same-site paths only, `safeNext`); a 401 mid-session (`lib/api.ts`) goes to sign-in and back. Signing out on
+    purpose lands on a plain `/login`.
+  - **Home** (`/home`, everyone's landing page; `lib/server/home/home.ts` + pure `lib/domain/home-logic.ts`): one
+    next step with one button, Waiting for you (counts by kind → the filtered list), Unfinished (unsent lab changes,
+    `lab-versions.unsentDrafts`), Your requests (where each is now: "With CoEEC Dean, 2 days"), Due soon (Date
+    details within 30 days), Recent updates, At a glance (heads, deans, ADAA, AVP), Loose ends (admin: vacant posts,
+    places whose custodian can't run them, people with no role, open invitations). The admin Overview page is gone
+    (redirects to Home).
+  - **The bell** in the top bar (unread count; latest 15; opening one marks it read and opens its item; Mark all
+    read). **Sidebar badges** (Approvals, Purchasing, Labs & stores, Outside requests) from `GET /api/home/counts`,
+    shared by the bell, refreshed on load, focus and every minute (`lib/home-counts.tsx`).
+  - **Approvals is one inbox:** "Waiting for me" (oldest first, with a count) and "Sent by me", kind chips
+    (`?kind=`), the same cards as before; the four stacked panels with their own toggles are gone. Transfer statuses
+    read in words (Waiting, Done, Withdrawn…).
+  - **Sidebar by role** (`lib/nav.ts`): `NavItem.when(facts)` over roles + `/auth/me` caps, the same predicate for
+    the sidebar and the route guard (`canAccessPath`); plain names (Home, Resources, Bookings, Outside requests,
+    Insights, History, Organisation); entries are links (open in a new tab works). Matches the plan's matrix, with
+    two deliberate differences: a dean sees Labs & stores (the server lets deans manage their college's places), and
+    the ADAA gets no People & roles (the people service only lets heads and the admin manage people — a follow-up).
+  - **Fixed in passing:** `STAFF_ROLES` lacked ADAA, so a pure ADAA account was refused the register and Labs &
+    stores.
+  - **Checks:** `tsc` clean, 588/588 tests (new: `lib/nav.spec.ts` 10, `lib/server/home/home.spec.ts` 8 DB-backed,
+    `home-logic.spec` 6), `next build` clean. Browser on dev-nomail: signed-out deep link → sign-in → back to the
+    exact purchase request; custodian asks for 10 HDMI cables (left in dev as data) → the head's bell, Purchasing
+    badge and Home next step show it → opening the notice lands on Lab needs and clears it; custodian and head
+    sidebars match the matrix; Home at 375 px has no horizontal scroll.
+  - **Still waiting on the user:** the single dev reseed (`migrate reset` + seeds: ASTU org with ADAA offices, the
+    catalogue, block/room on labs). Next: P5 (naming pass, toasts, InlineError, dialogs, contrast, lucide icons,
+    table, export, Organisation).

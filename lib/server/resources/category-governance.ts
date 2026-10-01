@@ -7,6 +7,7 @@ import { HttpError } from "../http-error";
 import { capabilitiesOf } from "../auth/capabilities";
 import { esc, notify, quoted, usersWithRole } from "../mail/notify";
 import * as categories from "./categories";
+import { paths } from "@/lib/paths";
 
 /**
  * Who may add and change categories, and when a change waits for approval
@@ -125,7 +126,7 @@ async function stewardSide(stewardNodeId: string | null, editor: Editor): Promis
   return ids.filter((x): x is string => Boolean(x));
 }
 
-const categoryPath = (categoryId: string, changeId?: string) => `/categories?id=${categoryId}${changeId ? `&change=${changeId}` : ""}`;
+const categoryPath = paths.category;
 
 // ── Adding ────────────────────────────────────────────────────────────────
 

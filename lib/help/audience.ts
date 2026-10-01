@@ -62,7 +62,7 @@ const SCREEN_SECTIONS: Array<[string, string[]]> = [
   ["/purchasing", ["head--5-compile-a-purchase-request", "procurement--2-your-pipeline", "property-admin--2-import-records", "store-keeper--1-load-an-import-record", "custodian--12-raise-a-need", "staff--5-raise-a-need"]],
   ["/change-log", ["head--3-the-change-log", "system-admin--6-corrections-and-the-change-log"]],
   ["/categories", ["system-admin--4-categories", "property-admin--4-categories"]],
-  ["/admin/dashboard", ["system-admin--1-overview"]],
+  ["/home", ["system-admin--1-overview"]],
   ["/admin/org-structure", ["system-admin--2-org-structure"]],
   ["/admin/people", ["system-admin--3-people--roles", "head--7-your-people"]],
   ["/me/profile", ["getting-started--7-your-profile"]],

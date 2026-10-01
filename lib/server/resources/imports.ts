@@ -9,6 +9,7 @@ import { closeIfFullyReceived } from "./purchasing";
 import { canReceive, canRecordImports } from "@/lib/domain/purchasing";
 import { esc, notify, quoted, usersWithRole } from "../mail/notify";
 import type { RoleKind } from "@/lib/shared";
+import { paths } from "@/lib/paths";
 
 /**
  * Import records (2026-09-28) — the one door bought goods come into the register by.
@@ -183,8 +184,8 @@ export async function createImport(actorId: string, input: CreateImportInput): P
       `${esc(dto.createdByName)} recorded what arrived${dto.purchaseReference ? ` for <strong>${esc(dto.purchaseReference)}</strong>` : dto.egpReference ? ` (EGP ${esc(dto.egpReference)})` : ""}: ${dto.lines.length} line${dto.lines.length === 1 ? "" : "s"}.${quoted(dto.note)}`,
       "Load it into the store under <strong>Purchasing → Imports</strong>.",
     ],
-    path: "/purchasing",
-    action: "Open Purchasing",
+    path: paths.arrivals(),
+    action: "Open Arrivals",
   });
   return dto;
 }

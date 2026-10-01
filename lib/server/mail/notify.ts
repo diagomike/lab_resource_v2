@@ -46,11 +46,39 @@ export interface Notice {
   action?: string;
 }
 
-/** Emails each recipient (user ids; nulls and duplicates ignored), except `actorId`. */
+/** A notice's first paragraph as plain text — what the bell and Home show under the title. */
+export function plainText(html: string, max = 280): string {
+  const text = html
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
+/**
+ * Tells each recipient (user ids; nulls and duplicates ignored), except `actorId`: a
+ * notification row for every active account — the bell and Home — and an email for
+ * those who have notification emails on.
+ */
 export async function notify(recipientIds: Array<string | null | undefined> | string | null | undefined, actorId: string | null, notice: Notice): Promise<void> {
   const ids = [...new Set((Array.isArray(recipientIds) ? recipientIds : [recipientIds]).filter((id): id is string => !!id && id !== actorId))];
   if (!ids.length) return;
-  const users = await prisma.user.findMany({ where: { id: { in: ids }, status: "ACTIVE", emailNotifications: true }, select: { email: true } });
+  const recipients = await prisma.user.findMany({ where: { id: { in: ids }, status: "ACTIVE" }, select: { id: true, email: true, emailNotifications: true } });
+  try {
+    await prisma.notification.createMany({
+      data: recipients.map((u) => ({ userId: u.id, actorId, title: notice.subject, body: plainText(notice.paragraphs[0] ?? ""), path: notice.path })),
+    });
+  } catch (err) {
+    // Like a failed email, a failed notification row never breaks the action behind it.
+    console.error("notify: could not record notifications", err);
+  }
+  const users = recipients.filter((u) => u.emailNotifications);
   const href = `${APP_ORIGIN}${notice.path}`;
   const body =
     notice.paragraphs.map((p) => `<p>${p}</p>`).join("\n") +

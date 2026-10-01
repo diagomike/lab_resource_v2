@@ -9,6 +9,7 @@ import TopBar from "@/components/shell/TopBar";
 import Sidebar from "@/components/shell/Sidebar";
 import ContentHeader from "@/components/shell/ContentHeader";
 import StatusBar from "@/components/shell/StatusBar";
+import { HomeCountsProvider } from "@/lib/home-counts";
 
 interface ShellHeader {
   crumb?: string;
@@ -64,9 +65,6 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const meta = META[key] ?? ["", "", ""];
   if (requester) return null;
 
-  const counts: Record<string, string> = {};
-  // Populated once the approvals-inbox count endpoint exists.
-
   return (
     <HeaderContext.Provider value={setOverride}>
       <div className="h-screen w-full grid grid-rows-[38px_1fr_24px] bg-bg overflow-hidden">
@@ -75,7 +73,7 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
         {/* Single column below md — the sidebar is lifted out of flow into a drawer. */}
         <div className="grid grid-cols-1 md:grid-cols-[236px_1fr] min-h-0 overflow-hidden relative">
           <div className="hidden md:block min-h-0">
-            <Sidebar scope={me?.scope ?? null} counts={counts} />
+            <Sidebar scope={me?.scope ?? null} />
           </div>
 
           {/* Mobile drawer */}
@@ -87,7 +85,7 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 aria-hidden="true"
               />
               <div className="md:hidden fixed left-0 top-38 bottom-24 w-[min(280px,85vw)] z-50 shadow-none border-r border-border">
-                <Sidebar scope={me?.scope ?? null} counts={counts} onNavigate={() => setDrawerOpen(false)} />
+                <Sidebar scope={me?.scope ?? null} onNavigate={() => setDrawerOpen(false)} />
               </div>
             </>
           )}
@@ -113,7 +111,9 @@ function WorkspaceShell({ children }: { children: React.ReactNode }) {
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
-      <WorkspaceShell>{children}</WorkspaceShell>
+      <HomeCountsProvider>
+        <WorkspaceShell>{children}</WorkspaceShell>
+      </HomeCountsProvider>
     </ProtectedRoute>
   );
 }

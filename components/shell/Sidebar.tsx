@@ -1,38 +1,36 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { navFor, screenKeyForPath } from "../../lib/nav";
-import { useAuth } from "../../lib/auth-context";
-import { SCOPE_LABEL, type ScopeDto } from "@/lib/shared";
+import { useAuth, useNavFacts } from "../../lib/auth-context";
+import { useHomeCounts } from "../../lib/home-counts";
+import { SCOPE_LABEL, type HomeCountsDto, type ScopeDto } from "@/lib/shared";
 
-/** "L2 · leaf · 1 unit" or, for the university offices, "university-wide · 14 units" */
+/** "The whole university · 14 units" or "3 units" — plain words, no internal levels. */
 function scopeMeta(scope: ScopeDto): string {
-  const parts = scope.isGlobal ? ["university-wide"] : [`L${scope.level}`];
-  if (!scope.isGlobal && scope.isLeaf) parts.push("leaf");
-  parts.push(`${scope.reachableNodeCount} unit${scope.reachableNodeCount === 1 ? "" : "s"}`);
-  return parts.join(" · ");
+  const units = `${scope.reachableNodeCount} unit${scope.reachableNodeCount === 1 ? "" : "s"}`;
+  return scope.isGlobal ? `The whole university · ${units}` : units;
 }
+
+/** Which sidebar entry shows which count — what is waiting there for this person. */
+const BADGE: Record<string, keyof HomeCountsDto> = { approvals: "approvals", purchasing: "purchasing", places: "places", "external-requests": "outside" };
 
 export default function Sidebar({
   scope,
-  counts,
   onNavigate,
 }: {
   scope: ScopeDto | null;
-  counts?: Record<string, string>;
   /** Called after any navigation so the mobile drawer can close itself. */
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const { me, logout } = useAuth();
-  const roles = me?.user.roles ?? [];
-  const isAdmin = roles.includes("SYS_ADMIN");
+  const facts = useNavFacts();
+  const { counts } = useHomeCounts();
+  const isAdmin = facts.roles.includes("SYS_ADMIN");
   const activeKey = screenKeyForPath(pathname);
-  const go = (path: string) => {
-    router.push(path);
-    onNavigate?.();
-  };
 
   return (
     <div className="bg-panel2 md:border-r border-border flex flex-col min-h-0 h-full overflow-hidden">
@@ -78,37 +76,39 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-10">
-        {navFor(roles).map((group) => (
+        {navFor(facts).map((group) => (
           <div key={group.label} className="mb-9">
             <div className="text-9.5 uppercase tracking-label text-faint font-semibold px-12 pt-4 pb-3">
               {group.label}
             </div>
             {group.items.map((item) => {
               const on = item.key === activeKey;
-              const count = counts?.[item.key] ?? "";
+              const n = BADGE[item.key] && counts ? counts[BADGE[item.key]] : 0;
+              const count = n > 0 ? String(n) : "";
               return (
-                <button
+                <Link
                   key={item.key}
-                  onClick={() => go(item.path)}
+                  href={item.path}
+                  onClick={() => onNavigate?.()}
+                  aria-current={on ? "page" : undefined}
+                  title={count ? `${item.label}: ${count} waiting for you` : undefined}
                   style={{
+                    textDecoration: "none",
                     borderLeftColor: on ? "var(--accent)" : "transparent",
                     background: on ? "var(--sel)" : "transparent",
                     color: on ? "var(--text)" : "var(--dim)",
                     fontWeight: on ? 600 : 400,
                   }}
-                  className="w-full text-left border-0 border-l-2 text-12 pl-10 pr-12 py-6 md:py-4 flex items-center gap-7 leading-relaxed hover:bg-panel3"
+                  className="w-full text-left border-0 border-l-2 border-solid text-12 pl-10 pr-12 py-6 md:py-4 flex items-center gap-7 leading-relaxed hover:bg-panel3"
                 >
                   <span className="w-13 text-center text-10 opacity-75 flex-none">{item.icon}</span>
                   <span className="flex-1 whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>
                   {count && (
-                    <span
-                      style={{ color: on ? "var(--accent)" : "var(--faint)" }}
-                      className="text-9.5 font-mono px-4 rounded-2"
-                    >
+                    <span className="text-9.5 font-semibold font-mono px-5 rounded-full bg-accent text-white leading-relaxed" aria-hidden="true">
                       {count}
                     </span>
                   )}
-                </button>
+                </Link>
               );
             })}
           </div>

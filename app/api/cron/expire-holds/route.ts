@@ -3,6 +3,7 @@ import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { prisma } from "@/lib/server/prisma";
 import { expireHolds, expireLapsedRequests } from "@/lib/server/scheduling/context";
 import { expireOverdueQuotes } from "@/lib/server/external/requests";
+import { sweepOldNotifications } from "@/lib/server/home/notifications";
 
 /**
  * Scheduled sweep (vercel.json crons): lapsed holds stop blocking, quotes past their
@@ -10,7 +11,7 @@ import { expireOverdueQuotes } from "@/lib/server/external/requests";
  * time lapses too (F-050 of the 2026-09-15 campaign) rather than sitting in an inbox
  * for a slot that has already passed. Every scheduling write already sweeps its own
  * lab for holds, so this mostly keeps calendars tidy and tells requesters their quote
- * lapsed — correctness never waits on it. Vercel sends
+ * lapsed — correctness never waits on it. Notifications older than 90 days go too. Vercel sends
  * `Authorization: Bearer $CRON_SECRET`; anything else is refused.
  */
 export async function GET(request: NextRequest) {
@@ -20,7 +21,8 @@ export async function GET(request: NextRequest) {
     const quotes = await expireOverdueQuotes();
     const holds = await expireHolds(prisma);
     const lapsedRequests = await expireLapsedRequests(prisma);
-    return NextResponse.json({ expiredQuotes: quotes, expiredHolds: holds, expiredRequests: lapsedRequests }, { status: 200 });
+    const sweptNotifications = await sweepOldNotifications();
+    return NextResponse.json({ expiredQuotes: quotes, expiredHolds: holds, expiredRequests: lapsedRequests, sweptNotifications }, { status: 200 });
   } catch (err) {
     return errorResponse(err);
   }

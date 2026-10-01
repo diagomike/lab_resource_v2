@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
       // Lab states became each lab's own page under Labs & stores.
       { source: "/lab-states", has: [{ type: "query", key: "lab", value: "(?<lab>.+)" }], destination: "/places/:lab", permanent: false },
       { source: "/lab-states", destination: "/places", permanent: false },
+      // The admin's Overview became the admin block on Home.
+      { source: "/admin/dashboard", destination: "/home", permanent: false },
     ];
   },
 

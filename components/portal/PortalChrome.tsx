@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/lib/theme-context";
 import { useAuth } from "@/lib/auth-context";
+import { loginHref } from "@/lib/paths";
 
 /**
  * The portal's frame — the same ASTU top bar as the sign-in screens (AuthChrome), but a
@@ -70,7 +71,7 @@ export function RequireRequester({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (!loading && !user) router.replace("/login");
+    if (!loading && !user) router.replace(loginHref());
   }, [loading, user, router]);
   if (loading || !user) {
     return (

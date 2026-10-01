@@ -1,5 +1,6 @@
 import "server-only";
 import { send } from "../mail/mail";
+import { plainText } from "../mail/notify";
 import { prisma } from "../prisma";
 
 /**
@@ -47,7 +48,13 @@ export async function mailStaff(to: string | null | undefined, subject: string, 
   if (!to) return;
   // Staff can switch notification emails off (User.emailNotifications); the requester
   // always gets theirs (mailRequester) — it is how their request moves.
-  const staff = await prisma.user.findUnique({ where: { emailLower: to.toLowerCase() }, select: { emailNotifications: true } });
+  const staff = await prisma.user.findUnique({ where: { emailLower: to.toLowerCase() }, select: { id: true, status: true, emailNotifications: true } });
+  // The bell and Home show it too, whatever the email setting.
+  if (staff?.status === "ACTIVE") {
+    await prisma.notification
+      .create({ data: { userId: staff.id, title: subject, body: plainText(paragraphs[0] ?? ""), path } })
+      .catch((err) => console.error("mailStaff: could not record the notification", err));
+  }
   if (staff && !staff.emailNotifications) return;
   const body = paragraphs.map((p) => `<p>${p}</p>`).join("\n") + `\n<p><a href="${esc(`${APP_ORIGIN}${path}`)}" style="color:#1d5fbf">Open it in Lab Resources</a></p>`;
   await send({ to, subject, html: layout(subject, body) });

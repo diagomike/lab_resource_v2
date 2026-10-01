@@ -28,6 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
+    if (res.status === 401) sessionEnded(path);
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message ?? "Request failed", body.issues, body);
   }
@@ -42,6 +43,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     !res.headers.get("content-type")?.includes("application/json");
   if (noBody) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+/** Pages a signed-out person may be on — a 401 there is expected, not an ended session. */
+const SIGNED_OUT_PAGES = ["/login", "/forgot-password", "/reset-password", "/accept-invite", "/portal/signup", "/portal/verify", "/portal/track/"];
+
+/** The session ended while someone was working (expired, signed out elsewhere): send
+ *  them to sign in, and back to this page afterwards. The auth calls themselves
+ *  (/auth/me on load, a wrong password) are left to their callers. */
+function sessionEnded(apiPath: string): void {
+  if (typeof window === "undefined" || apiPath.startsWith("/auth/")) return;
+  const here = window.location.pathname;
+  if (here === "/" || here === "/portal" || SIGNED_OUT_PAGES.some((p) => here.startsWith(p))) return;
+  const next = here + window.location.search + window.location.hash;
+  window.location.assign(`/login?next=${encodeURIComponent(next)}`);
 }
 
 /** `getShared`'s memory: one entry per path, holding the in-flight or settled promise. */

@@ -6,3 +6,4 @@ export * from "./people";
 export * from "./resources";
 export * from "./scheduling";
 export * from "./external";
+export * from "./home";

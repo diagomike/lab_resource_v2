@@ -4,7 +4,11 @@ import { SESSION_COOKIE } from "@/lib/server/auth/session";
 export function proxy(request: NextRequest) {
   const hasSessionCookie = request.cookies.has(SESSION_COOKIE);
   if (!hasSessionCookie) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    // Sign in, then come back to exactly what was asked for (an emailed link, a bookmark).
+    const login = new URL("/login", request.url);
+    const { pathname, search } = request.nextUrl;
+    if (pathname !== "/") login.searchParams.set("next", pathname + search);
+    return NextResponse.redirect(login);
   }
   return NextResponse.next();
 }

@@ -28,7 +28,9 @@ const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
 function MyRegister({ canSwitch }: { canSwitch: boolean }) {
   const state = useRegisterState();
-  const [inspectId, setInspectId] = useState<string | null>(null);
+  // `?item=<id>` (a link from Home, a notice, another screen) opens that item's details.
+  const searchParams = useSearchParams();
+  const [inspectId, setInspectId] = useState<string | null>(() => searchParams.get("item"));
   const [addOpen, setAddOpen] = useState(false);
   const [propField, setPropField] = useState<CategoryFieldDto | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);

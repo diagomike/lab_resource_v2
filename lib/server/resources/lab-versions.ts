@@ -24,6 +24,7 @@ import { applyChange, createExactItems, type Tx } from "./mutate";
 import { toDomainCategoryMap } from "./adapt";
 import { storage } from "./storage";
 import { esc, notify, quoted } from "../mail/notify";
+import { paths } from "@/lib/paths";
 
 /**
  * A lab's changes: Current and Draft (the pure rules live in lib/domain/version-ops.ts).
@@ -346,8 +347,8 @@ export async function submitVersion(actorId: string, labItemId: string, kind: Ki
       `${esc(dto.requesterName)} sent the changes for <strong>${esc(lab.name)}</strong> (${diff.length} change${diff.length === 1 ? "" : "s"}).`,
       "Approving them applies the changes to the register. Sending them back returns them to the custodian with your reason.",
     ],
-    path: "/approvals",
-    action: "Review it in Approvals",
+    path: paths.decide("lab-commit", dto.id),
+    action: "Review the changes",
   });
   return dto;
 }
@@ -695,6 +696,23 @@ export async function listLabs(actorId: string): Promise<LabSummaryDto[]> {
       pendingCommits: l.labCommitRequests.length,
     }))
     .sort((a, b) => collator.compare(a.ownerOrgNodeName, b.ownerOrgNodeName) || collator.compare(a.name, b.name));
+}
+
+/** The changes this custodian has made in their own labs and not sent yet — Home's
+ *  "Unfinished" and the Labs & stores badge. Only drafts that actually change something. */
+export async function unsentDrafts(actorId: string): Promise<Array<{ labItemId: string; labName: string; changes: number }>> {
+  const drafts = await prisma.labVersion.findMany({
+    where: { kind: "DRAFT", status: "EDITING", lab: { custodianId: actorId, deletedAt: null } },
+    include: { items: true, lab: { select: { name: true } } },
+  });
+  if (!drafts.length) return [];
+  const categories = await loadCategories();
+  const out: Array<{ labItemId: string; labName: string; changes: number }> = [];
+  for (const d of drafts) {
+    const changes = (await diffFor(d, await loadLive(d.labItemId), categories)).length;
+    if (changes > 0) out.push({ labItemId: d.labItemId, labName: d.lab.name, changes });
+  }
+  return out;
 }
 
 // ── Requests ─────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth, ApiError } from "@/lib/auth-context";
 import { landingPathFor } from "@/lib/nav";
+import { safeNext } from "@/lib/paths";
 import AuthChrome from "@/components/AuthChrome";
 
 export default function LoginPage() {
@@ -21,7 +22,11 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const ctx = await login(email, password);
-      router.replace(landingPathFor(ctx.user.roles));
+      // Back to where they were going (an emailed link), else their landing page. An
+      // outside requester only ever goes back into the portal.
+      const next = safeNext(new URLSearchParams(window.location.search).get("next"));
+      const landing = landingPathFor(ctx.user.roles);
+      router.replace(next && (landing !== "/portal/requests" || next.startsWith("/portal")) ? next : landing);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in");
     } finally {

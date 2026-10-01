@@ -62,7 +62,7 @@ export async function requireSession(request: NextRequest): Promise<AuthedUser> 
 /** Every university account's role — everything except an outside requester
  *  (EXTERNAL), who sees only their own portal requests. The register's read routes
  *  require one of these (F-031 of the 2026-09-15 campaign). */
-export const STAFF_ROLES: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STORE_KEEPER"];
+export const STAFF_ROLES: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "ADAA", "CUSTODIAN", "STORE_KEEPER"];
 
 export function requireRole(user: AuthedUser, allowed: RoleKind[]): void {
   if (allowed.length === 0) return;

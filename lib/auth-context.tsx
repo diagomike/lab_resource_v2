@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { usePathname } from "next/navigation";
 import type { MeContextDto, SessionUserDto } from "@/lib/shared";
 import { api, ApiError } from "./api";
+import type { NavFacts } from "./nav";
 
 interface AuthState {
   user: SessionUserDto | null;
@@ -84,6 +85,12 @@ export function useAuth(): AuthState {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+/** What the sidebar and the route guard decide from: roles plus capabilities. */
+export function useNavFacts(): NavFacts {
+  const { me } = useAuth();
+  return { roles: me?.user.roles ?? [], caps: me?.caps ?? null };
 }
 
 export { ApiError };

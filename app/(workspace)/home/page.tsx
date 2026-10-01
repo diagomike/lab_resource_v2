@@ -1,10 +1,10 @@
 import RequireRole from "@/components/RequireRole";
-import AdminDashboardPage from "@/components/admin/AdminDashboardPage";
+import HomePage from "@/components/home/HomePage";
 
 export default function Page() {
   return (
     <RequireRole>
-      <AdminDashboardPage />
+      <HomePage />
     </RequireRole>
   );
 }

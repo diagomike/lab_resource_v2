@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "../../lib/theme-context";
-import { useAuth } from "../../lib/auth-context";
+import { useAuth, useNavFacts } from "../../lib/auth-context";
 import { canAccessPath } from "../../lib/nav";
 import { helpChaptersFor, helpHrefFor } from "../../lib/help/audience";
 import { ROLE_LABEL } from "@/lib/shared";
+import Bell from "./Bell";
 
 function initials(name: string): string {
   const words = name
@@ -29,7 +30,8 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   // The box searches the register, so it only shows for people who may open it.
-  const canSearch = canAccessPath("/register", roles);
+  const facts = useNavFacts();
+  const canSearch = canAccessPath("/register", facts);
 
   // Ctrl/⌘+K jumps to the box from anywhere.
   useEffect(() => {
@@ -102,6 +104,8 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
       </div>
 
       <div className="flex-1 md:hidden" />
+
+      <Bell />
 
       <Link
         href={helpHref}
