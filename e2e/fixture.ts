@@ -57,15 +57,14 @@ async function main() {
   const avp = await person("avp@e2e.test", "E2E AVP", ["MANAGER"], null, hash);
   const deanCoeec = await person("dean.coeec@e2e.test", "E2E Dean CoEEC", ["MANAGER"], null, hash);
   const deanComcme = await person("dean.comcme@e2e.test", "E2E Dean CoMCME", ["MANAGER"], null, hash);
-  const headMat = await person("head.mat@e2e.test", "E2E Head Materials", ["MANAGER", "STAFF"], mat.id, hash);
-  await person("custodian.mat@e2e.test", "E2E Custodian Materials", ["CUSTODIAN", "STAFF"], mat.id, hash);
+  const headMat = await person("head.mat@e2e.test", "E2E Head Materials", ["MANAGER"], mat.id, hash);
+  await person("custodian.mat@e2e.test", "E2E Custodian Materials", ["CUSTODIAN"], mat.id, hash);
   const procurement = await person("procurement@e2e.test", "E2E Procurement Officer", ["PROCUREMENT"], null, hash);
-  const storekeeper = await person("storekeeper@e2e.test", "E2E Store Keeper", ["STORE_KEEPER", "STAFF"], uni.id, hash);
-  await person("staff.se@e2e.test", "E2E Staff SE", ["STAFF"], se.id, hash);
-  await person("staff.chem@e2e.test", "E2E Staff ChemE", ["STAFF"], chem.id, hash);
-  await person("student@e2e.test", "E2E Student", ["STUDENT"], se.id, hash);
+  const storekeeper = await person("storekeeper@e2e.test", "E2E Store Keeper", ["STORE_KEEPER"], uni.id, hash);
+  await person("staff.se@e2e.test", "E2E Staff SE", ["CUSTODIAN"], se.id, hash);
+  await person("staff.chem@e2e.test", "E2E Staff ChemE", ["CUSTODIAN"], chem.id, hash);
   await person("propadmin@e2e.test", "E2E Property Admin", ["PROPERTY_ADMIN"], null, hash);
-  await person("disabled@e2e.test", "E2E Disabled Staff", ["STAFF"], se.id, hash, "DISABLED");
+  await person("disabled@e2e.test", "E2E Disabled Staff", ["CUSTODIAN"], se.id, hash, "DISABLED");
 
   await occupy(uni.id, avp.id);
   await occupy(coeec.id, deanCoeec.id);

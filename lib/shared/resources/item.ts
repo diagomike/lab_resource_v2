@@ -84,6 +84,9 @@ export const ItemRowDto = z.object({
   /** Slash-joined names from the containment root down to (not including) this row —
    *  the search list's location column. */
   path: z.array(z.string()),
+  /** The row sits in a store (its containment root is a store), where the store keeper
+   *  works directly — not in a lab, where a custodian's edits are drafted. */
+  inStore: z.boolean(),
   thumbnailUrl: z.string().nullable(),
   /** true when this row is present only because ItemScopeService closed the scoped
    *  set over its ancestors — the caller does not own/hold/custody it directly, only
@@ -293,9 +296,6 @@ export const TransferItemChange = Base.extend({
      *  ownership and custody to the receiving side for good — which the College
      *  Managing Director approves. */
     permanent: z.boolean().optional(),
-    /** A store handover to a PERSON rather than a lab: it lands in their department's
-     *  Staff holdings, in their custody. The server fills in the destination. */
-    issueToUserId: z.string().optional(),
     /** Which movement this is — set by the server from the request's shape
      *  (lib/server/resources/approvals.ts), never trusted from the client. */
     movement: z.enum(["LOAN", "PERMANENT", "STORE_OUT", "FROM_STORE", "TO_STORE", "RETURN"]).optional(),

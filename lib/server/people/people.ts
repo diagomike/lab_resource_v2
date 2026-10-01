@@ -25,7 +25,7 @@ const PASSWORD_RESET_TTL_HOURS = 2;
 const APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:3000";
 /** A MANAGER inviting into their own department may only bring in the people who actually
  *  do hands-on work there — never another manager, and never a university-wide office. */
-const MANAGER_INVITABLE_ROLES: RoleKind[] = ["CUSTODIAN", "STAFF"];
+const MANAGER_INVITABLE_ROLES: RoleKind[] = ["CUSTODIAN"];
 
 /**
  * SYS_ADMIN sees everyone. A MANAGER sees everyone reachable from their own scope — the
@@ -205,14 +205,14 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
 
 /**
  * F-014 of the 2026-09-15 campaign: a department head may deactivate, reactivate
- * and re-role their OWN CUSTODIAN/STAFF personnel — previously SYS_ADMIN-only,
+ * and re-role their OWN custodians — previously SYS_ADMIN-only,
  * which meant every routine staffing change in every department was a ticket to
  * the system administrator, despite Personnel already scoping heads to invite
  * exactly this pair of roles. Scoped tightly, never widened past what a head could
  * already do by inviting fresh: the target must be in the head's own department,
  * must not occupy a node themselves (a post is an admin-only act, unchanged), must
  * not be the actor, and every role touched — the target's EXISTING roles and
- * whatever the head is trying to set — must stay within CUSTODIAN/STAFF. SYS_ADMIN
+ * whatever the head is trying to set — must stay within CUSTODIAN. SYS_ADMIN
  * is unconditional, as everywhere else.
  */
 async function assertMayManageStaff(actorUserId: string, actorRoles: RoleKind[], target: { id: string; homeNodeId: string | null; roles: { kind: RoleKind }[] }): Promise<void> {
@@ -374,7 +374,7 @@ export async function issueInvitation(
   invitedById: string | null,
 ): Promise<string> {
   const raw = generateToken();
-  const intendedRole = (await prisma.userRole.findFirst({ where: { userId: user.id } }))?.kind ?? "STAFF";
+  const intendedRole = (await prisma.userRole.findFirst({ where: { userId: user.id } }))?.kind ?? "CUSTODIAN";
   // F-013 of the 2026-09-15 campaign: the email this same call sends says "the
   // previous one, if any, no longer works" — it didn't; both old and new tokens
   // stayed live, so a link sent to the wrong address or forwarded on kept working
@@ -563,7 +563,7 @@ export async function moveHomeNode(actorUserId: string, targetUserId: string, in
   const [custodyCount, openNeeds, openDrafts] = await Promise.all([
     prisma.item.count({ where: { custodianId: targetUserId } }),
     prisma.needLine.count({ where: { raisedById: targetUserId, status: "OPEN" } }),
-    prisma.labVersion.count({ where: { createdById: targetUserId, kind: { not: "IDEAL" } } }),
+    prisma.labVersion.count({ where: { createdById: targetUserId } }),
   ]);
   const blockers: string[] = [];
   if (custodyCount > 0) blockers.push(`is custodian of ${custodyCount} resource(s)`);

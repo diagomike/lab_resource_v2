@@ -529,7 +529,7 @@ export default function ApprovalsPage() {
       <TransfersPanel viewerId={user.id} />
       <LabCommitsPanel />
       <PurchasingPanel viewerId={user.id} />
-      {user.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN" || r === "STAFF") && <BookingsPanel />}
+      {user.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN") && <BookingsPanel />}
     </Screen>
   );
 }

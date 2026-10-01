@@ -4812,3 +4812,42 @@ its model that make porting it as-is the wrong move.
     `tsc` is clean on `307b7a2`.
   - **Standing caution for future sessions:** the guide, walkthrough, story and Help documents and their Sep-24
     screenshots are not a source of truth. Verify behaviour in code before describing it.
+
+- **2026-10-01 (UX-flow round, P0–P1: branch `feat/ux-flow`, the cuts)** — Plan:
+  `docs/decisions/2026-10-01-ux-flow-plan.md` (also `~/.claude/plans/rosy-plotting-dove.md`), approved by the user with
+  the decisions: do the Sep-29 cuts and cut anything kept only for testing; ADAA is a college-level role that creates
+  labs and stores; categories belong to the department that made them (additive edits apply, changing ones wait for the
+  head, cross-department ones escalate head → admin → Property Admin); dev data is disposable except the ChemE seed with
+  its photos; `master` and Neon untouched.
+  - **P0:** branch `feat/ux-flow` off `307b7a2`; backup `backups/lrms_v2-2026-10-01-before-ux-flow.dump`.
+  - **Removed:** STAFF and STUDENT roles; Staff holdings (place, category, "Hand over → To a person", recipients route);
+    access views (tables, picker, admin page, `?view=`, `seed-views.ts`); approval policies (table, `seed-policies.ts`,
+    `resolvePolicy` — who may ask for a move is now the fixed `mayRequestTransfer`: custodian, head, store keeper, admin);
+    the per-department draft switch (drafts are always on for labs: every non-admin edit inside a lab is staged, after a
+    dry run of the ordinary write path so it is refused exactly like a direct edit; stores — the store category or a place
+    the store keeper runs — and the place itself stay direct); lab ideals (IDEAL/IDEAL_PROPOSAL, ideal-vs-actual,
+    purchasables, `lib/domain/purchasables.ts`); the `/university` page (now a `next.config` redirect);
+    `prisma/e2e-workflow-fixture.ts` (Sep-15 one-off).
+  - **Reads:** every internal account may read the whole university (`read-scope.ts`; the Mine / Whole university switch
+    stays). `MeContextDto.views` gone; `SCOPE_LABEL` moved to `lib/shared`.
+  - **Needs replace ideals:** `NeedLine` gains `labItemId`, `priority` (Essential/Important/Nice to have), `kind`
+    (NEW/REPLACEMENT), `replacesItemIds[]`, `spec`. Only a custodian raises one, for a lab they run; it belongs to the
+    lab's owning unit and emails its head. Withdraw (`DELETE /api/resources/needs/[id]`); replacement suggestions grouped
+    by lab and kind (`GET /api/resources/needs/replacements`). `linesFromNeeds` (domain, spec) merges the chosen needs into
+    request lines.
+  - **Purchasing screen** in tabs (`?tab=needs|requests|arrivals`, `Tabs` primitive in `components/ui.tsx`): custodians
+    "Ask for something" / "Broken or lost — not asked for yet" / "What you've asked for"; heads read the labs' needs by lab,
+    choose and "Build a request from N needs" (pre-filled title, lines and justifications), plus broken items nobody asked
+    for; requests, pipeline and arrivals as before. People land on the tab with their work.
+  - **Bookings:** a custodian's own room or machine is confirmed at once and must say who it is for ("Booked for");
+    others ask the custodian (unchanged).
+  - **Wording:** the lab's draft reads "Changes" / "Send to the head" / "Take back to edit"; emails say "changes are
+    waiting for your approval".
+  - **Migrations** `20261001200000_ux_flow_cuts` (one transaction; data clean-up first, old-role tables dropped before
+    the role enum changes) and `20261001210000_need_replaces_many`. Dev `lrms_v2` was reset with the user's consent and
+    reseeded: 9,685 items, 36 equipment photos, 105 ChemE items, no STAFF/STUDENT roles.
+  - **Checks:** `tsc` clean, 523/523 tests + new specs, `next build` clean. Browser (dev-nomail): a CSE custodian asked
+    for 13 replacement chairs (grouped suggestion → pre-filled form → sent); the CSE head chose it, built PR-2026-001 and
+    sent it (chain Head → CoEEC Dean → CMD → AVP → Procurement shown). PR-2026-001 is left in dev.
+  - **Production, later:** Neon needs both migrations; the first deletes STAFF/STUDENT role rows (accounts holding only
+    those keep no role) and lab ideals. Not done — `master`/Neon untouched.

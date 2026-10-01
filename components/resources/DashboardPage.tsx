@@ -60,13 +60,13 @@ function DashboardPageInner() {
     setSummary(null);
     setError(null);
     api
-      .get<ItemSummaryDto>(`/resources/items/summary${toApiParams(state.filters, undefined, state.viewId)}`)
+      .get<ItemSummaryDto>(`/resources/items/summary${toApiParams(state.filters)}`)
       .then((result) => !cancelled && setSummary(result))
       .catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : "Could not load the dashboard"));
     return () => {
       cancelled = true;
     };
-  }, [state.filters, state.viewId]);
+  }, [state.filters]);
 
   const hasFilters = Boolean(
     state.filters.q ||

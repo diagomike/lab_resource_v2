@@ -31,7 +31,8 @@ export const BookingInput = z.object({
   end: CivilTime,
   title: z.string().trim().min(1, "Say what the booking is for.").max(160),
   participantCount: z.number().int().min(1).max(10_000).optional(),
-  /** Staff booking for advisees — students never book themselves. */
+  /** Who the booking is for — required when a custodian books their own room or
+   *  machines for someone (the server checks). */
   onBehalfOfNote: z.string().trim().max(1000).optional(),
   note: z.string().trim().max(1000).optional(),
 });

@@ -157,7 +157,7 @@ describe("F-012 — a DISABLED account cannot re-register via a leftover invitat
     const { generateToken, hashToken } = await import("./token");
     const raw = generateToken();
     const invitation = await prisma.invitation.create({
-      data: { emailLower, tokenHash: hashToken(raw), intendedRole: "STAFF", invitedById: id, expiresAt: new Date(Date.now() + 86_400_000) },
+      data: { emailLower, tokenHash: hashToken(raw), intendedRole: "CUSTODIAN", invitedById: id, expiresAt: new Date(Date.now() + 86_400_000) },
     });
 
     await expect(auth.register({ token: raw, name: "New Name", password: "Password123!" })).rejects.toMatchObject({ status: 400 });

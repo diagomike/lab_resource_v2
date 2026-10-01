@@ -128,35 +128,23 @@ async function buildForest(): Promise<Forest> {
 /** `base` is what the caller's scope directly grants (org reach / custody); `closed`
  *  additionally pulls in every ancestor, so the hierarchy view never has to render a
  *  visible item inside an invisible container. The difference between the two is
- *  exactly `readOnlyContext`.
- *
- * `extraFilters`, when given (an access view's saved query — Track 1 of
- * ~/.claude/plans/lets-merge-the-work-memoized-journal.md), narrows `base` BEFORE
- * `closed` is derived from it — a mandatory server-side AND, never merged into the
- * caller's own editable filter state. This is the one choke point every list read
- * (search/tree/facets/filterFields/summary) shares, so a view's saved filter and its
- * scope are applied identically everywhere rather than each read re-deriving it. */
+ *  exactly `readOnlyContext`. This is the one choke point every list read
+ *  (search/tree/facets/filterFields/summary) shares. */
 async function computeScopedIds(
   userId: string,
   forest: Forest,
   scopeOverride?: ScopeOverride,
-  extraFilters?: FilterState | null,
 ): Promise<{ base: Set<string>; closed: Set<string> }> {
   // F-031 of the 2026-09-15 campaign: every register read (search/tree/facets/
   // filterFields/summary/containers/getOne) shares this one choke point, so the
   // student/external floor lives here once rather than at each of the API routes
   // that call them (also gated there, defense in depth — see STAFF_ROLES).
   await scope.assertMayBrowseRegister(userId);
-  const resolved = await scope.resolveScope(userId, scopeOverride?.mode, scopeOverride?.explicitNodeIds);
+  const resolved = await scope.resolveScope(userId, scopeOverride?.mode);
   let base: Set<string>;
   if (resolved.mode === "UNIVERSITY") base = new Set(forest.items.map((i) => i.id));
   else if (resolved.mode === "MY_CUSTODY") base = new Set(resolved.custodyItemIds ?? []);
   else base = new Set(forest.items.filter((i) => unitsOf(i).some((u) => resolved.visibleNodeIds.includes(u))).map((i) => i.id));
-
-  if (extraFilters) {
-    const matched = matchItems(forest.items, extraFilters, ctxOf(forest));
-    base = new Set([...base].filter((id) => matched.has(id)));
-  }
   return { base, closed: withAncestors(forest.index, base) };
 }
 
@@ -166,6 +154,17 @@ async function nameLookups(): Promise<{ nodeName: Map<string, string>; userName:
     prisma.user.findMany({ select: { id: true, name: true } }),
   ]);
   return { nodeName: new Map(nodes.map((n) => [n.id, n.name])), userName: new Map(users.map((u) => [u.id, u.name])) };
+}
+
+/** The containment root above an item (itself when it is one). */
+function rootOf(index: Forest["index"], item: DomainItem): DomainItem {
+  let cur = item;
+  for (let depth = 0; cur.parentId && depth < 64; depth++) {
+    const parent = index.byId.get(cur.parentId);
+    if (!parent) break;
+    cur = parent;
+  }
+  return cur;
 }
 
 function toRowDto(
@@ -196,6 +195,7 @@ function toRowDto(
     custodianName: lookups.userName.get(item.custodianId) ?? "",
     version: item.version,
     path: forest.paths ? pathFor(forest as Forest, item.id) : pathOf(forest.index, item.id),
+    inStore: forest.categories[rootOf(forest.index, item).categoryId]?.key === "store",
     thumbnailUrl: item.images[0]?.src ?? null,
     readOnlyContext,
   };
@@ -278,10 +278,9 @@ export async function search(
   page = 1,
   pageSize = 50,
   scopeOverride?: ScopeOverride,
-  extraFilters?: FilterState | null,
 ): Promise<SearchResult> {
   const forest = await loadForest();
-  const { base } = await computeScopedIds(userId, forest, scopeOverride, extraFilters);
+  const { base } = await computeScopedIds(userId, forest, scopeOverride);
   const matched = matchItems(forest.items, buildFilterState(query), ctxOf(forest));
 
   const rows = [...base]
@@ -309,10 +308,9 @@ export async function tree(
   userId: string,
   query: ItemQuery,
   scopeOverride?: ScopeOverride,
-  extraFilters?: FilterState | null,
 ): Promise<{ items: ItemRowDto[]; matchedIds: string[] | null }> {
   const forest = await loadForest();
-  const { base, closed } = await computeScopedIds(userId, forest, scopeOverride, extraFilters);
+  const { base, closed } = await computeScopedIds(userId, forest, scopeOverride);
   const state = buildFilterState(query);
   const matched = matchItems(forest.items, state, ctxOf(forest));
   const expanded = expandMatches(forest.index, matched);
@@ -350,8 +348,8 @@ function toWireFilterField(f: {
   };
 }
 
-async function domainFilterFields(userId: string, activeCategoryIds: string[], forest: Forest, scopeOverride?: ScopeOverride, extraFilters?: FilterState | null) {
-  const { closed } = await computeScopedIds(userId, forest, scopeOverride, extraFilters);
+async function domainFilterFields(userId: string, activeCategoryIds: string[], forest: Forest, scopeOverride?: ScopeOverride) {
+  const { closed } = await computeScopedIds(userId, forest, scopeOverride);
   const places = forest.index.roots.filter((r) => closed.has(r.id));
   // Scoped BEFORE custom-property keys are collected — see customPropFilterFields's
   // own note on why an out-of-scope item's custom key must never surface here.
@@ -388,20 +386,19 @@ export async function filterFields(
   userId: string,
   activeCategoryIds: string[],
   scopeOverride?: ScopeOverride,
-  extraFilters?: FilterState | null,
 ): Promise<ItemFilterFieldDef[]> {
   const forest = await loadForest();
-  const fields = await domainFilterFields(userId, activeCategoryIds, forest, scopeOverride, extraFilters);
+  const fields = await domainFilterFields(userId, activeCategoryIds, forest, scopeOverride);
   return fields.map(toWireFilterField);
 }
 
-export async function facets(userId: string, query: ItemQuery, scopeOverride?: ScopeOverride, extraFilters?: FilterState | null): Promise<ItemFacetCounts> {
+export async function facets(userId: string, query: ItemQuery, scopeOverride?: ScopeOverride): Promise<ItemFacetCounts> {
   const forest = await loadForest();
-  const { closed } = await computeScopedIds(userId, forest, scopeOverride, extraFilters);
+  const { closed } = await computeScopedIds(userId, forest, scopeOverride);
   const scopedItems = forest.items.filter((i) => closed.has(i.id));
   const state = buildFilterState(query);
   const ctx = ctxOf(forest);
-  const fields = await domainFilterFields(userId, [...new Set(scopedItems.map((i) => i.categoryId))], forest, scopeOverride, extraFilters);
+  const fields = await domainFilterFields(userId, [...new Set(scopedItems.map((i) => i.categoryId))], forest, scopeOverride);
 
   const out: Record<string, Record<string, number>> = {};
   for (const field of fields) {
@@ -457,10 +454,9 @@ export async function summary(
   userId: string,
   scopeOverride?: ScopeOverride,
   query: ItemQuery = {},
-  extraFilters?: FilterState | null,
 ): Promise<ItemSummaryDto> {
   const forest = await loadForest();
-  const { base } = await computeScopedIds(userId, forest, scopeOverride, extraFilters);
+  const { base } = await computeScopedIds(userId, forest, scopeOverride);
   const matched = matchItems(forest.items, buildFilterState(query), ctxOf(forest));
   const ids = [...base].filter((id) => matched.has(id));
   const selected = ids.map((id) => forest.index.byId.get(id)!).filter(Boolean);
@@ -638,7 +634,7 @@ export async function transferDestinations(userId: string, itemIds: string[], q:
  *  ordinary core-field filters already do; it has never gated a direct point read by
  *  id (see items.ts's own `ItemQuery` note), and a view is no different. */
 export async function getOne(userId: string, id: string, scopeOverride?: ScopeOverride): Promise<ItemDetailDto> {
-  await scope.assertCanSeeItem(userId, id, scopeOverride?.mode, scopeOverride?.explicitNodeIds);
+  await scope.assertCanSeeItem(userId, id, scopeOverride?.mode);
   const forest = await loadForest();
   const item = forest.index.byId.get(id);
   if (!item) throw new HttpError(404, "Resource not found");

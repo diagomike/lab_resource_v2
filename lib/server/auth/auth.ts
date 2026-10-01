@@ -21,7 +21,6 @@ import { HttpError } from "../http-error";
 import * as mail from "../mail/mail";
 import * as scope from "../org/scope";
 import * as itemScope from "../resources/scope";
-import { listSummariesForPerson } from "../resources/views";
 import { issueInvitation } from "../people/people";
 import { generateToken, hashIp, hashToken } from "./token";
 
@@ -303,9 +302,6 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
         : null,
     canSeeCost: await scope.canSeeCost(user.id),
     scopeMode: await itemScope.defaultModeFor(user.id),
-    // Real rows since Track 1 (~/.claude/plans/lets-merge-the-work-memoized-journal.md)
-    // — empty exactly as before until an administrator actually creates an AccessView.
-    views: await listSummariesForPerson(user.id),
   };
 }
 

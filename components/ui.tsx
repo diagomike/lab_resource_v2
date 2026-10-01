@@ -164,6 +164,47 @@ export function Table<T>({
   );
 }
 
+/** Horizontal tabs for the sections of one screen. A count shows what is waiting in a
+ *  section (it reads "3 waiting" to a screen reader, not just "3"). */
+export function Tabs<K extends string>({
+  tabs,
+  value,
+  onChange,
+  label,
+}: {
+  tabs: Array<{ key: K; label: string; count?: number }>;
+  value: K;
+  onChange: (key: K) => void;
+  /** What the tabs switch between, for assistive tech ("Purchasing sections"). */
+  label: string;
+}) {
+  return (
+    <div role="tablist" aria-label={label} className="flex gap-2 border-b border-border overflow-x-auto">
+      {tabs.map((t) => {
+        const on = t.key === value;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            onClick={() => onChange(t.key)}
+            className={`px-12 h-32 text-12 font-medium flex items-center gap-6 border-b-2 -mb-px whitespace-nowrap ${on ? "border-accent text-text" : "border-transparent text-dim hover:text-text"}`}
+          >
+            {t.label}
+            {t.count ? (
+              <span className="rounded-full bg-warnbg text-warn border border-warn px-6 text-10 font-mono leading-snug">
+                {t.count}
+                <span className="sr-only"> waiting</span>
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Screen-level padding, so every page starts at the same rhythm. */
 export function Screen({ children }: { children: ReactNode }) {
   return <div className="p-14 flex flex-col gap-14">{children}</div>;
@@ -246,6 +287,7 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   tone = "danger",
   busy,
+  confirmDisabled,
   error,
   onConfirm,
   onCancel,
@@ -255,6 +297,8 @@ export function ConfirmDialog({
   confirmLabel?: string;
   tone?: "danger" | "warn" | "primary";
   busy?: boolean;
+  /** The confirm button waits on something in the message (a reason to type). */
+  confirmDisabled?: boolean;
   error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
@@ -268,7 +312,7 @@ export function ConfirmDialog({
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex items-center gap-8">
-        <Button variant={tone === "primary" ? "primary" : "danger"} onClick={onConfirm} disabled={busy}>
+        <Button variant={tone === "primary" ? "primary" : "danger"} onClick={onConfirm} disabled={busy || confirmDisabled}>
           {busy ? "Working…" : confirmLabel}
         </Button>
         <Button onClick={onCancel} disabled={busy}>

@@ -17,15 +17,14 @@ const STATUS_TEXT: Record<string, string> = { PENDING: "Waiting for the head", A
 const KIND_LINE: Record<string, string> = { changed: "text-text", added: "text-good", removed: "text-bad" };
 
 /**
- * One lab commit — a Draft to merge into the register, or an Ideal proposal — with the
- * readable list of what it changes, and Approve / Send back for the department head.
+ * One lab's changes, sent for approval — the readable list of what they change, and
+ * Approve / Send back for the department head.
  */
 export function LabCommitCard({ request, onDecided, showLabLink = true }: { request: LabCommitRequestDto; onDecided: () => void; showLabLink?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | null>(null);
   const [note, setNote] = useState("");
-  const isIdeal = request.targetKind === "IDEAL";
 
   async function decide(decision: "APPROVE" | "REJECT") {
     setBusy(true);
@@ -47,7 +46,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
       <div className="flex items-start justify-between gap-10">
         <div className="min-w-0">
           <div className="text-11.5 font-medium">
-            {request.labName} · {isIdeal ? "Ideal proposal" : "Draft update"}
+            {request.labName} · Changes to the lab
           </div>
           <div className="text-10.5 text-dim">
             by {request.requesterName} · {new Date(request.createdAt).toLocaleString()}
@@ -72,7 +71,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
           {request.summary.length > 40 && <li className="text-faint">…and {request.summary.length - 40} more</li>}
         </ul>
       ) : (
-        <div className="text-10.5 text-faint">{isIdeal ? "The ideal matches the lab as it is now." : "No changes listed."}</div>
+        <div className="text-10.5 text-faint">No changes listed.</div>
       )}
 
       {request.resolution && <div className="text-10.5 text-dim italic">“{request.resolution}”</div>}
@@ -91,15 +90,15 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
         )}
         {request.status === "PENDING" && !request.canDecide && <span className="text-10.5 text-faint">Waiting on {request.labName}&apos;s department head.</span>}
         {showLabLink && (
-          <Link href={`/lab-states?lab=${request.labItemId}&tab=${isIdeal ? "ideal" : "draft"}`} className="ml-auto text-10.5 text-accent hover:underline">
-            Open in Lab states →
+          <Link href={`/lab-states?lab=${request.labItemId}&tab=draft`} className="ml-auto text-10.5 text-accent hover:underline">
+            Open the lab →
           </Link>
         )}
       </div>
 
       {confirming && (
         <ConfirmDialog
-          title={confirming === "APPROVE" ? (isIdeal ? "Approve this ideal" : "Approve and apply") : "Send back to the custodian"}
+          title={confirming === "APPROVE" ? "Approve and apply" : "Send back to the custodian"}
           tone={confirming === "APPROVE" ? "primary" : "danger"}
           confirmLabel={confirming === "APPROVE" ? "Approve" : "Send back"}
           busy={busy}
@@ -108,10 +107,8 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
             <div className="flex flex-col gap-8">
               <span>
                 {confirming === "APPROVE"
-                  ? isIdeal
-                    ? "This becomes the lab's ideal — what purchasing measures it against. The register itself doesn't change."
-                    : "Applies these changes to the live register, credited to the custodian. If anything was changed in the register since the draft was copied, nothing is applied and it goes back to them."
-                  : "The draft stays as it is — the custodian sees your reason, revises and resubmits."}
+                  ? "Applies these changes to the live register, credited to the custodian. If anything was changed in the register since they started, nothing is applied and it goes back to them."
+                  : "The changes stay as they are — the custodian sees your reason, revises and sends them again."}
               </span>
               <input
                 value={note}

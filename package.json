@@ -16,8 +16,6 @@
     "prisma:seed": "prisma db seed",
     "seed:resources": "tsx prisma/resource-seed.ts",
     "bootstrap": "tsx prisma/bootstrap.ts",
-    "seed:views": "tsx prisma/seed-views.ts",
-    "seed:policies": "tsx prisma/seed-policies.ts",
     "help:build": "node scripts/build-help.mjs"
   },
   "prisma": {

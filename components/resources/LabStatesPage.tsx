@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { DiffEntryDto, LabCommitRequestDto, LabStatesDto, LabSummaryDto, LabTreeNodeDto, LabVersionDto, IdealStatRowDto, ResourceCategoryDto, VersionOpInput } from "@/lib/shared";
+import type { DiffEntryDto, LabCommitRequestDto, LabStatesDto, LabSummaryDto, LabTreeNodeDto, LabVersionDto, ResourceCategoryDto, VersionOpInput } from "@/lib/shared";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
 import { Button, ConfirmDialog, ErrorNote, Modal, Panel, Screen, Tag } from "@/components/ui";
@@ -13,22 +13,18 @@ import { CategoryCombobox } from "./AddModal";
 import { LabCommitCard } from "./LabCommitCard";
 
 /**
- * Lab states — one page, one lab at a time, as horizontal tabs:
- *  - Current:   the live register for this lab.
- *  - Draft:     the whole lab with its pending update applied (changed · added · removed
- *               marked in place). The custodian edits it here (or just edits the register
- *               when the department uses drafts); the head approves it — it then merges.
- *  - Ideal:     what the lab should hold — a whole tree too — with Ideal · Current · Gap
- *               per category. The custodian proposes; the head approves. Purchasing
- *               measures the lab against the approved Ideal.
- *  - Approvals: this lab's requests, and (for a head) everything waiting on them.
+ * A lab's changes — one lab at a time, as horizontal tabs:
+ *  - In the lab:  the live register for this lab.
+ *  - My changes:  the whole lab with its pending changes applied (changed · added ·
+ *                 removed marked in place). The custodian's register edits gather here;
+ *                 they send them once and the head approves — then they merge.
+ *  - Approvals:   this lab's requests, and (for a head) everything waiting on them.
  */
 
-type Tab = "current" | "draft" | "ideal" | "approvals";
+type Tab = "current" | "draft" | "approvals";
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: "current", label: "Current" },
-  { key: "draft", label: "Draft" },
-  { key: "ideal", label: "Ideal" },
+  { key: "current", label: "In the lab" },
+  { key: "draft", label: "Changes" },
   { key: "approvals", label: "Approvals" },
 ];
 const EDITABLE_STATUSES = ["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const;
@@ -123,9 +119,7 @@ function LabStatesInner() {
                         <span className="truncate font-medium">{l.name}</span>
                       </span>
                       <span className="flex flex-wrap gap-4 pl-18">
-                        {l.draft && <Tag tone={l.draft === "SUBMITTED" ? "warn" : "accent"}>{l.draft === "SUBMITTED" ? "draft submitted" : `draft · ${l.draftChanges}`}</Tag>}
-                        {l.proposal && <Tag tone={l.proposal === "SUBMITTED" ? "warn" : "accent"}>{l.proposal === "SUBMITTED" ? "ideal submitted" : "ideal proposal"}</Tag>}
-                        {l.hasIdeal ? <Tag tone="good">ideal set</Tag> : <Tag tone="neutral">no ideal</Tag>}
+                        {l.draft && <Tag tone={l.draft === "SUBMITTED" ? "warn" : "accent"}>{l.draft === "SUBMITTED" ? "sent to the head" : `${l.draftChanges} unsent change${l.draftChanges === 1 ? "" : "s"}`}</Tag>}
                       </span>
                     </button>
                   ))}
@@ -159,7 +153,6 @@ function LabView({ states, tab, onTab, focusItem, onChanged }: { states: LabStat
   const badge: Record<Tab, ReactNode> = {
     current: null,
     draft: states.draft ? <Tag tone={states.draft.status === "SUBMITTED" ? "warn" : "accent"}>{states.draft.diff.length}</Tag> : null,
-    ideal: states.idealProposal ? <Tag tone="warn">proposal</Tag> : states.ideal ? <Tag tone="good">set</Tag> : null,
     approvals: pendingCount ? <Tag tone="warn">{pendingCount}</Tag> : null,
   };
   return (
@@ -168,7 +161,6 @@ function LabView({ states, tab, onTab, focusItem, onChanged }: { states: LabStat
         <div className="text-13 font-semibold">{lab.name}</div>
         <div className="text-10.5 text-dim mt-2">
           {lab.ownerOrgNodeName} · custodian {lab.custodianName} · head {lab.headName ?? <span className="text-warn">vacant</span>}
-          {lab.draftWorkflowEnabled && <> · <span className="text-accent">edits in the register go into the draft</span></>}
         </div>
         <div className="flex gap-4 mt-10 border-b border-border -mb-10">
           {TABS.map((t) => (
@@ -185,12 +177,11 @@ function LabView({ states, tab, onTab, focusItem, onChanged }: { states: LabStat
       </div>
 
       {tab === "current" && (
-        <Panel title="Current — the live register">
+        <Panel title="In the lab — the live register">
           <TreeView nodes={states.current} markers={markersFromDiff(states.draft?.diff ?? [])} focusItem={focusItem} />
         </Panel>
       )}
       {tab === "draft" && <DraftTab states={states} focusItem={focusItem} onChanged={onChanged} />}
-      {tab === "ideal" && <IdealTab states={states} focusItem={focusItem} onChanged={onChanged} />}
       {tab === "approvals" && <ApprovalsTab states={states} onChanged={onChanged} />}
     </div>
   );
@@ -213,116 +204,22 @@ function DraftTab({ states, focusItem, onChanged }: { states: LabStatesDto; focu
   const commit = states.commits.find((c) => c.targetKind === "VISIBLE" && c.status === "PENDING");
   return (
     <VersionPanel
-      title="Draft — the lab with its pending update"
-      explain="Mark what broke, went for maintenance or was consumed; rename, add or remove things. Nothing changes in the register until the department head approves — then it all applies at once."
+      title="Changes — the lab with what you've changed"
+      explain="Mark what broke, went for maintenance or was used up; rename, add or remove things. Nothing changes in the register until you send these and the department head approves — then it all applies at once."
       states={states}
       version={draft}
       kind="draft"
       commit={commit}
       focusItem={focusItem}
       onChanged={onChanged}
-      emptyText="No draft open. Start one to prepare an update of this lab for the head's approval."
-      compareLabel="Compared with Current"
+      emptyText="No changes yet. Edit the lab here or in Resources, then send the changes to the head."
+      compareLabel="Compared with the lab as it is"
       removedFrom={states.current}
     />
   );
 }
 
-// ── Ideal ───────────────────────────────────────────────────────────────
-
-function IdealTab({ states, focusItem, onChanged }: { states: LabStatesDto; focusItem: string | null; onChanged: () => void }) {
-  const [show, setShow] = useState<"approved" | "proposal">(states.idealProposal ? "proposal" : "approved");
-  const commit = states.commits.find((c) => c.targetKind === "IDEAL" && c.status === "PENDING");
-  return (
-    <div className="flex flex-col gap-10">
-      <Panel
-        title={show === "approved" ? "Ideal vs Current (approved ideal)" : "Proposal vs Current"}
-        actions={
-          <div className="flex gap-4">
-            {(["approved", "proposal"] as const).map((k) => (
-              <button
-                key={k}
-                onClick={() => setShow(k)}
-                style={{ background: show === k ? "var(--accent)" : "var(--panel2)", color: show === k ? "#fff" : "var(--dim)" }}
-                className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
-              >
-                {k === "approved" ? "Approved ideal" : "Proposal"}
-              </button>
-            ))}
-          </div>
-        }
-      >
-        <StatsTable rows={show === "approved" ? states.idealStats : states.proposalStats} empty={show === "approved" ? "No ideal approved yet for this lab." : "No proposal open."} />
-      </Panel>
-      {show === "approved" ? (
-        <Panel title="Approved ideal — what the lab should hold">
-          {states.ideal ? (
-            <TreeView nodes={states.ideal.nodes} focusItem={focusItem} addedIds={new Set(states.idealStats.flatMap((r) => r.missing.map((m) => m.id)))} />
-          ) : (
-            <div className="px-14 py-12 text-11 text-dim">
-              None yet. {states.canEdit ? "Open the Proposal view and start one — it begins as a copy of the lab as it is now." : "The custodian proposes one; the head approves it."}
-            </div>
-          )}
-        </Panel>
-      ) : (
-        <VersionPanel
-          title="Ideal proposal — what this lab should hold"
-          explain="Start from the lab as it is (or the current ideal) and shape it into what the lab should have: add the missing workstations, outlets… The head approves it; purchasing then measures the lab against it. The register itself never changes from here."
-          states={states}
-          version={states.idealProposal}
-          kind="ideal"
-          commit={commit}
-          focusItem={focusItem}
-          onChanged={onChanged}
-          emptyText={states.ideal ? "Propose a change to the approved ideal — it starts as a copy of it." : "Propose this lab's ideal — it starts as a copy of the lab as it is now."}
-          compareLabel="Compared with Current"
-          removedFrom={states.current}
-        />
-      )}
-    </div>
-  );
-}
-
-function StatsTable({ rows, empty }: { rows: IdealStatRowDto[]; empty: string }) {
-  if (!rows.length) return <div className="px-14 py-12 text-11 text-dim">{empty}</div>;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-11">
-        <thead>
-          <tr className="text-9.5 uppercase tracking-label text-faint font-semibold border-b border-border">
-            <th className="text-left px-14 py-7">Category</th>
-            <th className="text-right px-10 py-7">Ideal</th>
-            <th className="text-right px-10 py-7">Current</th>
-            <th className="text-right px-10 py-7">Gap</th>
-            <th className="text-right px-10 py-7">Needs attention</th>
-            <th className="text-left px-14 py-7">Missing (to acquire)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.categoryId} className="border-b border-border last:border-0">
-              <td className="px-14 py-6">
-                <span className="flex items-center gap-6">
-                  <CategoryIcon iconKey={r.categoryIconKey} className="size-12 text-dim" />
-                  {r.categoryName}
-                </span>
-              </td>
-              <td className="px-10 py-6 text-right font-mono">{r.idealCount}</td>
-              <td className="px-10 py-6 text-right font-mono">{r.currentCount}</td>
-              <td className={`px-10 py-6 text-right font-mono ${r.gap > 0 ? "text-bad font-semibold" : "text-faint"}`}>{r.gap}</td>
-              <td className={`px-10 py-6 text-right font-mono ${r.needsAttention > 0 ? "text-warn" : "text-faint"}`}>{r.needsAttention}</td>
-              <td className="px-14 py-6 text-10.5 text-dim">
-                {r.missing.length ? summarizeNames(r.missing.map((m) => m.name)) : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ── A version (Draft or Ideal proposal): toolbar, changes, editable tree ──
+// ── The lab's changes: toolbar, changes, editable tree ──
 
 function VersionPanel({
   title,
@@ -341,7 +238,7 @@ function VersionPanel({
   explain: string;
   states: LabStatesDto;
   version: LabVersionDto | null;
-  kind: "draft" | "ideal";
+  kind: "draft";
   commit: LabCommitRequestDto | undefined;
   focusItem: string | null;
   onChanged: () => void;
@@ -388,27 +285,25 @@ function VersionPanel({
         <div className="flex flex-wrap items-center gap-6">
           {!version && states.canEdit && (
             <Button variant="primary" disabled={busy} onClick={() => action("start")}>
-              {kind === "draft" ? "Start a draft" : "Start a proposal"}
+              Start making changes
             </Button>
           )}
           {version?.status === "EDITING" && states.canEdit && (
             <>
-              <Button variant="primary" disabled={busy || (kind === "draft" && version.diff.length === 0)} onClick={() => action("submit")}>
-                Submit for approval
+              <Button variant="primary" disabled={busy || version.diff.length === 0} onClick={() => action("submit")}>
+                Send to the head
               </Button>
-              {kind === "draft" && (
-                <Button disabled={busy} onClick={() => setConfirm("refresh")}>
-                  Refresh from Current
-                </Button>
-              )}
+              <Button disabled={busy} onClick={() => setConfirm("refresh")}>
+                Start again from the lab
+              </Button>
               <Button variant="danger" disabled={busy} onClick={() => setConfirm("discard")}>
-                Discard
+                Discard changes
               </Button>
             </>
           )}
           {version?.status === "SUBMITTED" && states.canEdit && (
             <Button disabled={busy} onClick={() => action("withdraw")}>
-              Withdraw to edit
+              Take back to edit
             </Button>
           )}
         </div>
@@ -425,7 +320,7 @@ function VersionPanel({
       ) : (
         <>
           <div className="px-14 py-9 border-b border-border flex flex-wrap items-center gap-8 text-10.5">
-            <Tag tone={version.status === "SUBMITTED" ? "warn" : "accent"}>{version.status === "SUBMITTED" ? "Waiting for the head" : "Editing"}</Tag>
+            <Tag tone={version.status === "SUBMITTED" ? "warn" : "accent"}>{version.status === "SUBMITTED" ? "Waiting for the head" : "Not sent yet"}</Tag>
             <span className="text-dim">
               by {version.createdByName} · updated {new Date(version.updatedAt).toLocaleString()}
             </span>
@@ -442,12 +337,12 @@ function VersionPanel({
       )}
       {confirm && (
         <ConfirmDialog
-          title={confirm === "discard" ? "Discard" : "Refresh from Current"}
-          tone={confirm === "discard" ? "danger" : "primary"}
-          confirmLabel={confirm === "discard" ? "Discard" : "Refresh"}
+          title={confirm === "discard" ? "Discard changes" : "Start again from the lab"}
+          tone={confirm === "discard" ? "danger" : "warn"}
+          confirmLabel={confirm === "discard" ? "Discard" : "Start again"}
           busy={busy}
           error={null}
-          message={confirm === "discard" ? "Throw away everything in this copy? Nothing in the register changes." : "Replace this draft with a fresh copy of the lab as it is now? Changes made in the draft so far are lost."}
+          message={confirm === "discard" ? "Throw away every change you've made to this lab? Nothing in the register changes." : "Replace your changes with a fresh copy of the lab as it is now? The changes made so far are lost."}
           onConfirm={() => action(confirm)}
           onCancel={() => setConfirm(null)}
         />
@@ -906,7 +801,7 @@ function ApprovalsTab({ states, onChanged }: { states: LabStatesDto; onChanged: 
     <div className="flex flex-col gap-10">
       <Panel title={`${states.lab.name} — requests`}>
         {states.commits.length === 0 ? (
-          <div className="px-14 py-12 text-11 text-dim">No drafts or ideal proposals have been submitted for this lab yet.</div>
+          <div className="px-14 py-12 text-11 text-dim">No changes have been sent for this lab yet.</div>
         ) : (
           <div className="p-12 flex flex-col gap-10">
             {states.commits.map((c) => (
@@ -935,12 +830,4 @@ export default function LabStatesPage() {
       <LabStatesInner />
     </Suspense>
   );
-}
-
-/** "Computer ×5, Workstation 21, Workstation 22 +3": identical names collapse into a count. */
-function summarizeNames(names: string[]): string {
-  const counts = new Map<string, number>();
-  for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
-  const parts = [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n));
-  return parts.length > 6 ? `${parts.slice(0, 6).join(", ")} +${parts.length - 6}` : parts.join(", ");
 }

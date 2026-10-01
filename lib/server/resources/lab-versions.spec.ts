@@ -6,10 +6,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const sent: { to: string; subject: string }[] = [];
 vi.mock("../mail/mail", () => ({ send: async (m: { to: string; subject: string }) => void sent.push({ to: m.to, subject: m.subject }) }));
 
-/** DB-backed — lab Drafts and Ideals as whole trees (2026-09-22): auto-staging from
- *  the register, merging on approval (and refusing a stale merge), ideal proposals,
- *  and the purchasing gap they drive. Runs on its own orphan department, like the
- *  spec it replaces, so it never touches the shared seed departments' occupants. */
+/** DB-backed — a lab's Draft as a whole tree: every custodian edit staged from the
+ *  register, merged on approval (and refusing a stale merge). Runs on its own orphan
+ *  department, so it never touches the shared seed departments' occupants. */
 function loadDotEnv(): void {
   if (process.env.DATABASE_URL) return;
   const content = fs.readFileSync(path.resolve(process.cwd(), ".env"), "utf8");
@@ -80,7 +79,7 @@ beforeAll(async () => {
   wsCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-ws`, name: "LV Workstation", canBeRoot: false, templateChildren: [{ childCategoryId: pcCat, qty: 1, critical: true }] })).id;
   labCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-lab`, name: "LV Lab", canBeRoot: true, templateChildren: [] })).id;
 
-  custodianId = await makeUser("custodian", ["CUSTODIAN", "STAFF"]);
+  custodianId = await makeUser("custodian", ["CUSTODIAN"]);
   headId = await makeUser("head", ["MANAGER"]);
   await prisma.orgNode.update({ where: { id: deptId }, data: { userId: headId } });
 }, 60_000);
@@ -106,7 +105,6 @@ describe("Draft — staged from the register, merged on approval", () => {
   let labId: string;
   beforeAll(async () => {
     labId = await makeLab("LV Lab A", 3);
-    await prisma.orgNode.update({ where: { id: deptId }, data: { draftWorkflowEnabled: true } });
   }, 60_000);
 
   it("a custodian's register edit goes into the lab's Draft, not the register", async () => {
@@ -138,15 +136,15 @@ describe("Draft — staged from the register, merged on approval", () => {
     let mark = sent.length;
     const request = await versions.submitVersion(custodianId, labId, "DRAFT");
     expect(request.canDecide).toBe(false);
-    // The head is told a draft is waiting; the custodian isn't told about their own submit.
-    expect(sent.slice(mark)).toEqual([{ to: await emailOf(headId), subject: `${request.labName}: a draft is waiting for your approval` }]);
+    // The head is told changes are waiting; the custodian isn't told about their own submit.
+    expect(sent.slice(mark)).toEqual([{ to: await emailOf(headId), subject: `${request.labName}: changes are waiting for your approval` }]);
     expect(request.summary.map((s) => s.kind).sort()).toEqual(["added", "added", "changed", "removed"]);
     expect(request.summary.find((s) => s.kind === "changed")?.note).toBe("No signal on boot");
 
     mark = sent.length;
     const decided = await versions.decideCommit(headId, request.id, "APPROVE");
     expect(decided.status).toBe("APPLIED");
-    expect(sent.slice(mark)).toEqual([{ to: await emailOf(custodianId), subject: `${request.labName}: your draft was approved` }]);
+    expect(sent.slice(mark)).toEqual([{ to: await emailOf(custodianId), subject: `${request.labName}: your changes were approved` }]);
     const children = await prisma.item.findMany({ where: { parentId: labId, deletedAt: null }, select: { name: true }, orderBy: { name: "asc" } });
     expect(children.map((c) => c.name)).toEqual(["LV Workstation 01", "LV Workstation 02", "Workstation 01", "Workstation 02"]);
     const added = await itemNamed(labId, "LV Workstation 01");
@@ -184,7 +182,7 @@ describe("Draft — staged from the register, merged on approval", () => {
     await versions.discardVersion(custodianId, labId, "DRAFT");
   });
 
-  it("the admin's own edits stay direct even in a drafting department", async () => {
+  it("the admin's own edits stay direct", async () => {
     const ws = await itemNamed(labId, "Workstation 02");
     const r = await mutate.applyChange(sysAdminId, { kind: "setName", itemIds: [ws.id], value: "Workstation 02b" });
     expect(r.staged).toBeUndefined();
@@ -192,43 +190,18 @@ describe("Draft — staged from the register, merged on approval", () => {
   });
 });
 
-describe("Ideal — proposed as a whole tree, approved, measured by purchasing", () => {
+describe("Deciding — only the lab's own head", () => {
   let labId: string;
   beforeAll(async () => {
-    await prisma.orgNode.update({ where: { id: deptId }, data: { draftWorkflowEnabled: false } });
     labId = await makeLab("LV Lab B", 2);
   }, 60_000);
 
-  it("a proposal starts as a copy of Current; adding to it never touches the register", async () => {
-    await versions.startVersion(custodianId, labId, "IDEAL_PROPOSAL");
-    const r = await versions.applyVersionEdit(custodianId, labId, "IDEAL_PROPOSAL", { kind: "createItem", parentId: labId, categoryId: wsCat, count: 3, name: "Workstation" });
-    expect(r.plannedNames).toEqual(["Workstation 03", "Workstation 04", "Workstation 05"]);
-    expect(await prisma.item.count({ where: { parentId: labId, deletedAt: null } })).toBe(2);
-  });
-
-  it("once approved it becomes the Ideal, and purchasing reads the gap from it", async () => {
-    const request = await versions.submitVersion(custodianId, labId, "IDEAL_PROPOSAL");
-    expect(request.targetKind).toBe("IDEAL");
-    await versions.decideCommit(headId, request.id, "APPROVE");
-    const states = await versions.getLabStates(headId, labId);
-    expect(states.ideal?.status).toBe("APPROVED");
-    expect(states.idealProposal).toBeNull();
-    const ws = states.idealStats.find((r) => r.categoryId === wsCat)!;
-    expect(ws).toMatchObject({ idealCount: 5, currentCount: 2, gap: 3 });
-    expect(ws.missing.map((m) => m.name)).toEqual(["Workstation 03", "Workstation 04", "Workstation 05"]);
-
-    const purchasables = await versions.getDepartmentPurchasables(headId, deptId);
-    const pcRow = purchasables.rows.find((r) => r.categoryId === pcCat)!;
-    expect(pcRow).toMatchObject({ idealQty: 5, actualCount: 2, gap: 3 });
-  });
-
-  it("only the lab's head decides — another manager cannot", async () => {
-    await versions.startVersion(custodianId, labId, "IDEAL_PROPOSAL");
-    await versions.applyVersionEdit(custodianId, labId, "IDEAL_PROPOSAL", { kind: "createItem", parentId: labId, categoryId: wsCat, count: 1, name: "Workstation" });
-    const request = await versions.submitVersion(custodianId, labId, "IDEAL_PROPOSAL");
+  it("another manager cannot decide, and the custodian can take the changes back", async () => {
+    await versions.applyVersionEdit(custodianId, labId, "DRAFT", { kind: "createItem", parentId: labId, categoryId: wsCat, count: 1, name: "Workstation" });
+    const request = await versions.submitVersion(custodianId, labId, "DRAFT");
     const stranger = await makeUser("other-head", ["MANAGER"]);
     await expect(versions.decideCommit(stranger, request.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
-    await versions.withdrawVersion(custodianId, labId, "IDEAL_PROPOSAL");
+    await versions.withdrawVersion(custodianId, labId, "DRAFT");
     expect((await prisma.labCommitRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe("CANCELLED");
   });
 });

@@ -94,12 +94,12 @@ async function main() {
   };
   const avp = await person("avp@astu.edu.et", "Academic Vice President (AVP)", ["MANAGER"], null, "Academic Vice President");
   const dean = await person("coeec.dean@astu.edu.et", "CoEEC Dean", ["MANAGER"], coeec.id, "Dean, College of Electrical Engineering and Computing");
-  const cseHead = await person("cse.head@astu.edu.et", "CSE Department Head", ["MANAGER", "STAFF"], cse.id, "Head, Computer Science and Engineering");
-  const seHead = await person("se.head@astu.edu.et", "SE Department Head", ["MANAGER", "STAFF"], se.id, "Head, Software Engineering");
+  const cseHead = await person("cse.head@astu.edu.et", "CSE Department Head", ["MANAGER"], cse.id, "Head, Computer Science and Engineering");
+  const seHead = await person("se.head@astu.edu.et", "SE Department Head", ["MANAGER"], se.id, "Head, Software Engineering");
   const procurement = await person("procurement@astu.edu.et", "Procurement Officer", ["PROCUREMENT"], proc.id, "Procurement Office");
-  await person("store.keeper@astu.edu.et", "Main Store Keeper", ["STORE_KEEPER", "STAFF"], university.id, "ASTU Main Store");
-  const chemHead = await person("head.chem@astu.edu.et", "Head, Chemical Engineering", ["MANAGER", "STAFF"], chem.id);
-  await person("custodian.chem@astu.edu.et", "Hanna Bekele", ["CUSTODIAN", "STAFF"], chem.id);
+  await person("store.keeper@astu.edu.et", "Main Store Keeper", ["STORE_KEEPER"], university.id, "ASTU Main Store");
+  const chemHead = await person("head.chem@astu.edu.et", "Head, Chemical Engineering", ["MANAGER"], chem.id);
+  await person("custodian.chem@astu.edu.et", "Hanna Bekele", ["CUSTODIAN"], chem.id);
 
   await occupy(university.id, avp.id);
   await occupy(coeec.id, dean.id);
@@ -108,7 +108,7 @@ async function main() {
   await occupy(proc.id, procurement.id);
   await occupy(chem.id, chemHead.id);
 
-  // The ICT Maintenance Office: a view-only, university-wide post (see its own file).
+  // The ICT Maintenance Office: a post that reads the whole university (see its own file).
   await ensureIctMaintenance(prisma, SEED_PASSWORD);
   // The College Managing Director: purchases after the dean, and permanent transfers (see its own file).
   await ensureCmdOffice(prisma, SEED_PASSWORD);

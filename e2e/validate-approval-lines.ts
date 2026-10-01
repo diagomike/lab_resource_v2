@@ -285,7 +285,7 @@ async function movements() {
 
   // P5 — store → a person (a lecturer invited through the app), then back to the store.
   const lecturerEmail = "mt.lecturer@example.org";
-  await post(ADMIN, "/people", { name: "MT Lecturer", email: lecturerEmail, roles: ["STAFF"], homeNodeId: cse.id });
+  await post(ADMIN, "/people", { name: "MT Lecturer", email: lecturerEmail, roles: ["CUSTODIAN"], homeNodeId: cse.id });
   const inviteToken = lastBodyTo(lecturerEmail).match(/accept-invite\?token=([\w-]+)/)?.[1];
   await call("anon", "POST", "/auth/register", { token: inviteToken, name: "MT Lecturer", password: "astu1234-lecturer" }).catch(async () => {
     const res = await fetch(`${BASE}/auth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: inviteToken, name: "MT Lecturer", password: "astu1234-lecturer" }) });

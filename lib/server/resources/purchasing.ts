@@ -8,7 +8,8 @@ import type {
   NeedLineDto,
   PurchaseLineDto,
   PurchaseRequestDto,
-  RaiseNeedInput,
+  RaiseNeedFields,
+  ReplacementSuggestionDto,
 } from "@/lib/shared";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
@@ -174,12 +175,17 @@ const needInclude = {
   raisedBy: { select: { name: true } },
   orgNode: { select: { name: true } },
   handledBy: { select: { name: true } },
+  category: { select: { name: true } },
+  lab: { select: { name: true } },
   purchaseLine: { select: { purchase: { select: { reference: true, stage: true } } } },
 } satisfies Prisma.NeedLineInclude;
 
+const PRIORITY_RANK: Record<NeedLineDto["priority"], number> = { ESSENTIAL: 0, IMPORTANT: 1, NICE_TO_HAVE: 2 };
+const byPriorityThenAge = (a: NeedLineDto, b: NeedLineDto) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.createdAt.localeCompare(b.createdAt);
+
 type NeedRow = Prisma.NeedLineGetPayload<{ include: typeof needInclude }>;
 
-function toNeedDto(row: NeedRow): NeedLineDto {
+function toNeedDto(row: NeedRow, names: Map<string, string> = new Map()): NeedLineDto {
   return {
     id: row.id,
     raisedById: row.raisedById,
@@ -190,6 +196,13 @@ function toNeedDto(row: NeedRow): NeedLineDto {
     qty: dec(row.qty)!,
     unit: row.unit,
     categoryId: row.categoryId,
+    categoryName: row.category?.name ?? null,
+    labItemId: row.labItemId,
+    labName: row.lab?.name ?? null,
+    priority: row.priority,
+    kind: row.kind,
+    replacesItems: row.replacesItemIds.map((id) => ({ id, name: names.get(id) ?? "an item no longer in the register" })),
+    spec: row.spec,
     reason: row.reason,
     createdAt: row.createdAt.toISOString(),
     status: row.status,
@@ -203,24 +216,139 @@ function toNeedDto(row: NeedRow): NeedLineDto {
   };
 }
 
-/** "We could use one of these." Never auto-converted — a head reads open needs while
- *  writing their own request and decides what to carry forward. */
-export async function raiseNeed(actorId: string, input: RaiseNeedInput): Promise<NeedLineDto> {
+/** The items under a lab (the lab itself excluded), by id. */
+async function idsInsideLab(labItemId: string): Promise<Set<string>> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    WITH RECURSIVE sub AS (
+      SELECT id FROM "Item" WHERE "parentId" = ${labItemId} AND "deletedAt" IS NULL
+      UNION ALL
+      SELECT i.id FROM "Item" i INNER JOIN sub s ON i."parentId" = s.id WHERE i."deletedAt" IS NULL
+    )
+    SELECT id FROM sub
+  `;
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * "This lab needs …" — raised by the lab's custodian, for a lab they run. It belongs to
+ * the unit that owns the lab, whose head reads it while building a purchase request and
+ * decides what to carry forward (never auto-converted). A replacement names the broken
+ * or lost item it replaces, and takes that item's category.
+ */
+export async function raiseNeed(actorId: string, fields: RaiseNeedFields): Promise<NeedLineDto> {
+  const input = { priority: "IMPORTANT" as const, kind: "NEW" as const, ...fields, replacesItemIds: fields.replacesItemIds ?? [] };
   const person = await loadPerson(actorId);
-  if (!canRaiseNeed(person)) throw new HttpError(403, "You must belong to a unit, and not be a student, to raise a need.");
+  if (!canRaiseNeed(person)) throw new HttpError(403, "Needs are raised by the custodians who run the labs.");
+  const lab = await prisma.item.findUnique({ where: { id: input.labItemId }, select: { id: true, name: true, parentId: true, deletedAt: true, ownerOrgNodeId: true, category: { select: { key: true } } } });
+  if (!lab || lab.deletedAt || lab.parentId) throw new HttpError(400, "Choose one of your labs.");
+  await scope.assertCanMutate(actorId, [lab.id]);
+
+  let categoryId = input.categoryId ?? null;
+  let replacesItemIds: string[] = [];
+  if (input.kind === "REPLACEMENT") {
+    const ids = [...new Set(input.replacesItemIds)];
+    if (!ids.length) throw new HttpError(400, "Choose the items this replaces.");
+    const inside = await idsInsideLab(lab.id);
+    if (ids.some((id) => !inside.has(id))) throw new HttpError(400, `Something chosen isn't in ${lab.name}.`);
+    const replaced = await prisma.item.findMany({ where: { id: { in: ids } }, select: { id: true, status: true, categoryId: true } });
+    if (replaced.some((r) => r.status !== "BROKEN" && r.status !== "LOST")) throw new HttpError(400, "Only something broken or lost is replaced — mark it so first.");
+    if (new Set(replaced.map((r) => r.categoryId)).size > 1) throw new HttpError(400, "Replace one kind of thing at a time.");
+    if ((await alreadyReplaced(ids)).size) throw new HttpError(409, "A replacement has already been asked for some of these.");
+    replacesItemIds = ids;
+    categoryId = replaced[0].categoryId;
+  }
+
   const row = await prisma.needLine.create({
     data: {
       raisedById: actorId,
-      orgNodeId: person!.homeOrgNodeId!,
+      orgNodeId: lab.ownerOrgNodeId,
+      labItemId: lab.id,
       name: input.name,
       qty: input.qty,
       unit: input.unit ?? null,
-      categoryId: input.categoryId ?? null,
+      categoryId,
+      priority: input.priority,
+      kind: input.kind,
+      replacesItemIds,
+      spec: input.spec?.trim() || null,
       reason: input.reason,
     },
     include: needInclude,
   });
-  return toNeedDto(row);
+  const head = await prisma.orgNode.findUnique({ where: { id: lab.ownerOrgNodeId }, select: { userId: true } });
+  await notify(head?.userId, actorId, {
+    subject: `${lab.name} needs ${input.name}`,
+    paragraphs: [
+      `${esc(row.raisedBy.name)} asked for <strong>${esc(input.name)}</strong> (× ${esc(String(input.qty))}) for ${esc(lab.name)} — ${esc(PRIORITY_WORD[input.priority])}.`,
+      `“${esc(input.reason)}”`,
+      "Carry it into a purchase request, or decline it with a reason.",
+    ],
+    path: "/purchasing?tab=needs",
+    action: "Review the lab's needs",
+  });
+  return toNeedDto(row, await namesOf(replacesItemIds));
+}
+
+/** The items among `ids` a live (open or carried) need already replaces. */
+async function alreadyReplaced(ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  const live = await prisma.needLine.findMany({ where: { status: { in: ["OPEN", "CARRIED"] }, replacesItemIds: { hasSome: ids } }, select: { replacesItemIds: true } });
+  const wanted = new Set(ids);
+  return new Set(live.flatMap((n) => n.replacesItemIds).filter((id) => wanted.has(id)));
+}
+
+async function namesOf(ids: string[]): Promise<Map<string, string>> {
+  if (!ids.length) return new Map();
+  const rows = await prisma.item.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+async function toNeedDtos(rows: NeedRow[]): Promise<NeedLineDto[]> {
+  const names = await namesOf([...new Set(rows.flatMap((r) => r.replacesItemIds))]);
+  return rows.map((r) => toNeedDto(r, names));
+}
+
+const PRIORITY_WORD: Record<NeedLineDto["priority"], string> = { ESSENTIAL: "essential", IMPORTANT: "important", NICE_TO_HAVE: "nice to have" };
+
+/** The person who raised it takes back a need nobody has acted on yet. */
+export async function withdrawNeed(actorId: string, needId: string): Promise<void> {
+  const need = await prisma.needLine.findUnique({ where: { id: needId }, select: { raisedById: true, status: true } });
+  if (!need || need.raisedById !== actorId) throw new HttpError(404, "Need not found");
+  if (need.status !== "OPEN") throw new HttpError(409, "The head has already acted on this need.");
+  await prisma.needLine.delete({ where: { id: needId } });
+}
+
+/**
+ * Broken or lost items with no replacement asked for yet — in the labs a unit owns (for
+ * its head, `orgNodeId`), or in the labs the caller runs (a custodian, no `orgNodeId`).
+ */
+export async function replacementSuggestions(actorId: string, orgNodeId?: string): Promise<ReplacementSuggestionDto[]> {
+  let labs: Array<{ id: string; name: string }>;
+  if (orgNodeId) {
+    await assertHeadsNode(actorId, orgNodeId);
+    labs = await prisma.item.findMany({ where: { ownerOrgNodeId: orgNodeId, parentId: null, deletedAt: null, category: { key: { not: "store" } } }, select: { id: true, name: true } });
+  } else {
+    labs = await prisma.item.findMany({ where: { custodianId: actorId, parentId: null, deletedAt: null, category: { key: { not: "store" } } }, select: { id: true, name: true } });
+  }
+  const out: ReplacementSuggestionDto[] = [];
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  for (const lab of labs.sort((a, b) => collator.compare(a.name, b.name))) {
+    const inside = [...(await idsInsideLab(lab.id))];
+    if (!inside.length) continue;
+    const failed = await prisma.item.findMany({
+      where: { id: { in: inside }, status: { in: ["BROKEN", "LOST"] } },
+      select: { id: true, name: true, status: true, categoryId: true, category: { select: { name: true } } },
+    });
+    const covered = await alreadyReplaced(failed.map((f) => f.id));
+    const byCategory = new Map<string, ReplacementSuggestionDto>();
+    for (const f of failed.filter((f) => !covered.has(f.id)).sort((a, b) => collator.compare(a.name, b.name))) {
+      const group = byCategory.get(f.categoryId) ?? { labItemId: lab.id, labName: lab.name, categoryId: f.categoryId, categoryName: f.category.name, items: [] };
+      group.items.push({ id: f.id, name: f.name, status: f.status as "BROKEN" | "LOST" });
+      byCategory.set(f.categoryId, group);
+    }
+    out.push(...[...byCategory.values()].sort((a, b) => b.items.length - a.items.length || collator.compare(a.categoryName, b.categoryName)));
+  }
+  return out;
 }
 
 /** What a head reads while compiling their own unit's request. Head-of-`orgNodeId`
@@ -231,12 +359,12 @@ export async function raiseNeed(actorId: string, input: RaiseNeedInput): Promise
 export async function listOpenNeeds(actorId: string, orgNodeId: string): Promise<NeedLineDto[]> {
   await assertHeadsNode(actorId, orgNodeId);
   const rows = await prisma.needLine.findMany({ where: { orgNodeId, status: "OPEN" }, include: needInclude, orderBy: { createdAt: "asc" } });
-  return rows.map(toNeedDto);
+  return (await toNeedDtos(rows)).sort(byPriorityThenAge);
 }
 
 export async function listMyNeeds(actorId: string): Promise<NeedLineDto[]> {
   const rows = await prisma.needLine.findMany({ where: { raisedById: actorId }, include: needInclude, orderBy: { createdAt: "desc" } });
-  return rows.map(toNeedDto);
+  return toNeedDtos(rows);
 }
 
 export async function declineNeed(actorId: string, needId: string, input: DeclineNeedInput): Promise<NeedLineDto> {
@@ -253,9 +381,9 @@ export async function declineNeed(actorId: string, needId: string, input: Declin
   await notify(need.raisedById, actorId, {
     subject: `Your need "${need.name}" was declined`,
     paragraphs: [`The head declined your need for <strong>${esc(need.name)}</strong> (× ${esc(String(need.qty))}).${quoted(input.note)}`],
-    path: "/purchasing",
+    path: "/purchasing?tab=needs",
   });
-  return toNeedDto(row);
+  return (await toNeedDtos([row]))[0];
 }
 
 // ── Purchase requests ────────────────────────────────────────────────────────────
@@ -426,9 +554,7 @@ export async function compilePurchaseRequest(actorId: string, input: CompilePurc
 /** Every step self-held (the requester holds every post on the route) means nothing
  *  is actually left to wait for — `activate()` already skipped each one through, so
  *  this just advances the request the rest of the way, the same shortcut Track 3's
- *  transfer chain relies on, just arrived at per-request instead of via an up-front
- *  policy check (purchasing has no `ApprovalPolicy` row to resolve an AUTO outcome
- *  from — see the plan's §3). */
+ *  transfer chain relies on. */
 async function settleIfComplete(requestId: string, actorId: string, steps: DomainChainStep[]): Promise<void> {
   if (!chainSettled(steps)) return;
   await prisma.$transaction([

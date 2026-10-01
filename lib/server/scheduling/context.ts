@@ -21,13 +21,13 @@ type Client = Tx | typeof prisma;
 export const LIVE_STATES: ReservationState[] = ["REQUESTED", "HELD", "CONFIRMED"];
 export const BLOCKING_STATES: ReservationState[] = ["HELD", "CONFIRMED"];
 
-/** Students book through their advisor and outsiders through the public portal — the
- *  booking screens are for staff, custodians, heads and administrators. */
-const BOOKING_ROLES: RoleKind[] = ["SYS_ADMIN", "MANAGER", "CUSTODIAN", "STAFF"];
+/** Custodians book (their own rooms and machines for someone, or ask for another's),
+ *  heads ask for rooms, and outsiders come through the public portal. */
+const BOOKING_ROLES: RoleKind[] = ["SYS_ADMIN", "MANAGER", "CUSTODIAN"];
 
 export async function assertMayBook(userId: string): Promise<void> {
   const roles = await scope.rolesOf(userId);
-  if (!roles.some((r) => BOOKING_ROLES.includes(r))) throw new HttpError(403, "Bookings are made by staff — ask your advisor to book for you.");
+  if (!roles.some((r) => BOOKING_ROLES.includes(r))) throw new HttpError(403, "Bookings are made by custodians and heads — ask the room’s custodian.");
 }
 
 export interface TreeRow {

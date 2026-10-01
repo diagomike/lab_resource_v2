@@ -9,7 +9,6 @@ import type { FilterRule } from "@/lib/domain/filters";
 import { api, ApiError } from "@/lib/api";
 import { filterOperators, type ItemRowDto, type OrgNodeDto, type ResourceCategoryDto } from "@/lib/shared";
 import { toDomainItem } from "./adapt";
-import { useActiveViewId } from "./active-view";
 
 export type RegisterMode = "grouped" | "tree" | "rollup" | "flat";
 
@@ -197,15 +196,11 @@ function toQueryString(mode: RegisterMode, filters: RegisterFilters, extra?: Rec
   return s ? `?${s}` : "";
 }
 
-/** `viewId` (Track 1's access views) and `scope: "UNIVERSITY"` (10b) are mutually
- *  exclusive on the wire — a page that sets `scope` never also has a view id to send
- *  (see useRegisterState's own note), but if it somehow did, the server's
- *  `resolveReadOverride` honours `scope` first regardless of what this sends. */
-export function toApiParams(filters: RegisterFilters, scope?: "UNIVERSITY", viewId?: string | null): string {
+/** `scope: "UNIVERSITY"` is the one read override (read-scope.ts). */
+export function toApiParams(filters: RegisterFilters, scope?: "UNIVERSITY"): string {
   const qp = new URLSearchParams();
   appendFilterParams(qp, filters);
   if (scope) qp.set("scope", scope);
-  else if (viewId) qp.set("view", viewId);
   const s = qp.toString();
   return s ? `?${s}` : "";
 }
@@ -226,15 +221,7 @@ const PAGE_SIZE = 50;
  * ~/.claude/plans/three-product-changes-dynamic-thompson.md) — it rides along on
  * every fetch this hook makes as `?scope=UNIVERSITY`, and every read endpoint that
  * honours it re-checks `assertCanBrowseUniversity` server-side regardless of what
- * this hook sends. `/register` itself never passes this option; only `/university`
- * does — the same hook, parameterized, per that page's own "reuse, don't fork" note.
- *
- * The person's currently chosen access view (Track 1) rides along the same way, as
- * `?view=<id>`, whenever `scope` is NOT set — `active-view.ts`'s `useActiveViewId()`,
- * reactive so switching the sidebar's picker re-fetches without a navigation. Every
- * endpoint that honours it re-resolves it server-side (`views.ts`'s
- * `resolveEffectiveView`) exactly like `scope=UNIVERSITY` already does; this hook
- * never decides what the view actually grants, only which id to ask for.
+ * this hook sends.
  */
 export function useRegisterState(opts?: {
   scope?: "UNIVERSITY";
@@ -247,8 +234,6 @@ export function useRegisterState(opts?: {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const scope = opts?.scope;
-  const activeViewId = useActiveViewId();
-  const viewId = scope ? null : activeViewId;
 
   const defaultMode = opts?.defaultMode ?? "tree";
   const mode = opts?.fixedMode ?? readMode(searchParams, defaultMode);
@@ -317,7 +302,7 @@ export function useRegisterState(opts?: {
   const [refreshing, setRefreshing] = useState(false);
   /** Identity of what is being shown. Only a change here (a different mode, filter,
    *  page, scope or view) clears the table; a bare reload keeps it on screen. */
-  const queryKey = JSON.stringify([mode, filters, page, scope ?? null, viewId ?? null]);
+  const queryKey = JSON.stringify([mode, filters, page, scope ?? null]);
   const shownKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -326,7 +311,7 @@ export function useRegisterState(opts?: {
     if (sameQuery) setRefreshing(true);
     else setRows(null);
     setError(null);
-    const apiParams = toApiParams(filters, scope, viewId);
+    const apiParams = toApiParams(filters, scope);
 
     const request =
       mode === "flat"
@@ -497,7 +482,6 @@ export function useRegisterState(opts?: {
      *  "UNIVERSITY"`, or when no view is chosen) — for a caller that makes its OWN
      *  separate request against the same scope (DashboardPage's `/summary` fetch) to
      *  reuse via `toApiParams`, rather than re-deriving it. */
-    viewId,
     rows,
     rowNodes,
     /** Filter matches among `rows` (null: not filtering) and the matches under any

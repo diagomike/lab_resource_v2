@@ -13,9 +13,8 @@
  *     a person, so an in-flight request follows a change of head rather than
  *     stalling on whoever held the post when it was raised.
  *
- * Rules are (operation × who is acting × what kind of thing) and resolve to one of
- * three answers — applies immediately, needs approval, or not permitted. Most
- * specific wins. NO MATCHING RULE MEANS REFUSED.
+ * Who may ASK for a movement is one fixed rule (`mayRequestTransfer`); the steps come
+ * from the movement's shape (`movementChain`).
  *
  * Ported from temp_works/src/lib/approvals.ts essentially verbatim. The one real
  * change: `buildChain`/`validateChain` take a `ChainContext` built from
@@ -24,7 +23,7 @@
  * already-shipped closure-algorithm.ts, not a re-derivation).
  */
 import { ancestorsOfChain, indexOrgChain, type OrgChainIndex } from "./org-chain";
-import type { Category, ChangeKind, CountingMode, Item, OrgNode, Person } from "./types";
+import type { Item, OrgNode, Person } from "./types";
 import type { OrgNodeKind, RoleKind } from "@/lib/shared";
 
 // ── Selectors ────────────────────────────────────────────────────────────
@@ -71,26 +70,6 @@ export type StepSelector =
   /** Back to the person who asked: "I have received it." Never skipped. */
   | { type: "REQUESTER_RECEIPT" };
 
-export type ObjectSelector =
-  | { type: "ANY" }
-  | { type: "GROUP"; group: string }
-  | { type: "CATEGORY"; categoryId: string }
-  | { type: "COUNTING_MODE"; mode: CountingMode };
-
-export interface ApprovalPolicy {
-  id: string;
-  name: string;
-  operation: ChangeKind;
-  /** Which resources this rule speaks about. */
-  appliesTo: ObjectSelector;
-  /** "ANY" matches every role. */
-  actorRole: RoleKind | "ANY";
-  outcome: "AUTO" | "CHAIN" | "DENY";
-  /** CHAIN only. An empty chain is treated as DENY — it routes to nobody. */
-  chain?: StepSelector[];
-  enabled: boolean;
-}
-
 export type StepStatus = "PENDING" | "WAITING" | "APPROVED" | "REJECTED" | "SKIPPED";
 
 export interface ChainStep {
@@ -127,72 +106,14 @@ export interface ChainContext {
   orgIndex: OrgChainIndex;
 }
 
-// ── Policy resolution ────────────────────────────────────────────────────
+// ── Who may ask ──────────────────────────────────────────────────────────
 
-function objectMatches(selector: ObjectSelector, category: Category | undefined): boolean {
-  if (selector.type === "ANY") return true;
-  if (!category) return false;
-  if (selector.type === "CATEGORY") return category.id === selector.categoryId;
-  if (selector.type === "GROUP") return category.group === selector.group;
-  return category.countingMode === selector.mode;
-}
+/** The people who move resources: a custodian, a department head, the store keeper,
+ *  and the administrator. Anyone else is refused before any chain is built. */
+const TRANSFER_REQUESTER_ROLES: RoleKind[] = ["CUSTODIAN", "MANAGER", "STORE_KEEPER", "SYS_ADMIN"];
 
-/** More specific rules win. A rule about one category beats a rule about anything. */
-function objectSpecificity(selector: ObjectSelector): number {
-  return selector.type === "CATEGORY" ? 3 : selector.type === "GROUP" ? 2 : selector.type === "COUNTING_MODE" ? 1 : 0;
-}
-
-/**
- * Roles from most specific to least — the tie-breaker whenever a person holds
- * several and two rules both claim them. Almost everybody is STAFF, so a rule aimed
- * at staff is the weakest possible claim on a person.
- */
-const ROLE_SPECIFICITY: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "STORE_KEEPER", "MANAGER", "CUSTODIAN", "STAFF", "STUDENT", "EXTERNAL"];
-
-/** Higher is narrower. 0 for a rule that matches anybody. */
-function roleRank(role: RoleKind | "ANY"): number {
-  if (role === "ANY") return 0;
-  const at = ROLE_SPECIFICITY.indexOf(role);
-  return at === -1 ? 1 : ROLE_SPECIFICITY.length - at;
-}
-
-export interface PolicyResolution {
-  outcome: "AUTO" | "CHAIN" | "DENY";
-  policy?: ApprovalPolicy;
-  reason: string;
-}
-
-/**
- * Which rule governs this change. No matching rule means DENY, and that is the
- * institution's own stated rule: if an approval path has not been configured for
- * someone, they do not have the privilege. Silence is a refusal, not a permission.
- */
-export function resolvePolicy(input: { operation: ChangeKind; person: Person | undefined; category?: Category; policies: ApprovalPolicy[] }): PolicyResolution {
-  if (!input.person) return { outcome: "DENY", reason: "Nobody is signed in." };
-  const roles = input.person.roles ?? [];
-
-  const matching = input.policies
-    .filter((p) => p.enabled && p.operation === input.operation)
-    .filter((p) => p.actorRole === "ANY" || roles.includes(p.actorRole))
-    .filter((p) => objectMatches(p.appliesTo, input.category))
-    .sort(
-      (a, b) =>
-        // A rule naming a role beats one matching anybody, and between two named
-        // roles the narrower one wins. That second half is load-bearing for anyone
-        // holding more than one post: the main store keeper is both PROPERTY_ADMIN
-        // and CUSTODIAN, and without it the winner was decided by whichever rule id
-        // sorted first — which silently sent the store's own intake for approval.
-        roleRank(b.actorRole) - roleRank(a.actorRole) || objectSpecificity(b.appliesTo) - objectSpecificity(a.appliesTo) || a.id.localeCompare(b.id),
-    );
-
-  const policy = matching[0];
-  if (!policy) {
-    return { outcome: "DENY", reason: "No approval rule grants this action, so it is not permitted." };
-  }
-  if (policy.outcome === "CHAIN" && !policy.chain?.length) {
-    return { outcome: "DENY", policy, reason: `"${policy.name}" routes for approval but names no approver.` };
-  }
-  return { outcome: policy.outcome, policy, reason: policy.name };
+export function mayRequestTransfer(person: Person | undefined): boolean {
+  return !!person && (person.roles ?? []).some((r) => TRANSFER_REQUESTER_ROLES.includes(r));
 }
 
 // ── Chain building ───────────────────────────────────────────────────────
@@ -574,115 +495,3 @@ export function stepHolder(step: ChainStep, nodes: OrgNode[], people: Person[]):
 export function buildOrgIndex(nodes: OrgNode[]) {
   return indexOrgChain(nodes);
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// The rules an institution starts with. These are the cases the university stated
-// in its own words, written out. The shape of the set matters as much as its
-// contents: correcting a fact applies at once, deciding something routes, and
-// anything not named here is refused. Genuinely production seed content (a later
-// phase's prisma seed script writes these into ApprovalPolicy rows), kept here
-// rather than split into a fixtures-only file, matching temp_works' own layout.
-// ─────────────────────────────────────────────────────────────────────────
-
-function p(id: string, name: string, operation: ChangeKind, actorRole: RoleKind | "ANY", outcome: ApprovalPolicy["outcome"], extra: Partial<ApprovalPolicy> = {}): ApprovalPolicy {
-  return { id, name, operation, actorRole, outcome, appliesTo: { type: "ANY" }, enabled: true, ...extra };
-}
-
-/** Department head, then up the chart, then procurement, then back for receipt. */
-const ADD_CHAIN: StepSelector[] = [
-  { type: "OWNER_HEAD" },
-  { type: "HIERARCHY", stopAtKind: "UNIVERSITY" },
-  { type: "NODE_OCCUPANT", nodeId: "proc-office" },
-  { type: "REQUESTER_RECEIPT" },
-];
-
-export const SEED_POLICIES: ApprovalPolicy[] = [
-  // ── Corrections apply on the spot ────────────────────────────────────────
-  // "for simple field change, add actions lab assistants can do it without any
-  // request approval path". Making a custodian queue a request to fix a typo in a
-  // serial number is how a register stops being kept up to date at all.
-  p("pol-prop-cust", "Custodians correct their own records", "setProperty", "CUSTODIAN", "AUTO"),
-  p("pol-name-cust", "Custodians rename their own records", "setName", "CUSTODIAN", "AUTO"),
-  p("pol-qty-cust", "Custodians adjust stock quantities", "setQuantity", "CUSTODIAN", "AUTO"),
-  p("pol-img-add", "Custodians add photographs", "addImage", "CUSTODIAN", "AUTO"),
-  p("pol-img-del", "Custodians remove photographs", "removeImage", "CUSTODIAN", "AUTO"),
-
-  // ── Status is a decision, not a correction ──────────────────────────────
-  p("pol-status-cust", "Status changes go to the department head", "setStatus", "CUSTODIAN", "CHAIN", { chain: [{ type: "OWNER_HEAD" }] }),
-  // "for consumables it might not need those levels" — a bottle of acetone running
-  // out is a fact being recorded, not a decision being taken.
-  p("pol-status-bulk", "Consumables are written off without approval", "setStatus", "CUSTODIAN", "AUTO", { appliesTo: { type: "COUNTING_MODE", mode: "BULK" } }),
-
-  // ── Creating, deleting, moving ───────────────────────────────────────────
-  p("pol-create-cust", "New resources follow the procurement route", "createItem", "CUSTODIAN", "CHAIN", { chain: ADD_CHAIN }),
-  p("pol-delete-cust", "Deletions need the head and the college", "deleteItem", "CUSTODIAN", "CHAIN", {
-    chain: [{ type: "OWNER_HEAD" }, { type: "HIERARCHY", stopAtKind: "COLLEGE" }],
-  }),
-  p("pol-move-cust", "Relocation needs the department head", "moveInTree", "CUSTODIAN", "CHAIN", { chain: [{ type: "OWNER_HEAD" }] }),
-  p("pol-custodian-cust", "Handing custody on needs the head", "setCustodian", "CUSTODIAN", "CHAIN", { chain: [{ type: "OWNER_HEAD" }] }),
-
-  // ── Heads and deans ──────────────────────────────────────────────────────
-  p("pol-prop-mgr", "Heads correct records in their own unit", "setProperty", "MANAGER", "AUTO"),
-  p("pol-name-mgr", "Heads rename records in their own unit", "setName", "MANAGER", "AUTO"),
-  p("pol-qty-mgr", "Heads adjust stock", "setQuantity", "MANAGER", "AUTO"),
-  p("pol-status-mgr", "Heads set status directly", "setStatus", "MANAGER", "AUTO"),
-  p("pol-custodian-mgr", "Heads assign custody in their own unit", "setCustodian", "MANAGER", "AUTO"),
-  p("pol-move-mgr", "Heads relocate within their own unit", "moveInTree", "MANAGER", "AUTO"),
-  p("pol-img-mgr", "Heads add photographs", "addImage", "MANAGER", "AUTO"),
-  // "Department head can create labs" — a place is organisational, not procured.
-  p("pol-create-place-mgr", "Heads create laboratories and stores", "createItem", "MANAGER", "AUTO", { appliesTo: { type: "GROUP", group: "Places" } }),
-  p("pol-create-mgr", "Equipment a head adds still goes up the chart", "createItem", "MANAGER", "CHAIN", {
-    chain: [{ type: "HIERARCHY", stopAtKind: "UNIVERSITY" }, { type: "NODE_OCCUPANT", nodeId: "proc-office" }, { type: "REQUESTER_RECEIPT" }],
-  }),
-  p("pol-delete-mgr", "A head's deletion still needs the college", "deleteItem", "MANAGER", "CHAIN", { chain: [{ type: "HIERARCHY", stopAtKind: "COLLEGE" }] }),
-
-  // ── Borrowing from another department ───────────────────────────────────
-  // Who may ASK for a transfer at all. The steps a transfer actually walks are built
-  // from its shape by `movementChain` (loan, permanent, into or out of the Main
-  // Store), not read from these rows — the chains below describe the common case.
-  // The university's own sequence for a loan: the custodian who currently holds it,
-  // then the head of the unit that owns it, then the head of the unit receiving it,
-  // and finally back to whoever asked, to confirm the thing actually arrived.
-  p("pol-transfer-cust", "Borrowing needs both units and a receipt", "transferItem", "CUSTODIAN", "CHAIN", {
-    chain: [{ type: "ITEM_CUSTODIAN" }, { type: "OWNER_HEAD" }, { type: "TARGET_HEAD" }, { type: "REQUESTER_RECEIPT" }],
-  }),
-  p("pol-transfer-mgr", "A head borrowing still needs the owning unit", "transferItem", "MANAGER", "CHAIN", {
-    chain: [{ type: "ITEM_CUSTODIAN" }, { type: "OWNER_HEAD" }, { type: "REQUESTER_RECEIPT" }],
-  }),
-
-  // ── Ownership is the one nobody does alone ──────────────────────────────
-  p("pol-owner-any", "Transferring ownership needs the college", "setOwnerOrg", "ANY", "CHAIN", {
-    chain: [{ type: "OWNER_HEAD" }, { type: "HIERARCHY", stopAtKind: "COLLEGE" }],
-  }),
-  p("pol-current-any", "Moving a resource between units needs both heads", "setCurrentOrg", "ANY", "CHAIN", {
-    chain: [{ type: "OWNER_HEAD" }, { type: "TARGET_HEAD" }, { type: "REQUESTER_RECEIPT" }],
-  }),
-
-  // ── The store keeper ─────────────────────────────────────────────────────
-  // Booking goods in, naming them and correcting them is the whole job, so it
-  // applies at once. Sending a store's own intake up for approval would stall
-  // every delivery behind a signature nobody is waiting for.
-  ...(["createItem", "setProperty", "setName", "setQuantity", "setStatus", "addImage", "removeImage", "moveInTree"] as ChangeKind[]).map((op) =>
-    p(`pol-store-${op}`, "The store keeps its own shelves", op, "STORE_KEEPER", "AUTO"),
-  ),
-  // Handing stock out to a department is not a shelf move: ownership changes, so the
-  // receiving department's head approves taking it on, Property Administration
-  // approves it leaving the Main Store, then the receiving custodian accepts it into
-  // their lab — the moment custody actually changes hands.
-  p("pol-store-transfer", "Handing stock over needs the receiving head, Property Administration and the custodian", "transferItem", "STORE_KEEPER", "CHAIN", {
-    chain: [{ type: "TARGET_HEAD" }, { type: "NODE_OCCUPANT", nodeId: "property-office" }, { type: "TARGET_CUSTODIAN" }],
-  }),
-
-  // ── The offices that hold the register ──────────────────────────────────
-  // Property administration is the custodian of the whole register and
-  // procurement is the office that books new equipment in, so neither routes to
-  // anyone.
-  ...(["setProperty", "setName", "setStatus", "setQuantity", "setCustodian", "moveInTree", "createItem", "addImage", "removeImage"] as ChangeKind[]).flatMap((op) => [
-    p(`pol-prop-admin-${op}`, "Property administration holds the register", op, "PROPERTY_ADMIN", "AUTO"),
-    p(`pol-procurement-${op}`, "Procurement books resources in", op, "PROCUREMENT", "AUTO"),
-  ]),
-
-  // Staff and students are named nowhere above, so every write they attempt is
-  // refused by the no-matching-rule path. That is deliberate: it is the same
-  // mechanism, demonstrated, rather than a special case.
-];

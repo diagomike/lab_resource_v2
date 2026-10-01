@@ -2,23 +2,16 @@
 
 import type { ScopeDto } from "@/lib/shared";
 import { useAuth } from "@/lib/auth-context";
-import { useActiveViewId } from "@/lib/register/active-view";
 
 export default function StatusBar({ scope, canSeeCost }: { scope: ScopeDto | null; canSeeCost: boolean }) {
-  // An access view can widen what the register shows past the person's own units —
-  // count what is actually in view, not the org position (Sidebar.tsx does the same).
   const { me } = useAuth();
-  const activeViewId = useActiveViewId();
-  const views = me?.views ?? [];
-  const viewScope = (views.find((v) => v.id === activeViewId) ?? views[0])?.scope;
+  const mode = me?.scopeMode;
   const inView =
-    viewScope === "UNIVERSITY"
+    mode === "UNIVERSITY"
       ? "every unit in view"
-      : viewScope === "MY_CUSTODY"
+      : mode === "MY_CUSTODY"
         ? "your custody in view"
-        : viewScope === "EXPLICIT_NODES"
-          ? "selected units in view"
-          : scope
+        : scope
             ? `${scope.reachableNodeCount} unit${scope.reachableNodeCount === 1 ? "" : "s"} in view`
             : null;
   return (

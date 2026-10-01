@@ -29,14 +29,14 @@ async function main() {
   await check(P, "P-02", "invite straight into an occupied node is refused; duplicate email (any case) refused", async () => {
     const occupied = await post("admin", "/people", { name: "P occ", email: email("p-occ"), roles: ["MANAGER"], nodeId: se });
     const e = email("p-dup");
-    const first = await post("admin", "/people", { name: "P dup", email: e, roles: ["STAFF"] });
-    const upper = await post("admin", "/people", { name: "P dup", email: e.toUpperCase(), roles: ["STAFF"] });
+    const first = await post("admin", "/people", { name: "P dup", email: e, roles: ["CUSTODIAN"] });
+    const upper = await post("admin", "/people", { name: "P dup", email: e.toUpperCase(), roles: ["CUSTODIAN"] });
     return { ok: occupied.status === 400 && first.status === 201 && upper.status === 400, evidence: { occupiedNode: ev(occupied), first: first.status, upperCaseDuplicate: ev(upper) } };
   });
 
   await check(P, "P-03", "5 concurrent invites with the same email: one 201, the rest 400 (never 500)", async () => {
     const e = email("p-race");
-    const res = await Promise.all([...Array(5)].map(() => post("admin", "/people", { name: "Race", email: e, roles: ["STAFF"] })));
+    const res = await Promise.all([...Array(5)].map(() => post("admin", "/people", { name: "Race", email: e, roles: ["CUSTODIAN"] })));
     const rows = await db.user.count({ where: { emailLower: e } });
     return { ok: res.filter((r) => r.status === 201).length === 1 && res.every((r) => r.status === 201 || r.status === 400) && rows === 1, evidence: { statuses: res.map((r) => r.status), userRows: rows } };
   });
@@ -73,7 +73,7 @@ async function main() {
   });
 
   await check(P, "P-08", "resend invite: head within own department OK, for another department 403; old token stays valid (H1)", async () => {
-    const chemInvite = await post("admin", "/people", { name: "P chem invitee", email: email("p-chemi"), roles: ["STAFF"], homeNodeId: chem });
+    const chemInvite = await post("admin", "/people", { name: "P chem invitee", email: email("p-chemi"), roles: ["CUSTODIAN"], homeNodeId: chem });
     const own = await post("headSe", `/people/${headInvitee}/resend-invite`);
     const foreign = await post("headSe", `/people/${chemInvite.body.id}/resend-invite`);
     const u = await db.user.findUniqueOrThrow({ where: { id: headInvitee } });
@@ -98,19 +98,19 @@ async function main() {
     // here would break every later suite reusing it (the same lesson the product's
     // own DB-backed specs already learned about shared seed fixtures).
     const email = `${uniq("p10-staff")}@e2e.test`;
-    const invite = await post("admin", "/people", { name: "P10 Staff", email, roles: ["STAFF"], homeNodeId: se });
+    const invite = await post("admin", "/people", { name: "P10 Staff", email, roles: ["CUSTODIAN"], homeNodeId: se });
     const staff = invite.body.id;
     await db.user.update({ where: { id: staff }, data: { status: "ACTIVE" } });
     const out = {
       deactivate: (await post("headSe", `/people/${staff}/deactivate`)).status,
       reactivate: (await post("headSe", `/people/${staff}/reactivate`)).status,
-      roles: (await post("headSe", `/people/${staff}/roles`, { roles: ["STAFF", "CUSTODIAN"] })).status,
+      roles: (await post("headSe", `/people/${staff}/roles`, { roles: ["CUSTODIAN"] })).status,
     };
     return { ok: Object.values(out).every((s) => s < 300), evidence: out, hypothesis: "H4" };
   });
 
   await check(P, "P-11", "an admin can move a person to another home department (F-015), recorded in HomeNodeChange", async () => {
-    const created = await post("admin", "/people", { name: "P Mover", email: email("p-mover"), roles: ["STAFF"], homeNodeId: chem });
+    const created = await post("admin", "/people", { name: "P Mover", email: email("p-mover"), roles: ["CUSTODIAN"], homeNodeId: chem });
     const moved = await post("admin", `/people/${created.body.id}/home-node`, { nodeId: se, reason: "e2e" });
     const row = await db.user.findUniqueOrThrow({ where: { id: created.body.id } });
     const history = await db.homeNodeChange.count({ where: { userId: created.body.id } });
@@ -121,7 +121,7 @@ async function main() {
     const r = await post("admin", "/people", { name: "P Admin Two", email: email("p-admin2"), roles: ["SYS_ADMIN"] });
     await db.user.update({ where: { id: r.body.id }, data: { status: "ACTIVE" } });
     await mintAs("admin2", r.body.id);
-    const demote = await post("admin2", `/people/${r.body.id}/roles`, { roles: ["STAFF"] });
+    const demote = await post("admin2", `/people/${r.body.id}/roles`, { roles: ["CUSTODIAN"] });
     // restore then self-deactivate
     await post("admin", `/people/${r.body.id}/roles`, { roles: ["SYS_ADMIN"] });
     const selfDeact = await post("admin2", `/people/${r.body.id}/deactivate`);
@@ -132,17 +132,17 @@ async function main() {
 
   await check(P, "P-13", "removing MANAGER from a sitting head leaves them occupying the node but unable to act as head", async () => {
     const headMat = S.headMat.id;
-    const strip = await post("admin", `/people/${headMat}/roles`, { roles: ["STAFF"] });
+    const strip = await post("admin", `/people/${headMat}/roles`, { roles: ["CUSTODIAN"] });
     const node = await db.orgNode.findUniqueOrThrow({ where: { id: mat } });
     const compile = await post("headMat", "/resources/purchase-requests", { orgNodeId: mat, title: "P probe", lines: [{ name: "x", qty: 1, fromNeedIds: [] }] });
-    await post("admin", `/people/${headMat}/roles`, { roles: ["MANAGER", "STAFF"] });
+    await post("admin", `/people/${headMat}/roles`, { roles: ["MANAGER"] });
     return { ok: !(strip.status < 300 && node.userId === headMat && compile.status === 403), evidence: { stripRoles: strip.status, stillOccupies: node.userId === headMat, compileAsHead: ev(compile) } };
   });
 
   await check(P, "P-14", "deactivate: custodian with custody refused; plain staff disabled with sessions revoked; occupant vacates node", async () => {
     const custodian = await userId("custodian.chem@astu.edu.et");
     const refused = await post("admin", `/people/${custodian}/deactivate`);
-    const plain = await post("admin", "/people", { name: "P leaver", email: email("p-leaver"), roles: ["STAFF"], homeNodeId: chem });
+    const plain = await post("admin", "/people", { name: "P leaver", email: email("p-leaver"), roles: ["CUSTODIAN"], homeNodeId: chem });
     await db.user.update({ where: { id: plain.body.id }, data: { status: "ACTIVE" } });
     await mintAs("leaver", plain.body.id);
     const d = await post("admin", `/people/${plain.body.id}/deactivate`);
@@ -156,7 +156,7 @@ async function main() {
   });
 
   await check(P, "P-15", "H1 — a DISABLED invited account still holds a usable invitation token (accepting it would reactivate)", async () => {
-    const inv = await post("admin", "/people", { name: "P disabled invitee", email: email("p-disinv"), roles: ["STAFF"], homeNodeId: se });
+    const inv = await post("admin", "/people", { name: "P disabled invitee", email: email("p-disinv"), roles: ["CUSTODIAN"], homeNodeId: se });
     await post("admin", `/people/${inv.body.id}/deactivate`);
     const u = await db.user.findUniqueOrThrow({ where: { id: inv.body.id } });
     const usable = await db.invitation.count({ where: { emailLower: u.emailLower, consumedAt: null, expiresAt: { gt: new Date() } } });
@@ -165,7 +165,7 @@ async function main() {
 
   await check(P, "P-16", "HTML in a person's name is escaped in the invitation email", async () => {
     const seq = mailSeq();
-    const r = await post("admin", "/people", { name: `<img src=x onerror=alert(1)>`, email: email("p-xss"), roles: ["STAFF"] });
+    const r = await post("admin", "/people", { name: `<img src=x onerror=alert(1)>`, email: email("p-xss"), roles: ["CUSTODIAN"] });
     await new Promise((x) => setTimeout(x, 800));
     const m = mailsSince(seq).find((x) => /invited/i.test(x.subject));
     const raw = m?.raw ?? "";
@@ -174,12 +174,12 @@ async function main() {
 
   await check(P, "P-17", "PROPERTY_ADMIN reads everyone but cannot invite", async () => {
     const list = await get("propadmin", "/people");
-    const inv = await post("propadmin", "/people", { name: "x", email: email("p-pa"), roles: ["STAFF"] });
+    const inv = await post("propadmin", "/people", { name: "x", email: email("p-pa"), roles: ["CUSTODIAN"] });
     return { ok: list.status === 200 && inv.status === 403, evidence: { list: list.status, count: list.body?.length, invite: inv.status } };
   });
 
   await check(P, "P-18", "Materials head (two parent colleges) invites into Materials; both deans see the person", async () => {
-    const r = await post("headMat", "/people", { name: "P mat staff", email: email("p-mat"), roles: ["STAFF"] });
+    const r = await post("headMat", "/people", { name: "P mat staff", email: email("p-mat"), roles: ["CUSTODIAN"] });
     const a = await get("deanCoeec", "/people");
     const b = await get("deanComcme", "/people");
     const inA = (a.body ?? []).some((p: any) => p.id === r.body?.id);

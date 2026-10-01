@@ -70,10 +70,10 @@ beforeAll(async () => {
   series = await import("./series");
   ({ prisma } = await import("../prisma"));
 
-  custodianId = await makeUser("custodian", ["CUSTODIAN", "STAFF"]);
-  staffId = await makeUser("staff", ["STAFF"]);
-  otherStaffId = await makeUser("staff2", ["STAFF"]);
-  studentId = await makeUser("student", ["STUDENT"]);
+  custodianId = await makeUser("custodian", ["CUSTODIAN"]);
+  staffId = await makeUser("staff", ["CUSTODIAN"]);
+  otherStaffId = await makeUser("staff2", ["CUSTODIAN"]);
+  studentId = await makeUser("student", ["EXTERNAL"]);
 
   nodeId = (await prisma.orgNode.create({ data: { name: `${testKey}-dept`, level: 9, kind: "DEPARTMENT", active: true } })).id;
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
@@ -101,8 +101,9 @@ afterAll(async () => {
   await prisma.$disconnect();
 }, HOOK_TIMEOUT);
 
+/** `onBehalfOfNote` is set: a custodian booking their own room says who it is for. */
 function booking(itemIds: string[], date: string, start: string, end: string, title = "Test booking") {
-  return { itemIds, date, start, end, title };
+  return { itemIds, date, start, end, title, onBehalfOfNote: "SE401 group 3" };
 }
 
 describe("the exclusion constraint — the database, not a scan", () => {
@@ -134,6 +135,10 @@ describe("staff bookings", () => {
 
     const own = await reservations.createStaffBooking(custodianId, booking([pc2], date, "08:00", "09:00"));
     expect(own.state).toBe("CONFIRMED");
+    expect(own.onBehalfOfNote).toBe("SE401 group 3");
+
+    // A custodian's own booking must say who it is for.
+    await expect(reservations.createStaffBooking(custodianId, { ...booking([pc2], date, "11:00", "12:00"), onBehalfOfNote: undefined })).rejects.toMatchObject({ status: 400 });
   });
 
   it("the custodian is emailed a staff request, and the requester the decision", async () => {
@@ -227,7 +232,7 @@ describe("staff bookings", () => {
     expect(inbox.map((r) => r.id)).not.toContain(lapsed.id);
   });
 
-  it("refuses students, non-bookable items, the past, and an inverted window", async () => {
+  it("refuses an outside account, non-bookable items, the past, and an inverted window", async () => {
     const date = dayAhead(14);
     await expect(reservations.createStaffBooking(studentId, booking([pc1], date, "08:00", "09:00"))).rejects.toMatchObject({ status: 403 });
     await expect(reservations.createStaffBooking(staffId, booking([deskId], date, "08:00", "09:00"))).rejects.toMatchObject({ status: 400 });

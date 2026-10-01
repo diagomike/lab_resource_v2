@@ -67,7 +67,7 @@ async function main() {
 
   await check(A, "A-10", "H2 — forgot-password mails a reset link to an INVITED (never registered) account", async () => {
     const email = `${uniq("invited")}@e2e.test`;
-    const inv = await post("admin", "/people", { name: "Invited Only", email, roles: ["STAFF"] });
+    const inv = await post("admin", "/people", { name: "Invited Only", email, roles: ["CUSTODIAN"] });
     const seq = mailSeq();
     const fp = await post(null, "/auth/forgot-password", { email });
     await new Promise((r) => setTimeout(r, 800));

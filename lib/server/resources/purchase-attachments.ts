@@ -90,12 +90,12 @@ export async function sweepExpired(now = new Date()): Promise<number> {
 }
 
 /** Anyone who can take part in a purchase request may upload — including an occupant
- *  with no role at all (a post is what makes a dean an approver); a requester-portal or
- *  student-only account never can. Whether a file may go on a particular request is
+ *  with no role at all (a post is what makes a dean an approver); a requester-portal
+ *  account never can. Whether a file may go on a particular request is
  *  decided when an action claims it (the action's own authorization). */
 async function assertMayUpload(actorId: string): Promise<void> {
   const roles = await scope.rolesOf(actorId);
-  if (roles.length && roles.every((r) => r === "EXTERNAL" || r === "STUDENT")) throw new HttpError(403, "Your account can't attach documents to purchase requests.");
+  if (roles.length && roles.every((r) => r === "EXTERNAL")) throw new HttpError(403, "Your account can't attach documents to purchase requests.");
 }
 
 export async function stage(actorId: string, rawFileName: string | null, bytes: Buffer): Promise<PurchaseAttachmentDto> {

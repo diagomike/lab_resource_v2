@@ -8,7 +8,6 @@ import { allocateNames, findNameClash } from "@/lib/domain/naming";
 import type { Category } from "@/lib/domain/types";
 import * as scope from "./scope";
 import * as orgScope from "../org/scope";
-import { resolveEffectiveView } from "./views";
 import { validatePropWrite } from "./category-props";
 import { assertNoCollision, assertValidCustomKey, validateCustomPropValue } from "./custom-props";
 import { toDomainCategoryMap } from "./adapt";
@@ -57,7 +56,6 @@ export async function applyChange(
   input: ItemChangeInput,
   opts?: {
     dryRun?: boolean;
-    viewId?: string | null;
     bypassDraftWorkflowBlock?: boolean;
     viaApprovalEngine?: boolean;
     /**
@@ -77,16 +75,16 @@ export async function applyChange(
     cleanupKeys?: string[];
   },
 ): Promise<ItemChangeResultDto> {
-  // A department using drafts: an ordinary edit to one of its labs goes into that
-  // lab's Draft instead of the register (lab-versions.ts) — never for the calls that
-  // ARE the approved outcome of a draft or a transfer, which pass the flags below.
+  // A custodian's ordinary edit to something in a lab goes into that lab's Draft
+  // instead of the register (lab-versions.ts), and the head approves the batch — never
+  // for the calls that ARE the approved outcome of a draft or a transfer, which pass
+  // the flags below.
   if (!opts?.tx && !opts?.bypassDraftWorkflowBlock && !opts?.viaApprovalEngine) {
     const { stageFromRegister } = await import("./lab-versions");
-    await assertViewAllowsEdit(actorId, opts?.viewId);
     const staged = await stageFromRegister(actorId, input, { dryRun: opts?.dryRun });
     if (staged) return staged;
   }
-  await assertAuthorized(actorId, input, opts?.viewId, opts?.bypassDraftWorkflowBlock, opts?.viaApprovalEngine);
+  await assertAuthorized(actorId, input, opts?.viaApprovalEngine);
   // Computed once, against committed state, alongside assertAuthorized's own check —
   // threaded into performChange only for createItem, which is the one write kind
   // where a NON-admin's client-supplied accountability fields (owner/current/
@@ -129,13 +127,8 @@ export async function applyChange(
 
 /** The preview variant — the same validate→apply path, nothing committed. What
  *  edit-impact previews and a pending request's "what would this do?" both use. */
-export function previewChange(
-  actorId: string,
-  input: ItemChangeInput,
-  viewId?: string | null,
-  bypassDraftWorkflowBlock?: boolean,
-): Promise<ItemChangeResultDto> {
-  return applyChange(actorId, input, { dryRun: true, viewId, bypassDraftWorkflowBlock });
+export function previewChange(actorId: string, input: ItemChangeInput, bypassDraftWorkflowBlock?: boolean): Promise<ItemChangeResultDto> {
+  return applyChange(actorId, input, { dryRun: true, bypassDraftWorkflowBlock });
 }
 
 // ── Authorization — WHO may do this. Never re-derived at a call site; see
@@ -148,15 +141,7 @@ export function previewChange(
 //    which roles a caller holds (custody is the `Item.custodianId` column, a data
 //    fact, not a role label). ──────────────────────────────────────────────────────
 
-async function assertAuthorized(
-  actorId: string,
-  input: ItemChangeInput,
-  viewId?: string | null,
-  bypassDraftWorkflowBlock?: boolean,
-  viaApprovalEngine?: boolean,
-): Promise<void> {
-  await assertViewAllowsEdit(actorId, viewId);
-
+async function assertAuthorized(actorId: string, input: ItemChangeInput, viaApprovalEngine?: boolean): Promise<void> {
   // F-024 of the 2026-09-15 campaign: checked before the SYS_ADMIN exemption below,
   // not after — custody landing on a disabled account or a student is exactly as
   // stuck (they can never sign in to act on it, or shouldn't hold assets at all)
@@ -225,7 +210,6 @@ async function assertAuthorized(
     return;
   }
 
-  if (!bypassDraftWorkflowBlock) await assertDraftWorkflowNotBlocking(input);
 
   if (input.kind === "setOwnerOrg" || input.kind === "setCurrentOrg") {
     // F-022 of the 2026-09-15 campaign: moving an item between units — who owns it,
@@ -286,76 +270,6 @@ async function assertAuthorized(
   }
 }
 
-/**
- * Track 2 — once a department opts into the draft workflow
- * (`OrgNode.draftWorkflowEnabled`), direct edits to items it owns are refused for
- * everyone but SYS_ADMIN: the whole point of opting in is that changes go through
- * `lab-drafts.ts`'s stage → submit → approve pipeline instead, and leaving this
- * endpoint open would make that pipeline entirely optional — a custodian (or a
- * stale client) could simply keep calling the direct write door and the toggle
- * would do nothing. Deliberately re-implemented here rather than imported from
- * `lab-drafts.ts`, which already calls `applyChange`/`previewChange` as the write
- * door for an APPROVED commit — importing the other direction would be a circular
- * module dependency. A brand-new top-level resource (`createItem` with no
- * `parentId`) is exempt, matching `stageChange`'s own scoping note: creating an
- * entirely new lab is not part of any existing lab's draft.
- *
- * `transferItem` is exempt outright, regardless of the flag above (Track 3's own
- * `assertAuthorized` check already refuses a direct `transferItem` call unless it
- * carries `viaApprovalEngine`, which is set ONLY by approvals.ts's own settle-and-
- * apply call once a transfer request has been fully decided) — a transfer has its
- * own dedicated approval path entirely separate from this department's draft
- * toggle, matching `lab-drafts.ts`'s own `NOT_STAGEABLE` set, which already
- * excludes `transferItem` for the identical reason (it reaches into another unit's
- * accountability, which draft mode never covers). Without this exemption, an
- * approved transfer's own finalizing `applyChange` call — which reaches this
- * function with `viaApprovalEngine: true` but not `bypassDraftWorkflowBlock: true`
- * — would be incorrectly blocked whenever the SOURCE item's department happens to
- * have draft mode on.
- */
-async function assertDraftWorkflowNotBlocking(input: ItemChangeInput): Promise<void> {
-  // Photos are not part of a lab's state; transfers have their own approval chain.
-  if (input.kind === "transferItem" || input.kind === "addImage" || input.kind === "removeImage") return;
-  const ids = input.kind === "createItem" ? (input.parentId ? [input.parentId] : []) : input.itemIds;
-  if (!ids.length) return;
-  const rows = await prisma.item.findMany({ where: { id: { in: ids } }, select: { ownerOrgNodeId: true } });
-  const ownerIds = [...new Set(rows.map((r) => r.ownerOrgNodeId))];
-  if (!ownerIds.length) return;
-  const blocked = await prisma.orgNode.findFirst({ where: { id: { in: ownerIds }, draftWorkflowEnabled: true }, select: { name: true } });
-  if (blocked) {
-    throw new HttpError(403, `${blocked.name} uses draft mode for its resources — stage this change and submit it for the department head's approval instead of editing directly.`);
-  }
-}
-
-/**
- * A view may WIDEN reads; it may never widen writes — see views.ts's own header for
- * the full invariant. This is the write door's half of it: `canEdit: false` on a
- * view the caller EXPLICITLY chose (`viewId` names one they may actually pick)
- * refuses every write while that view is active, for every role including
- * SYS_ADMIN. That is deliberate, not an oversight of "SYS_ADMIN may act on
- * anything unconditionally" above: choosing a read-only view (e.g. switching the
- * sidebar to "Browse university-wide") is the person's own reversible UI choice —
- * unlike custody/role scope, it grants nothing and blocks nothing that a switch of
- * the same picker back to an editable view doesn't immediately undo. Runs BEFORE
- * the SYS_ADMIN early-return above for exactly this reason.
- *
- * F-032 of the 2026-09-15 campaign: an IMPLICIT default view (nobody chose it —
- * `resolveEffectiveView`'s own fallback when `viewId` is omitted) used to be
- * checked the identical way, so one `canEdit: false` EVERYONE-scoped view made
- * every account with no more specific view of their own read-only university-wide,
- * including SYS_ADMIN — with no views seeded in production at all, this would have
- * been every custodian in the university, and the outage would have looked random
- * (only accounts that happened to have a PERSON/ROLE view of their own kept
- * editing). An implicit default now narrows READS only, never blocks a write —
- * `resolveReadOverride` (the read path) still applies it exactly as before, this
- * function just stops asking it for anything when nobody chose a view. */
-async function assertViewAllowsEdit(actorId: string, viewId: string | null | undefined): Promise<void> {
-  if (!viewId) return;
-  const effective = await resolveEffectiveView(actorId, viewId);
-  if (effective && !effective.canEdit) {
-    throw new HttpError(403, `"${effective.name}" is a read-only view — switch views to make changes.`);
-  }
-}
 
 /**
  * Optimistic concurrency for items — categories.ts's own `expectedVersion` check,

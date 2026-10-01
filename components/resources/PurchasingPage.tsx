@@ -1,32 +1,43 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   ChainStepDto,
   CompilePurchaseInput,
-  DepartmentPurchasablesDto,
+  LabSummaryDto,
   NeedLineDto,
   PurchaseAttachmentDto,
   PurchaseRequestDto,
+  ReplacementSuggestionDto,
   ResourceCategoryDto,
 } from "@/lib/shared";
 import { PURCHASE_UNITS } from "@/lib/shared";
-import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished } from "@/lib/domain/purchasing";
-import { suggestedLines } from "@/lib/domain/purchasables";
+import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished, linesFromNeeds } from "@/lib/domain/purchasing";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog } from "@/components/ui";
-import { PanelLoading } from "@/components/states";
+import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog, Tabs } from "@/components/ui";
+import { PanelLoading, InlineError } from "@/components/states";
 import { ImportsPanel } from "./ImportsPanel";
 import { AttachmentPicker, RequestDocuments, discardAttachments } from "./PurchaseAttachments";
+import { CategoryCombobox } from "./AddModal";
 
-const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5";
-const labelCls = "text-9.5 uppercase tracking-label text-faint";
+const inputCls = "h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
+const labelCls = "text-10 uppercase tracking-label text-dim font-semibold";
 
-const NEED_TONE: Record<NeedLineDto["status"], "warn" | "good" | "bad" | "neutral"> = {
-  OPEN: "warn",
-  CARRIED: "good",
-  DECLINED: "bad",
+/** What a need's status means to the person following it. */
+function needStatusText(n: NeedLineDto): { text: string; tone: "warn" | "good" | "bad" | "neutral" } {
+  if (n.status === "DECLINED") return { text: "Declined", tone: "bad" };
+  if (n.status === "CARRIED") return { text: n.purchaseReference ? `In ${n.purchaseReference}` : "In a request", tone: "good" };
+  return { text: "Waiting for the head", tone: "warn" };
+}
+
+const PRIORITY_TEXT: Record<NeedLineDto["priority"], string> = { ESSENTIAL: "Essential", IMPORTANT: "Important", NICE_TO_HAVE: "Nice to have" };
+const PRIORITY_TONE: Record<NeedLineDto["priority"], "bad" | "warn" | "neutral"> = { ESSENTIAL: "bad", IMPORTANT: "warn", NICE_TO_HAVE: "neutral" };
+const PRIORITY_HELP: Record<NeedLineDto["priority"], string> = {
+  ESSENTIAL: "Classes or research can't run without it",
+  IMPORTANT: "Work is slowed or limited without it",
+  NICE_TO_HAVE: "It would improve the lab",
 };
 
 const STAGE_TONE: Record<PurchaseRequestDto["stage"], "warn" | "good" | "bad" | "neutral" | "accent"> = {
@@ -58,7 +69,7 @@ function ChainTrail({ steps, ended = false }: { steps: ChainStepDto[]; ended?: b
     <div className="flex flex-wrap items-center gap-6">
       {steps.map((s, i) => (
         <span key={s.id} className="flex items-center gap-6">
-          {i > 0 && <span className="text-faint">→</span>}
+          {i > 0 && <span className="text-faint" aria-hidden="true">→</span>}
           <Tag tone={ended && s.status === "PENDING" ? "neutral" : STEP_TONE[s.status]}>
             {s.label}
             {s.status === "PENDING" && !s.approverId ? " (vacant)" : s.approverName ? ` · ${s.approverName}` : ""}
@@ -69,69 +80,129 @@ function ChainTrail({ steps, ended = false }: { steps: ChainStepDto[]; ended?: b
   );
 }
 
-// ── Raise a need ─────────────────────────────────────────────────────────────────
+// ── A custodian asks for something for their lab ───────────────────────────────
 
-function RaiseNeedPanel({ categories }: { categories: ResourceCategoryDto[] }) {
+function AskForSomething({ categories, labs, replacing, onCancelReplacing, onRaised }: {
+  categories: ResourceCategoryDto[];
+  labs: LabSummaryDto[];
+  /** Set when the custodian chose "Ask for replacements" on broken or lost items. */
+  replacing: ReplacementSuggestionDto | null;
+  onCancelReplacing: () => void;
+  onRaised: () => void;
+}) {
+  const [labItemId, setLabItemId] = useState("");
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
-  const [unit, setUnit] = useState("");
+  const [unit, setUnit] = useState("pcs");
   const [categoryId, setCategoryId] = useState("");
+  const [priority, setPriority] = useState<NeedLineDto["priority"]>("IMPORTANT");
   const [reason, setReason] = useState("");
+  const [spec, setSpec] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mine, setMine] = useState<NeedLineDto[] | null>(null);
+  const [done, setDone] = useState<string | null>(null);
 
-  function load() {
-    api
-      .get<NeedLineDto[]>("/resources/needs")
-      .then(setMine)
-      .catch(() => setMine([]));
+  // One lab: it is chosen for you.
+  useEffect(() => {
+    if (!labItemId && labs.length === 1) setLabItemId(labs[0].id);
+  }, [labs, labItemId]);
+
+  // Asking for a replacement fills the form from the broken item.
+  useEffect(() => {
+    if (!replacing) return;
+    setLabItemId(replacing.labItemId);
+    setName(replacing.categoryName);
+    setQty(String(replacing.items.length));
+    setUnit("pcs");
+    setCategoryId(replacing.categoryId);
+    setPriority("ESSENTIAL");
+    setReason(replacementReason(replacing));
+    setDone(null);
+  }, [replacing]);
+
+  function reset() {
+    setName("");
+    setQty("1");
+    setUnit("pcs");
+    setCategoryId("");
+    setPriority("IMPORTANT");
+    setReason("");
+    setSpec("");
   }
-  useEffect(load, []);
 
   async function submit() {
-    if (!name.trim() || !reason.trim() || !qty) return;
+    if (!labItemId || !name.trim() || !reason.trim() || !(Number(qty) > 0)) return;
     setBusy(true);
     setError(null);
     try {
       await api.post<NeedLineDto>("/resources/needs", {
+        labItemId,
         name: name.trim(),
         qty: Number(qty),
         unit: unit || undefined,
         categoryId: categoryId || undefined,
+        priority,
+        kind: replacing ? "REPLACEMENT" : "NEW",
+        replacesItemIds: replacing ? replacing.items.map((i) => i.id) : [],
+        spec: spec.trim() || undefined,
         reason: reason.trim(),
       });
-      setName("");
-      setQty("1");
-      setUnit("");
-      setCategoryId("");
-      setReason("");
-      load();
+      setDone(`Sent to the head: ${name.trim()} × ${qty}.`);
+      reset();
+      onCancelReplacing();
+      onRaised();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not raise this need");
+      setError(e instanceof ApiError ? e.message : "Could not send this need");
     } finally {
       setBusy(false);
     }
   }
 
+  if (!labs.length) {
+    return (
+      <Panel title="Ask for something">
+        <div className="px-14 py-12 text-11.5 text-dim">You don&apos;t run a lab yet. Your department head assigns you to a lab, and then you can ask for what it needs.</div>
+      </Panel>
+    );
+  }
+
   return (
-    <>
-      <Panel title="Raise a need">
-        <div className="p-12 flex flex-col gap-8">
-          {error && <ErrorNote>{error}</ErrorNote>}
-          <div className="flex flex-wrap items-end gap-8">
-            <label className="flex flex-col gap-3">
-              <span className={labelCls}>What</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Digital balance" className={`${inputCls} min-w-[180px]`} />
+    <Panel title={replacing ? `Ask for ${replacing.items.length === 1 ? "a replacement" : `${replacing.items.length} replacements`} — ${replacing.categoryName}, ${replacing.labName}` : "Ask for something"}>
+      <form
+        id="ask-for-something"
+        className="p-14 flex flex-col gap-12 scroll-mt-14"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <p className="text-11.5 text-dim">Tell your department head what a lab needs and why. The head gathers the labs&apos; needs into a purchase request.</p>
+        {error && <ErrorNote>{error}</ErrorNote>}
+        {done && <div className="text-11.5 text-good" role="status">{done}</div>}
+        <div className="grid gap-12 sm:grid-cols-2">
+          <label className="flex flex-col gap-4">
+            <span className={labelCls}>For which lab</span>
+            <select value={labItemId} onChange={(e) => setLabItemId(e.target.value)} className={inputCls} disabled={!!replacing}>
+              <option value="">Choose a lab…</option>
+              {labs.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-4">
+            <span className={labelCls}>What is needed</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Digital oscilloscope" className={inputCls} />
+          </label>
+          <div className="flex gap-8">
+            <label className="flex flex-col gap-4 w-[90px]">
+              <span className={labelCls}>How many</span>
+              <input value={qty} onChange={(e) => setQty(e.target.value)} type="number" min="0.0001" step="any" className={inputCls} />
             </label>
-            <label className="flex flex-col gap-3">
-              <span className={labelCls}>Qty</span>
-              <input value={qty} onChange={(e) => setQty(e.target.value)} type="number" min="0.0001" className={`${inputCls} w-[80px]`} />
-            </label>
-            <label className="flex flex-col gap-3">
+            <label className="flex flex-col gap-4 flex-1">
               <span className={labelCls}>Unit</span>
               <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls}>
-                <option value="">—</option>
                 {PURCHASE_UNITS.map((u) => (
                   <option key={u} value={u}>
                     {u}
@@ -139,63 +210,305 @@ function RaiseNeedPanel({ categories }: { categories: ResourceCategoryDto[] }) {
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-3">
-              <span className={labelCls}>Category</span>
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={`${inputCls} min-w-[150px]`}>
-                <option value="">Not sure</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
-          <label className="flex flex-col gap-3">
-            <span className={labelCls}>Why</span>
-            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ours is broken" className={inputCls} />
-          </label>
-          <div>
-            <Button variant="primary" onClick={submit} disabled={busy || !name.trim() || !reason.trim()}>
-              Raise this need
-            </Button>
+          <div className="flex flex-col gap-4">
+            <span className={labelCls}>Kind of resource (if the register knows it)</span>
+            <CategoryCombobox categories={categories.filter((c) => c.active)} value={categoryId} loading={false} onChange={setCategoryId} onAddCategory={() => window.open("/categories?new=1", "_blank")} />
           </div>
         </div>
-      </Panel>
-
-      <Panel title="Your needs">
-        {mine === null ? (
-          <PanelLoading rows={2} />
-        ) : mine.length === 0 ? (
-          <div className="px-14 py-12 text-11 text-dim">You haven't raised any needs yet.</div>
-        ) : (
-          <div className="flex flex-col">
-            {mine.map((n) => (
-              <div key={n.id} className="flex items-center justify-between px-14 py-8 border-b border-border last:border-0 text-11">
-                <div>
-                  <div>
-                    {n.name} · {n.qty}
-                    {n.unit ? ` ${n.unit}` : ""}
-                  </div>
-                  <div className="text-9.5 text-faint">{n.reason}</div>
-                  {n.note && <div className="text-9.5 text-faint italic">"{n.note}"</div>}
-                  {n.purchaseReference && n.purchaseStage && (
-                    <div className="text-9.5 text-dim">
-                      Carried into {n.purchaseReference} · {STAGE_LABEL[n.purchaseStage]}
-                    </div>
-                  )}
-                </div>
-                <Tag tone={NEED_TONE[n.status]}>{n.status}</Tag>
-              </div>
+        <fieldset className="flex flex-col gap-6">
+          <legend className={`${labelCls} mb-4`}>How much it matters</legend>
+          <div className="flex flex-wrap gap-8">
+            {(["ESSENTIAL", "IMPORTANT", "NICE_TO_HAVE"] as const).map((p) => (
+              <label key={p} className={`flex-1 min-w-[160px] cursor-pointer rounded-2 border px-10 py-8 ${priority === p ? "border-accent bg-soft" : "border-border2 hover:bg-panel2"}`}>
+                <input type="radio" name="priority" value={p} checked={priority === p} onChange={() => setPriority(p)} className="sr-only" />
+                <span className="block text-11.5 font-semibold">{PRIORITY_TEXT[p]}</span>
+                <span className="block text-10.5 text-dim mt-2">{PRIORITY_HELP[p]}</span>
+              </label>
             ))}
           </div>
-        )}
-      </Panel>
-    </>
+        </fieldset>
+        <label className="flex flex-col gap-4">
+          <span className={labelCls}>Why the lab needs it</span>
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="e.g. 25 students share 3 working units in the Signals practical" className={`${inputCls} h-auto py-6`} />
+        </label>
+        <label className="flex flex-col gap-4">
+          <span className={labelCls}>Specification (optional)</span>
+          <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="Model, size, a supplier's quote reference…" className={inputCls} />
+        </label>
+        <div className="flex items-center gap-8">
+          <Button type="submit" variant="primary" disabled={busy || !labItemId || !name.trim() || !reason.trim()}>
+            {busy ? "Sending…" : "Send to the head"}
+          </Button>
+          {replacing && <Button onClick={() => (onCancelReplacing(), setName(""), setQty("1"), setCategoryId(""), setReason(""))}>Not a replacement</Button>}
+        </div>
+      </form>
+    </Panel>
   );
 }
 
-// ── Lines editor — shared by "compile" and "revise and resubmit" ─────────────────
+/** "Chair 03 and Chair 07 are broken." — or, when the names don't tell them apart,
+ *  "13 Chair items: 12 broken, 1 lost." */
+function replacementReason(r: ReplacementSuggestionDto): string {
+  const broken = r.items.filter((i) => i.status === "BROKEN").length;
+  const lost = r.items.length - broken;
+  const names = [...new Set(r.items.map((i) => i.name))];
+  if (names.length === r.items.length && names.length <= 3) {
+    const state = lost && broken ? "broken or lost" : lost ? "lost" : "broken";
+    const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+    return `${list} ${names.length === 1 ? "is" : "are"} ${state}.`;
+  }
+  const state = lost && broken ? `${broken} broken, ${lost} lost` : lost ? "all lost" : "all broken";
+  return `${r.items.length} ${r.categoryName} items: ${state}.`;
+}
+
+/** Broken or lost things in the custodian's labs that nobody has asked to replace — one
+ *  row per kind of thing per lab. */
+function ReplacementsPanel({ rows, onAsk }: { rows: ReplacementSuggestionDto[]; onAsk: (r: ReplacementSuggestionDto) => void }) {
+  if (!rows.length) return null;
+  const total = rows.reduce((n, r) => n + r.items.length, 0);
+  return (
+    <Panel title={`Broken or lost — not asked for yet (${total})`}>
+      <ul className="divide-y divide-border">
+        {rows.map((r) => (
+          <li key={`${r.labItemId}:${r.categoryId}`} className="px-14 py-8 flex flex-wrap items-center gap-8">
+            <span className="text-11.5 font-medium">
+              {r.items.length} × {r.categoryName}
+            </span>
+            <span className="text-10.5 text-dim">· {r.labName}</span>
+            <span className="text-10.5 text-dim basis-full sm:basis-auto">{replacementReason(r)}</span>
+            <span className="flex-1" />
+            <Button onClick={() => onAsk(r)}>Ask for {r.items.length === 1 ? "a replacement" : `${r.items.length} replacements`}</Button>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+function MyNeeds({ needs, onChanged }: { needs: NeedLineDto[] | null; onChanged: () => void }) {
+  const [withdrawing, setWithdrawing] = useState<NeedLineDto | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function withdraw() {
+    if (!withdrawing) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.delete(`/resources/needs/${encodeURIComponent(withdrawing.id)}`);
+      setWithdrawing(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not withdraw this need");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title="What you've asked for">
+      {needs === null ? (
+        <PanelLoading rows={2} />
+      ) : needs.length === 0 ? (
+        <div className="px-14 py-12 text-11.5 text-dim">Nothing yet. What you ask for appears here, with what the head decided.</div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {needs.map((n) => {
+            const status = needStatusText(n);
+            return (
+              <li key={n.id} className="px-14 py-9 flex flex-wrap items-start gap-10">
+                <div className="flex-1 min-w-[220px] flex flex-col gap-2">
+                  <div className="text-11.5">
+                    <span className="font-medium">{n.name}</span>
+                    <span className="font-mono text-dim">
+                      {" "}
+                      × {n.qty}
+                      {n.unit ? ` ${n.unit}` : ""}
+                    </span>
+                    {n.labName && <span className="text-dim"> · {n.labName}</span>}
+                  </div>
+                  <div className="text-10.5 text-dim">
+                    {n.kind === "REPLACEMENT" && n.replacesItems.length ? `Replaces ${n.replacesItems.length === 1 ? n.replacesItems[0].name : `${n.replacesItems.length} items`} · ` : ""}“{n.reason}”
+                  </div>
+                  {n.status === "DECLINED" && n.note && <div className="text-10.5 text-bad">Head: “{n.note}”</div>}
+                  {n.purchaseReference && n.purchaseStage && (
+                    <div className="text-10.5 text-dim">
+                      {n.purchaseReference} · {STAGE_LABEL[n.purchaseStage]}
+                    </div>
+                  )}
+                </div>
+                <Tag tone={PRIORITY_TONE[n.priority]}>{PRIORITY_TEXT[n.priority]}</Tag>
+                <Tag tone={status.tone}>{status.text}</Tag>
+                {n.status === "OPEN" && (
+                  <button type="button" className="text-10.5 text-bad hover:underline" onClick={() => setWithdrawing(n)}>
+                    Withdraw
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {withdrawing && (
+        <ConfirmDialog
+          title="Withdraw this need"
+          message={`Take back your request for ${withdrawing.name}? The head hasn't acted on it yet.`}
+          confirmLabel="Withdraw"
+          tone="warn"
+          busy={busy}
+          error={error}
+          onConfirm={withdraw}
+          onCancel={() => setWithdrawing(null)}
+        />
+      )}
+    </Panel>
+  );
+}
+
+// ── A head reads the labs' needs ────────────────────────────────────────────────
+
+function LabNeedsReview({
+  needs,
+  error,
+  onRetry,
+  onDeclined,
+  onBuild,
+}: {
+  needs: NeedLineDto[] | null;
+  error: string | null;
+  onRetry: () => void;
+  onDeclined: () => void;
+  /** Starts a purchase request from the chosen needs. */
+  onBuild: (chosen: NeedLineDto[]) => void;
+}) {
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [declining, setDeclining] = useState<NeedLineDto | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [declineError, setDeclineError] = useState<string | null>(null);
+
+  const byLab = useMemo(() => {
+    const m = new Map<string, NeedLineDto[]>();
+    for (const n of needs ?? []) m.set(n.labName ?? "No lab named", [...(m.get(n.labName ?? "No lab named") ?? []), n]);
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+  }, [needs]);
+
+  const toggle = (id: string) => setChosen((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
+  async function decline() {
+    if (!declining || !note.trim()) return;
+    setBusy(true);
+    setDeclineError(null);
+    try {
+      await api.post<NeedLineDto>(`/resources/needs/${encodeURIComponent(declining.id)}/decline`, { note: note.trim() });
+      setDeclining(null);
+      setNote("");
+      setChosen((prev) => {
+        const next = new Set(prev);
+        next.delete(declining.id);
+        return next;
+      });
+      onDeclined();
+    } catch (e) {
+      setDeclineError(e instanceof ApiError ? e.message : "Could not decline this need");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel
+      title="The labs' needs"
+      actions={
+        needs && needs.length > 0 ? (
+          <Button variant="primary" disabled={chosen.size === 0} onClick={() => onBuild((needs ?? []).filter((n) => chosen.has(n.id)))}>
+            Build a request from {chosen.size || "the chosen"} need{chosen.size === 1 ? "" : "s"}
+          </Button>
+        ) : undefined
+      }
+    >
+      {error ? (
+        <InlineError message={error} onRetry={onRetry} />
+      ) : needs === null ? (
+        <PanelLoading rows={3} />
+      ) : needs.length === 0 ? (
+        <div className="px-14 py-12 text-11.5 text-dim">No open needs. When a custodian asks for something for a lab, it appears here for you to carry into a request or decline.</div>
+      ) : (
+        <div className="flex flex-col">
+          <div className="px-14 py-8 text-10.5 text-dim border-b border-border flex items-center gap-10">
+            <label className="flex items-center gap-6 cursor-pointer">
+              <input type="checkbox" checked={chosen.size === needs.length} onChange={(e) => setChosen(e.target.checked ? new Set(needs.map((n) => n.id)) : new Set())} />
+              Choose all {needs.length}
+            </label>
+            <span>Essential needs are listed first in each lab.</span>
+          </div>
+          {byLab.map(([lab, rows]) => (
+            <section key={lab} className="border-b border-border last:border-0">
+              <h3 className="px-14 pt-10 pb-4 text-11 font-semibold">{lab}</h3>
+              <ul>
+                {rows.map((n) => (
+                  <li key={n.id} className="px-14 py-8 flex flex-wrap items-start gap-10 hover:bg-panel2">
+                    <input type="checkbox" checked={chosen.has(n.id)} onChange={() => toggle(n.id)} aria-label={`Choose ${n.name} for ${lab}`} className="mt-3" />
+                    <div className="flex-1 min-w-[220px] flex flex-col gap-2">
+                      <div className="text-11.5">
+                        <span className="font-medium">{n.name}</span>
+                        <span className="font-mono text-dim">
+                          {" "}
+                          × {n.qty}
+                          {n.unit ? ` ${n.unit}` : ""}
+                        </span>
+                        {n.categoryName && <span className="text-dim"> · {n.categoryName}</span>}
+                      </div>
+                      <div className="text-10.5 text-dim">
+                        {n.kind === "REPLACEMENT" && n.replacesItems.length ? <span className="text-bad">Replaces {n.replacesItems.length === 1 ? n.replacesItems[0].name : `${n.replacesItems.length} broken or lost items`} · </span> : null}“{n.reason}”
+                        {n.spec ? <span> · {n.spec}</span> : null}
+                      </div>
+                      <div className="text-10 text-faint">
+                        {n.raisedByName} · {new Date(n.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <Tag tone={PRIORITY_TONE[n.priority]}>{PRIORITY_TEXT[n.priority]}</Tag>
+                    <button type="button" className="text-10.5 text-bad hover:underline" onClick={() => (setDeclining(n), setNote(""), setDeclineError(null))}>
+                      Decline…
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+      {declining && (
+        <ConfirmDialog
+          title={`Decline: ${declining.name}`}
+          tone="danger"
+          confirmLabel="Decline"
+          busy={busy}
+          confirmDisabled={!note.trim()}
+          error={declineError}
+          message={
+            <div className="flex flex-col gap-8">
+              <span>
+                {declining.raisedByName} sees your reason. It stays in their list as declined.
+              </span>
+              <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why — e.g. not this budget year" aria-label="Reason for declining" className={inputCls} />
+            </div>
+          }
+          onConfirm={decline}
+          onCancel={() => setDeclining(null)}
+        />
+      )}
+    </Panel>
+  );
+}
+
+// ── Lines editor — shared by "build" and "revise and resubmit" ─────────────────
 
 interface EditableLine {
   key: string;
@@ -205,100 +518,89 @@ interface EditableLine {
   categoryId: string;
   estimatedUnitCost: string;
   justification: string;
-  fromNeedId: string;
+  /** The labs' needs this line answers. */
+  fromNeedIds: string[];
 }
 
 let lineKeyCounter = 0;
 function emptyLine(): EditableLine {
-  return { key: `l${lineKeyCounter++}`, name: "", qty: "1", unit: "", categoryId: "", estimatedUnitCost: "", justification: "", fromNeedId: "" };
+  return { key: `l${lineKeyCounter++}`, name: "", qty: "1", unit: "pcs", categoryId: "", estimatedUnitCost: "", justification: "", fromNeedIds: [] };
 }
 
-function LinesEditor({
-  lines,
-  onChange,
-  categories,
-  openNeeds,
-}: {
-  lines: EditableLine[];
-  onChange: (lines: EditableLine[]) => void;
-  categories: ResourceCategoryDto[];
-  openNeeds: NeedLineDto[];
-}) {
+function linesFor(needs: NeedLineDto[]): EditableLine[] {
+  return linesFromNeeds(needs).map((l) => ({
+    ...emptyLine(),
+    name: l.name,
+    qty: String(l.qty),
+    unit: l.unit ?? "pcs",
+    categoryId: l.categoryId ?? "",
+    justification: l.justification,
+    fromNeedIds: l.fromNeedIds,
+  }));
+}
+
+function LinesEditor({ lines, onChange, categories }: { lines: EditableLine[]; onChange: (lines: EditableLine[]) => void; categories: ResourceCategoryDto[] }) {
   function update(key: string, patch: Partial<EditableLine>) {
     onChange(lines.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
-  function pickNeed(key: string, needId: string) {
-    const need = openNeeds.find((n) => n.id === needId);
-    if (!need) {
-      update(key, { fromNeedId: "" });
-      return;
-    }
-    update(key, { fromNeedId: needId, name: need.name, qty: String(need.qty), unit: need.unit ?? "", categoryId: need.categoryId ?? "" });
-  }
-
   return (
     <div className="flex flex-col gap-8">
-      {lines.map((l) => (
-        <div key={l.key} className="flex flex-wrap items-end gap-8 pb-8 border-b border-border last:border-0">
-          {openNeeds.length > 0 && (
-            <label className="flex flex-col gap-3">
-              <span className={labelCls}>From need</span>
-              <select value={l.fromNeedId} onChange={(e) => pickNeed(l.key, e.target.value)} className={`${inputCls} min-w-[140px]`}>
+      {lines.map((l, i) => (
+        <fieldset key={l.key} className="flex flex-col gap-8 border border-border rounded-2 p-10">
+          <legend className="px-4 text-10.5 text-dim">
+            Line {i + 1}
+            {l.fromNeedIds.length ? ` · answers ${l.fromNeedIds.length} lab need${l.fromNeedIds.length === 1 ? "" : "s"}` : ""}
+          </legend>
+          <div className="flex flex-wrap items-end gap-8">
+            <label className="flex flex-col gap-4 flex-1 min-w-[180px]">
+              <span className={labelCls}>Item</span>
+              <input value={l.name} onChange={(e) => update(l.key, { name: e.target.value })} className={inputCls} />
+            </label>
+            <label className="flex flex-col gap-4 w-[80px]">
+              <span className={labelCls}>Qty</span>
+              <input value={l.qty} onChange={(e) => update(l.key, { qty: e.target.value })} type="number" min="0.0001" step="any" className={inputCls} />
+            </label>
+            <label className="flex flex-col gap-4">
+              <span className={labelCls}>Unit</span>
+              <select value={l.unit} onChange={(e) => update(l.key, { unit: e.target.value })} className={inputCls}>
                 <option value="">—</option>
-                {openNeeds.map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.name} ({n.qty})
+                {PURCHASE_UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
                   </option>
                 ))}
               </select>
             </label>
-          )}
-          <label className="flex flex-col gap-3">
-            <span className={labelCls}>Name</span>
-            <input value={l.name} onChange={(e) => update(l.key, { name: e.target.value })} className={`${inputCls} min-w-[160px]`} />
-          </label>
-          <label className="flex flex-col gap-3">
-            <span className={labelCls}>Qty</span>
-            <input value={l.qty} onChange={(e) => update(l.key, { qty: e.target.value })} type="number" min="0.0001" className={`${inputCls} w-[70px]`} />
-          </label>
-          <label className="flex flex-col gap-3">
-            <span className={labelCls}>Unit</span>
-            <select value={l.unit} onChange={(e) => update(l.key, { unit: e.target.value })} className={inputCls}>
-              <option value="">—</option>
-              {PURCHASE_UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-3">
-            <span className={labelCls}>Category</span>
-            <select value={l.categoryId} onChange={(e) => update(l.key, { categoryId: e.target.value })} className={`${inputCls} min-w-[140px]`}>
-              <option value="">Not sure</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-3">
-            <span className={labelCls}>Est. unit cost</span>
-            <input value={l.estimatedUnitCost} onChange={(e) => update(l.key, { estimatedUnitCost: e.target.value })} type="number" min="0" className={`${inputCls} w-[90px]`} />
-          </label>
-          <label className="flex flex-col gap-3 flex-1">
+            <label className="flex flex-col gap-4">
+              <span className={labelCls}>Kind of resource</span>
+              <select value={l.categoryId} onChange={(e) => update(l.key, { categoryId: e.target.value })} className={`${inputCls} min-w-[150px]`}>
+                <option value="">Not sure</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-4 w-[110px]">
+              <span className={labelCls}>Est. unit cost</span>
+              <input value={l.estimatedUnitCost} onChange={(e) => update(l.key, { estimatedUnitCost: e.target.value })} type="number" min="0" className={inputCls} />
+            </label>
+          </div>
+          <label className="flex flex-col gap-4">
             <span className={labelCls}>Justification</span>
-            <input value={l.justification} onChange={(e) => update(l.key, { justification: e.target.value })} className={`${inputCls} w-full`} />
+            <textarea value={l.justification} onChange={(e) => update(l.key, { justification: e.target.value })} rows={2} className={`${inputCls} h-auto py-6`} />
           </label>
-          <button className="text-10.5 text-bad h-24" onClick={() => onChange(lines.filter((x) => x.key !== l.key))} disabled={lines.length === 1}>
-            Remove
-          </button>
-        </div>
+          <div>
+            <button type="button" className="text-10.5 text-bad hover:underline disabled:opacity-40" onClick={() => onChange(lines.filter((x) => x.key !== l.key))} disabled={lines.length === 1}>
+              Remove this line
+            </button>
+          </div>
+        </fieldset>
       ))}
       <div>
-        <Button onClick={() => onChange([...lines, emptyLine()])}>+ Add line</Button>
+        <Button onClick={() => onChange([...lines, emptyLine()])}>+ Add a line</Button>
       </div>
     </div>
   );
@@ -306,7 +608,7 @@ function LinesEditor({
 
 function toInputLines(lines: EditableLine[]): CompilePurchaseInput["lines"] {
   return lines
-    .filter((l) => l.name.trim() && l.qty)
+    .filter((l) => l.name.trim() && Number(l.qty) > 0)
     .map((l) => ({
       name: l.name.trim(),
       qty: Number(l.qty),
@@ -314,151 +616,63 @@ function toInputLines(lines: EditableLine[]): CompilePurchaseInput["lines"] {
       categoryId: l.categoryId || undefined,
       estimatedUnitCost: l.estimatedUnitCost ? Number(l.estimatedUnitCost) : undefined,
       justification: l.justification || undefined,
-      fromNeedIds: l.fromNeedId ? [l.fromNeedId] : [],
+      fromNeedIds: l.fromNeedIds,
     }));
 }
 
-// ── Department purchasables — the labs' ideal state vs. the live register ─────────
+// ── A head builds a purchase request ─────────────────────────────────────────────
 
-/** Read-only roll-up of every lab this unit owns against its approved ideal targets
- *  (`lib/domain/purchasables.ts`). "Fill request lines" hands the suggestion to the
- *  lines editor below — the head still edits, reduces or removes anything before
- *  submitting; nothing here is ever sent upward on its own. */
-function PurchasablesSection({ orgNodeId, onFill }: { orgNodeId: string; onFill: (lines: EditableLine[]) => void }) {
-  const [data, setData] = useState<DepartmentPurchasablesDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [includeBroken, setIncludeBroken] = useState(true);
-  const [expanded, setExpanded] = useState(false);
-
-  function compute() {
-    setError(null);
-    setExpanded(true);
-    api
-      .get<DepartmentPurchasablesDto>(`/resources/departments/${encodeURIComponent(orgNodeId)}/purchasables`)
-      .then(setData)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not compute purchasables"));
-  }
-
-  function fill() {
-    if (!data) return;
-    onFill(
-      suggestedLines(data.rows, includeBroken).map((l) => ({
-        ...emptyLine(),
-        name: l.name,
-        qty: String(l.qty),
-        unit: "pcs",
-        categoryId: l.categoryId,
-        justification: l.justification,
-      })),
-    );
-  }
-
-  const suggestionCount = data ? suggestedLines(data.rows, includeBroken).length : 0;
-
-  return (
-    <div className="flex flex-col gap-8 border border-border rounded-3 p-10">
-      <div className="flex items-center justify-between gap-8">
-        <div className="text-10.5 text-dim">Start from what your labs are missing against their approved ideal state.</div>
-        <Button onClick={compute}>{data ? "Recompute" : "Compute from labs' ideal vs current"}</Button>
-      </div>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {expanded && data === null && !error && <PanelLoading rows={2} />}
-      {data && data.rows.length === 0 && (
-        <div className="text-10.5 text-faint">No lab owned by {data.orgNodeName} has an approved ideal target yet.</div>
-      )}
-      {data && data.rows.length > 0 && (
-        <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-11">
-              <thead>
-                <tr className="text-9.5 uppercase tracking-label text-faint border-b border-border">
-                  <th className="text-left px-8 py-6">Category</th>
-                  <th className="text-right px-8 py-6">Ideal</th>
-                  <th className="text-right px-8 py-6">Current</th>
-                  <th className="text-right px-8 py-6">Gap</th>
-                  {/* R2-6 of the 2026-09-23 run: this counts every unit that needs attention, not only BROKEN ones. */}
-                  <th className="text-right px-8 py-6" title="Broken, impaired, under maintenance or lost — every unit that needs attention">
-                    Not working
-                  </th>
-                  <th className="text-right px-8 py-6" title="What Fill request lines will order for this category">
-                    To buy
-                  </th>
-                  <th className="text-left px-8 py-6">By lab</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((r) => (
-                  <tr key={r.categoryId} className="border-b border-border last:border-0">
-                    <td className="px-8 py-6">{r.categoryName}</td>
-                    <td className="px-8 py-6 text-right font-mono">{r.idealQty}</td>
-                    <td className="px-8 py-6 text-right font-mono">{r.actualCount}</td>
-                    <td className={`px-8 py-6 text-right font-mono ${r.gap > 0 ? "text-warn" : ""}`}>{r.gap}</td>
-                    <td className={`px-8 py-6 text-right font-mono ${r.brokenCount > 0 ? "text-bad" : ""}`}>{r.brokenCount}</td>
-                    <td className="px-8 py-6 text-right font-mono font-semibold">{r.buyGap + (includeBroken ? r.replaceCount : 0)}</td>
-                    <td className="px-8 py-6 text-10 text-dim">
-                      {/* A department can have dozens of labs — a count that opens, not a wall of text. */}
-                      <details>
-                        <summary className="cursor-pointer select-none">
-                          {r.labs.filter((l) => l.gap > 0 || l.brokenCount > 0).length} of {r.labs.length} labs short or not working
-                        </summary>
-                        <div className="mt-4 flex flex-col gap-1">
-                          {r.labs
-                            .filter((l) => l.gap > 0 || l.brokenCount > 0)
-                            .map((l) => (
-                              <span key={l.labItemId}>
-                                {l.labName}: {l.actualCount}/{l.idealQty}
-                                {l.brokenCount ? ` · ${l.brokenCount} not working` : ""}
-                              </span>
-                            ))}
-                        </div>
-                      </details>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap items-center gap-10">
-            <label className="flex items-center gap-6 text-10.5">
-              <input type="checkbox" checked={includeBroken} onChange={(e) => setIncludeBroken(e.target.checked)} />
-              Include replacements for items that are broken or lost
-            </label>
-            <Button variant="primary" onClick={fill} disabled={suggestionCount === 0}>
-              Fill request lines ({suggestionCount})
-            </Button>
-            <span className="text-9.5 text-faint">Replaces the lines below — edit or reduce them before submitting.</span>
-          </div>
-          <div className="text-10 text-faint leading-normal">
-            <strong className="font-medium">To buy</strong> never counts a part twice: a missing workstation is one Workstation Setup (its computer, monitor and
-            parts come with it). Replacements are for items that failed themselves — an impaired computer is mended by replacing its broken part, and items
-            under maintenance are already being repaired.
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Compile a request (heads) ─────────────────────────────────────────────────────
-
-function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string; categories: ResourceCategoryDto[]; onCompiled: () => void }) {
-  const [openNeeds, setOpenNeeds] = useState<NeedLineDto[]>([]);
+function BuildRequest({
+  orgNodeId,
+  unitName,
+  categories,
+  openNeeds,
+  replacements,
+  prefill,
+  onClosePrefill,
+  onBuilt,
+}: {
+  orgNodeId: string;
+  unitName: string;
+  categories: ResourceCategoryDto[];
+  openNeeds: NeedLineDto[];
+  replacements: ReplacementSuggestionDto[];
+  /** Needs the head chose on the Lab needs tab. */
+  prefill: NeedLineDto[] | null;
+  onClosePrefill: () => void;
+  onBuilt: (reference: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [lines, setLines] = useState<EditableLine[]>([emptyLine()]);
   const [files, setFiles] = useState<PurchaseAttachmentDto[]>([]);
   const [uploading, setUploading] = useState(false);
-  /** Bumped on each submission, so the picker starts fresh (no leftover refusal notes). */
   const [submitted, setSubmitted] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function loadOpenNeeds() {
-    api
-      .get<NeedLineDto[]>(`/resources/needs?node=${encodeURIComponent(orgNodeId)}`)
-      .then(setOpenNeeds)
-      .catch(() => setOpenNeeds([]));
+  useEffect(() => {
+    if (!prefill?.length) return;
+    setOpen(true);
+    setLines(linesFor(prefill));
+    if (!title) setTitle(`${unitName} — lab needs, ${new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}`);
+    onClosePrefill();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill]);
+
+  const carried = new Set(lines.flatMap((l) => l.fromNeedIds));
+  const notCarried = openNeeds.filter((n) => !carried.has(n.id));
+  const blank = (l: EditableLine) => !l.name.trim() && !l.fromNeedIds.length;
+
+  function addNeeds(needs: NeedLineDto[]) {
+    setLines((prev) => [...prev.filter((l) => !blank(l)), ...linesFor(needs)]);
   }
-  useEffect(loadOpenNeeds, [orgNodeId]);
+  function addReplacement(r: ReplacementSuggestionDto) {
+    setLines((prev) => [
+      ...prev.filter((l) => !blank(l)),
+      { ...emptyLine(), name: r.categoryName, qty: String(r.items.length), categoryId: r.categoryId, justification: `${r.labName}: ${replacementReason(r)}` },
+    ]);
+  }
 
   async function submit() {
     const inputLines = toInputLines(lines);
@@ -466,44 +680,93 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
     setBusy(true);
     setError(null);
     try {
-      await api.post<PurchaseRequestDto>("/resources/purchase-requests", { title: title.trim(), orgNodeId, lines: inputLines, attachmentIds: files.map((f) => f.id) });
+      const created = await api.post<PurchaseRequestDto>("/resources/purchase-requests", { title: title.trim(), orgNodeId, lines: inputLines, attachmentIds: files.map((f) => f.id) });
       setTitle("");
       setLines([emptyLine()]);
       setFiles([]);
       setSubmitted((n) => n + 1);
-      loadOpenNeeds();
-      onCompiled();
+      setOpen(false);
+      onBuilt(created.reference);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not compile this request");
+      setError(e instanceof ApiError ? e.message : "Could not send this request");
     } finally {
       setBusy(false);
     }
   }
 
+  if (!open) {
+    return (
+      <Panel title={`Purchase requests for ${unitName}`}>
+        <div className="px-14 py-12 flex flex-wrap items-center gap-10">
+          <span className="text-11.5 text-dim flex-1 min-w-[240px]">
+            {openNeeds.length
+              ? `${openNeeds.length} lab need${openNeeds.length === 1 ? " is" : "s are"} waiting. Build a request from them on the Lab needs tab, or start one here.`
+              : "Build a request when your labs need something. It goes to the dean, the College Managing Director, the AVP and procurement."}
+          </span>
+          <Button variant="primary" onClick={() => setOpen(true)}>
+            Build a purchase request
+          </Button>
+        </div>
+      </Panel>
+    );
+  }
+
   return (
-    <Panel title="Compile a purchase request">
-      <div className="p-12 flex flex-col gap-10">
+    <Panel title="Build a purchase request">
+      <form
+        className="p-14 flex flex-col gap-14"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
         {error && <ErrorNote>{error}</ErrorNote>}
-        <OpenNeedsList
-          needs={openNeeds}
-          carried={new Set(lines.map((l) => l.fromNeedId).filter(Boolean))}
-          onAdd={(n) =>
-            setLines((prev) => {
-              const line = { ...emptyLine(), fromNeedId: n.id, name: n.name, qty: String(n.qty), unit: n.unit ?? "", categoryId: n.categoryId ?? "", justification: n.reason };
-              // Fill the first blank line rather than leaving an empty one above it.
-              const blank = prev.findIndex((l) => !l.name.trim() && !l.fromNeedId);
-              return blank >= 0 ? prev.map((l, i) => (i === blank ? { ...line, key: l.key } : l)) : [...prev, line];
-            })
-          }
-          onDeclined={loadOpenNeeds}
-        />
-        <label className="flex flex-col gap-3">
+        <label className="flex flex-col gap-4">
           <span className={labelCls}>Title</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q1 lab equipment" className={`${inputCls} max-w-[360px]`} />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Signals lab equipment, 2026/27" className={`${inputCls} max-w-[460px]`} />
         </label>
-        <PurchasablesSection orgNodeId={orgNodeId} onFill={setLines} />
-        <LinesEditor lines={lines} onChange={setLines} categories={categories} openNeeds={openNeeds} />
-        <div className="flex flex-col gap-3">
+
+        {notCarried.length > 0 && (
+          <details className="border border-border rounded-2">
+            <summary className="px-10 py-8 cursor-pointer text-11.5">
+              {notCarried.length} more lab need{notCarried.length === 1 ? "" : "s"} you can add
+            </summary>
+            <ul className="divide-y divide-border">
+              {notCarried.map((n) => (
+                <li key={n.id} className="px-10 py-6 flex flex-wrap items-center gap-8 text-11">
+                  <Tag tone={PRIORITY_TONE[n.priority]}>{PRIORITY_TEXT[n.priority]}</Tag>
+                  <span className="font-medium">{n.name}</span>
+                  <span className="font-mono text-dim">× {n.qty}</span>
+                  <span className="text-dim">· {n.labName ?? "—"}</span>
+                  <span className="flex-1" />
+                  <Button onClick={() => addNeeds([n])}>Add</Button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {replacements.length > 0 && (
+          <details className="border border-border rounded-2">
+            <summary className="px-10 py-8 cursor-pointer text-11.5">
+              {replacements.reduce((n, r) => n + r.items.length, 0)} broken or lost items nobody has asked to replace
+            </summary>
+            <ul className="divide-y divide-border">
+              {replacements.map((r) => (
+                <li key={`${r.labItemId}:${r.categoryId}`} className="px-10 py-6 flex flex-wrap items-center gap-8 text-11">
+                  <span className="font-medium">
+                    {r.items.length} × {r.categoryName}
+                  </span>
+                  <span className="text-dim">· {r.labName}</span>
+                  <span className="flex-1" />
+                  <Button onClick={() => addReplacement(r)}>Add {r.items.length === 1 ? "a replacement" : `${r.items.length} replacements`}</Button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        <LinesEditor lines={lines} onChange={setLines} categories={categories} />
+        <div className="flex flex-col gap-4">
           <span className={labelCls}>Supporting documents</span>
           <AttachmentPicker
             key={submitted}
@@ -515,107 +778,24 @@ function CompilePanel({ orgNodeId, categories, onCompiled }: { orgNodeId: string
             hint="Approval minutes, stamped letters of authority, quotations (PDF, photo or scan, .xlsx)"
           />
         </div>
-        <div>
-          <Button variant="primary" onClick={submit} disabled={busy || uploading || !title.trim() || !toInputLines(lines).length}>
-            Submit for approval
+        <div className="flex items-center gap-8">
+          <Button type="submit" variant="primary" disabled={busy || uploading || !title.trim() || !toInputLines(lines).length}>
+            {busy ? "Sending…" : "Send for approval"}
           </Button>
+          <Button
+            onClick={() => {
+              discardAttachments(files);
+              setFiles([]);
+              setOpen(false);
+            }}
+            disabled={busy}
+          >
+            Close
+          </Button>
+          <span className="text-10.5 text-dim">Goes to the dean first. Nothing is sent until you press Send.</span>
         </div>
-      </div>
+      </form>
     </Panel>
-  );
-}
-
-/** The unit's open needs, for the head: who asked, why, and two ways to answer — carry
- *  it into the request being compiled, or decline it with a reason the raiser sees.
- *  (Before this, the only trace of them was the "From need" picker on a line, and the
- *  server's decline endpoint had no screen at all.) */
-function OpenNeedsList({
-  needs,
-  carried,
-  onAdd,
-  onDeclined,
-}: {
-  needs: NeedLineDto[];
-  carried: Set<string>;
-  onAdd: (need: NeedLineDto) => void;
-  onDeclined: () => void;
-}) {
-  const [declining, setDeclining] = useState<string | null>(null);
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function decline(id: string) {
-    if (!note.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post<NeedLineDto>(`/resources/needs/${encodeURIComponent(id)}/decline`, { note: note.trim() });
-      setDeclining(null);
-      setNote("");
-      onDeclined();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not decline this need");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      <span className={labelCls}>Open needs in this unit</span>
-      {needs.length === 0 ? (
-        <div className="text-10.5 text-faint">No open needs — nobody in the unit is waiting on a purchase.</div>
-      ) : (
-        <div className="border border-border rounded-2 divide-y divide-border">
-          {error && <ErrorNote>{error}</ErrorNote>}
-          {needs.map((n) => (
-            <div key={n.id} className="px-10 py-8 flex flex-col gap-6">
-              <div className="flex flex-wrap items-baseline gap-8">
-                <span className="text-11.5 font-medium">{n.name}</span>
-                <span className="text-10.5 font-mono text-dim">
-                  × {n.qty}
-                  {n.unit ? ` ${n.unit}` : ""}
-                </span>
-                <span className="text-10.5 text-dim">
-                  raised by {n.raisedByName} · {new Date(n.createdAt).toLocaleDateString()}
-                </span>
-                <span className="flex-1" />
-                <Button onClick={() => onAdd(n)} disabled={carried.has(n.id)}>
-                  {carried.has(n.id) ? "In this request" : "Add to request"}
-                </Button>
-                <Button variant="danger" onClick={() => (setDeclining(declining === n.id ? null : n.id), setNote(""))}>
-                  Decline…
-                </Button>
-              </div>
-              <div className="text-10.5 text-dim">“{n.reason}”</div>
-              {declining === n.id && (
-                <form
-                  className="flex flex-wrap items-center gap-6"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void decline(n.id);
-                  }}
-                >
-                  <input
-                    autoFocus
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="Why — shown to the person who raised it"
-                    aria-label="Reason for declining"
-                    className={`${inputCls} flex-1 min-w-[240px]`}
-                  />
-                  <Button type="submit" variant="danger" disabled={busy || !note.trim()}>
-                    Decline need
-                  </Button>
-                  <Button onClick={() => setDeclining(null)}>Cancel</Button>
-                </form>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -684,7 +864,7 @@ function RequestCard({
       categoryId: l.categoryId ?? "",
       estimatedUnitCost: l.estimatedUnitCost !== null ? String(l.estimatedUnitCost) : "",
       justification: l.justification ?? "",
-      fromNeedId: l.fromNeedIds[0] ?? "",
+      fromNeedIds: l.fromNeedIds,
     })),
   );
   const [title, setTitle] = useState(request.title);
@@ -840,7 +1020,7 @@ function RequestCard({
             <span className={labelCls}>Title</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} className={`${inputCls} max-w-[360px]`} />
           </label>
-          <LinesEditor lines={lines} onChange={setLines} categories={categories} openNeeds={[]} />
+          <LinesEditor lines={lines} onChange={setLines} categories={categories} />
           <AttachmentPicker
             value={files}
             onChange={setFiles}
@@ -971,6 +1151,7 @@ function RequestListPanel({
   showAdvance,
   canRunPipeline,
   readOnly,
+  excludeOwn,
 }: {
   title: string;
   box: "mine" | "pipeline" | "tracking";
@@ -983,6 +1164,8 @@ function RequestListPanel({
    *  withdrawal stops being offered from that stage on. */
   canRunPipeline?: boolean;
   readOnly?: boolean;
+  /** Leave out what this person raised themselves (shown in its own list). */
+  excludeOwn?: boolean;
 }) {
   const [rows, setRows] = useState<PurchaseRequestDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -991,9 +1174,10 @@ function RequestListPanel({
     setError(null);
     api
       .get<PurchaseRequestDto[]>(`/resources/purchase-requests?box=${box}`)
-      .then(setRows)
+      .then((all) => setRows(excludeOwn ? all.filter((r) => r.raisedById !== viewerId) : all))
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load requests"));
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [box]);
 
   return (
@@ -1027,10 +1211,61 @@ function RequestListPanel({
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-export default function PurchasingPage() {
+type Section = "needs" | "requests" | "arrivals";
+
+/**
+ * Purchasing, in three sections:
+ *  - Lab needs: a custodian asks for what their lab needs; the head reads the labs'
+ *    needs and builds a request from the ones they choose.
+ *  - Requests: building a request (heads), following one, and procurement's pipeline.
+ *  - Arrivals: what was bought and arrived — Property Administration records it, the
+ *    store keeper loads the store.
+ * Each person sees the sections they use, and lands on the one with their work.
+ */
+function PurchasingInner() {
   const { user, me } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [built, setBuilt] = useState<string | null>(null);
+
+  const roles = useMemo(() => user?.roles ?? [], [user]);
+  const isCustodian = roles.includes("CUSTODIAN") || roles.includes("SYS_ADMIN");
+  // Occupancy decides who heads a unit (F-017 of the 2026-09-15 campaign) — not the
+  // MANAGER role label. Only a department or college post builds a request.
+  const headsUnit = me?.scope?.isOccupant && (me.scope.kind === "DEPARTMENT" || me.scope.kind === "COLLEGE") ? me.scope : null;
+  const canRunPipeline = roles.includes("PROCUREMENT") || roles.includes("SYS_ADMIN");
+  const canRecordImports = roles.includes("PROPERTY_ADMIN") || roles.includes("SYS_ADMIN");
+  const canLoadStore = roles.includes("STORE_KEEPER") || roles.includes("SYS_ADMIN");
+  const seesArrivals = canRecordImports || canLoadStore || roles.includes("PROCUREMENT");
+  const seesNeeds = isCustodian || !!headsUnit;
+
+  const sections: Section[] = [...(seesNeeds ? (["needs"] as const) : []), "requests", ...(seesArrivals ? (["arrivals"] as const) : [])];
+  // Each person lands where their work starts: custodians and heads on the labs' needs,
+  // the store and Property Administration on arrivals, everyone else on requests.
+  const fallback: Section = seesNeeds ? "needs" : (canLoadStore || canRecordImports) && !canRunPipeline ? "arrivals" : "requests";
+  const requested = params.get("tab") as Section | null;
+  const section: Section = requested && sections.includes(requested) ? requested : sections.includes(fallback) ? fallback : "requests";
+  const go = useCallback(
+    (s: Section) => {
+      const qp = new URLSearchParams(params.toString());
+      qp.set("tab", s);
+      router.replace(`${pathname}?${qp.toString()}`, { scroll: false });
+    },
+    [params, pathname, router],
+  );
+
+  // The custodian's labs, needs and broken items; the head's open needs and broken items.
+  const [labs, setLabs] = useState<LabSummaryDto[]>([]);
+  const [myNeeds, setMyNeeds] = useState<NeedLineDto[] | null>(null);
+  const [myReplacements, setMyReplacements] = useState<ReplacementSuggestionDto[]>([]);
+  const [replacing, setReplacing] = useState<ReplacementSuggestionDto | null>(null);
+  const [openNeeds, setOpenNeeds] = useState<NeedLineDto[] | null>(null);
+  const [openNeedsError, setOpenNeedsError] = useState<string | null>(null);
+  const [unitReplacements, setUnitReplacements] = useState<ReplacementSuggestionDto[]>([]);
+  const [prefill, setPrefill] = useState<NeedLineDto[] | null>(null);
 
   useEffect(() => {
     api
@@ -1039,40 +1274,121 @@ export default function PurchasingPage() {
       .catch(() => setCategories([]));
   }, []);
 
-  const roles = useMemo(() => user?.roles ?? [], [user]);
+  const loadCustodian = useCallback(() => {
+    if (!isCustodian || !user) return;
+    api.get<LabSummaryDto[]>("/resources/labs").then((rows) => setLabs(rows.filter((l) => l.custodianId === user.id))).catch(() => setLabs([]));
+    api.get<NeedLineDto[]>("/resources/needs").then(setMyNeeds).catch(() => setMyNeeds([]));
+    api.get<ReplacementSuggestionDto[]>("/resources/needs/replacements").then(setMyReplacements).catch(() => setMyReplacements([]));
+  }, [isCustodian, user]);
+
+  const headNodeId = headsUnit?.nodeId ?? null;
+  const loadHead = useCallback(() => {
+    if (!headNodeId) return;
+    setOpenNeedsError(null);
+    api
+      .get<NeedLineDto[]>(`/resources/needs?node=${encodeURIComponent(headNodeId)}`)
+      .then(setOpenNeeds)
+      .catch((e) => setOpenNeedsError(e instanceof ApiError ? e.message : "Could not load the labs' needs"));
+    api.get<ReplacementSuggestionDto[]>(`/resources/needs/replacements?node=${encodeURIComponent(headNodeId)}`).then(setUnitReplacements).catch(() => setUnitReplacements([]));
+  }, [headNodeId]);
+
+  useEffect(loadCustodian, [loadCustodian]);
+  useEffect(loadHead, [loadHead]);
+
   if (!user) return null;
 
-  const isStudent = roles.includes("STUDENT");
-  const canRunPipeline = roles.includes("PROCUREMENT") || roles.includes("SYS_ADMIN");
-  // Import records: Property Administration records what arrived, the store keeper loads
-  // it, procurement follows along.
-  const canRecordImports = roles.includes("PROPERTY_ADMIN") || roles.includes("SYS_ADMIN");
-  const canLoadStore = roles.includes("STORE_KEEPER") || roles.includes("SYS_ADMIN");
-  const seesImports = canRecordImports || canLoadStore || roles.includes("PROCUREMENT");
-  // Occupancy decides who heads a unit (F-017 of the 2026-09-15 campaign) — not the
-  // MANAGER role label, which used to gate this panel independently of `ownNodeId`
-  // and could silently disagree with it (a role change, or a fresh appointment,
-  // leaving the panel showing the wrong thing until the role happened to match).
-  const ownNodeId = me?.scope?.isOccupant ? me.scope.nodeId : null;
+  const tabs = sections.map((s) => ({
+    key: s,
+    label: s === "needs" ? "Lab needs" : s === "requests" ? "Requests" : "Arrivals",
+    count: s === "needs" && headsUnit ? (openNeeds?.length ?? 0) : undefined,
+  }));
 
   return (
     <Screen>
-      {!isStudent && <RaiseNeedPanel categories={categories} />}
-      {ownNodeId && <CompilePanel orgNodeId={ownNodeId} categories={categories} onCompiled={() => setRefreshKey((k) => k + 1)} />}
-      <RequestListPanel key={`mine-${refreshKey}`} title="My requests" box="mine" viewerId={user.id} categories={categories} emptyLabel="You haven't compiled any purchase requests." canRunPipeline={canRunPipeline} />
-      {canRunPipeline && (
-        <RequestListPanel key={`pipeline-${refreshKey}`} title="Pipeline" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is currently on order." showAdvance canRunPipeline />
+      <Tabs label="Purchasing sections" tabs={tabs} value={section} onChange={go} />
+
+      {section === "needs" && (
+        <>
+          {headsUnit && (
+            <LabNeedsReview
+              needs={openNeeds}
+              error={openNeedsError}
+              onRetry={loadHead}
+              onDeclined={loadHead}
+              onBuild={(chosen) => {
+                setPrefill(chosen);
+                go("requests");
+              }}
+            />
+          )}
+          {isCustodian && (
+            <>
+              <AskForSomething categories={categories} labs={labs} replacing={replacing} onCancelReplacing={() => setReplacing(null)} onRaised={() => (loadCustodian(), loadHead())} />
+              <ReplacementsPanel
+                rows={myReplacements}
+                onAsk={(r) => {
+                  setReplacing(r);
+                  document.getElementById("ask-for-something")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              />
+              <MyNeeds needs={myNeeds} onChanged={loadCustodian} />
+            </>
+          )}
+        </>
       )}
-      {seesImports && <ImportsPanel key={`imports-${refreshKey}`} categories={categories} canRecord={canRecordImports} canLoad={canLoadStore} />}
-      <RequestListPanel
-        key={`tracking-${refreshKey}`}
-        title="Purchase request status"
-        box="tracking"
-        viewerId={user.id}
-        categories={categories}
-        emptyLabel="No purchase request involving your unit or office yet."
-        readOnly
-      />
+
+      {section === "requests" && (
+        <>
+          {built && (
+            <div className="bg-goodbg border border-good text-good rounded-2 px-12 py-9 text-11.5" role="status">
+              {built} was sent for approval. It appears under Your requests below, with where it is now.
+            </div>
+          )}
+          {headsUnit && (
+            <BuildRequest
+              orgNodeId={headsUnit.nodeId!}
+              unitName={headsUnit.name}
+              categories={categories}
+              openNeeds={openNeeds ?? []}
+              replacements={unitReplacements}
+              prefill={prefill}
+              onClosePrefill={() => setPrefill(null)}
+              onBuilt={(reference) => {
+                setBuilt(reference);
+                setRefreshKey((k) => k + 1);
+                loadHead();
+              }}
+            />
+          )}
+          {headsUnit && (
+            <RequestListPanel key={`mine-${refreshKey}`} title="Your requests" box="mine" viewerId={user.id} categories={categories} emptyLabel="You haven't sent a purchase request yet." canRunPipeline={canRunPipeline} />
+          )}
+          {canRunPipeline && (
+            <RequestListPanel key={`pipeline-${refreshKey}`} title="On order — where each one is" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is on order right now." showAdvance canRunPipeline />
+          )}
+          <RequestListPanel
+            key={`tracking-${refreshKey}`}
+            title={headsUnit ? "Other requests involving your unit" : "Purchase requests you follow"}
+            box="tracking"
+            viewerId={user.id}
+            categories={categories}
+            emptyLabel="No purchase request involving your unit or office yet."
+            readOnly
+            excludeOwn={!!headsUnit}
+          />
+        </>
+      )}
+
+      {section === "arrivals" && <ImportsPanel key={`imports-${refreshKey}`} categories={categories} canRecord={canRecordImports} canLoad={canLoadStore} />}
     </Screen>
+  );
+}
+
+/** useSearchParams needs a Suspense boundary. */
+export default function PurchasingPage() {
+  return (
+    <Suspense>
+      <PurchasingInner />
+    </Suspense>
   );
 }

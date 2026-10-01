@@ -13,7 +13,7 @@
  * afterward — recorded, not decided).
  */
 import { z } from "zod";
-import { NeedStatusSchema, PurchaseStageSchema } from "./enums";
+import { NeedKindSchema, NeedPrioritySchema, NeedStatusSchema, PurchaseStageSchema } from "./enums";
 import { ChainStepDto } from "./approvals";
 
 export const NeedLineDto = z.object({
@@ -26,6 +26,16 @@ export const NeedLineDto = z.object({
   qty: z.number(),
   unit: z.string().nullable(),
   categoryId: z.string().nullable(),
+  categoryName: z.string().nullable(),
+  /** The lab it is for (custodians raise needs for the labs they run). */
+  labItemId: z.string().nullable(),
+  labName: z.string().nullable(),
+  priority: NeedPrioritySchema,
+  kind: NeedKindSchema,
+  /** For a replacement: the items that broke or went missing. */
+  replacesItems: z.array(z.object({ id: z.string(), name: z.string() })),
+  /** Model, specification, a supplier's quote reference. */
+  spec: z.string().nullable(),
   reason: z.string(),
   createdAt: z.string(),
   status: NeedStatusSchema,
@@ -41,18 +51,39 @@ export const NeedLineDto = z.object({
 export type NeedLineDto = z.infer<typeof NeedLineDto>;
 
 export const RaiseNeedInput = z.object({
-  name: z.string().min(1),
+  /** The lab it is for — one the custodian runs. */
+  labItemId: z.string().min(1),
+  name: z.string().trim().min(1, "Say what is needed").max(160),
   qty: z.number().min(0.0001),
   unit: z.string().optional(),
   categoryId: z.string().optional(),
-  reason: z.string().min(1),
+  priority: NeedPrioritySchema.default("IMPORTANT"),
+  kind: NeedKindSchema.default("NEW"),
+  /** REPLACEMENT only: the broken or lost items in that lab, all of one kind. */
+  replacesItemIds: z.array(z.string()).max(500).default([]),
+  spec: z.string().trim().max(500).optional(),
+  reason: z.string().trim().min(1, "Say why the lab needs it").max(1000),
 });
 export type RaiseNeedInput = z.infer<typeof RaiseNeedInput>;
+/** What a caller may send — the defaults (priority, kind, no replaced items) filled in later. */
+export type RaiseNeedFields = z.input<typeof RaiseNeedInput>;
 
 export const DeclineNeedInput = z.object({
   note: z.string().min(1),
 });
 export type DeclineNeedInput = z.infer<typeof DeclineNeedInput>;
+
+/** Things of one kind in one lab that broke or went missing, with no replacement asked
+ *  for yet — what the custodian can ask for in one step, and the head can see while
+ *  building a request. */
+export const ReplacementSuggestionDto = z.object({
+  labItemId: z.string(),
+  labName: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  items: z.array(z.object({ id: z.string(), name: z.string(), status: z.enum(["BROKEN", "LOST"]) })),
+});
+export type ReplacementSuggestionDto = z.infer<typeof ReplacementSuggestionDto>;
 
 /** `note` is optional for the raiser's own withdrawal (while APPROVING/REVISING) but
  *  required once procurement is cancelling an order already placed (F-047 of the

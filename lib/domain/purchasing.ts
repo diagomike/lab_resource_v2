@@ -149,9 +149,10 @@ export const PURCHASE_LADDER: StepSelector[] = [
 
 const has = (person: Person | undefined, role: RoleKind) => (person?.roles ?? []).includes(role);
 
-/** Anybody attached to a unit can say they need something. */
+/** Needs come from the custodians — the people who run the labs and know what they
+ *  lack — attached to a unit. */
 export function canRaiseNeed(person: Person | undefined): boolean {
-  return !!person && !!person.homeOrgNodeId && !has(person, "STUDENT");
+  return !!person && !!person.homeOrgNodeId && (has(person, "CUSTODIAN") || has(person, "SYS_ADMIN"));
 }
 
 /** Compiling a department's ask is the head's job, and nobody else's. */
@@ -223,3 +224,54 @@ export const PURCHASE_UNITS = [
   "mg", "g", "kg", "t", "mL", "L", "m³", "mm", "cm", "m", "km", "cm²", "m²",
   "Bag", "Bottle", "Vial", "Tube", "Plate", "Flask",
 ] as const;
+
+// ── From the labs' needs to a request's lines ───────────────────────────────
+
+export interface NeedForLines {
+  id: string;
+  name: string;
+  qty: number;
+  unit: string | null;
+  categoryId: string | null;
+  labName: string | null;
+  priority: "ESSENTIAL" | "IMPORTANT" | "NICE_TO_HAVE";
+  reason: string;
+  spec: string | null;
+}
+
+export interface LineFromNeeds {
+  name: string;
+  qty: number;
+  unit: string | null;
+  categoryId: string | null;
+  justification: string;
+  fromNeedIds: string[];
+}
+
+const PRIORITY_ORDER = { ESSENTIAL: 0, IMPORTANT: 1, NICE_TO_HAVE: 2 } as const;
+
+/**
+ * The head picks needs; each distinct thing becomes one line. Needs for the same thing
+ * (same name, ignoring case and spacing, same category and unit) from several labs merge
+ * into one line whose quantity is their sum, so "4 oscilloscopes" is asked for once, and
+ * the justification says which lab needs how many and why — what an approver reads.
+ * Lines keep the order of their most urgent need.
+ */
+export function linesFromNeeds(needs: NeedForLines[]): LineFromNeeds[] {
+  const groups = new Map<string, NeedForLines[]>();
+  const keyOf = (n: NeedForLines) => [n.name.trim().toLowerCase().replace(/\s+/g, " "), n.categoryId ?? "", n.unit ?? ""].join("|");
+  const ordered = [...needs].sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+  for (const n of ordered) groups.set(keyOf(n), [...(groups.get(keyOf(n)) ?? []), n]);
+  return [...groups.values()].map((group) => {
+    const first = group[0];
+    const parts = group.map((n) => `${n.labName ?? "A lab"} (${n.qty}): ${n.reason.trim()}${n.spec ? ` — ${n.spec.trim()}` : ""}`);
+    return {
+      name: first.name.trim(),
+      qty: group.reduce((sum, n) => sum + n.qty, 0),
+      unit: first.unit,
+      categoryId: first.categoryId,
+      justification: parts.join("; "),
+      fromNeedIds: group.map((n) => n.id),
+    };
+  });
+}

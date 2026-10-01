@@ -86,18 +86,11 @@ async function makeItem(ownerOrgNodeId: string, custodianId: string, name: strin
   return item.id;
 }
 
+/** Who may ask is a fixed rule now (lib/domain/approvals.ts `mayRequestTransfer`), so
+ *  the per-test policy rows these suites used to seed are a no-op kept for readability. */
 async function makePolicy(input: { id: string; actorRole: string | null; outcome: "AUTO" | "CHAIN" | "DENY"; appliesTo?: unknown; chain?: unknown }) {
-  await prisma.approvalPolicy.create({
-    data: {
-      id: input.id,
-      name: input.id,
-      operation: "transferItem",
-      appliesTo: (input.appliesTo ?? { type: "ANY" }) as never,
-      actorRole: input.actorRole as never,
-      outcome: input.outcome,
-      chain: (input.chain ?? undefined) as never,
-    },
-  });
+  void input;
+  return;
   createdPolicyIds.push(input.id);
 }
 
@@ -141,7 +134,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.chainStep.deleteMany({ where: { requestId: { in: createdRequestIds } } });
   await prisma.changeRequest.deleteMany({ where: { id: { in: createdRequestIds } } });
-  await prisma.approvalPolicy.deleteMany({ where: { id: { in: createdPolicyIds } } });
   await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: createdItemIds } }, { categoryId }] } });
   await prisma.item.deleteMany({ where: { id: { in: createdItemIds } } });
   await prisma.orgNode.deleteMany({ where: { id: { in: createdNodeIds } } });
@@ -176,30 +168,20 @@ describe("the closed loophole — direct transferItem is refused, even custodyin
   });
 });
 
-describe("requestTransfer — policy resolution (pull: the requester holds the destination)", () => {
-  it("AUTO applies immediately; no ChangeRequest row is created", async () => {
-    const propAdminId = await makeUser("auto-propadmin", ["PROPERTY_ADMIN"]);
-    const lenderId = await makeUser("auto-lender", ["CUSTODIAN"]);
-    const ownerNodeId = await makeNode("auto-owner", null);
-    const targetNodeId = await makeNode("auto-target", null);
-    const destLabId = await makeItem(targetNodeId, propAdminId, "Auto Dest Lab");
-    const sourceId = await makeItem(ownerNodeId, lenderId, "Auto Source Item");
+describe("requestTransfer — who may ask (pull: the requester holds the destination)", () => {
+  it("an office that only approves may not ask to move anything", async () => {
+    const propAdminId = await makeUser("deny-propadmin", ["PROPERTY_ADMIN"]);
+    const lenderId = await makeUser("deny-propadmin-lender", ["CUSTODIAN"]);
+    const ownerNodeId = await makeNode("deny-propadmin-owner", null);
+    const targetNodeId = await makeNode("deny-propadmin-target", null);
+    const destLabId = await makeItem(targetNodeId, propAdminId, "Deny Prop Dest Lab");
+    const sourceId = await makeItem(ownerNodeId, lenderId, "Deny Prop Source Item");
 
-    const before = await prisma.changeRequest.count();
-    const result = await approvals.requestTransfer(propAdminId, transferInput([sourceId], destLabId, targetNodeId));
-    expect(result.outcome).toBe("APPLIED");
-
-    const after = await prisma.changeRequest.count();
-    expect(after).toBe(before);
-
-    const item = await prisma.item.findUniqueOrThrow({ where: { id: sourceId } });
-    expect(item.currentOrgNodeId).toBe(targetNodeId);
-    expect(item.parentId).toBe(destLabId);
-    expect(item.custodianId).toBe(lenderId); // a borrow — custody stays with the lender
+    await expect(approvals.requestTransfer(propAdminId, transferInput([sourceId], destLabId, targetNodeId))).rejects.toMatchObject({ status: 403 });
   });
 
-  it("an actor with no matching policy is DENIED (no matching rule means DENY)", async () => {
-    const staffId = await makeUser("deny-staff", ["STAFF"]);
+  it("an account with no moving role is refused", async () => {
+    const staffId = await makeUser("deny-staff", ["PROCUREMENT"]);
     const lenderId = await makeUser("deny-lender", ["CUSTODIAN"]);
     const ownerNodeId = await makeNode("deny-owner", null);
     const targetNodeId = await makeNode("deny-target", null);
@@ -457,7 +439,7 @@ describe("store handover — the main store hands stock over to a department", (
   });
 
   it("routes receiving head → Property Administration → receiving custodian; owner, current unit and custody all move only once the custodian accepts", async () => {
-    const keeperId = await makeUser("store-keeper", ["STORE_KEEPER", "STAFF"]);
+    const keeperId = await makeUser("store-keeper", ["STORE_KEEPER"]);
     const labHeadId = await makeUser("store-lab-head", ["MANAGER"]);
     const labCustodianId = await makeUser("store-lab-custodian", ["CUSTODIAN"]);
     const storeNodeId = await makeNode("store-university", null);
@@ -516,7 +498,7 @@ describe("store handover — the main store hands stock over to a department", (
   it("F-024: refuses a handover naming a student as the receiving custodian", async () => {
     const keeperId = await makeUser("f024-handover-keeper", ["STORE_KEEPER"]);
     const labHeadId = await makeUser("f024-handover-head", ["MANAGER"]);
-    const studentId = await makeUser("f024-handover-student", ["STUDENT"]);
+    const studentId = await makeUser("f024-handover-student", ["EXTERNAL"]);
     const storeNodeId = await makeNode("f024-handover-store", null);
     const deptNodeId = await makeNode("f024-handover-dept", labHeadId);
     const labId = await makeItem(deptNodeId, studentId, "F024 Handover Dest Lab");
@@ -542,7 +524,7 @@ describe("R2-1 (2026-09-23 run) — an item already in a pending transfer can't 
 
   /** A store, two receiving labs in two departments, and a keeper — fresh per test. */
   async function stage(tag: string) {
-    const keeperId = await makeUser(`${tag}-keeper`, ["STORE_KEEPER", "STAFF"]);
+    const keeperId = await makeUser(`${tag}-keeper`, ["STORE_KEEPER"]);
     const heads = [await makeUser(`${tag}-head-1`, ["MANAGER"]), await makeUser(`${tag}-head-2`, ["MANAGER"])];
     const custodians = [await makeUser(`${tag}-cust-1`, ["CUSTODIAN"]), await makeUser(`${tag}-cust-2`, ["CUSTODIAN"])];
     const storeNodeId = await makeNode(`${tag}-store`, null);
@@ -632,7 +614,7 @@ describe("R2-3 (2026-09-23 run) — a handover can name what arrives the way the
   });
 
   it("suggests the lab's own name, previews the next free numbers, and renames on arrival (logged)", async () => {
-    const keeperId = await makeUser("r23-keeper", ["STORE_KEEPER", "STAFF"]);
+    const keeperId = await makeUser("r23-keeper", ["STORE_KEEPER"]);
     const headId = await makeUser("r23-head", ["MANAGER"]);
     const custodianId = await makeUser("r23-cust", ["CUSTODIAN"]);
     const storeNodeId = await makeNode("r23-store", null);
@@ -791,7 +773,7 @@ describe("F-040 — concurrent final approvals never leave an applied transfer m
 
 describe("a tree selection — a container ticked together with what is inside it", () => {
   it("transfer and move act on the top-most items only; nested parts travel inside them instead of being pulled out", async () => {
-    const keeperId = await makeUser("nested-keeper", ["STORE_KEEPER", "STAFF"]);
+    const keeperId = await makeUser("nested-keeper", ["STORE_KEEPER"]);
     const headId = await makeUser("nested-head", ["MANAGER"]);
     const custodianId = await makeUser("nested-custodian", ["CUSTODIAN"]);
     const storeNodeId = await makeNode("nested-store", null);
@@ -874,7 +856,7 @@ describe("movements — permanent transfers go to the CMD, Main Store movements 
 
   /** A Main Store: a Store place owned by the university root, held by a store keeper. */
   async function mainStore(tag: string) {
-    const keeperId = await makeUser(`${tag}-keeper`, ["STORE_KEEPER", "STAFF"]);
+    const keeperId = await makeUser(`${tag}-keeper`, ["STORE_KEEPER"]);
     const store = await prisma.item.create({
       data: { categoryId: storeCategoryId, name: `${tag} Main Store`, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: universityId, currentOrgNodeId: universityId, custodianId: keeperId },
     });
@@ -1028,81 +1010,5 @@ describe("movements — permanent transfers go to the CMD, Main Store movements 
     } finally {
       await prisma.orgNode.update({ where: { id: office.id }, data: { active: true } });
     }
-  });
-
-  it("the store keeper issues stock to a person: it lands in their department's Staff holdings, in their custody", async () => {
-    const s = await stage("mv-issue");
-    const store = await mainStore("mv-issue");
-    const lecturerId = await makeUser("mv-issue-lecturer", ["STAFF"]);
-    await prisma.user.update({ where: { id: lecturerId }, data: { homeNodeId: s.a1.nodeId } });
-    await makePolicy({ id: `${testKey}-mv-issue-keeper`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: [{ type: "TARGET_HEAD" }] });
-
-    const mark = sent.length;
-    const r = await approvals.requestTransfer(store.keeperId, {
-      kind: "transferItem",
-      itemIds: [store.stockId],
-      transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: lecturerId },
-    });
-    if (r.outcome !== "ROUTED") throw new Error("expected ROUTED");
-    createdRequestIds.push(r.request.id);
-
-    const place = await prisma.item.findFirstOrThrow({ where: { parentId: null, ownerOrgNodeId: s.a1.nodeId, category: { key: "staff-holdings" } } });
-    createdItemIds.push(place.id);
-    expect([place.name, place.custodianId]).toEqual([`${testKey}-mv-issue-a1`.replace(/^/, "Staff holdings — "), s.a1.headId]);
-    expect(r.request.movement).toBe("STORE_OUT");
-    expect(r.request.steps.map((st) => [st.selector, st.approverId])).toEqual([
-      ["TARGET_HEAD", s.a1.headId],
-      ["NODE_OCCUPANT", propertyAdminId],
-      ["TARGET_CUSTODIAN", lecturerId],
-    ]);
-    // The person it's for hears about it now, not only when it reaches them.
-    const lecturer = await prisma.user.findUniqueOrThrow({ where: { id: lecturerId } });
-    expect(sent.slice(mark).filter((m) => m.to === lecturer.email).map((m) => m.subject)).toEqual([`Coming to you from the store: ${r.request.summary}`]);
-
-    expect((await walk(r.request.id, [s.a1.headId, propertyAdminId, lecturerId])).status).toBe("APPLIED");
-    const after = await prisma.item.findUniqueOrThrow({ where: { id: store.stockId } });
-    expect([after.parentId, after.ownerOrgNodeId, after.custodianId]).toEqual([place.id, s.a1.nodeId, lecturerId]);
-
-    // Answering for it isn't editing it: staff (and the head, for the place) ask instead.
-    await expect(mutate.applyChange(lecturerId, { kind: "setStatus", itemIds: [store.stockId], value: "BROKEN" })).rejects.toMatchObject({ status: 403 });
-    await expect(mutate.applyChange(s.a1.headId, { kind: "setName", itemIds: [place.id], value: "Mine" })).rejects.toMatchObject({ status: 403 });
-
-    // A second issue to the same department reuses its Staff holdings.
-    const second = await mainStore("mv-issue-2");
-    const again = await approvals.previewTransfer(second.keeperId, {
-      kind: "transferItem",
-      itemIds: [second.stockId],
-      transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: lecturerId },
-    });
-    expect(again.outcome).toBe("ROUTED");
-    expect(await prisma.item.count({ where: { parentId: null, ownerOrgNodeId: s.a1.nodeId, category: { key: "staff-holdings" }, deletedAt: null } })).toBe(1);
-
-    // The head sends it back to the store; the member of staff holding it is asked first.
-    await makePolicy({ id: `${testKey}-mv-issue-head`, actorRole: "MANAGER", outcome: "CHAIN", chain: [{ type: "OWNER_HEAD" }] });
-    const back = await request(s.a1.headId, [store.stockId], store.storeId);
-    expect(back.movement).toBe("TO_STORE");
-    expect(back.steps.filter((st) => st.status !== "SKIPPED").map((st) => [st.selector, st.approverId])).toEqual([
-      ["ITEM_CUSTODIAN", lecturerId],
-      ["NODE_OCCUPANT", propertyAdminId],
-      ["TARGET_CUSTODIAN", store.keeperId],
-    ]);
-    expect((await walk(back.id, [lecturerId, propertyAdminId, store.keeperId])).status).toBe("APPLIED");
-    const home = await prisma.item.findUniqueOrThrow({ where: { id: store.stockId } });
-    expect([home.parentId, home.ownerOrgNodeId, home.custodianId]).toEqual([store.storeId, universityId, store.keeperId]);
-  });
-
-  it("never issues to a student, nor into a department with no head to answer for the place", async () => {
-    const s = await stage("mv-issue-refuse");
-    const store = await mainStore("mv-issue-refuse");
-    const studentId = await makeUser("mv-issue-student", ["STUDENT"]);
-    await prisma.user.update({ where: { id: studentId }, data: { homeNodeId: s.a1.nodeId } });
-    const issue = (userId: string) =>
-      approvals.previewTransfer(store.keeperId, { kind: "transferItem", itemIds: [store.stockId], transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: userId } });
-    await expect(issue(studentId)).rejects.toMatchObject({ status: 400 });
-
-    const staffId = await makeUser("mv-issue-headless-staff", ["STAFF"]);
-    await prisma.user.update({ where: { id: staffId }, data: { homeNodeId: s.b1.nodeId } });
-    await prisma.orgNode.update({ where: { id: s.b1.nodeId }, data: { userId: null } });
-    await expect(issue(staffId)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/has no head yet/) });
   });
 });

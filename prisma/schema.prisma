@@ -35,54 +35,48 @@ enum UserStatus {
   DISABLED
 }
 
-/// Roles stack. An ARA/SARA lab holder is routinely CUSTODIAN + STAFF; a department head
-/// is MANAGER + STAFF. PROPERTY_ADMIN and PROCUREMENT are university-wide offices that
-/// reach every node through cross-cutting hierarchy edges, not through a magic flag.
-/// STORE_KEEPER is the same shape — a store keeper works across every department's
-/// incoming goods, so their register reach is university-wide too, granted through the
-/// resource-management access-view system rather than org-hierarchy edges (a store keeper
-/// occupies no OrgNode). EXTERNAL is a person outside the university entirely; they occupy
-/// no node, reach nothing by default, and every door open to them is an approval away.
+/// Roles stack — a head who also runs a lab is MANAGER + CUSTODIAN. PROPERTY_ADMIN and
+/// PROCUREMENT are university-wide offices. STORE_KEEPER works across every department's
+/// incoming goods. EXTERNAL is a person outside the university entirely: they see only
+/// their own portal requests.
 enum RoleKind {
   SYS_ADMIN
   PROPERTY_ADMIN
   PROCUREMENT
   MANAGER
   CUSTODIAN
-  STAFF
-  STUDENT
   STORE_KEEPER
   EXTERNAL
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  emailLower   String     @unique
-  name         String
-  phone        String?
-  passwordHash String? // null until registration completes
-  status       UserStatus @default(INVITED)
+  id                 String     @id @default(cuid())
+  email              String     @unique
+  emailLower         String     @unique
+  name               String
+  phone              String?
+  passwordHash       String? // null until registration completes
+  status             UserStatus @default(INVITED)
   /// The department this person works in, WITHOUT occupying it — a custodian or an
   /// instructor belongs to a department but does not head it, so this is distinct from
   /// OrgNode.userId (occupancy). ScopeService falls back to this when a user occupies no
   /// node, which is what gives custodians and staff any hierarchy reach at all.
-  homeNodeId   String?
+  homeNodeId         String?
   /// Source role/title, e.g. ARA/SARA or laboratory responsible person. Free text —
   /// distinct from RoleKind, which grants capability, not describes a job title.
-  title        String?
+  title              String?
   /// EXTERNAL only — which body they are here on behalf of.
-  organisation String?
+  organisation       String?
   /// Set when an administrator issues a temporary password — the person must choose
   /// their own before anything else works (session.ts refuses every other API).
-  mustChangePassword Boolean @default(false)
+  mustChangePassword Boolean    @default(false)
   /// Whether notification emails reach this person — "something is waiting for you" and
   /// "your request was decided" (lib/server/mail/notify.ts, and staff mail about external
   /// requests). Invitations and password resets ignore it: they are how someone gets in.
   /// Set by the person on their Profile, or by an admin/their head in People & roles.
-  emailNotifications Boolean @default(true)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  emailNotifications Boolean    @default(true)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   roles    UserRole[]
   sessions Session[]
@@ -102,7 +96,6 @@ model User {
   uploadedImages             ItemImage[]                 @relation("ItemImageUploadedBy")
   imageUploadsRequested      ImageUpload[]               @relation("ImageUploadRequestedBy")
   itemChangesActed           ItemChange[]                @relation("ItemChangeActor")
-  accessViewAudienceOf       AccessViewAudience[]        @relation("AccessViewAudiencePerson")
   changeRequestsRaised       ChangeRequest[]             @relation("ChangeRequestRequester")
   chainStepsToApprove        ChainStep[]                 @relation("ChainStepApprover")
   chainStepsDecided          ChainStep[]                 @relation("ChainStepDecidedBy")
@@ -217,23 +210,17 @@ enum OrgNodeKind {
 }
 
 model OrgNode {
-  id                   String      @id @default(cuid())
-  name                 String
-  level                Int // 0 = university root
-  kind                 OrgNodeKind
-  userId               String?     @unique // occupant, null until they register
-  active               Boolean     @default(true)
+  id        String      @id @default(cuid())
+  name      String
+  level     Int // 0 = university root
+  kind      OrgNodeKind
+  userId    String?     @unique // occupant, null until they register
+  active    Boolean     @default(true)
   /// Stable short key ("SE", "CHEM") — dense-table display AND the key a data importer
   /// resolves against instead of a live-database cuid. Optional: not every node needs one.
-  code                 String?     @unique
-  /// Track 2 — per-department activation for the lab draft/visible/ideal workflow.
-  /// Default false: a department's custodians keep editing directly (today's
-  /// behaviour, unchanged) until an administrator opts THIS department in. Read by
-  /// lab-drafts.ts before staging/submitting anything for a lab owned here — never
-  /// inferred from row counts elsewhere.
-  draftWorkflowEnabled Boolean     @default(false)
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  code      String?     @unique
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -308,16 +295,16 @@ model OrgNodeAssignment {
 /// mirroring `OrgNodeAssignment`'s own history discipline — `fromNodeId` is nullable
 /// because a person can be invited with no home department at all.
 model HomeNodeChange {
-  id         String   @id @default(cuid())
-  userId     String
-  fromNodeId String?
-  toNodeId   String?
-  reason     String?
+  id          String   @id @default(cuid())
+  userId      String
+  fromNodeId  String?
+  toNodeId    String?
+  reason      String?
   changedById String
-  changedAt  DateTime @default(now())
+  changedAt   DateTime @default(now())
 
-  user       User     @relation("HomeNodeChangeUser", fields: [userId], references: [id], onDelete: Cascade)
-  changedBy  User     @relation("HomeNodeChangeChangedBy", fields: [changedById], references: [id])
+  user      User @relation("HomeNodeChangeUser", fields: [userId], references: [id], onDelete: Cascade)
+  changedBy User @relation("HomeNodeChangeChangedBy", fields: [changedById], references: [id])
 
   @@index([userId, changedAt])
 }
@@ -575,10 +562,10 @@ model Item {
   images       ItemImage[]
   imageUploads ImageUpload[]
 
-  /// Track 2 — lab draft/visible/ideal states. Populated only when this item is itself
-  /// a lab root (a draft change/commit request/ideal target is always keyed by the LAB,
-  /// never by an arbitrary descendant item) — nothing here for an ordinary item.
+  /// A lab's drafted changes. Populated only when this item is itself a lab root (a
+  /// draft and its commit request are keyed by the LAB, never by a descendant item).
   labVersions       LabVersion[]       @relation("LabVersions")
+  needsForLab       NeedLine[]         @relation("NeedLineLab")
   labCommitRequests LabCommitRequest[] @relation("LabCommitRequestLab")
 
   /// Track 6 — scheduling. A room's own series/reservations (keyed by the ROOM whose
@@ -752,78 +739,11 @@ model ItemChange {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Access views — what an administrator hands to a kind of person.
-//
-// A view is authored the way a category is: named, saved, and assigned to an audience.
-// It answers two questions and no others — WHICH RESOURCES (a ScopeMode, optionally
-// narrowed by a saved filter) and MAY THEY EDIT. It deliberately does not choose
-// columns — those are the same for everyone.
-// ─────────────────────────────────────────────────────────────────────────
-
-enum ScopeMode {
-  /// Everything. The borrow/browse surface, and how the property office works.
-  UNIVERSITY
-  /// The person's org reach — their node and everything under it.
-  ORG_SUBTREE
-  /// Only what this person is personally accountable for.
-  MY_CUSTODY
-  /// A hand-picked set of units, for a view an admin has drawn deliberately.
-  EXPLICIT_NODES
-}
-
-enum ViewAudienceType {
-  /// Available to anyone signed in — how the browse view reaches everybody.
-  EVERYONE
-  ROLE
-  PERSON
-}
-
-model AccessView {
-  id              String    @id @default(cuid())
-  name            String
-  description     String?
-  scope           ScopeMode @default(ORG_SUBTREE)
-  /// EXPLICIT_NODES only.
-  explicitNodeIds String[]
-  /// A saved query, applied on top of the scope. Authored with the ordinary filter bar;
-  /// stored as the filter engine's own FilterState shape.
-  extraFilters    Json?
-  /// false = look but do not touch. The borrow surface is the reason this exists.
-  canEdit         Boolean   @default(true)
-  active          Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  audiences AccessViewAudience[]
-
-  @@index([active])
-}
-
-model AccessViewAudience {
-  id       String           @id @default(cuid())
-  viewId   String
-  type     ViewAudienceType
-  /// ROLE only.
-  role     RoleKind?
-  /// PERSON only. A named person outranks any role, and any role outranks EVERYONE —
-  /// see lib/domain/views.ts's specificity().
-  personId String?
-
-  view   AccessView @relation(fields: [viewId], references: [id], onDelete: Cascade)
-  person User?      @relation("AccessViewAudiencePerson", fields: [personId], references: [id], onDelete: Cascade)
-
-  @@index([viewId])
-  @@index([role])
-  @@index([personId])
-}
-
-// ─────────────────────────────────────────────────────────────────────────
 // Approvals.
 //
 // One idea, and it is the institution's own: THE ORG CHART IS THE APPROVAL ROUTE.
 // There is no "is this an approval office" flag — being a parent in the hierarchy is
-// what makes an office an approver. Policies key off ItemChangeKind; there is
-// deliberately no second operation vocabulary.
+// what makes an office an approver.
 //
 // The mutation seam this whole design depends on: `ChangeRequest.payload` stores the
 // exact ItemChangeInput a direct edit would carry, verbatim, so
@@ -831,36 +751,6 @@ model AccessViewAudience {
 // (lib/server/resources/mutate.ts's applyChange) with the SAME input — a
 // routed-and-approved change must produce a record identical to applying it directly.
 // ─────────────────────────────────────────────────────────────────────────
-
-enum PolicyOutcome {
-  AUTO
-  CHAIN
-  DENY
-}
-
-/// Rules are (operation × who is acting × what kind of thing) and resolve to one of
-/// three answers. Most specific wins. No matching rule means DENY — refusal is the
-/// institution's own stated rule for anyone an approval path was never configured for.
-model ApprovalPolicy {
-  id        String         @id @default(cuid())
-  name      String
-  operation ItemChangeKind
-  /// Which resources this rule speaks about — an ObjectSelector (ANY / GROUP /
-  /// CATEGORY / COUNTING_MODE), stored as JSON since it is a discriminated union.
-  appliesTo Json
-  /// null = ANY role.
-  actorRole RoleKind?
-  outcome   PolicyOutcome
-  /// CHAIN only. An empty chain is treated as DENY — it routes to nobody. A
-  /// StepSelector[], stored as JSON for the same discriminated-union reason.
-  chain     Json?
-  enabled   Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-
-  @@index([operation])
-  @@index([enabled])
-}
 
 enum RequestStatus {
   PENDING
@@ -873,15 +763,15 @@ enum RequestStatus {
 /// A change that has been asked for but not yet made. `payload` is the exact
 /// ItemChangeInput that applyChange takes, stored verbatim — see the seam note above.
 model ChangeRequest {
-  id           String        @id @default(cuid())
-  payload      Json
-  requesterId  String
-  createdAt    DateTime      @default(now())
-  status       RequestStatus @default(PENDING)
+  id                 String        @id @default(cuid())
+  payload            Json
+  requesterId        String
+  createdAt          DateTime      @default(now())
+  status             RequestStatus @default(PENDING)
   /// Each affected item's `version` when the request was raised, re-checked before
   /// applying — the field that stops an approval granted Monday from silently
   /// overwriting Tuesday's correction. Keyed by item id.
-  baseVersions Json
+  baseVersions       Json
   /// Each affected item's parentId/ownerOrgNodeId/currentOrgNodeId/custodianId when
   /// the request was raised, keyed by item id — F-041 of the 2026-09-15 campaign.
   /// Compared (not `baseVersions`, which a cosmetic edit like a rename also bumps) on
@@ -892,10 +782,10 @@ model ChangeRequest {
   /// structural change. Nullable — a request raised before this column existed has
   /// none, and decideStep skips the check rather than treating that as a mismatch.
   structuralSnapshot Json?
-  summary      String
-  note         String?
-  resolvedAt   DateTime?
-  resolution   String?
+  summary            String
+  note               String?
+  resolvedAt         DateTime?
+  resolution         String?
 
   requester User        @relation("ChangeRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
   steps     ChainStep[]
@@ -988,33 +878,57 @@ enum NeedStatus {
 /// "We could use another balance." Raised by whoever feels the shortage; never
 /// auto-converted into a purchase line — a head decides what to carry forward.
 model NeedLine {
-  id             String     @id @default(cuid())
-  raisedById     String
+  id              String       @id @default(cuid())
+  raisedById      String
   /// The unit that feels the need — where the head who reads it sits.
-  orgNodeId      String
-  name           String
-  qty            Decimal    @db.Decimal(18, 4)
-  unit           String?
+  orgNodeId       String
+  name            String
+  qty             Decimal      @db.Decimal(18, 4)
+  unit            String?
   /// Optional: what kind of thing, when it is something the register already knows.
-  categoryId     String?
-  reason         String
-  createdAt      DateTime   @default(now())
-  status         NeedStatus @default(OPEN)
-  handledById    String?
-  handledAt      DateTime?
-  note           String?
+  categoryId      String?
+  /// The lab the need is for — custodians raise needs for the labs they run.
+  labItemId       String?
+  /// How much it matters to the lab's work; the head reads the essentials first.
+  priority        NeedPriority @default(IMPORTANT)
+  /// Something new, or a replacement for items that broke or went missing.
+  kind            NeedKind     @default(NEW)
+  /// REPLACEMENT: the broken or lost items in the lab it replaces (13 broken chairs are
+  /// one need). Item ids, no FK — the items stay in the register as broken or lost.
+  replacesItemIds String[]     @default([])
+  /// What exactly — model, specification, a supplier's quote reference.
+  spec            String?
+  reason          String
+  createdAt       DateTime     @default(now())
+  status          NeedStatus   @default(OPEN)
+  handledById     String?
+  handledAt       DateTime?
+  note            String?
   /// Set when a head carries this need into a purchase line.
-  purchaseLineId String?
+  purchaseLineId  String?
 
   raisedBy     User              @relation("NeedLineRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
   orgNode      OrgNode           @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
   category     ResourceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  lab          Item?             @relation("NeedLineLab", fields: [labItemId], references: [id], onDelete: SetNull)
   handledBy    User?             @relation("NeedLineHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
   purchaseLine PurchaseLine?     @relation(fields: [purchaseLineId], references: [id], onDelete: SetNull)
 
   @@index([orgNodeId])
   @@index([status])
   @@index([purchaseLineId])
+  @@index([labItemId])
+}
+
+enum NeedPriority {
+  ESSENTIAL
+  IMPORTANT
+  NICE_TO_HAVE
+}
+
+enum NeedKind {
+  NEW
+  REPLACEMENT
 }
 
 enum PurchaseStage {
@@ -1053,12 +967,12 @@ model PurchaseRequest {
   /// The last feedback from an approver who sent it back.
   feedback   String?
 
-  orgNode  OrgNode         @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
-  raisedBy User            @relation("PurchaseRequestRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
-  lines    PurchaseLine[]
-  events   PurchaseEvent[]
-  steps    PurchaseStep[]
-  imports  ImportRecord[]
+  orgNode     OrgNode              @relation(fields: [orgNodeId], references: [id], onDelete: Restrict)
+  raisedBy    User                 @relation("PurchaseRequestRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
+  lines       PurchaseLine[]
+  events      PurchaseEvent[]
+  steps       PurchaseStep[]
+  imports     ImportRecord[]
   /// Documents put on it with its submissions, decisions and cancellation.
   attachments PurchaseAttachment[]
 
@@ -1099,8 +1013,8 @@ model PurchaseEvent {
   stage      PurchaseStage
   note       String?
 
-  purchase PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  by       User            @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
+  purchase    PurchaseRequest      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  by          User                 @relation("PurchaseEventBy", fields: [byId], references: [id], onDelete: Restrict)
   /// Documents the actor put on the request with this action.
   attachments PurchaseAttachment[]
 
@@ -1179,19 +1093,19 @@ enum ImportStatus {
 }
 
 model ImportRecord {
-  id                String        @id @default(cuid())
+  id                String       @id @default(cuid())
   /// IMP-2026-001
-  reference         String        @unique
+  reference         String       @unique
   source            ImportSource
   purchaseRequestId String?
   /// The EGP purchase or contract number, for a standalone record (or as a cross-reference).
   egpReference      String?
   supplier          String?
   note              String?
-  status            ImportStatus  @default(OPEN)
+  status            ImportStatus @default(OPEN)
   createdById       String
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
   createdBy       User             @relation("ImportRecordCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -1260,35 +1174,24 @@ model PurchaseStep {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Lab states — Current, Draft, Ideal (2026-09-22 rework; replaces Track 2's
-// ItemDraftChange/LabIdealTarget rows).
+// A lab's changes — Current and Draft.
 //
-// Current is the live register (Item rows). Draft and Ideal are COMPLETE named trees
-// of the same lab — a LabVersion with its VersionItem rows — started as a copy of the
-// lab's current tree, each copied row linked back to its real Item (`sourceItemId`).
-// Only the lab's custodian edits a version; the owning department's head approves:
-//  - DRAFT approved  -> its difference from Current is MERGED into the live register
-//    through mutate.ts's write door (a status update: broken, under maintenance,
-//    consumed, renamed, added, removed…), then the draft is discarded.
-//  - IDEAL_PROPOSAL approved -> it REPLACES the lab's IDEAL (what the lab should
-//    hold). Ideal never touches the live register; purchasing's gap statistics are
-//    computed from it.
+// Current is the live register (Item rows). The Draft is a COMPLETE named tree of the
+// same lab — a LabVersion with its VersionItem rows — started as a copy of the lab's
+// current tree, each copied row linked back to its real Item (`sourceItemId`). Only the
+// lab's custodian edits it; the owning unit's head approves, and its difference from
+// Current is MERGED into the live register through mutate.ts's write door (broken,
+// under maintenance, used up, renamed, added, removed…), then the draft is discarded.
 // ─────────────────────────────────────────────────────────────────────────
 
 enum DraftTargetKind {
   /// A draft of the lab's real state — merges into Current on approval.
   VISIBLE
-  /// A proposal for the lab's ideal state — replaces its Ideal on approval.
-  IDEAL
 }
 
 enum LabVersionKind {
   /// The custodian's pending update to the live register.
   DRAFT
-  /// The approved target state — what purchasing measures the lab against.
-  IDEAL
-  /// A proposed replacement for IDEAL, awaiting the head.
-  IDEAL_PROPOSAL
 }
 
 enum LabVersionStatus {
@@ -1296,24 +1199,22 @@ enum LabVersionStatus {
   EDITING
   /// Sent to the head — frozen until decided (or withdrawn).
   SUBMITTED
-  /// IDEAL only: the approved ideal.
-  APPROVED
 }
 
 model LabVersion {
-  id           String           @id @default(cuid())
-  labItemId    String
-  kind         LabVersionKind
-  status       LabVersionStatus @default(EDITING)
+  id            String           @id @default(cuid())
+  labItemId     String
+  kind          LabVersionKind
+  status        LabVersionStatus @default(EDITING)
   /// Each copied Item's `version` at copy time, keyed by item id — the staleness
   /// guard when a DRAFT merges (an item changed since must not be silently
   /// overwritten).
-  baseVersions Json             @default("{}")
+  baseVersions  Json             @default("{}")
   /// Why the head last sent it back, shown to the custodian until resubmitted.
   rejectionNote String?
-  createdById  String
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  createdById   String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   lab       Item          @relation("LabVersions", fields: [labItemId], references: [id], onDelete: Cascade)
   createdBy User          @relation("LabVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -1352,21 +1253,21 @@ model VersionItem {
 /// The one decision a submitted version needs — the lab's owning department's head,
 /// resolved live via the org chart (a vacant post BLOCKS).
 model LabCommitRequest {
-  id           String          @id @default(cuid())
-  labItemId    String
-  targetKind   DraftTargetKind
-  requesterId  String
-  /// The DRAFT or IDEAL_PROPOSAL version being decided (null once it is merged away).
-  versionId    String?
-  status       RequestStatus   @default(PENDING)
+  id          String          @id @default(cuid())
+  labItemId   String
+  targetKind  DraftTargetKind
+  requesterId String
+  /// The DRAFT being decided (null once it is merged away).
+  versionId   String?
+  status      RequestStatus   @default(PENDING)
   /// Readable summary of the change at submission time, kept after the version is
   /// merged or replaced so the request's history still says what it did.
-  summary      Json            @default("[]")
-  note         String?
-  decidedById  String?
-  decidedAt    DateTime?
-  resolution   String?
-  createdAt    DateTime        @default(now())
+  summary     Json            @default("[]")
+  note        String?
+  decidedById String?
+  decidedAt   DateTime?
+  resolution  String?
+  createdAt   DateTime        @default(now())
 
   lab       Item  @relation("LabCommitRequestLab", fields: [labItemId], references: [id], onDelete: Cascade)
   requester User  @relation("LabCommitRequester", fields: [requesterId], references: [id], onDelete: Restrict)
@@ -1594,39 +1495,39 @@ enum ExternalTaskStatus {
 }
 
 model ExternalRequest {
-  id                String                @id @default(cuid())
+  id                 String                @id @default(cuid())
   /// EXT-2026-001 — what everyone quotes, in and out of the system.
-  reference         String                @unique
-  status            ExternalRequestStatus @default(SUBMITTED)
-  kind              ExternalRequestKind   @default(FACILITY)
+  reference          String                @unique
+  status             ExternalRequestStatus @default(SUBMITTED)
+  kind               ExternalRequestKind   @default(FACILITY)
   /// The requester's account. Null only for requests from before accounts existed.
-  requesterId       String?
+  requesterId        String?
   /// SAMPLE_ANALYSIS only: { sampleCount, analysis, categoryId?, categoryName? }.
-  sample            Json?
+  sample             Json?
   /// When the AVP confirmed payment — from then on the requester sees the contact persons.
-  contactsRevealedAt DateTime?            @db.Timestamptz(3)
-  organizationName  String
-  contactName       String
-  contactEmail      String
-  contactPhone      String
-  purpose           String
+  contactsRevealedAt DateTime?             @db.Timestamptz(3)
+  organizationName   String
+  contactName        String
+  contactEmail       String
+  contactPhone       String
+  purpose            String
   /// What they asked for, as free text lines: [{ description, quantity, categoryName? }]
-  lines             Json
+  lines              Json
   /// The official letter (PDF), stored through the same StorageDriver as images.
-  letterStorageKey  String
-  letterFileName    String
-  letterByteSize    Int
+  letterStorageKey   String
+  letterFileName     String
+  letterByteSize     Int
   /// Pre-2026-09-28 only: SHA-256 of the emailed tracking token. Requesters sign in now.
-  trackingTokenHash String?               @unique
-  submitterIpHash   String?
+  trackingTokenHash  String?               @unique
+  submitterIpHash    String?
   /// Money is integer santim (1 ETB = 100 santim), never a float.
-  quoteAmountSantim Int?
-  quoteNote         String?
-  quoteSentAt       DateTime?             @db.Timestamptz(3)
-  paymentDeadline   DateTime?             @db.Timestamptz(3)
-  closingNote       String?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  quoteAmountSantim  Int?
+  quoteNote          String?
+  quoteSentAt        DateTime?             @db.Timestamptz(3)
+  paymentDeadline    DateTime?             @db.Timestamptz(3)
+  closingNote        String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   requester    User?                       @relation("ExternalRequestRequester", fields: [requesterId], references: [id], onDelete: SetNull)
   windows      ExternalRequestWindow[]

@@ -82,10 +82,10 @@ beforeAll(async () => {
     data: {
       email: `${testKey}-staff@astu.edu.et`,
       emailLower: `${testKey}-staff@astu.edu.et`,
-      name: "Test Staff Only",
+      name: "Test Procurement Only",
       status: "ACTIVE",
       homeNodeId: seNode.id,
-      roles: { create: [{ kind: "STAFF" }] },
+      roles: { create: [{ kind: "PROCUREMENT" }] },
     },
   });
   staffOnlyId = staffOnly.id;
@@ -94,10 +94,10 @@ beforeAll(async () => {
     data: {
       email: `${testKey}-student@astu.edu.et`,
       emailLower: `${testKey}-student@astu.edu.et`,
-      name: "Test Student",
+      name: "Test Outsider",
       status: "ACTIVE",
       homeNodeId: seNode.id,
-      roles: { create: [{ kind: "STUDENT" }] },
+      roles: { create: [{ kind: "EXTERNAL" }] },
     },
   });
   studentId = student.id;
@@ -141,28 +141,29 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("F-031 — a student (or external) cannot browse the register at all", () => {
+describe("F-031 — an outside account cannot browse the register at all", () => {
   it("refuses search, tree and getOne", async () => {
     await expect(items.search(studentId, {}, 1, 50)).rejects.toMatchObject({ status: 403 });
     await expect(items.tree(studentId, {})).rejects.toMatchObject({ status: 403 });
     await expect(items.getOne(studentId, seItemId)).rejects.toMatchObject({ status: 403 });
   });
 
-  it("still allows an ordinary STAFF account (not STUDENT/EXTERNAL)", async () => {
+  it("still allows any university account", async () => {
     await expect(items.search(staffOnlyId, {}, 1, 50)).resolves.toBeTruthy();
   });
 });
 
 describe("assertCanBrowseUniversity — the gate itself", () => {
-  it("allows SYS_ADMIN, MANAGER, STORE_KEEPER and — since pull transfers (Track 5) — CUSTODIAN", async () => {
+  it("allows every university account — transparency across ASTU", async () => {
     await expect(scope.assertCanBrowseUniversity(sysAdminId)).resolves.toBeUndefined();
     await expect(scope.assertCanBrowseUniversity(seHeadId)).resolves.toBeUndefined();
     await expect(scope.assertCanBrowseUniversity(storeKeeperId)).resolves.toBeUndefined();
     await expect(scope.assertCanBrowseUniversity(seCustodianId)).resolves.toBeUndefined();
   });
 
-  it("refuses a plain STAFF account, with 403", async () => {
-    await expect(scope.assertCanBrowseUniversity(staffOnlyId)).rejects.toMatchObject({ status: 403 });
+  it("allows an office account too, and refuses an outside account with 403", async () => {
+    await expect(scope.assertCanBrowseUniversity(staffOnlyId)).resolves.toBeUndefined();
+    await expect(scope.assertCanBrowseUniversity(studentId)).rejects.toMatchObject({ status: 403 });
   });
 });
 

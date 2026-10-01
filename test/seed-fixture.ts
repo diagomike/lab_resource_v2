@@ -15,14 +15,14 @@ const prisma = new PrismaClient();
 async function main() {
   const se = await prisma.orgNode.findFirstOrThrow({ where: { code: "SE" } });
   const passwordHash = await argon2.hash("astu1234");
-  const person = async (email: string, name: string, roles: Array<"MANAGER" | "CUSTODIAN" | "STAFF">) => {
+  const person = async (email: string, name: string, roles: Array<"MANAGER" | "CUSTODIAN">) => {
     const found = await prisma.user.findUnique({ where: { emailLower: email } });
     if (found) return prisma.user.update({ where: { id: found.id }, data: { name } });
     return prisma.user.create({ data: { email, emailLower: email, name, passwordHash, status: "ACTIVE", homeNodeId: se.id, roles: { create: roles.map((kind) => ({ kind })) } } });
   };
   // The names the specs search for — exactly the old seed's.
-  const head = await person("head.se@astu.edu.et", "Head, Software Engineering", ["MANAGER", "STAFF"]);
-  await person("custodian.se@astu.edu.et", "Girma Wolde", ["CUSTODIAN", "STAFF"]);
+  const head = await person("head.se@astu.edu.et", "Head, Software Engineering", ["MANAGER"]);
+  await person("custodian.se@astu.edu.et", "Girma Wolde", ["CUSTODIAN"]);
   await prisma.orgNode.update({ where: { id: se.id }, data: { userId: head.id } });
   // Added to the real seed after this database was first built — idempotent.
   await ensureCmdOffice(prisma);

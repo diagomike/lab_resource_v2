@@ -2,8 +2,8 @@
 /**
  * Resets the E2E clone (lrms_v2_e2e, never the dev DB) to the clean starting point of the
  * cross-role walkthrough (docs/walkthrough/): the real CSE and Chemical Engineering data,
- * every role account, the College Managing Director and ICT offices, and the approval
- * policies. Nothing from a previous demo run survives.
+ * every role account, and the College Managing Director and ICT offices. Nothing from a
+ * previous demo run survives.
  *
  *   node e2e/reset-demo.mjs
  *
@@ -28,7 +28,6 @@ step("Recreate the clone database", "node e2e/create-db.mjs --reset");
 step("Apply every migration", "node e2e/with-env.mjs npx prisma migrate deploy");
 step("Org chart and role accounts (incl. CMD and ICT offices)", "node e2e/with-env.mjs npx tsx prisma/seed.ts");
 step("Categories, the CSE and ChemE labs, the Main Store", "node e2e/with-env.mjs npx tsx prisma/resource-seed.ts");
-step("Approval policies", "node e2e/with-env.mjs npx tsx prisma/seed-policies.ts --apply");
 
 console.log(`
 ✓ The demo clone is reset. Next:

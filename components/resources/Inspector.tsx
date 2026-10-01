@@ -9,7 +9,6 @@ import { api, ApiError } from "@/lib/api";
 import { Modal, ErrorNote, ConfirmDialog, Button } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { usePendingChange } from "@/lib/register/usePendingChange";
-import { getActiveViewId } from "@/lib/register/active-view";
 import { useAuth } from "@/lib/auth-context";
 import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
@@ -103,10 +102,7 @@ export function Inspector({
       setCategory(null);
     }
     setError(null);
-    const scopeParam = scope === "UNIVERSITY" ? "?scope=UNIVERSITY" : (() => {
-      const viewId = getActiveViewId();
-      return viewId ? `?view=${encodeURIComponent(viewId)}` : "";
-    })();
+    const scopeParam = scope === "UNIVERSITY" ? "?scope=UNIVERSITY" : "";
     Promise.all([
       api.get<ItemDetailDto>(`/resources/items/${itemId}${scopeParam}`),
       api.get<ItemChangeDto[]>(`/resources/items/${itemId}/changes${scopeParam}`),

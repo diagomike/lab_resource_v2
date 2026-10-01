@@ -72,7 +72,7 @@ export async function loadOrCreateRealPeople(prisma: PrismaClient, nodeIdByKey: 
         passwordHash,
         status: "ACTIVE",
         homeNodeId: nodeIdByKey[p.homeNode],
-        roles: { create: [{ kind: "CUSTODIAN" }, { kind: "STAFF" }] },
+        roles: { create: [{ kind: "CUSTODIAN" }] },
       },
     });
     idByEmail[p.email] = created.id;

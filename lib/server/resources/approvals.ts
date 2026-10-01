@@ -7,7 +7,6 @@ import * as scope from "./scope";
 import { applyChange, topMostItemIds, type Tx } from "./mutate";
 import { esc, notify, quoted } from "../mail/notify";
 import { CMD_OFFICE, PROPERTY_OFFICE, requireOffice } from "../org/offices";
-import { assertIssuable, ensureStaffHoldings, isStaffHoldingsPlace, staffHoldingsHeldBy } from "./staff-holdings";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { canPlace } from "@/lib/domain/placement";
 import { allocateNames } from "@/lib/domain/naming";
@@ -21,9 +20,8 @@ import {
   currentStep,
   movementChain,
   resolveApprover,
-  resolvePolicy,
+  mayRequestTransfer,
   validateChain,
-  type ApprovalPolicy as DomainPolicy,
   type ChainStep as DomainChainStep,
   type MovementShape,
 } from "@/lib/domain/approvals";
@@ -39,10 +37,9 @@ import type { OrgNode as DomainOrgNode, Person } from "@/lib/domain/types";
  * against — substituting live Prisma reads/writes for the sandbox's in-memory store,
  * the same way lab-drafts.ts ported its own reference logic.
  *
- * Deliberately narrow: this module reads `ApprovalPolicy` rows for `transferItem`
- * ONLY. Every other `ItemChangeKind` keeps applying directly through mutate.ts,
- * completely unaffected — see §6.1 for why seeding the full SEED_POLICIES set is
- * still safe.
+ * Who may ask is one fixed rule (`mayRequestTransfer`); the steps come from the
+ * movement's shape (`movementChain`). Every other `ItemChangeKind` applies through
+ * mutate.ts.
  */
 
 type TransferInput = Extract<ItemChangeInput, { kind: "transferItem" }>;
@@ -71,20 +68,6 @@ async function loadDomainOrgNodes(): Promise<DomainOrgNode[]> {
     parentIds: n.incomingEdges.map((e) => e.parentId),
     occupantId: n.userId,
     active: n.active,
-  }));
-}
-
-async function loadPolicies(operation: ItemChangeInput["kind"]): Promise<DomainPolicy[]> {
-  const rows = await prisma.approvalPolicy.findMany({ where: { operation, enabled: true } });
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    operation: r.operation as DomainPolicy["operation"],
-    appliesTo: r.appliesTo as DomainPolicy["appliesTo"],
-    actorRole: (r.actorRole ?? "ANY") as DomainPolicy["actorRole"],
-    outcome: r.outcome,
-    chain: (r.chain as DomainPolicy["chain"] | null) ?? undefined,
-    enabled: r.enabled,
   }));
 }
 
@@ -147,13 +130,9 @@ async function loadTransferContext(input: TransferInput): Promise<TransferContex
   if (input.transfer.targetCustodianId) {
     const custodian = await prisma.user.findUnique({ where: { id: input.transfer.targetCustodianId } });
     if (!custodian) throw new HttpError(400, "Choose an existing custodian.");
-    // F-024 of the 2026-09-15 campaign: a handover's receiving custodian was only
-    // ever checked for existing, the same gap setCustodian and root creation had —
-    // custody landing on a disabled account or a student stalls the receipt step
-    // forever (they can never sign in to confirm it, or shouldn't hold assets at
-    // all). Issued to a person, it lands in Staff holdings, where any member of staff
-    // may answer for it.
-    await scope.assertEligibleCustodian(input.transfer.targetCustodianId, { staffHoldings: await isStaffHoldingsPlace(destination.id) });
+    // F-024 of the 2026-09-15 campaign: custody landing on a disabled account would
+    // stall the receipt step forever (they can never sign in to confirm it).
+    await scope.assertEligibleCustodian(input.transfer.targetCustodianId);
   }
 
   return { items, destination };
@@ -192,10 +171,8 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   const domainItem = firstRow ? toDomainItem(firstRow, []) : undefined;
 
   if (movement === "RETURN") {
-    // A fixed, always-available two-step flow — not something an approval policy
-    // row could misconfigure into oblivion, and not decided by resolvePolicy (which
-    // has no "is this a return" dimension to match on). See assertTransferParties's
-    // own header for why this is detected by shape rather than a client flag.
+    // A fixed, always-available two-step flow. See assertTransferParties's own header
+    // for why this is detected by shape rather than a client flag.
     const hostReleaserId = await resolveHostReleaserId(first.id);
     const steps = buildChain(movementChain("RETURN", {}), {
       item: domainItem,
@@ -212,23 +189,14 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
     return { outcome: "ROUTED", reason: "Returning it to its own owning unit", steps };
   }
 
-  // Who may ASK: the policy table, by role (a staff member or a student has no rule,
-  // so they are refused). The steps themselves come from the movement's shape below.
-  const policies = await loadPolicies("transferItem");
-  const resolutions = ctx.items.map((item) => resolvePolicy({ operation: "transferItem", person, category: categories[item.categoryId], policies }));
-
-  const denied = resolutions.find((r) => r.outcome === "DENY");
-  if (denied) return { outcome: "DENIED", reason: denied.reason };
-
-  const routed = resolutions.find((r) => r.outcome === "CHAIN");
-  if (!routed) return { outcome: "APPLIED", reason: resolutions[0]?.reason ?? "Applied." };
+  // Who may ASK (custodians, heads, the store keeper, the admin); the steps come from
+  // the movement's shape below.
+  if (!mayRequestTransfer(person)) return { outcome: "DENIED", reason: "Only custodians, heads and the store keeper ask to move resources." };
 
   const ownerNodeId = first.ownerOrgNodeId;
   const targetNodeId = input.transfer.targetOrgNodeId;
 
-  // F-042 of the 2026-09-15 campaign: resolvePolicy matches by actor ROLE only, with
-  // no notion of the transfer's own SHAPE — so the chain is never the matched rule's
-  // own. Each movement has the university's own line (`movementChain`): local consent
+  // Each movement has the university's own line (`movementChain`): local consent
   // (whoever holds it, the unit that owns it, whoever runs the room it lands in, the
   // unit receiving it), then the central office answering for it — the College
   // Managing Director for a permanent transfer, Property Administration for anything
@@ -276,8 +244,17 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
     return { outcome: "APPLIED", reason: "No eligible approver — applied directly." };
   }
 
-  return { outcome: "ROUTED", reason: routed.reason, steps };
+  return { outcome: "ROUTED", reason: MOVEMENT_REASON[movement], steps };
 }
+
+const MOVEMENT_REASON: Record<MovementShape, string> = {
+  LOAN: "A loan needs both units and a receipt",
+  PERMANENT: "A permanent transfer needs both units, the College Managing Director and a receipt",
+  STORE_OUT: "Issuing from the store needs the receiving head and Property Administration",
+  FROM_STORE: "Taking from the store needs the receiving head and Property Administration",
+  TO_STORE: "Returning to the store needs the owning head and Property Administration",
+  RETURN: "Returning it to its own owning unit",
+};
 
 /** The colleges above a unit (itself too, when it is one). */
 async function collegesOf(nodeId: string): Promise<Set<string>> {
@@ -436,9 +413,8 @@ async function assertMayTransferOwnership(actorId: string, input: TransferInput)
 
 /**
  * Return flow (2026-09-20, F-039 of the 2026-09-15 campaign) — sending a borrowed
- * item back to its own owning unit. Not a policy-table CHAIN (resolvePolicy has no
- * notion of "is this a return" as a dimension to match on): detected structurally,
- * by shape, and built directly. A transfer is a return exactly when every named
+ * item back to its own owning unit. Detected structurally, by shape, and built
+ * directly. A transfer is a return exactly when every named
  * item is currently on loan (owner ≠ current) and the chosen destination belongs to
  * that SAME owning unit — sending it home, never anywhere else.
  */
@@ -540,18 +516,8 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
   if (input.transfer.transferOwnership) {
     await assertMayTransferOwnership(actorId, input);
     await scope.assertCanMutate(actorId, input.itemIds);
-    const { permanent: _permanent, issueToUserId, ...transfer } = input.transfer;
+    const { permanent: _permanent, ...transfer } = input.transfer;
     void _permanent;
-    if (issueToUserId) {
-      // Issued to a person: into their department's Staff holdings, in their custody.
-      // Named as they are in the store — a person's things aren't numbered like a lab's.
-      const person = await assertIssuable(issueToUserId);
-      const place = await ensureStaffHoldings(person.homeNodeId);
-      return {
-        input: { ...input, transfer: { targetParentId: place.id, targetOrgNodeId: person.homeNodeId, targetCustodianId: person.id, transferOwnership: true, issueToUserId, movement: "STORE_OUT" } },
-        movement: "STORE_OUT",
-      };
-    }
     return { input: { ...input, transfer: { ...transfer, movement: "STORE_OUT" } }, movement: "STORE_OUT" };
   }
   // Refused now rather than when the chain finally applies it (mutate.ts refuses it too).
@@ -576,10 +542,9 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
   });
 
   if ((await centralStoreRootOf(destination.id)) && !(await allInCentralStore(input.itemIds))) {
-    // Back into the Main Store: the item's holder sends it, the head for what sits in
-    // their department's Staff holdings, or the store keeper asks for it (then the
-    // holder is asked first — movementChain's askItemCustodian).
-    const mayAsk = (await mayWrite(actorId, input.itemIds)) || (await mayWrite(actorId, [destination.id])) || (await allInStaffHoldingsOf(actorId, input.itemIds));
+    // Back into the Main Store: the item's holder sends it, or the store keeper asks
+    // for it (then the holder is asked first — movementChain's askItemCustodian).
+    const mayAsk = (await mayWrite(actorId, input.itemIds)) || (await mayWrite(actorId, [destination.id]));
     if (!mayAsk) throw new HttpError(404, "Resource not found");
     return onto("TO_STORE", destination.custodianId, true);
   }
@@ -604,14 +569,6 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
   if (await allInCentralStore(input.itemIds)) return onto("FROM_STORE", destination.custodianId, true);
   if (input.transfer.permanent) return onto("PERMANENT", destination.custodianId, true);
   return onto("LOAN", null, false);
-}
-
-/** Every item sits directly in a Staff holdings place this person (its head) answers for. */
-async function allInStaffHoldingsOf(actorId: string, itemIds: string[]): Promise<boolean> {
-  const places = new Set(await staffHoldingsHeldBy(actorId));
-  if (!places.size) return false;
-  const rows = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { parentId: true } });
-  return rows.length === itemIds.length && rows.every((r) => r.parentId !== null && places.has(r.parentId));
 }
 
 async function mayWrite(actorId: string, itemIds: string[]): Promise<boolean> {

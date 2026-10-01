@@ -25,8 +25,6 @@ export function helpChaptersFor(me: MeContextDto | null | undefined, allChapterI
   const scope = me?.scope ?? null;
 
   if (has("CUSTODIAN")) out.add("custodian");
-  if (has("STAFF")) out.add("staff");
-  if (has("STUDENT")) out.add("student");
   if (has("PROCUREMENT")) out.add("procurement");
   if (has("STORE_KEEPER")) out.add("store-keeper");
   if (has("PROPERTY_ADMIN")) out.add("property-admin");
@@ -38,14 +36,13 @@ export function helpChaptersFor(me: MeContextDto | null | undefined, allChapterI
       out.add("dean-avp");
       // The AVP turns outside institutions' requests into quotes, so the portal chapter is theirs too.
       if (post === "UNIVERSITY") out.add("portal");
-    } else {
+    } else if (post !== "OFFICE") {
       out.add("head");
     }
   }
 
-  // The ICT maintenance office: a read-only, university-wide access view (or the ICT post itself).
-  const readOnlyUniversityView = (me?.views ?? []).some((v) => v.scope === "UNIVERSITY" && !v.canEdit);
-  if (scope?.code === "ICT" || readOnlyUniversityView) out.add("ict-maintenance");
+  // The ICT maintenance office.
+  if (scope?.code === "ICT") out.add("ict-maintenance");
 
   return out;
 }
@@ -68,7 +65,6 @@ const SCREEN_SECTIONS: Array<[string, string[]]> = [
   ["/admin/dashboard", ["system-admin--1-overview"]],
   ["/admin/org-structure", ["system-admin--2-org-structure"]],
   ["/admin/people", ["system-admin--3-people--roles", "head--7-your-people"]],
-  ["/admin/access-views", ["system-admin--5-access-views", "property-admin--5-access-views"]],
   ["/me/profile", ["getting-started--7-your-profile"]],
 ];
 

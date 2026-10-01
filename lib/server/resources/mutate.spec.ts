@@ -188,9 +188,9 @@ describe("F-025 — deleteItem is a soft delete", () => {
 });
 
 describe("F-024 — custody may not land on an ineligible account", () => {
-  it("refuses setCustodian to a student, and to a disabled CUSTODIAN", async () => {
+  it("refuses setCustodian to an outside account, and to a disabled CUSTODIAN", async () => {
     const studentId = (
-      await prisma.user.create({ data: { email: `f024-student-${Date.now()}@astu.edu.et`, emailLower: `f024-student-${Date.now()}@astu.edu.et`, name: "F024 Student", status: "ACTIVE", roles: { create: { kind: "STUDENT" } } } })
+      await prisma.user.create({ data: { email: `f024-student-${Date.now()}@astu.edu.et`, emailLower: `f024-student-${Date.now()}@astu.edu.et`, name: "F024 Outsider", status: "ACTIVE", roles: { create: { kind: "EXTERNAL" } } } })
     ).id;
     const disabledCustodianEmail = `f024-disabled-${Date.now()}@astu.edu.et`;
     const disabledId = (
@@ -206,7 +206,7 @@ describe("F-024 — custody may not land on an ineligible account", () => {
 
   it("refuses creating a root item with an ineligible custodian, even for SYS_ADMIN", async () => {
     const studentEmail = `f024-root-student-${Date.now()}@astu.edu.et`;
-    const studentId = (await prisma.user.create({ data: { email: studentEmail, emailLower: studentEmail, name: "F024 Root Student", status: "ACTIVE", roles: { create: { kind: "STUDENT" } } } })).id;
+    const studentId = (await prisma.user.create({ data: { email: studentEmail, emailLower: studentEmail, name: "F024 Root Outsider", status: "ACTIVE", roles: { create: { kind: "EXTERNAL" } } } })).id;
 
     await expect(
       applyChange(sysAdminId, { kind: "createItem", parentId: null, categoryId, count: 1, name: "F024 Root Test Item", ownerOrgNodeId: orgNodeId, custodianId: studentId }),

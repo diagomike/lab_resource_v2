@@ -27,12 +27,10 @@ const ALL_ROLE_KINDS: RoleKind[] = [
   "PROCUREMENT",
   "MANAGER",
   "CUSTODIAN",
-  "STAFF",
-  "STUDENT",
   "STORE_KEEPER",
   "EXTERNAL",
 ];
-const MANAGER_INVITABLE: RoleKind[] = ["CUSTODIAN", "STAFF"];
+const MANAGER_INVITABLE: RoleKind[] = ["CUSTODIAN"];
 
 export default function PersonnelPage() {
   const { user, me } = useAuth();
@@ -397,7 +395,7 @@ function PersonManageModal({
   const [emailsOn, setEmailsOn] = useState(person.emailNotifications);
   useEffect(() => setEmailsOn(person.emailNotifications), [person.emailNotifications]);
   const rolesDirty = JSON.stringify([...roleDraft].sort()) !== JSON.stringify([...person.roles].sort());
-  // A head sees and may only ever set CUSTODIAN/STAFF — the server enforces the
+  // A head sees and may only ever set CUSTODIAN — the server enforces the
   // identical floor (F-014 of the 2026-09-15 campaign); this just keeps the UI from
   // offering a control that would only 403.
   const editableRoles = isAdmin ? ALL_ROLE_KINDS : MANAGER_INVITABLE;

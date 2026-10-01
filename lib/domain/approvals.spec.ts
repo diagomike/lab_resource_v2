@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  SEED_POLICIES,
   activate,
   buildChain,
   canDecide,
@@ -11,15 +10,14 @@ import {
   isBlocked,
   collapseRepeatedApprovers,
   movementChain,
-  resolvePolicy,
+  mayRequestTransfer,
   validateChain,
-  type ApprovalPolicy,
   type ChainStep,
   type StepSelector,
 } from "./approvals";
 import { indexOrgChain } from "./org-chain";
-import { ORG_NODES, PEOPLE, SEED_CATEGORIES } from "./__fixtures__/seed";
-import type { Category, ChangeKind, Item, Person } from "./types";
+import { ORG_NODES, PEOPLE } from "./__fixtures__/seed";
+import type { Item, Person } from "./types";
 import type { RoleKind } from "@/lib/shared";
 
 /** The university's stated add route, used as a chain that fully resolves. */
@@ -32,18 +30,6 @@ const ADD_CHAIN_FIXTURE: StepSelector[] = [
 
 const orgIndex = indexOrgChain(ORG_NODES);
 const who = (id: string): Person => PEOPLE.find((p) => p.id === id)!;
-const cat = (id: string): Category => SEED_CATEGORIES.find((c) => c.id === id)!;
-
-const policy = (over: Partial<ApprovalPolicy> = {}): ApprovalPolicy => ({
-  id: "p",
-  name: "p",
-  operation: "setStatus",
-  appliesTo: { type: "ANY" },
-  actorRole: "ANY",
-  outcome: "AUTO",
-  enabled: true,
-  ...over,
-});
 
 function chain(selectors: StepSelector[], over: Partial<Parameters<typeof buildChain>[1]> = {}) {
   return buildChain(selectors, {
@@ -55,75 +41,16 @@ function chain(selectors: StepSelector[], over: Partial<Parameters<typeof buildC
   });
 }
 
-describe("resolvePolicy", () => {
-  const resolve = (policies: ApprovalPolicy[], person: Person, category?: Category) => resolvePolicy({ operation: "setStatus", person, category, policies });
+describe("mayRequestTransfer — who may ask to move resources", () => {
+  const person = (roles: RoleKind[]): Person => ({ id: "x", name: "x", homeOrgNodeId: "se", roles });
 
-  it("refuses when no rule matches — silence is not permission", () => {
-    const r = resolve([], who("u1"));
-    expect(r.outcome).toBe("DENY");
-    expect(r.reason).toMatch(/no approval rule/i);
+  it("custodians, heads, the store keeper and the admin may ask", () => {
+    for (const role of ["CUSTODIAN", "MANAGER", "STORE_KEEPER", "SYS_ADMIN"] as RoleKind[]) expect(mayRequestTransfer(person([role]))).toBe(true);
   });
 
-  it("prefers a rule naming the role over one matching anybody", () => {
-    const r = resolve(
-      [
-        policy({ id: "a", name: "anyone", actorRole: "ANY", outcome: "CHAIN", chain: [{ type: "OWNER_HEAD" }] }),
-        policy({ id: "b", name: "custodians", actorRole: "CUSTODIAN", outcome: "AUTO" }),
-      ],
-      who("u1"),
-    );
-    expect(r.policy?.id).toBe("b");
-    expect(r.outcome).toBe("AUTO");
-  });
-
-  it("prefers the narrower object selector", () => {
-    const computer = cat("computer");
-    const ranked = resolve(
-      [
-        policy({ id: "any", appliesTo: { type: "ANY" }, outcome: "CHAIN", chain: [{ type: "OWNER_HEAD" }] }),
-        policy({ id: "group", appliesTo: { type: "GROUP", group: computer.group }, outcome: "DENY" }),
-        policy({ id: "exact", appliesTo: { type: "CATEGORY", categoryId: "computer" }, outcome: "AUTO" }),
-      ],
-      who("u1"),
-      computer,
-    );
-    expect(ranked.policy?.id).toBe("exact");
-  });
-
-  it("picks the narrower role when somebody holds two posts", () => {
-    // A person who was both PROPERTY_ADMIN and CUSTODIAN had their rule chosen by
-    // whichever id sorted first — "pol-create-cust" beat "pol-prop-admin-createItem"
-    // — so the store's own intake was quietly sent up for approval. Anybody wearing
-    // two hats hits this, so it is ranked rather than left to alphabetical accident.
-    const twoHats: Person = { id: "two-hats", name: "Two hats", homeOrgNodeId: "se", roles: ["PROPERTY_ADMIN", "CUSTODIAN"] };
-    const r = resolvePolicy({ operation: "createItem", person: twoHats, category: cat("computer"), policies: SEED_POLICIES });
-    expect(r.outcome).toBe("AUTO");
-    expect(r.policy?.actorRole).toBe("PROPERTY_ADMIN");
-
-    // A plain custodian still routes, which is the rule that had been winning.
-    expect(resolvePolicy({ operation: "createItem", person: who("u1"), category: cat("computer"), policies: SEED_POLICIES }).outcome).toBe("CHAIN");
-  });
-
-  it("gives the store keeper their own rules rather than borrowed ones", () => {
-    const keeper = who("p-store");
-    expect(keeper.roles).toEqual(["STORE_KEEPER", "STAFF"]);
-    // Booking goods in is the job, so it applies at once...
-    expect(resolvePolicy({ operation: "createItem", person: keeper, category: cat("computer"), policies: SEED_POLICIES }).outcome).toBe("AUTO");
-    // ...but handing stock to a department changes who answers for it, so it does not.
-    const handover = resolvePolicy({ operation: "transferItem", person: keeper, category: cat("computer"), policies: SEED_POLICIES });
-    expect(handover.outcome).toBe("CHAIN");
-    expect(handover.policy?.chain).toEqual([{ type: "TARGET_HEAD" }, { type: "NODE_OCCUPANT", nodeId: "property-office" }, { type: "TARGET_CUSTODIAN" }]);
-  });
-
-  it("treats a routing rule that names no approver as a refusal", () => {
-    const r = resolve([policy({ outcome: "CHAIN", chain: [] })], who("u1"));
-    expect(r.outcome).toBe("DENY");
-    expect(r.reason).toMatch(/names no approver/i);
-  });
-
-  it("ignores disabled rules", () => {
-    const r = resolve([policy({ outcome: "AUTO", enabled: false })], who("u1"));
-    expect(r.outcome).toBe("DENY");
+  it("the offices that only approve, an outside requester and nobody at all may not", () => {
+    for (const role of ["PROCUREMENT", "PROPERTY_ADMIN", "EXTERNAL"] as RoleKind[]) expect(mayRequestTransfer(person([role]))).toBe(false);
+    expect(mayRequestTransfer(undefined)).toBe(false);
   });
 });
 
@@ -351,71 +278,8 @@ describe("describeSelectors states a rule without naming a department", () => {
     expect(describeSelectors([], ORG_NODES)).toBe("nobody — applies immediately");
   });
 
-  it("shows every step of a rule the old preview truncated", () => {
-    const storeTransfer = SEED_POLICIES.find((p) => p.id === "pol-store-transfer")!;
-    expect(describeSelectors(storeTransfer.chain!, ORG_NODES)).toBe("Head of the receiving unit → Property Administration Office → Receiving custodian accepts");
-
-    const headBorrow = SEED_POLICIES.find((p) => p.id === "pol-transfer-mgr")!;
-    expect(describeSelectors(headBorrow.chain!, ORG_NODES)).toBe("Current custodian → Head of the owning unit → Requester confirms receipt");
-  });
-});
-
-describe("the seeded rules match what the university described", () => {
-  const resolve = (operation: ChangeKind, person: Person, category?: Category) => resolvePolicy({ operation, person, category, policies: SEED_POLICIES });
-
-  it("lets a custodian correct a field with no approval at all", () => {
-    expect(resolve("setProperty", who("u1"), cat("computer")).outcome).toBe("AUTO");
-  });
-
-  it("sends a custodian's status change to the department head", () => {
-    const r = resolve("setStatus", who("u1"), cat("computer"));
-    expect(r.outcome).toBe("CHAIN");
-    expect(describeChain(chain(r.policy!.chain!))).toBe("Head — Software Engineering");
-  });
-
-  it("but lets consumables be written off directly", () => {
-    // A bottle of acetone running out is a fact being recorded, not a decision.
-    expect(cat("chemical").countingMode).toBe("BULK");
-    expect(resolve("setStatus", who("u1"), cat("chemical")).outcome).toBe("AUTO");
-  });
-
-  it("routes a new resource all the way up and back for receipt", () => {
-    const r = resolve("createItem", who("u1"), cat("computer"));
-    expect(r.outcome).toBe("CHAIN");
-    expect(describeChain(chain(r.policy!.chain!))).toBe(
-      "Head — Software Engineering → College — College of Electrical Engineering and Computing → University — Adama Science and Technology University → Procurement Office → Confirm receipt",
-    );
-  });
-
-  it("lets a head create a laboratory outright, but not equipment", () => {
-    expect(resolve("createItem", who("p-head-se"), cat("lab")).outcome).toBe("AUTO");
-    expect(resolve("createItem", who("p-head-se"), cat("computer")).outcome).toBe("CHAIN");
-  });
-
-  it("refuses students and instructors everything", () => {
-    for (const op of ["setProperty", "setStatus", "createItem", "deleteItem"] as ChangeKind[]) {
-      expect(resolve(op, who("u7"), cat("computer")).outcome).toBe("DENY");
-      expect(resolve(op, who("u2"), cat("computer")).outcome).toBe("DENY");
-    }
-  });
-
-  it("lets the property office act on the register it holds", () => {
-    expect(resolve("setStatus", who("p-property"), cat("computer")).outcome).toBe("AUTO");
-  });
-
-  it("names a role for every rule it enables, or matches anybody deliberately", () => {
-    for (const p of SEED_POLICIES) {
-      if (p.outcome === "CHAIN") expect(p.chain?.length).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe("role coverage", () => {
-  it("gives every role that can hold resources some way to record a correction", () => {
-    for (const role of ["CUSTODIAN", "MANAGER", "PROPERTY_ADMIN", "PROCUREMENT"] as RoleKind[]) {
-      const person: Person = { id: "x", name: "x", homeOrgNodeId: "se", roles: [role] };
-      expect(resolvePolicy({ operation: "setProperty", person, category: cat("computer"), policies: SEED_POLICIES }).outcome).toBe("AUTO");
-    }
+  it("shows every step of a movement's line", () => {
+    expect(describeSelectors(movementChain("STORE_OUT", { propertyNodeId: "property-office" }), ORG_NODES)).toContain("Property Administration");
   });
 });
 

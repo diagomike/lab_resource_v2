@@ -158,6 +158,9 @@ export async function createStaffBooking(userId: string, input: BookingInput): P
   const target = await resolveBookingTarget(prisma, input.itemIds);
   const viewer = await viewerOf(userId);
   const confirms = decidesFor(viewer, target.lab.id);
+  // A custodian books their own room or machines for someone (staff and students ask the
+  // custodian outside the system): who it is for is part of the record.
+  if (confirms && !viewer.sysAdmin && !input.onBehalfOfNote?.trim()) throw new HttpError(400, "Say who the booking is for.");
   const id = await writeReservation(target, input, {
     source: "STAFF",
     state: confirms ? "CONFIRMED" : "REQUESTED",

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { RoleKindSchema, UserStatusSchema } from "./enums";
 import { ScopeDto } from "./scope";
-import { AccessViewSummaryDto } from "./resources/access-view";
 import { ScopeModeSchema } from "./resources/enums";
 
 export const LoginInput = z.object({
@@ -75,10 +74,5 @@ export const MeContextDto = z.object({
    *  not resource reach specifically (they usually agree, but MY_CUSTODY has no org
    *  node of its own). */
   scopeMode: ScopeModeSchema,
-  /** Access views this person may choose between (lib/domain/views.ts's
-   *  `viewsForPerson`), most specific first. Empty until Phase 11 of
-   *  ~/.claude/plans/wait-i-want-gentle-haven.md seeds real AccessView rows — the
-   *  sidebar's view picker degrades to just the scope label when this is empty. */
-  views: z.array(AccessViewSummaryDto),
 });
 export type MeContextDto = z.infer<typeof MeContextDto>;

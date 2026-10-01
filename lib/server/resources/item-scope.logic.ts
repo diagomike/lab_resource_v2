@@ -18,16 +18,12 @@ import type { ScopeMode } from "@/lib/shared";
  * alone would hide it from the department that still owns it and will want it back
  * (lib/domain/item-scope.ts's `unitsOf`, mirrored here at the SQL predicate level).
  *
- * Four modes, matching lib/shared's ScopeMode (the seam AccessView, Phase 11 of
- * ~/.claude/plans/wait-i-want-gentle-haven.md, plugs into by supplying a mode other
- * than the caller's default and/or an explicit node list):
+ * Three modes, matching lib/shared's ScopeMode:
  *  - UNIVERSITY      — no restriction.
  *  - ORG_SUBTREE     — owner-or-current in the given node id set.
  *  - MY_CUSTODY      — a precomputed item id set (custodianId = self, plus every
  *    descendant, resolved by scope.ts via a recursive query — this module never
  *    walks the tree itself).
- *  - EXPLICIT_NODES  — same shape as ORG_SUBTREE, against a hand-picked node list
- *    instead of computed reach.
  *
  * `extraGrantedIds` (approvalGrantIds, Phase 12) is additive on top of any mode: being
  * asked to approve a change is itself an access grant, independent of whether the
@@ -42,16 +38,13 @@ export interface ItemScopeInput {
    *  array (possibly empty — "custodian of nothing" must still narrow to zero rows,
    *  never fall through to a wider mode). */
   custodyItemIds: string[] | null;
-  /** EXPLICIT_NODES only. */
-  explicitNodeIds?: string[];
   /** Additive across every mode — ids visible for a reason independent of scope
    *  (an open approval naming this item). Not yet supplied by any caller until
    *  Phase 12; the parameter exists now so that phase is a pure addition. */
   extraGrantedIds?: string[];
 }
 
-/** Never matches any row — the "no reach at all" case (a role with no default scope,
- *  or an EXPLICIT_NODES view drawn empty). */
+/** Never matches any row — the "no reach at all" case (a role with no default scope). */
 export const NO_ITEMS_WHERE: Prisma.ItemWhereInput = { id: { in: [] } };
 
 export function buildItemScopeWhere(input: ItemScopeInput): Prisma.ItemWhereInput {
@@ -65,7 +58,7 @@ export function buildItemScopeWhere(input: ItemScopeInput): Prisma.ItemWhereInpu
     return { OR: [{ id: { in: custody } }, ...grant] };
   }
 
-  const nodeIds = input.mode === "EXPLICIT_NODES" ? (input.explicitNodeIds ?? []) : input.visibleNodeIds;
+  const nodeIds = input.visibleNodeIds;
   const reach: Prisma.ItemWhereInput[] = nodeIds.length
     ? [{ ownerOrgNodeId: { in: nodeIds } }, { currentOrgNodeId: { in: nodeIds } }]
     : [];

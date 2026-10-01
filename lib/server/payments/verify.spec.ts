@@ -130,10 +130,10 @@ beforeAll(async () => {
   ({ prisma } = await import("../prisma"));
   ({ storage } = await import("../resources/storage"));
 
-  avpId = await makeUser("avp", ["MANAGER", "STAFF"]);
+  avpId = await makeUser("avp", ["MANAGER"]);
   deanId = await makeUser("dean", ["MANAGER"]);
-  headId = await makeUser("head", ["MANAGER", "STAFF"]);
-  custodianId = await makeUser("custodian", ["CUSTODIAN", "STAFF"]);
+  headId = await makeUser("head", ["MANAGER"]);
+  custodianId = await makeUser("custodian", ["CUSTODIAN"]);
   requesterId = await makeUser("requester", ["EXTERNAL"]);
 
   universityNode = (await prisma.orgNode.create({ data: { name: `${testKey}-uni`, level: 0, kind: "UNIVERSITY", active: true, userId: avpId } })).id;
@@ -325,7 +325,7 @@ describe("confirmation", () => {
     ]);
     // Both holds lapse (a manual review ran long); meanwhile a class takes day 50's slot.
     await prisma.reservation.updateMany({ where: { externalRequestId: r.id }, data: { holdExpiresAt: new Date(Date.now() - 60_000) } });
-    await reservations.createStaffBooking(custodianId, { itemIds: [labId], date: dayAhead(50), start: "10:00", end: "11:00", title: "Took the slot" });
+    await reservations.createStaffBooking(custodianId, { itemIds: [labId], date: dayAhead(50), start: "10:00", end: "11:00", title: "Took the slot", onBehalfOfNote: "A class" });
 
     const reference = ref("LAPSED");
     cbeReceipt(reference, 10_000);

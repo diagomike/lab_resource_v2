@@ -85,6 +85,7 @@ export function toDomainCategory(
 ): Category {
   return {
     id: row.id,
+    key: row.key,
     name: row.name,
     iconKey: row.iconKey,
     countingMode: row.countingMode,

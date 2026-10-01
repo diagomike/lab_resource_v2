@@ -132,11 +132,11 @@ beforeAll(async () => {
   ({ prisma } = await import("../prisma"));
   ({ storage } = await import("../resources/storage"));
 
-  avpId = await makeUser("avp", ["MANAGER", "STAFF"]);
+  avpId = await makeUser("avp", ["MANAGER"]);
   deanId = await makeUser("dean", ["MANAGER"]);
-  headAId = await makeUser("head-a", ["MANAGER", "STAFF"]);
-  headBId = await makeUser("head-b", ["MANAGER", "STAFF"]);
-  staffId = await makeUser("staff", ["STAFF"]);
+  headAId = await makeUser("head-a", ["MANAGER"]);
+  headBId = await makeUser("head-b", ["MANAGER"]);
+  staffId = await makeUser("staff", ["PROCUREMENT"]); // an internal account that is not a custodian
   requesterId = await makeUser("requester", ["EXTERNAL"], { organisation: "Test Institute of Data" });
   otherRequesterId = await makeUser("requester-2", ["EXTERNAL"]);
 
@@ -148,8 +148,8 @@ beforeAll(async () => {
   nodeA = await makeNode("dept-a", "DEPARTMENT", 2, headAId, college);
   nodeB = await makeNode("dept-b", "DEPARTMENT", 2, headBId, college);
   outsideDept = await makeNode("dept-outside", "DEPARTMENT", 2, null);
-  custodianId = await makeUser("custodian", ["CUSTODIAN", "STAFF"], { homeNodeId: nodeA });
-  custodian2Id = await makeUser("custodian-2", ["CUSTODIAN", "STAFF"], { homeNodeId: nodeA });
+  custodianId = await makeUser("custodian", ["CUSTODIAN"], { homeNodeId: nodeA });
+  custodian2Id = await makeUser("custodian-2", ["CUSTODIAN"], { homeNodeId: nodeA });
 
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
   roomCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-room`, name: "Ext Room", iconKey: "Package", groupId, countingMode: "SERIALIZED", canBeRoot: true, bookingMode: "ROOM", publicListed: true } })).id;
@@ -250,7 +250,7 @@ describe("down the line and back: AVP → dean → head → custodians → head 
     dto = await requests.placeHold(custodianId, r.id, { itemIds: [labId], date, start: "09:00", end: "12:00" });
     expect(dto.holds.map((h) => h.state)).toEqual(["HELD"]);
     // The hold really blocks the calendar.
-    await expect(reservations.createStaffBooking(custodianId, { itemIds: [labId], date, start: "10:00", end: "11:00", title: "Clash" })).rejects.toMatchObject({ status: 409 });
+    await expect(reservations.createStaffBooking(custodianId, { itemIds: [labId], date, start: "10:00", end: "11:00", title: "Clash", onBehalfOfNote: "A class" })).rejects.toMatchObject({ status: 409 });
 
     // The head can't answer while a custodian still hasn't; "done" needs a hold.
     await expect(requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_000_000, contacts: [CONTACT] })).rejects.toMatchObject({ status: 409 });
@@ -306,7 +306,7 @@ describe("down the line and back: AVP → dean → head → custodians → head 
     expect(dto.assignments.map((a) => a.status)).toEqual(["DECLINED", "DECLINED"]);
     expect(dto.holds.map((h) => h.state)).toEqual(["CANCELLED"]);
     expect(dto.can.quote).toBe(false);
-    await expect(reservations.createStaffBooking(custodianId, { itemIds: [labId], date, start: "10:00", end: "11:00", title: "Now free" })).resolves.toMatchObject({ state: "CONFIRMED" });
+    await expect(reservations.createStaffBooking(custodianId, { itemIds: [labId], date, start: "10:00", end: "11:00", title: "Now free", onBehalfOfNote: "A class" })).resolves.toMatchObject({ state: "CONFIRMED" });
   });
 
   it("a sample analysis books a machine the same way, and the requester sees the machine", async () => {

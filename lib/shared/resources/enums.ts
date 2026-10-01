@@ -96,19 +96,19 @@ export const itemChangeTargets = ["ITEM", "CATEGORY"] as const;
 export const ItemChangeTargetSchema = z.enum(itemChangeTargets);
 export type ItemChangeTarget = (typeof itemChangeTargets)[number];
 
-// ── Access views ─────────────────────────────────────────────────────────
-export const scopeModes = ["UNIVERSITY", "ORG_SUBTREE", "MY_CUSTODY", "EXPLICIT_NODES"] as const;
+// ── Read scope ───────────────────────────────────────────────────────────
+export const scopeModes = ["UNIVERSITY", "ORG_SUBTREE", "MY_CUSTODY"] as const;
 export const ScopeModeSchema = z.enum(scopeModes);
 export type ScopeMode = (typeof scopeModes)[number];
 
-export const viewAudienceTypes = ["EVERYONE", "ROLE", "PERSON"] as const;
-export const ViewAudienceTypeSchema = z.enum(viewAudienceTypes);
-export type ViewAudienceType = (typeof viewAudienceTypes)[number];
+/** How a person's default reach reads in words. */
+export const SCOPE_LABEL: Record<ScopeMode, string> = {
+  UNIVERSITY: "The whole university",
+  ORG_SUBTREE: "My unit and below",
+  MY_CUSTODY: "What I look after",
+};
 
 // ── Approvals ────────────────────────────────────────────────────────────
-export const policyOutcomes = ["AUTO", "CHAIN", "DENY"] as const;
-export const PolicyOutcomeSchema = z.enum(policyOutcomes);
-export type PolicyOutcome = (typeof policyOutcomes)[number];
 
 export const requestStatuses = ["PENDING", "APPLIED", "REJECTED", "CANCELLED", "STALE"] as const;
 export const RequestStatusSchema = z.enum(requestStatuses);
@@ -118,18 +118,17 @@ export const stepStatuses = ["PENDING", "WAITING", "APPROVED", "REJECTED", "SKIP
 export const StepStatusSchema = z.enum(stepStatuses);
 export type StepStatus = (typeof stepStatuses)[number];
 
-// ── Lab states: Current / Draft / Ideal ─────────────────────────────────
-/** What a lab commit decides: VISIBLE merges a Draft into Current; IDEAL replaces the
- *  lab's Ideal with a proposal. */
-export const draftTargetKinds = ["VISIBLE", "IDEAL"] as const;
+// ── A lab's changes: Current / Draft ──────────────────────────────────
+/** What a lab commit decides: VISIBLE merges a Draft into Current. */
+export const draftTargetKinds = ["VISIBLE"] as const;
 export const DraftTargetKindSchema = z.enum(draftTargetKinds);
 export type DraftTargetKind = (typeof draftTargetKinds)[number];
 
-export const labVersionKinds = ["DRAFT", "IDEAL", "IDEAL_PROPOSAL"] as const;
+export const labVersionKinds = ["DRAFT"] as const;
 export const LabVersionKindSchema = z.enum(labVersionKinds);
 export type LabVersionKind = (typeof labVersionKinds)[number];
 
-export const labVersionStatuses = ["EDITING", "SUBMITTED", "APPROVED"] as const;
+export const labVersionStatuses = ["EDITING", "SUBMITTED"] as const;
 export const LabVersionStatusSchema = z.enum(labVersionStatuses);
 export type LabVersionStatus = (typeof labVersionStatuses)[number];
 
@@ -150,14 +149,18 @@ export const stepSelectorTypes = [
 export const StepSelectorTypeSchema = z.enum(stepSelectorTypes);
 export type StepSelectorType = (typeof stepSelectorTypes)[number];
 
-export const objectSelectorTypes = ["ANY", "GROUP", "CATEGORY", "COUNTING_MODE"] as const;
-export const ObjectSelectorTypeSchema = z.enum(objectSelectorTypes);
-export type ObjectSelectorType = (typeof objectSelectorTypes)[number];
-
 // ── Procurement ──────────────────────────────────────────────────────────
 export const needStatuses = ["OPEN", "CARRIED", "DECLINED"] as const;
 export const NeedStatusSchema = z.enum(needStatuses);
 export type NeedStatus = (typeof needStatuses)[number];
+
+export const needPriorities = ["ESSENTIAL", "IMPORTANT", "NICE_TO_HAVE"] as const;
+export const NeedPrioritySchema = z.enum(needPriorities);
+export type NeedPriority = (typeof needPriorities)[number];
+
+export const needKinds = ["NEW", "REPLACEMENT"] as const;
+export const NeedKindSchema = z.enum(needKinds);
+export type NeedKind = (typeof needKinds)[number];
 
 export const purchaseStages = [
   "DRAFT",

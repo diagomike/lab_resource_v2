@@ -83,6 +83,15 @@ async function makeUser(suffix: string, roles: string[] = []) {
 }
 
 /** A standalone, orphan node — no parent edges into the real shared org chart. */
+/** A lab owned by `ownerOrgNodeId` and run by `custodianId` — needs are raised for one. */
+async function makeLab(ownerOrgNodeId: string, custodianId: string, name = "Purchasing Spec Lab"): Promise<string> {
+  const lab = await prisma.item.create({
+    data: { categoryId: serializedCategoryId, name, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId, currentOrgNodeId: ownerOrgNodeId, custodianId },
+  });
+  createdItemIds.push(lab.id);
+  return lab.id;
+}
+
 async function makeNode(name: string, kind: "UNIVERSITY" | "COLLEGE" | "DEPARTMENT" | "OFFICE", level: number, headId: string | null) {
   const node = await prisma.orgNode.create({ data: { name: `${testKey}-${name}`, level, kind, active: true, userId: headId } });
   createdNodeIds.push(node.id);
@@ -239,11 +248,11 @@ describe("needs — raise, browse, decline", () => {
   it("raises a need at the actor's own home unit, and a head can decline it with a note", async () => {
     const headId = await makeUser("needs-head", ["MANAGER"]);
     const { deptId } = await makeChain("needs", headId);
-    const staffId = await makeUser("needs-staff", ["STAFF"]);
+    const staffId = await makeUser("needs-staff", ["CUSTODIAN"]);
     await setHead(deptId, headId);
     await prisma.user.update({ where: { id: staffId }, data: { homeNodeId: deptId } });
 
-    const need = await purchasing.raiseNeed(staffId, { name: "Digital balance", qty: 1, reason: "Ours is broken" });
+    const need = await purchasing.raiseNeed(staffId, { labItemId: await makeLab(deptId, staffId), name: "Digital balance", qty: 1, reason: "Ours is broken", priority: "ESSENTIAL", kind: "NEW" });
     createdNeedIds.push(need.id);
     expect(need.status).toBe("OPEN");
     expect(need.orgNodeId).toBe(deptId);
@@ -256,11 +265,43 @@ describe("needs — raise, browse, decline", () => {
     expect(declined.note).toBe("Not this quarter");
   });
 
-  it("a student may not raise a need", async () => {
-    const studentId = await makeUser("needs-student", ["STUDENT"]);
+  it("only a custodian raises a need, and only for a lab they run", async () => {
+    const studentId = await makeUser("needs-not-custodian", ["MANAGER"]);
     const { deptId } = await makeChain("needs-student-chain", studentId);
     await prisma.user.update({ where: { id: studentId }, data: { homeNodeId: deptId } });
-    await expect(purchasing.raiseNeed(studentId, { name: "x", qty: 1, reason: "y" })).rejects.toMatchObject({ status: 403 });
+    const labId = await makeLab(deptId, studentId);
+    await expect(purchasing.raiseNeed(studentId, { labItemId: labId, name: "x", qty: 1, reason: "y", priority: "IMPORTANT", kind: "NEW" })).rejects.toMatchObject({ status: 403 });
+
+    const otherCustodianId = await makeUser("needs-other-custodian", ["CUSTODIAN"]);
+    await prisma.user.update({ where: { id: otherCustodianId }, data: { homeNodeId: deptId } });
+    await expect(purchasing.raiseNeed(otherCustodianId, { labItemId: labId, name: "x", qty: 1, reason: "y", priority: "IMPORTANT", kind: "NEW" })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("a broken item is suggested for replacement until one is asked for, and an unhandled need can be withdrawn", async () => {
+    const headId = await makeUser("repl-head", ["MANAGER"]);
+    const { deptId } = await makeChain("repl", headId);
+    await setHead(deptId, headId);
+    const custodianId = await makeUser("repl-custodian", ["CUSTODIAN"]);
+    await prisma.user.update({ where: { id: custodianId }, data: { homeNodeId: deptId } });
+    const labId = await makeLab(deptId, custodianId, "Replacement Lab");
+    const broken = await prisma.item.create({
+      data: { categoryId: serializedCategoryId, name: "Balance 02", countingMode: "SERIALIZED", status: "BROKEN", parentId: labId, ownerOrgNodeId: deptId, currentOrgNodeId: deptId, custodianId },
+    });
+    createdItemIds.push(broken.id);
+
+    const suggested = (rows: Awaited<ReturnType<typeof purchasing.replacementSuggestions>>) => rows.flatMap((r) => r.items.map((i) => i.id));
+    expect(suggested(await purchasing.replacementSuggestions(custodianId))).toContain(broken.id);
+    expect(suggested(await purchasing.replacementSuggestions(headId, deptId))).toContain(broken.id);
+
+    const need = await purchasing.raiseNeed(custodianId, { labItemId: labId, name: "Analytical balance", qty: 1, reason: "Balance 02 is broken", priority: "ESSENTIAL", kind: "REPLACEMENT", replacesItemIds: [broken.id] });
+    createdNeedIds.push(need.id);
+    expect(need).toMatchObject({ kind: "REPLACEMENT", replacesItems: [{ id: broken.id, name: "Balance 02" }], categoryId: serializedCategoryId, labName: "Replacement Lab" });
+    expect(suggested(await purchasing.replacementSuggestions(custodianId))).not.toContain(broken.id);
+    await expect(purchasing.raiseNeed(custodianId, { labItemId: labId, name: "Again", qty: 1, reason: "y", priority: "IMPORTANT", kind: "REPLACEMENT", replacesItemIds: [broken.id] })).rejects.toMatchObject({ status: 409 });
+
+    await expect(purchasing.withdrawNeed(headId, need.id)).rejects.toMatchObject({ status: 404 });
+    await purchasing.withdrawNeed(custodianId, need.id);
+    expect(await prisma.needLine.findUnique({ where: { id: need.id } })).toBeNull();
   });
 });
 
@@ -406,7 +447,9 @@ describe("compilePurchaseRequest — the org chart as the ladder", () => {
     const headId = await makeUser("carry-head", ["MANAGER"]);
     const { deptId } = await makeChain("carry", headId);
     await prisma.user.update({ where: { id: headId }, data: { homeNodeId: deptId } });
-    const need = await purchasing.raiseNeed(headId, { name: "Fume hood", qty: 1, reason: "None in the lab" });
+    const carryCustodianId = await makeUser("carry-custodian", ["CUSTODIAN"]);
+    await prisma.user.update({ where: { id: carryCustodianId }, data: { homeNodeId: deptId } });
+    const need = await purchasing.raiseNeed(carryCustodianId, { labItemId: await makeLab(deptId, carryCustodianId), name: "Fume hood", qty: 1, reason: "None in the lab", priority: "IMPORTANT", kind: "NEW" });
     createdNeedIds.push(need.id);
 
     const result = await purchasing.compilePurchaseRequest(headId, compileInput(deptId, { lines: [{ name: "Fume hood", qty: 1, unit: "Unit", fromNeedIds: [need.id] }] }));
@@ -527,14 +570,14 @@ describe("cancelPurchaseRequest", () => {
   });
 
   it("F-046: rejecting or cancelling a request reopens the needs it carried", async () => {
-    const staffId = await makeUser("f046-staff", ["STAFF"]);
+    const staffId = await makeUser("f046-staff", ["CUSTODIAN"]);
     const headId = await makeUser("f046-head", ["MANAGER"]);
     const collegeHeadId = await makeUser("f046-college-head");
     const { collegeId, deptId } = await makeChain("f046", headId);
     await setHead(collegeId, collegeHeadId);
     await prisma.user.update({ where: { id: staffId }, data: { homeNodeId: deptId } });
 
-    const need = await purchasing.raiseNeed(staffId, { name: "F046 Projector", qty: 1, reason: "Ours broke" });
+    const need = await purchasing.raiseNeed(staffId, { labItemId: await makeLab(deptId, staffId), name: "F046 Projector", qty: 1, reason: "Ours broke", priority: "IMPORTANT", kind: "NEW" });
     createdNeedIds.push(need.id);
 
     const rejected = await purchasing.compilePurchaseRequest(headId, compileInput(deptId, { lines: [{ name: "F046 Projector", qty: 1, unit: "Unit", fromNeedIds: [need.id] }] }));
@@ -833,7 +876,7 @@ describe("history and visibility — every send-back is kept, everyone involved 
     await makeNode("vis-other-dept", "DEPARTMENT", 2, otherHeadId);
     const otherMemberId = await makeUser("vis-other-member", ["CUSTODIAN"]);
 
-    const need = await purchasing.raiseNeed(memberId, { name: "Oscilloscope", qty: 1, reason: "Signals course" });
+    const need = await purchasing.raiseNeed(memberId, { labItemId: await makeLab(deptId, memberId), name: "Oscilloscope", qty: 1, reason: "Signals course", priority: "IMPORTANT", kind: "NEW" });
     createdNeedIds.push(need.id);
     const compiled = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId, { lines: [{ name: "Oscilloscope", qty: 1, fromNeedIds: [need.id] }] }));
     createdRequestIds.push(compiled.id);
@@ -924,7 +967,7 @@ describe("attachments — minutes, letters and spreadsheets on a request", () =>
 
     // Following the request is what lets you read its documents.
     await purchasing.assertCanReadRequest(deanId, request.id);
-    const outsiderId = await makeUser("att-outsider", ["STAFF"]);
+    const outsiderId = await makeUser("att-outsider", ["CUSTODIAN"]);
     await expect(purchasing.assertCanReadRequest(outsiderId, request.id)).rejects.toMatchObject({ status: 404 });
   });
 
@@ -978,7 +1021,7 @@ describe("attachments — minutes, letters and spreadsheets on a request", () =>
   });
 
   it("refuses what isn't a PDF, image or .xlsx, files over the size limit, and more than 5 with one action", async () => {
-    const userId = await makeUser("att-refuse", ["STAFF"]);
+    const userId = await makeUser("att-refuse", ["CUSTODIAN"]);
     await expect(attachments.stage(userId, "x.html", Buffer.from("<html></html>"))).rejects.toMatchObject({ status: 400 });
     await expect(attachments.stage(userId, "empty.pdf", Buffer.alloc(0))).rejects.toMatchObject({ status: 400 });
     const tooBig = Buffer.concat([pdf("big"), Buffer.alloc(4 * 1024 * 1024)]);
@@ -992,7 +1035,7 @@ describe("attachments — minutes, letters and spreadsheets on a request", () =>
   });
 
   it("caps what one person may hold unsent, and sweeps unsent files once they expire", async () => {
-    const userId = await makeUser("att-staged", ["STAFF"]);
+    const userId = await makeUser("att-staged", ["CUSTODIAN"]);
     const ids = [];
     for (let i = 0; i < 10; i++) ids.push((await attachments.stage(userId, `s${i}.pdf`, pdf(`staged-${i}`))).id);
     await expect(attachments.stage(userId, "eleventh.pdf", pdf("staged-10"))).rejects.toMatchObject({ status: 409 });

@@ -13,9 +13,10 @@ import { CalendarLegend, SOURCE_LABEL, STATE_LABEL, WeekCalendar, WeekNav } from
  * (~/.claude/plans/understand-where-we-are-crystalline-marshmallow.md).
  *
  *  - My labs: a custodian's rooms — the week, weekly class slots, requests to decide.
- *  - Book: any staff member finds a room or machine and asks for a time; students are
- *    booked for by their advisor ("on behalf of").
- *  - My bookings: what I have asked for.
+ *  - Book: a custodian books their own room or machines for someone (confirmed at once,
+ *    with who it is for); a custodian or head asks for someone else's room, and that
+ *    room's custodian decides.
+ *  - My bookings: what I have booked or asked for.
  *
  * Every time here is a civil date + "HH:mm" in the venue's zone; the server converts.
  */
@@ -113,7 +114,7 @@ function ReservationModal({ reservation, onClose, onChanged }: { reservation: Re
         <div className="text-dim">{r.resources.map((x) => x.name).join(", ")}</div>
         {r.requestedByName && <div className="text-dim">Requested by {r.requestedByName}</div>}
         {r.participantCount && <div className="text-dim">{r.participantCount} participants</div>}
-        {r.onBehalfOfNote && <div className="text-dim">On behalf of: {r.onBehalfOfNote}</div>}
+        {r.onBehalfOfNote && <div className="text-dim">Booked for: {r.onBehalfOfNote}</div>}
         {r.holdExpiresAt && <div className="text-dim">Hold lapses {new Date(r.holdExpiresAt).toLocaleString()}</div>}
         {r.note && <div className="text-dim italic">"{r.note}"</div>}
         {r.decidedByName && <div className="text-faint text-10.5">Last decided by {r.decidedByName}</div>}
@@ -284,17 +285,17 @@ function BookingForm({
       </div>
 
       <label className="flex flex-col gap-4">
-        <span className={labelClass}>For</span>
+        <span className={labelClass}>What it&apos;s for</span>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Thesis simulations, SE401 group project" className={inputClass} />
       </label>
       <div className="flex flex-wrap gap-8">
+        <label className="flex flex-col gap-4 flex-1 min-w-[200px]">
+          <span className={labelClass}>Booked for{preview?.autoConfirm ? "" : " (optional)"}</span>
+          <input value={onBehalfOf} onChange={(e) => setOnBehalfOf(e.target.value)} placeholder="A name, a class or a group — e.g. Dr Abebe, SE401 group 3" className={inputClass} />
+        </label>
         <label className="flex flex-col gap-4 w-[120px]">
           <span className={labelClass}>People</span>
           <input type="number" min={1} value={participants} onChange={(e) => setParticipants(e.target.value)} className={inputClass} />
-        </label>
-        <label className="flex flex-col gap-4 flex-1 min-w-[200px]">
-          <span className={labelClass}>On behalf of students (optional)</span>
-          <input value={onBehalfOf} onChange={(e) => setOnBehalfOf(e.target.value)} placeholder="Advisees' names or IDs" className={inputClass} />
         </label>
       </div>
 
@@ -308,7 +309,7 @@ function BookingForm({
         ) : (
           <>
             <span className="text-good">
-              Free. {preview.autoConfirm ? "Confirms immediately — this is your room." : `Waits for ${preview.custodianName || "the custodian"} to approve.`}
+              Free. {preview.autoConfirm ? "Confirmed at once — this is your room." : `Waits for ${preview.custodianName || "the custodian"} to approve.`}
             </span>
             <ClashList clashes={preview.contending} heading="Others have also asked for this time" />
           </>
@@ -317,7 +318,7 @@ function BookingForm({
 
       {error && <ErrorNote>{error}</ErrorNote>}
       <div>
-        <Button variant="primary" onClick={submit} disabled={busy || !title.trim() || !itemIds.length || !preview || preview.blocking.length > 0}>
+        <Button variant="primary" onClick={submit} disabled={busy || !title.trim() || !itemIds.length || !preview || preview.blocking.length > 0 || (preview.autoConfirm && !onBehalfOf.trim())}>
           {busy ? "Booking…" : preview?.autoConfirm ? "Book" : "Request booking"}
         </Button>
       </div>

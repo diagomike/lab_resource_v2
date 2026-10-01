@@ -60,7 +60,6 @@ export default function AdminDashboardPage() {
                 ["Org structure", "/admin/org-structure", "draw the university, colleges, departments and offices, and assign each one's head."],
                 ["People & roles", "/admin/people", "invite custodians, staff and the university offices; heads can invite their own department's people too."],
                 ["Categories", "/categories", "the kinds of resources and their details; make labs and machines bookable, and choose what the public portal lists."],
-                ["Access views", "/admin/access-views", "widen what a person or role may see — read-only if they should look but not touch."],
               ].map(([label, path, text]) => (
                 <li key={path}>
                   <button onClick={() => router.push(path)} className="text-accent hover:underline">

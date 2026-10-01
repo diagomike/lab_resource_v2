@@ -58,23 +58,6 @@ describe("buildItemScopeWhere", () => {
     expect(where).toEqual(NO_ITEMS_WHERE);
   });
 
-  it("EXPLICIT_NODES scopes to a hand-picked set, ignoring the caller's own visibleNodeIds", () => {
-    const where = buildItemScopeWhere({
-      mode: "EXPLICIT_NODES",
-      custodyItemIds: null,
-      visibleNodeIds: ["se"],
-      explicitNodeIds: ["chem-store"],
-    });
-    expect(where).toEqual({
-      OR: [{ ownerOrgNodeId: { in: ["chem-store"] } }, { currentOrgNodeId: { in: ["chem-store"] } }],
-    });
-  });
-
-  it("an empty EXPLICIT_NODES view matches nothing", () => {
-    const where = buildItemScopeWhere({ mode: "EXPLICIT_NODES", custodyItemIds: null, visibleNodeIds: ["se"], explicitNodeIds: [] });
-    expect(where).toEqual(NO_ITEMS_WHERE);
-  });
-
   it("extraGrantedIds is additive — an approval grant reaches an item outside the caller's own scope", () => {
     const where = buildItemScopeWhere({
       mode: "ORG_SUBTREE",

@@ -10,7 +10,7 @@ async function main() {
   await check(Z, "Z-01", "offboarding: a custodian with custody cannot be deactivated; after bulk custody handoff, they can", async () => {
     // Give a throwaway custodian one item, then try to deactivate.
     const email = `${uniq("z-leaver")}@e2e.test`;
-    const p = await post("admin", "/people", { name: "Z Leaver", email, roles: ["CUSTODIAN", "STAFF"], homeNodeId: se });
+    const p = await post("admin", "/people", { name: "Z Leaver", email, roles: ["CUSTODIAN"], homeNodeId: se });
     await db.user.update({ where: { id: p.body.id }, data: { status: "ACTIVE" } });
     const lab = (await post("admin", "/resources/items/changes", { kind: "createItem", parentId: null, categoryId: (await db.resourceCategory.findUniqueOrThrow({ where: { key: "lab" } })).id, count: 1, ownerOrgNodeId: se, custodianId: p.body.id, name: uniq("Z Lab") })).body.itemIds[0];
     const blocked = await post("admin", `/people/${p.body.id}/deactivate`);
@@ -88,7 +88,7 @@ async function main() {
   await check(Z, "Z-08", "every write endpoint refuses an anonymous (no cookie) caller with 401", async () => {
     const calls: Record<string, number> = {
       createNode: (await post(null, "/org/nodes", { name: "x", level: 1, kind: "COLLEGE", parentIds: [] })).status,
-      invite: (await post(null, "/people", { name: "x", email: "x@e2e.test", roles: ["STAFF"] })).status,
+      invite: (await post(null, "/people", { name: "x", email: "x@e2e.test", roles: ["CUSTODIAN"] })).status,
       itemChange: (await post(null, "/resources/items/changes", { kind: "setName", itemIds: [girmaLab.id], value: "x" })).status,
       category: (await post(null, "/resources/categories", { key: "x", name: "x", iconKey: "Box", groupId: "x", countingMode: "SERIALIZED" })).status,
       transfer: (await post(null, "/resources/transfers", { input: {} })).status,

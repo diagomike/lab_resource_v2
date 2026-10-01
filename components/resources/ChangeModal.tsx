@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ContainerOptionDto, ItemChangeResultDto, ItemDetailDto, OrgNodeDto, PersonSummaryDto } from "@/lib/shared";
+import type { ContainerOptionDto, ItemChangeResultDto, ItemDetailDto, PersonSummaryDto } from "@/lib/shared";
 import { TreePicker, containerTreeOptions, type TreeOption } from "@/components/TreePicker";
 import { itemStatuses } from "@/lib/shared";
 import { STATUS_LABEL } from "@/lib/domain/status";
@@ -88,22 +88,11 @@ export function ChangeModal({
   const options = useEditOptions();
   const { user } = useAuth();
 
-  // In a department with drafts on, a custodian's edit is staged into the lab's Draft
-  // rather than applied (mutate.ts / lab-versions.ts); SYS_ADMIN always edits directly.
-  // Say so on the button, so nobody is told "apply" for something that waits for the head.
-  const [ownerDrafts, setOwnerDrafts] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getShared<OrgNodeDto[]>("/org/nodes")
-      .then((nodes) => !cancelled && setOwnerDrafts(Boolean(nodes.find((n) => n.id === item.ownerOrgNodeId)?.draftWorkflowEnabled)))
-      .catch(() => !cancelled && setOwnerDrafts(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [item.ownerOrgNodeId]);
+  // A custodian's edit to something in a lab joins the lab's changes, which the head
+  // approves (mutate.ts / lab-versions.ts); the store and the admin edit directly. Say
+  // so on the button, so nobody is told "apply" for something that waits for the head.
   const isAdmin = Boolean(user?.roles.includes("SYS_ADMIN"));
-  const stages = ownerDrafts && !isAdmin && (kind === "setStatus" || kind === "moveInTree" || kind === "deleteItem");
+  const stages = !item.inStore && !isAdmin && (kind === "setStatus" || kind === "moveInTree" || kind === "deleteItem");
 
   // Custody can go to anyone eligible, not only people who already custody something
   // in the loaded register — the forest-derived list alone could never offer a newly
@@ -256,13 +245,13 @@ export function ChangeModal({
 
       {stages && (
         <div className="text-10.5 text-dim bg-soft border border-accent rounded-2 px-8 py-6">
-          {item.ownerOrgNodeName} uses drafts: this goes into the lab&apos;s draft. The register changes once the department head approves it.
+          This joins the lab&apos;s changes. Send them to the department head when you&apos;re done — the register changes once the head approves.
         </div>
       )}
 
       <div className="flex items-center gap-8">
         <Button variant={kind === "deleteItem" ? "danger" : "primary"} onClick={submit} disabled={busy || unchanged || (kind !== "deleteItem" && !value)}>
-          {busy ? "Working…" : stages ? (kind === "deleteItem" ? "Stage removal in the draft" : "Stage in the lab's draft") : kind === "deleteItem" ? "Delete" : "Confirm & apply"}
+          {busy ? "Working…" : stages ? (kind === "deleteItem" ? "Add the removal to the lab's changes" : "Add to the lab's changes") : kind === "deleteItem" ? "Delete" : "Confirm & apply"}
         </Button>
         <Button onClick={onClose} disabled={busy}>
           Cancel

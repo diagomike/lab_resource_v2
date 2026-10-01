@@ -60,6 +60,9 @@ export type CategoryPlacementMode = "ANYWHERE" | "ONLY_LISTED";
 
 export interface Category {
   id: string;
+  /** The stable slug seeds and system rules key on ("lab", "store"). Optional so
+   *  fixtures that never needed one keep compiling. */
+  key?: string;
   name: string;
   /** Stable key into the curated icon registry (lib/domain/icons.ts). */
   iconKey: string;

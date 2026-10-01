@@ -7,7 +7,6 @@ import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { useEditOptions } from "@/lib/register/useEditOptions";
-import { useActiveViewId } from "@/lib/register/active-view";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import { STATUS_LABEL } from "@/lib/domain/status";
@@ -44,21 +43,11 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
     refreshMarkers();
   };
 
-  // "Look but do not touch" — the currently active access view's own canEdit flag
-  // (Track 1 of ~/.claude/plans/lets-merge-the-work-memoized-journal.md), mirrored
-  // client-side from the exact same fallback the server's `resolveEffectiveView`
-  // uses (chosen view if it's one of theirs, else their most specific default). The
-  // server enforces this independently in mutate.ts's `assertViewAllowsEdit` — this
-  // is only about not offering what a write would then refuse, same as everywhere
-  // else in this app.
   const { me } = useAuth();
-  const activeViewId = useActiveViewId();
-  const views = me?.views ?? [];
-  const viewAllowsEdit = views.length === 0 || (views.find((v) => v.id === activeViewId) ?? views[0])?.canEdit !== false;
   // Only custodians (and store keepers, and the admin) change resources — a head reads
   // the register and approves through Lab states / Approvals (scope.ts's own note).
   const holdsWriteRole = Boolean(me?.user.roles.some((r) => r === "CUSTODIAN" || r === "STORE_KEEPER" || r === "SYS_ADMIN"));
-  const canEdit = viewAllowsEdit && holdsWriteRole;
+  const canEdit = holdsWriteRole;
   // Transfers are pulled from University resources (Track 5); pushing stock out is the
   // store keeper's handover only.
   const canHandOver = Boolean(me?.user.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));

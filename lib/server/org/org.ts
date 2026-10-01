@@ -60,7 +60,6 @@ export async function list(activeOnly: boolean, opts: { includeEmail?: boolean }
     occupant: n.user ? { id: n.user.id, name: n.user.name, email: includeEmail ? n.user.email : null } : null,
     // TODO: fold in owned Location/Asset/StockLine/etc. counts once those modules ship.
     hasOwnedContent: n.residents.length > 0,
-    draftWorkflowEnabled: n.draftWorkflowEnabled,
     code: n.code,
   }));
 }

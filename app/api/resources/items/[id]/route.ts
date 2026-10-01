@@ -3,13 +3,12 @@ import type { ItemDetailDto } from "@/lib/shared";
 import { errorResponse } from "@/lib/server/http-error";
 import { requireSession, requireRole, STAFF_ROLES } from "@/lib/server/auth/session";
 import { getOne } from "@/lib/server/resources/items";
-import { resolveReadOverride } from "@/lib/server/resources/views";
+import { resolveReadOverride } from "@/lib/server/resources/read-scope";
 
 type Params = { params: Promise<{ id: string }> };
 
-/** Out-of-scope returns 404, not 403 — see scope.ts's own note. `?scope=UNIVERSITY`/
- *  `?view=<id>` — see `/items`'s own note; this is the university browse's AND the
- *  access-view drill-through. STAFF_ROLES — F-031 of the 2026-09-15 campaign. */
+/** Out-of-scope returns 404, not 403 — see scope.ts's own note. `?scope=UNIVERSITY` —
+ *  see `/items`'s own note. */
 export async function GET(request: NextRequest, { params }: Params) {
   try {
     const user = await requireSession(request);

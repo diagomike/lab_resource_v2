@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
 import { assertCanBrowseUniversity, canSeeItem } from "@/lib/server/resources/scope";
-import { resolveReadOverride } from "@/lib/server/resources/views";
+import { resolveReadOverride } from "@/lib/server/resources/read-scope";
 import { findImageForServing } from "@/lib/server/resources/images";
 import { storage } from "@/lib/server/resources/storage";
 import { sniffImage } from "@/lib/server/resources/image-sniff";
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (found.scope === "item") {
       const override = await resolveReadOverride(user.id, request.nextUrl.searchParams);
       const visible =
-        (await canSeeItem(user.id, found.itemId, override.scope?.mode, override.scope?.explicitNodeIds)) ||
+        (await canSeeItem(user.id, found.itemId, override.scope?.mode)) ||
         ((await assertCanBrowseUniversity(user.id).then(() => true, () => false)) && (await canSeeItem(user.id, found.itemId, "UNIVERSITY")));
       if (!visible) throw new HttpError(404, "Photo not found");
     }

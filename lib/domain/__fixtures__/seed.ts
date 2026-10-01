@@ -36,29 +36,28 @@ export const ORG_NODES: OrgNode[] = [
 
 export const PEOPLE: Person[] = [
   { id: "p-admin", name: "System Administrator", homeOrgNodeId: "astu", roles: ["SYS_ADMIN"], title: "Administrator" },
-  { id: "p-avp", name: "Academic Vice President", homeOrgNodeId: "astu", roles: ["MANAGER", "STAFF"], title: "Academic Vice President" },
+  { id: "p-avp", name: "Academic Vice President", homeOrgNodeId: "astu", roles: ["MANAGER"], title: "Academic Vice President" },
 
-  { id: "p-dean-coeec", name: "Dean, Electrical Engineering and Computing", homeOrgNodeId: "coeec", roles: ["MANAGER", "STAFF"], title: "College Dean" },
-  { id: "p-dean-comcme", name: "Dean, Mechanical, Chemical and Materials Engineering", homeOrgNodeId: "comcme", roles: ["MANAGER", "STAFF"], title: "College Dean" },
-  { id: "p-dean-coace", name: "Dean, Architecture and Civil Engineering", homeOrgNodeId: "coace", roles: ["MANAGER", "STAFF"], title: "College Dean" },
+  { id: "p-dean-coeec", name: "Dean, Electrical Engineering and Computing", homeOrgNodeId: "coeec", roles: ["MANAGER"], title: "College Dean" },
+  { id: "p-dean-comcme", name: "Dean, Mechanical, Chemical and Materials Engineering", homeOrgNodeId: "comcme", roles: ["MANAGER"], title: "College Dean" },
+  { id: "p-dean-coace", name: "Dean, Architecture and Civil Engineering", homeOrgNodeId: "coace", roles: ["MANAGER"], title: "College Dean" },
 
-  { id: "p-property", name: "Property Administration Officer", homeOrgNodeId: "property-office", roles: ["PROPERTY_ADMIN", "STAFF"], title: "Property administration" },
-  { id: "p-procurement", name: "Procurement Officer", homeOrgNodeId: "proc-office", roles: ["PROCUREMENT", "STAFF"], title: "Procurement office" },
-  { id: "p-cmd", name: "College Managing Director", homeOrgNodeId: "cmd-office", roles: ["MANAGER", "STAFF"], title: "College Managing Director" },
-  { id: "p-store", name: "Main Store Keeper", homeOrgNodeId: "property-office", roles: ["STORE_KEEPER", "STAFF"], title: "Main store" },
+  { id: "p-property", name: "Property Administration Officer", homeOrgNodeId: "property-office", roles: ["PROPERTY_ADMIN"], title: "Property administration" },
+  { id: "p-procurement", name: "Procurement Officer", homeOrgNodeId: "proc-office", roles: ["PROCUREMENT"], title: "Procurement office" },
+  { id: "p-cmd", name: "College Managing Director", homeOrgNodeId: "cmd-office", roles: ["MANAGER"], title: "College Managing Director" },
+  { id: "p-store", name: "Main Store Keeper", homeOrgNodeId: "property-office", roles: ["STORE_KEEPER"], title: "Main store" },
 
-  { id: "p-head-se", name: "Head, Software Engineering", homeOrgNodeId: "se", roles: ["MANAGER", "STAFF"], title: "Department Head" },
-  { id: "p-head-chem", name: "Head, Chemical Engineering", homeOrgNodeId: "chem", roles: ["MANAGER", "STAFF"], title: "Department Head" },
-  { id: "p-head-mech", name: "Head, Mechanical Engineering", homeOrgNodeId: "mech", roles: ["MANAGER", "STAFF"], title: "Department Head" },
-  { id: "p-head-civil", name: "Head, Civil Engineering", homeOrgNodeId: "civil", roles: ["MANAGER", "STAFF"], title: "Department Head" },
+  { id: "p-head-se", name: "Head, Software Engineering", homeOrgNodeId: "se", roles: ["MANAGER"], title: "Department Head" },
+  { id: "p-head-chem", name: "Head, Chemical Engineering", homeOrgNodeId: "chem", roles: ["MANAGER"], title: "Department Head" },
+  { id: "p-head-mech", name: "Head, Mechanical Engineering", homeOrgNodeId: "mech", roles: ["MANAGER"], title: "Department Head" },
+  { id: "p-head-civil", name: "Head, Civil Engineering", homeOrgNodeId: "civil", roles: ["MANAGER"], title: "Department Head" },
 
-  { id: "u1", name: "Girma Wolde", homeOrgNodeId: "se", roles: ["CUSTODIAN", "STAFF"], title: "Laboratory responsible" },
-  { id: "u2", name: "Meron Assefa", homeOrgNodeId: "se", roles: ["STAFF"], title: "Instructor" },
-  { id: "u3", name: "Hanna Bekele", homeOrgNodeId: "chem", roles: ["CUSTODIAN", "STAFF"], title: "Laboratory responsible" },
-  { id: "u4", name: "Dawit Tesfaye", homeOrgNodeId: "civil", roles: ["CUSTODIAN", "STAFF"], title: "Laboratory responsible" },
-  { id: "u5", name: "Sara Yohannes", homeOrgNodeId: "mech", roles: ["CUSTODIAN", "STAFF"], title: "Laboratory responsible" },
-  { id: "u6", name: "Abel Kebede", homeOrgNodeId: "se", roles: ["CUSTODIAN", "STAFF"], title: "Technician" },
-  { id: "u7", name: "Kalkidan Tesfaye", homeOrgNodeId: "se", roles: ["STUDENT"], title: "Student" },
+  { id: "u1", name: "Girma Wolde", homeOrgNodeId: "se", roles: ["CUSTODIAN"], title: "Laboratory responsible" },
+  { id: "u2", name: "Meron Assefa", homeOrgNodeId: "se", roles: ["CUSTODIAN"], title: "Laboratory responsible" },
+  { id: "u3", name: "Hanna Bekele", homeOrgNodeId: "chem", roles: ["CUSTODIAN"], title: "Laboratory responsible" },
+  { id: "u4", name: "Dawit Tesfaye", homeOrgNodeId: "civil", roles: ["CUSTODIAN"], title: "Laboratory responsible" },
+  { id: "u5", name: "Sara Yohannes", homeOrgNodeId: "mech", roles: ["CUSTODIAN"], title: "Laboratory responsible" },
+  { id: "u6", name: "Abel Kebede", homeOrgNodeId: "se", roles: ["CUSTODIAN"], title: "Technician" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

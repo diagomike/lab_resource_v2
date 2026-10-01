@@ -16,10 +16,8 @@ import { buildItemScopeWhere, type ItemScopeInput } from "./item-scope.logic";
  * predicate and why an item is in scope (owner-or-current, custody as a narrower,
  * separate reason).
  *
- * Resolution order, unchanged from the design: global role → CUSTODIAN without
- * MANAGER (custody scope) → org reach (owner-or-current) → no reach. A caller may
- * override the mode/explicitNodeIds directly (AccessView, Phase 11 of
- * ~/.claude/plans/wait-i-want-gentle-haven.md) instead of taking this default.
+ * Resolution order: global role → CUSTODIAN without a post (custody scope) → org reach
+ * (owner-or-current). The one override is the university-wide read (read-scope.ts).
  */
 export interface ResolvedScope {
   mode: ScopeMode;
@@ -27,13 +25,10 @@ export interface ResolvedScope {
   custodyItemIds: string[] | null;
 }
 
-/** A caller-supplied read scope, replacing the person's own default — either the
- *  university-wide browse (`{ mode: "UNIVERSITY" }`, 10b) or an EXPLICIT_NODES access
- *  view (Track 1 of ~/.claude/plans/lets-merge-the-work-memoized-journal.md), which is
- *  the only mode that needs the second field. */
+/** A caller-supplied read scope replacing the person's own default — the
+ *  university-wide read (`{ mode: "UNIVERSITY" }`). */
 export interface ScopeOverride {
   mode?: ScopeMode;
-  explicitNodeIds?: string[];
 }
 
 /** What a person sees before an admin has said otherwise — lib/domain's
@@ -58,21 +53,20 @@ export async function defaultModeFor(userId: string): Promise<ScopeMode> {
  *  replaces the caller's own default (the university-wide browse, 10b of
  *  ~/.claude/plans/three-product-changes-dynamic-thompson.md — always gate the call
  *  site with `assertCanBrowseUniversity` first; this function trusts its caller). */
-export async function resolveScope(userId: string, modeOverride?: ScopeMode, explicitNodeIds?: string[]): Promise<ResolvedScope> {
+export async function resolveScope(userId: string, modeOverride?: ScopeMode): Promise<ResolvedScope> {
   const mode = modeOverride ?? (await defaultModeFor(userId));
   if (mode === "UNIVERSITY") return { mode, visibleNodeIds: [], custodyItemIds: null };
   if (mode === "MY_CUSTODY") return { mode, visibleNodeIds: [], custodyItemIds: await custodyItemIdsOf(userId) };
-  if (mode === "EXPLICIT_NODES") return { mode, visibleNodeIds: explicitNodeIds ?? [], custodyItemIds: null };
   return { mode, visibleNodeIds: await orgScope.visibleNodeIds(userId), custodyItemIds: null };
 }
 
 /** The Prisma `where` a scoped item query filters through — never bypassed, never
- *  re-derived at a call site. `overrides` lets a caller supply a mode/explicitNodeIds
- *  other than the user's default (AccessView, Phase 11) and/or extraGrantedIds
- *  (approvalGrantIds, Phase 12); omitted, it resolves the user's own default scope. */
+ *  re-derived at a call site. `overrides` lets a caller supply a mode other than the
+ *  user's default and/or extraGrantedIds (approvalGrantIds); omitted, it resolves the
+ *  user's own default scope. */
 export async function visibleItemWhere(
   userId: string,
-  overrides?: Partial<Pick<ItemScopeInput, "mode" | "explicitNodeIds" | "extraGrantedIds">>,
+  overrides?: Partial<Pick<ItemScopeInput, "mode" | "extraGrantedIds">>,
 ): Promise<Prisma.ItemWhereInput> {
   const mode = overrides?.mode ?? (await defaultModeFor(userId));
 
@@ -84,15 +78,6 @@ export async function visibleItemWhere(
       mode,
       visibleNodeIds: [],
       custodyItemIds: await custodyItemIdsOf(userId),
-      extraGrantedIds: overrides?.extraGrantedIds,
-    });
-  }
-  if (mode === "EXPLICIT_NODES") {
-    return buildItemScopeWhere({
-      mode,
-      visibleNodeIds: [],
-      custodyItemIds: null,
-      explicitNodeIds: overrides?.explicitNodeIds ?? [],
       extraGrantedIds: overrides?.extraGrantedIds,
     });
   }
@@ -113,8 +98,8 @@ export async function visibleItemWhere(
  * Write authorization (`assertCanMutate`, below) is a separate, narrower question —
  * custody-based, not scope-based; see its own header comment.
  */
-export async function canSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode, explicitNodeIds?: string[]): Promise<boolean> {
-  const where = await visibleItemWhere(userId, modeOverride ? { mode: modeOverride, explicitNodeIds } : undefined);
+export async function canSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode): Promise<boolean> {
+  const where = await visibleItemWhere(userId, modeOverride ? { mode: modeOverride } : undefined);
   const descendantIds = await descendantIdsIncludingSelf(itemId);
   if (!descendantIds.length) return false;
   const hit = await prisma.item.count({ where: { AND: [where, { id: { in: descendantIds }, deletedAt: null }] } });
@@ -123,17 +108,16 @@ export async function canSeeItem(userId: string, itemId: string, modeOverride?: 
 
 /** Throws 404 (not 403) for an out-of-scope item — a 403 would confirm the row
  *  exists. */
-export async function assertCanSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode, explicitNodeIds?: string[]): Promise<void> {
-  if (!(await canSeeItem(userId, itemId, modeOverride, explicitNodeIds))) throw new HttpError(404, "Resource not found");
+export async function assertCanSeeItem(userId: string, itemId: string, modeOverride?: ScopeMode): Promise<void> {
+  if (!(await canSeeItem(userId, itemId, modeOverride))) throw new HttpError(404, "Resource not found");
 }
 
 /**
  * F-034 of the 2026-09-15 campaign — `assertCanSeeItem` is ancestor-inclusive by
  * design (custodying one item nested three levels deep makes every container
  * above it "visible", so a breadcrumb/tree can be drawn), which is the wrong
- * question for a LAB AGGREGATE (ideal-vs-actual, purchasables, calendars):
- * `getIdealVsActual` used to gate on it and so exposed a whole department's
- * lab composition to anyone who merely custodied ONE borrowed item sitting
+ * question for a LAB AGGREGATE (a lab's changes, calendars): it would expose a
+ * whole lab's composition to anyone who merely custodied ONE borrowed item sitting
  * inside it. This checks DIRECT visibility of the lab item itself (no
  * descendant walk), or write custody over it, or headship of the unit that
  * owns it — never "something under it happens to be visible to me". */
@@ -226,40 +210,23 @@ export async function writableItemIdsOf(userId: string): Promise<string[]> {
 
 /** Custody may only ever be handed to someone who can actually answer for what they'd
  *  hold: an ACTIVE account carrying CUSTODIAN, STORE_KEEPER or SYS_ADMIN (the seeded
- *  administrator itself custodies real resources). MANAGER alone no longer qualifies
- *  (2026-09-22, by product direction: "only custodians change resources — the head
- *  manages personnel and approves"); a head who also runs a lab carries CUSTODIAN too. The identical
- *  set `people.custodians()` already offers as candidates. A student or a disabled
- *  account failing this floor is F-024 from the same campaign; every write path that
- *  assigns custody (direct setCustodian, createItem, transfer/handover settlement)
- *  must call this before writing `custodianId`. */
-export async function assertEligibleCustodian(userId: string, opts: { staffHoldings?: boolean } = {}): Promise<void> {
+ *  administrator itself custodies real resources). A head who also runs a lab carries
+ *  CUSTODIAN too. The identical set `people.custodians()` offers as candidates. Every
+ *  write path that assigns custody (direct setCustodian, createItem, transfer
+ *  settlement) calls this before writing `custodianId`. */
+export async function assertEligibleCustodian(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { roles: true } });
-  // One narrow widening (2026-09-28): something issued to a person sits in their
-  // department's Staff holdings, and answering for your own laptop is anyone on staff's
-  // job — never a student's or an outside account's.
-  const eligibleRole = opts.staffHoldings
-    ? user?.roles.some((r) => r.kind !== "STUDENT" && r.kind !== "EXTERNAL")
-    : user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "SYS_ADMIN");
-  if (!user || user.status !== "ACTIVE" || !eligibleRole) {
-    throw new HttpError(400, opts.staffHoldings ? "Choose an active member of staff." : "Choose an active custodian or store keeper.");
-  }
+  const eligibleRole = user?.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "SYS_ADMIN");
+  if (!user || user.status !== "ACTIVE" || !eligibleRole) throw new HttpError(400, "Choose an active custodian or store keeper.");
 }
 
-/** F-031 of the 2026-09-15 campaign — this module's own opening note used to say
- *  "the per-endpoint RBAC layer, not this module, is what actually keeps a
- *  student off the asset register", but no read route ever called one:
- *  `defaultModeFor` gives any non-custodian with a home node the same
- *  ORG_SUBTREE reach as a staff member, so a student or external account with a
- *  home node saw their whole department's register — locations, custodian
- *  names, statuses. Called at the top of every register/change-log read (not
- *  only the API routes, so a future caller can't reach the data by skipping the
- *  route) — categories stays exempt (everyone needs to see what fields exist to
- *  make sense of anything else). */
+/** F-031 of the 2026-09-15 campaign — called at the top of every register and
+ *  change-log read (not only the API routes, so a future caller can't reach the data
+ *  by skipping the route). An outside requester's account never reads the register. */
 export async function assertMayBrowseRegister(userId: string): Promise<void> {
   const roles = await rolesOf(userId);
-  if (roles.some((r) => r !== "STUDENT" && r !== "EXTERNAL")) return;
-  throw new HttpError(403, "The asset register is for staff and custodians.");
+  if (roles.some((r) => r !== "EXTERNAL")) return;
+  throw new HttpError(403, "The register is for university accounts.");
 }
 
 // ── WRITE eligibility (Phase 7 of ~/.claude/plans/wait-i-want-gentle-haven.md) ──────
@@ -334,33 +301,15 @@ export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeI
   throw new HttpError(403, "You are not allowed to create a top-level resource here.");
 }
 
-// ── University-wide browse (10b of ~/.claude/plans/three-product-changes-dynamic-thompson.md) ──
+// ── University-wide read (2026-10-01) ─────────────────────────────────────────────
 //
-// A read-only, university-wide view for the offices that have to answer "does any
-// department already have one of these, and is it working?" before approving a
-// purchase — a purchase-approving office or a department head weighing a request
-// against what already exists elsewhere. `?scope=UNIVERSITY` is a client-suppliable
-// query parameter and MUST NOT be trusted on its own; every endpoint that honours it
-// calls this gate first. Widened deliberately past GLOBAL_ROLES
-// (SYS_ADMIN/PROPERTY_ADMIN/PROCUREMENT, already unrestricted via
-// `orgScope.hasGlobalReach`): MANAGER because the org chart *is* the approval route
-// here — "approver" means a department head/dean, i.e. MANAGER — and STORE_KEEPER
-// because that role's ordinary reach is already university-wide by design (a store
-// keeper occupies no OrgNode; see schema.prisma's own RoleKind doc). This grants
-// nothing beyond READ — the write door stays `assertCanMutate`'s custody-only policy,
-// entirely unaffected by seeing further.
+// Transparency across ASTU: every signed-in internal account reads the whole
+// university. `?scope=UNIVERSITY` is client-supplied, so every endpoint honouring it
+// still calls this gate — an outside requester's account is refused. READ only: the
+// write door stays `assertCanMutate`'s custody policy.
 
-// CUSTODIAN added by Track 5 (~/.claude/plans/understand-where-we-are-crystalline-
-// marshmallow.md): transfers are pulled, so a lab's custodian has to be able to find
-// what another unit holds before asking for it. Still read-only.
-const UNIVERSITY_BROWSE_ROLES: RoleKind[] = ["MANAGER", "STORE_KEEPER", "CUSTODIAN"];
-
-/** Throws 403 for anyone not on the list above — a STAFF or plain CUSTODIAN account
- *  hitting `scope=UNIVERSITY` directly, bypassing the UI's own nav gate, must be
- *  refused server-side exactly like every other authorization check in this module. */
 export async function assertCanBrowseUniversity(userId: string): Promise<void> {
-  if (await orgScope.hasGlobalReach(userId)) return;
   const roles = await rolesOf(userId);
-  if (roles.some((r) => UNIVERSITY_BROWSE_ROLES.includes(r))) return;
+  if (roles.some((r) => r !== "EXTERNAL")) return;
   throw new HttpError(403, "You are not allowed to browse university-wide.");
 }

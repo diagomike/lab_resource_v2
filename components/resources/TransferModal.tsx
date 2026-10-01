@@ -6,20 +6,15 @@ import { api, ApiError } from "@/lib/api";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 
 type Preview = { outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[]; naming?: TransferNamingDto };
-type Person = { id: string; name: string; title: string | null; departmentName: string };
 
 /**
  * The main store handing stock over — the one transfer that is still PUSHED. Every
  * other transfer is pulled from the Register's whole-university view
  * (`PullTransferModal`), so this modal is offered to store keepers and SYS_ADMIN only.
  *
- * Two kinds of handover:
- *  - to a lab: the destination's own custodian becomes the custodian, and the
- *    receiving unit the owner;
- *  - to a person (a lecturer's laptop): it lands in their department's Staff holdings,
- *    in their custody, and they accept it themselves.
- * Either way the receiving head approves, then Property Administration, then the
- * custodian accepts. approvals.ts refuses the ownership move for anyone but a store
+ * It goes to a lab: the destination's own custodian becomes the custodian, and the
+ * receiving unit the owner. The receiving head approves, then Property
+ * Administration, then the custodian accepts. approvals.ts refuses the ownership move for anyone but a store
  * keeper or SYS_ADMIN, whatever this modal offers.
  */
 export function TransferModal({
@@ -34,10 +29,6 @@ export function TransferModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [mode, setMode] = useState<"lab" | "person">("lab");
-  const [personQuery, setPersonQuery] = useState("");
-  const [people, setPeople] = useState<Person[]>([]);
-  const [person, setPerson] = useState<Person | null>(null);
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<TransferDestinationDto[]>([]);
   const [selected, setSelected] = useState<TransferDestinationDto | null>(null);
@@ -72,54 +63,11 @@ export function TransferModal({
   }, [query, selected, idsParam]);
 
   useEffect(() => {
-    if (mode !== "person" || person || personQuery.trim().length < 2) {
-      setPeople([]);
-      return;
-    }
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      api
-        .get<Person[]>(`/resources/transfers/recipients?q=${encodeURIComponent(personQuery)}`)
-        .then((rows) => !cancelled && setPeople(rows))
-        .catch(() => !cancelled && setPeople([]));
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [mode, person, personQuery]);
-
-  useEffect(() => {
-    if (mode !== "person") return;
-    setPreview(null);
-    setPreviewError(null);
-    if (!person) return;
-    let live = true;
-    api
-      .post<Preview>("/resources/transfers/preview", { input: personInput(person) })
-      .then((p) => live && setPreview(p))
-      .catch((e) => live && setPreviewError(e instanceof ApiError ? e.message : "Could not resolve this handover"));
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, person]);
-
-  function personInput(p: Person) {
-    return {
-      kind: "transferItem" as const,
-      itemIds,
-      transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: p.id },
-    };
-  }
-
-  useEffect(() => {
     const t = setTimeout(() => setDebouncedRename(renameAs), 300);
     return () => clearTimeout(t);
   }, [renameAs]);
 
   useEffect(() => {
-    if (mode !== "lab") return;
     if (!selected) {
       setPreview(null);
       setRenameAs(null);
@@ -139,7 +87,7 @@ export function TransferModal({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selected, debouncedRename]);
+  }, [selected, debouncedRename]);
 
   function transferInput(destination: TransferDestinationDto, name: string | null = renameAs) {
     const rename = name?.trim();
@@ -157,7 +105,7 @@ export function TransferModal({
   }
 
   async function submit() {
-    const input = mode === "person" ? (person ? personInput(person) : null) : selected ? transferInput(selected) : null;
+    const input = selected ? transferInput(selected) : null;
     if (!input) return;
     setBusy(true);
     setError(null);
@@ -188,130 +136,50 @@ export function TransferModal({
 
   return (
     <Modal title={`Hand over ${label}`} onClose={onClose} width="460px">
-      <div className="flex items-center gap-4">
-        {(["lab", "person"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => {
-              setMode(m);
-              setPreview(null);
-              setPreviewError(null);
-            }}
-            style={{ background: mode === m ? "var(--accent)" : "var(--panel2)", color: mode === m ? "#fff" : "var(--dim)" }}
-            className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
-          >
-            {m === "lab" ? "To a lab" : "To a person"}
-          </button>
-        ))}
+      <div className="flex flex-col gap-8">
+        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Destination</label>
+        <input
+          value={selected ? selected.name : query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setSelected(null);
+          }}
+          placeholder="Search the lab to hand this over to…"
+          className="h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
+        />
+        {!selected && options.length > 0 && (
+          <div className="border border-border2 rounded-2 max-h-[180px] overflow-y-auto">
+            {options.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => {
+                  setSelected(o);
+                  setQuery("");
+                }}
+                className="w-full text-left px-8 py-6 text-11 hover:bg-panel2 border-b border-border last:border-0"
+              >
+                <div>{o.name}</div>
+                <div className="text-9.5 text-faint">
+                  {o.orgNodeName}
+                  {o.path.length > 0 ? ` · in ${o.path.join(" › ")}` : ""}
+                  {o.custodianName ? ` · held by ${o.custodianName}` : ""}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        {!selected && query.trim().length >= 2 && options.length === 0 && (
+          <div className="text-10.5 text-faint">No matching destination found.</div>
+        )}
       </div>
 
-      {mode === "person" && (
-        <div className="flex flex-col gap-8">
-          <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Issue to</label>
-          <input
-            value={person ? `${person.name} — ${person.departmentName}` : personQuery}
-            onChange={(e) => {
-              setPersonQuery(e.target.value);
-              setPerson(null);
-            }}
-            placeholder="Search a member of staff by name or email…"
-            className="h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
-          />
-          {!person && people.length > 0 && (
-            <div className="border border-border2 rounded-2 max-h-[180px] overflow-y-auto">
-              {people.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    setPerson(p);
-                    setPersonQuery("");
-                  }}
-                  className="w-full text-left px-8 py-6 text-11 hover:bg-panel2 border-b border-border last:border-0"
-                >
-                  <div>{p.name}</div>
-                  <div className="text-9.5 text-faint">
-                    {p.departmentName}
-                    {p.title ? ` · ${p.title}` : ""}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-          {!person && personQuery.trim().length >= 2 && people.length === 0 && <div className="text-10.5 text-faint">No matching member of staff.</div>}
-          <div className="text-10.5 text-dim">
-            It goes into {person ? `${person.departmentName}'s` : "their department's"} Staff holdings, in {person ? `${person.name}'s` : "their"} custody, once the head and
-            Property Administration approve and they accept it.
-          </div>
-          {person && (
-            <div className="text-10.5 border border-border2 rounded-2 px-8 py-6">
-              {previewError ? (
-                <ErrorNote>{previewError}</ErrorNote>
-              ) : !preview ? (
-                <span className="text-faint">Checking…</span>
-              ) : preview.outcome === "DENIED" ? (
-                <span className="text-bad">{preview.reason}</span>
-              ) : preview.outcome === "APPLIED" ? (
-                <span className="text-dim">Applies immediately — no approval needed.</span>
-              ) : (
-                <span className="text-dim">
-                  Needs approval: {preview.steps?.filter((s) => s.status !== "SKIPPED").map((s) => (s.approverName ? `${s.label} (${s.approverName})` : s.label)).join(" → ")}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      <div className="text-10.5 text-dim">
+        Custody and ownership move{selected ? ` to ${selected.custodianName} and ${selected.orgNodeName}` : " to the receiving lab"} once its head and Property
+        Administration approve and its custodian accepts.
+      </div>
 
-      {mode === "lab" && (
-        <div className="flex flex-col gap-8">
-          <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Destination</label>
-          <input
-            value={selected ? selected.name : query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setSelected(null);
-            }}
-            placeholder="Search the lab to hand this over to…"
-            className="h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
-          />
-          {!selected && options.length > 0 && (
-            <div className="border border-border2 rounded-2 max-h-[180px] overflow-y-auto">
-              {options.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => {
-                    setSelected(o);
-                    setQuery("");
-                  }}
-                  className="w-full text-left px-8 py-6 text-11 hover:bg-panel2 border-b border-border last:border-0"
-                >
-                  <div>{o.name}</div>
-                  <div className="text-9.5 text-faint">
-                    {o.orgNodeName}
-                    {o.path.length > 0 ? ` · in ${o.path.join(" › ")}` : ""}
-                    {o.custodianName ? ` · held by ${o.custodianName}` : ""}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-          {!selected && query.trim().length >= 2 && options.length === 0 && (
-            <div className="text-10.5 text-faint">No matching destination found.</div>
-          )}
-        </div>
-      )}
-
-      {mode === "lab" && (
-        <div className="text-10.5 text-dim">
-          Custody and ownership move{selected ? ` to ${selected.custodianName} and ${selected.orgNodeName}` : " to the receiving lab"} once its head and Property
-          Administration approve and its custodian accepts.
-        </div>
-      )}
-
-      {mode === "lab" && selected && (
+      {selected && (
         <div className="text-10.5 border border-border2 rounded-2 px-8 py-6">
           {previewError ? (
             <ErrorNote>{previewError}</ErrorNote>
@@ -329,7 +197,7 @@ export function TransferModal({
         </div>
       )}
 
-      {mode === "lab" && selected && preview?.naming && preview.outcome !== "DENIED" && (
+      {selected && preview?.naming && preview.outcome !== "DENIED" && (
         <div className="flex flex-col gap-6">
           <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Name them there as</label>
           <input
@@ -354,7 +222,7 @@ export function TransferModal({
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="flex items-center gap-8">
-        <Button variant="primary" onClick={submit} disabled={(mode === "lab" ? !selected : !person) || !preview || preview.outcome === "DENIED" || busy}>
+        <Button variant="primary" onClick={submit} disabled={!selected || !preview || preview.outcome === "DENIED" || busy}>
           {busy ? "Working…" : "Request handover"}
         </Button>
         <Button onClick={onClose} disabled={busy}>

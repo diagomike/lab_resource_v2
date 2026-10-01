@@ -9,7 +9,7 @@ const content = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "public/h
 };
 const ALL = content.chapters.map((c) => c.id);
 
-function me(roles: RoleKind[], post?: { kind: "DEPARTMENT" | "COLLEGE" | "UNIVERSITY" | "OFFICE"; code?: string }, views: MeContextDto["views"] = []): MeContextDto {
+function me(roles: RoleKind[], post?: { kind: "DEPARTMENT" | "COLLEGE" | "UNIVERSITY" | "OFFICE"; code?: string }): MeContextDto {
   return {
     user: { id: "u", email: "u@x", name: "U", phone: null, organisation: null, status: "ACTIVE", roles, mustChangePassword: false, emailNotifications: true },
     scope: post
@@ -17,38 +17,36 @@ function me(roles: RoleKind[], post?: { kind: "DEPARTMENT" | "COLLEGE" | "UNIVER
       : null,
     canSeeCost: false,
     scopeMode: "ORG_SUBTREE",
-    views,
   };
 }
 const roleChapters = (m: MeContextDto) => [...helpChaptersFor(m, ALL)].filter((c) => !(GENERAL_CHAPTERS as readonly string[]).includes(c)).sort();
 
 describe("Help: who reads which chapter", () => {
-  it("everyone gets the general chapters; a custodian adds the custodian and staff chapters only", () => {
-    const set = helpChaptersFor(me(["CUSTODIAN", "STAFF"]), ALL);
+  it("everyone gets the general chapters; a custodian adds the custodian chapter only", () => {
+    const set = helpChaptersFor(me(["CUSTODIAN"]), ALL);
     for (const g of GENERAL_CHAPTERS) expect(set.has(g)).toBe(true);
-    expect(roleChapters(me(["CUSTODIAN", "STAFF"]))).toEqual(["custodian", "staff"]);
+    expect(roleChapters(me(["CUSTODIAN"]))).toEqual(["custodian"]);
   });
 
   it("MANAGER is read through the post: head, dean, AVP (plus the portal), CMD", () => {
-    expect(roleChapters(me(["MANAGER", "STAFF"], { kind: "DEPARTMENT" }))).toEqual(["head", "staff"]);
+    expect(roleChapters(me(["MANAGER"], { kind: "DEPARTMENT" }))).toEqual(["head"]);
     expect(roleChapters(me(["MANAGER"], { kind: "COLLEGE" }))).toEqual(["dean-avp"]);
     expect(roleChapters(me(["MANAGER"], { kind: "UNIVERSITY" }))).toEqual(["dean-avp", "portal"]);
     expect(roleChapters(me(["MANAGER"], { kind: "OFFICE", code: "CMD" }))).toEqual(["dean-avp"]);
   });
 
-  it("the offices, the ICT view, a student, and the admin", () => {
+  it("the offices, the ICT post, and the admin", () => {
     expect(roleChapters(me(["PROCUREMENT"], { kind: "OFFICE", code: "PROC" }))).toEqual(["procurement"]);
-    expect(roleChapters(me(["STORE_KEEPER", "STAFF"]))).toEqual(["staff", "store-keeper"]);
-    expect(roleChapters(me(["STAFF"], undefined, [{ id: "v", name: "ICT", scope: "UNIVERSITY", canEdit: false }]))).toEqual(["ict-maintenance", "staff"]);
-    expect(roleChapters(me(["STUDENT"]))).toEqual(["student"]);
+    expect(roleChapters(me(["STORE_KEEPER"]))).toEqual(["store-keeper"]);
+    expect(roleChapters(me(["MANAGER"], { kind: "OFFICE", code: "ICT" }))).toEqual(["ict-maintenance"]);
     expect(helpChaptersFor(me(["SYS_ADMIN"]), ALL).size).toBe(ALL.length);
   });
 
   it("the top-bar Help opens the section for this screen and this role", () => {
-    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["MANAGER", "STAFF"], { kind: "DEPARTMENT" }), ALL))).toBe("/help?c=head#head--5-compile-a-purchase-request");
-    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["STORE_KEEPER", "STAFF"]), ALL))).toBe("/help?c=store-keeper#store-keeper--1-load-an-import-record");
+    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["MANAGER"], { kind: "DEPARTMENT" }), ALL))).toBe("/help?c=head#head--5-compile-a-purchase-request");
+    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["STORE_KEEPER"]), ALL))).toBe("/help?c=store-keeper#store-keeper--1-load-an-import-record");
     expect(helpHrefFor("/approvals", helpChaptersFor(me(["MANAGER"], { kind: "OFFICE", code: "CMD" }), ALL))).toBe("/help?c=dean-avp#dean-avp--1-purchase-requests");
-    expect(helpHrefFor("/nowhere", helpChaptersFor(me(["STAFF"]), ALL))).toBe("/help");
+    expect(helpHrefFor("/nowhere", helpChaptersFor(me(["CUSTODIAN"]), ALL))).toBe("/help");
   });
 
   it("the chapter list the top bar uses matches the built guide", () => {

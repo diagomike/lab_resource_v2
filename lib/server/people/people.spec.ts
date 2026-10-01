@@ -68,12 +68,12 @@ describe("F-013 — resend-invite revokes the previous token", () => {
   it("leaves exactly one usable invitation after a resend", async () => {
     const adminId = await makeUser("resend-admin", ["SYS_ADMIN"]);
     const deptId = await makeNode("resend-dept", 2);
-    const staffId = await makeUser("resend-staff", ["STAFF"], "INVITED");
+    const staffId = await makeUser("resend-staff", ["CUSTODIAN"], "INVITED");
     await prisma.user.update({ where: { id: staffId }, data: { homeNodeId: deptId } });
     const staff = await prisma.user.findUniqueOrThrow({ where: { id: staffId } });
 
     await prisma.invitation.create({
-      data: { emailLower: staff.emailLower, tokenHash: "first-token-hash", intendedRole: "STAFF", invitedById: adminId, expiresAt: new Date(Date.now() + 86_400_000) },
+      data: { emailLower: staff.emailLower, tokenHash: "first-token-hash", intendedRole: "CUSTODIAN", invitedById: adminId, expiresAt: new Date(Date.now() + 86_400_000) },
     });
 
     await people.resendInvite(adminId, ["SYS_ADMIN"], staffId);
@@ -89,7 +89,7 @@ describe("F-015 — moving a person's home department", () => {
     const adminId = await makeUser("move-admin", ["SYS_ADMIN"]);
     const fromNode = await makeNode("move-from", 2);
     const toNode = await makeNode("move-to", 2);
-    const staffId = await makeUser("move-staff", ["STAFF"]);
+    const staffId = await makeUser("move-staff", ["CUSTODIAN"]);
     await prisma.user.update({ where: { id: staffId }, data: { homeNodeId: fromNode } });
 
     const result = await people.moveHomeNode(adminId, staffId, { nodeId: toNode, reason: "test move" });
@@ -125,7 +125,7 @@ describe("F-016 — the last active SYS_ADMIN cannot be demoted, deactivated, or
     await prisma.user.updateMany({ where: { id: { in: others.map((o) => o.id) } }, data: { status: "DISABLED" } });
     try {
       const soleAdminId = await makeUser("sole-admin", ["SYS_ADMIN"]);
-      await expect(people.updateRoles(soleAdminId, ["SYS_ADMIN"], soleAdminId, { roles: ["STAFF"] })).rejects.toMatchObject({ status: 400 });
+      await expect(people.updateRoles(soleAdminId, ["SYS_ADMIN"], soleAdminId, { roles: ["CUSTODIAN"] })).rejects.toMatchObject({ status: 400 });
     } finally {
       await prisma.user.updateMany({ where: { id: { in: others.map((o) => o.id) } }, data: { status: "ACTIVE" } });
     }
@@ -152,7 +152,7 @@ describe("F-019 — a double-submitted invite is a 400 for the loser, never a 50
     const adminId = await makeUser("dup-admin", ["SYS_ADMIN"]);
     const email = `${testKey}-dup-invitee@astu.edu.et`;
     const results = await Promise.allSettled(
-      Array.from({ length: 5 }, () => people.create(adminId, ["SYS_ADMIN"], { name: "Dup Invitee", email, roles: ["STAFF"] })),
+      Array.from({ length: 5 }, () => people.create(adminId, ["SYS_ADMIN"], { name: "Dup Invitee", email, roles: ["CUSTODIAN"] })),
     );
     const ok = results.filter((r) => r.status === "fulfilled");
     const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
@@ -178,9 +178,9 @@ describe("F-018 — a dean's invite and resend reach the whole subtree they can 
 
   it("a dean may resend an invitation for a department below them, but not for another college's", async () => {
     const { deanId, dept, outsideCollege } = await tree();
-    const inDept = await makeUser("f18-invitee-in", ["STAFF"], "INVITED");
+    const inDept = await makeUser("f18-invitee-in", ["CUSTODIAN"], "INVITED");
     await prisma.user.update({ where: { id: inDept }, data: { homeNodeId: dept } });
-    const outside = await makeUser("f18-invitee-out", ["STAFF"], "INVITED");
+    const outside = await makeUser("f18-invitee-out", ["CUSTODIAN"], "INVITED");
     await prisma.user.update({ where: { id: outside }, data: { homeNodeId: outsideCollege } });
 
     await expect(people.resendInvite(deanId, ["MANAGER"], inDept)).resolves.toHaveProperty("inviteUrl");
@@ -189,11 +189,11 @@ describe("F-018 — a dean's invite and resend reach the whole subtree they can 
 
   it("a dean may invite into a department in their subtree, and is refused outside it", async () => {
     const { deanId, dept, outsideCollege } = await tree();
-    const made = await people.create(deanId, ["MANAGER"], { name: "F18 Staff", email: `${testKey}-f18-new@astu.edu.et`, roles: ["STAFF"], homeNodeId: dept });
+    const made = await people.create(deanId, ["MANAGER"], { name: "F18 Staff", email: `${testKey}-f18-new@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: dept });
     createdUserIds.push(made.id);
     expect(made.homeNodeId).toBe(dept);
     await expect(
-      people.create(deanId, ["MANAGER"], { name: "F18 Out", email: `${testKey}-f18-out@astu.edu.et`, roles: ["STAFF"], homeNodeId: outsideCollege }),
+      people.create(deanId, ["MANAGER"], { name: "F18 Out", email: `${testKey}-f18-out@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: outsideCollege }),
     ).rejects.toMatchObject({ status: 403 });
   });
 });
@@ -207,7 +207,7 @@ describe("email notifications — a per-person switch", () => {
     createdNodeIds.push(dept.id);
     const headId = await makeUser("notif-head", ["MANAGER"]);
     await prisma.orgNode.update({ where: { id: dept.id }, data: { userId: headId } });
-    const araId = await makeUser("notif-ara", ["CUSTODIAN", "STAFF"]);
+    const araId = await makeUser("notif-ara", ["CUSTODIAN"]);
     await prisma.user.update({ where: { id: araId }, data: { homeNodeId: dept.id } });
     const adminId = (await prisma.user.findFirstOrThrow({ where: { roles: { some: { kind: "SYS_ADMIN" } } } })).id;
     const strangerId = await makeUser("notif-stranger", ["MANAGER"]);

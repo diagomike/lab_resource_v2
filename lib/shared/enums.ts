@@ -13,8 +13,8 @@ export const UserStatusSchema = z.enum(userStatuses);
 export type UserStatus = (typeof userStatuses)[number];
 
 /**
- * Roles stack — an ARA/SARA lab holder is routinely CUSTODIAN + STAFF, and a department
- * head is MANAGER + STAFF. Never assume one user has exactly one role.
+ * Roles stack — a head who also runs a lab is MANAGER + CUSTODIAN. Never assume one
+ * user has exactly one role.
  *
  * PROPERTY_ADMIN and PROCUREMENT are university-wide offices, not academic managers: they
  * reach every node through cross-cutting hierarchy edges (see ScopeService.GLOBAL_ROLES),
@@ -29,8 +29,6 @@ export const roleKinds = [
   "PROCUREMENT",
   "MANAGER",
   "CUSTODIAN",
-  "STAFF",
-  "STUDENT",
   "STORE_KEEPER",
   "EXTERNAL",
 ] as const;

@@ -3,8 +3,6 @@ import crypto from "node:crypto";
 import { Prisma, type Item as PrismaItem, type LabVersion, type LabVersionKind, type VersionItem } from "@prisma/client";
 import type {
   DiffEntryDto,
-  IdealStatRowDto,
-  IdealVsActualRowDto,
   ItemChangeInput,
   ItemChangeResultDto,
   LabCommitRequestDto,
@@ -14,12 +12,10 @@ import type {
   LabVersionDto,
   PendingMarkersDto,
   VersionOpInput,
-  DepartmentPurchasablesDto,
 } from "@/lib/shared";
 import type { Category, CustomProp, Item as DomainItem } from "@/lib/domain/types";
-import { applyVersionOp, diffVersion, idealStats, VersionOpError, type LiveItem, type VersionOp, type VItem } from "@/lib/domain/version-ops";
-import { computeStatuses, statusOf, NEEDS_ATTENTION } from "@/lib/domain/status";
-import { aggregatePurchasables, type LabIdealSheet } from "@/lib/domain/purchasables";
+import { applyVersionOp, diffVersion, VersionOpError, type LiveItem, type VersionOp, type VItem } from "@/lib/domain/version-ops";
+import { computeStatuses, statusOf } from "@/lib/domain/status";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import * as scope from "./scope";
@@ -30,21 +26,19 @@ import { storage } from "./storage";
 import { esc, notify, quoted } from "../mail/notify";
 
 /**
- * Lab states — Current, Draft and Ideal (2026-09-22 rework of Track 2; the pure rules
- * live in lib/domain/version-ops.ts).
+ * A lab's changes: Current and Draft (the pure rules live in lib/domain/version-ops.ts).
  *
- * A LAB is a top-level item (a lab, a store). Its custodian edits two kinds of copy:
- *  - DRAFT — the lab's pending update (something broke, went for maintenance, was
- *    consumed, renamed, added, removed). Approved by the owning department's head, it
- *    MERGES into the live register through mutate.ts's write door, as the custodian.
- *    When the department has drafts turned on, ordinary register edits by the
- *    custodian land here automatically (`stageFromRegister`).
- *  - IDEAL_PROPOSAL — what the lab should hold. Approved, it REPLACES the lab's IDEAL,
- *    which purchasing measures the lab against. Ideal never writes the register.
- * The head only decides; they never edit a version (only custodians change resources).
+ * A LAB is a top-level place. Its custodian's edits accumulate in the lab's DRAFT (the
+ * register's ordinary edits land there automatically — `stageFromRegister`), and the
+ * custodian sends the whole batch once. Approved by the owning unit's head, it MERGES
+ * into the live register through mutate.ts's write door, as the custodian. The head
+ * only decides; they never edit a draft (only custodians change resources).
+ *
+ * Stores are not drafted: the store keeper works directly, and every movement in or out
+ * of a store has its own approval line (approvals.ts).
  */
 
-type KindArg = "DRAFT" | "IDEAL_PROPOSAL";
+type KindArg = "DRAFT";
 
 // ── Loading ──────────────────────────────────────────────────────────────
 
@@ -59,10 +53,10 @@ async function loadCategories(client: Tx | typeof prisma = prisma): Promise<Reco
 async function loadLab(labItemId: string, client: Tx | typeof prisma = prisma) {
   const lab = await client.item.findUnique({
     where: { id: labItemId },
-    include: { ownerOrg: { select: { id: true, name: true, draftWorkflowEnabled: true, user: { select: { id: true, name: true } } } }, custodian: { select: { id: true, name: true } } },
+    include: { ownerOrg: { select: { id: true, name: true, user: { select: { id: true, name: true } } } }, custodian: { select: { id: true, name: true } } },
   });
   if (!lab || lab.deletedAt) throw new HttpError(404, "Resource not found");
-  if (lab.parentId) throw new HttpError(400, "Lab states belong to a top-level resource (a lab or a store), not to something inside one.");
+  if (lab.parentId) throw new HttpError(400, "Changes are drafted for a whole lab, not for something inside one.");
   return lab;
 }
 
@@ -169,22 +163,12 @@ async function createVersion(tx: Tx, labItemId: string, kind: LabVersionKind, ac
   return version.id;
 }
 
-/** The editable version of this kind — created on first edit (Draft from Current;
- *  a proposal from the approved Ideal, or from Current when there is none yet). */
+/** The lab's editable Draft — created on first edit, as a copy of Current. */
 async function ensureEditable(tx: Tx, labItemId: string, kind: KindArg, actorId: string): Promise<LabVersion & { items: VersionItem[] }> {
   const existing = await tx.labVersion.findUnique({ where: { labItemId_kind: { labItemId, kind } }, include: { items: true } });
   if (existing) {
-    if (existing.status === "SUBMITTED") {
-      throw new HttpError(409, `This lab's ${kind === "DRAFT" ? "draft" : "ideal proposal"} is waiting for the department head — withdraw it to keep editing.`);
-    }
+    if (existing.status === "SUBMITTED") throw new HttpError(409, "This lab's changes are waiting for the department head — take them back to keep editing.");
     return existing;
-  }
-  if (kind === "IDEAL_PROPOSAL") {
-    const ideal = await tx.labVersion.findUnique({ where: { labItemId_kind: { labItemId, kind: "IDEAL" } }, include: { items: true } });
-    if (ideal) {
-      await createVersion(tx, labItemId, kind, actorId, { rows: ideal.items.map(toVItem), baseVersions: ideal.baseVersions as Record<string, number> });
-      return (await tx.labVersion.findUniqueOrThrow({ where: { labItemId_kind: { labItemId, kind } }, include: { items: true } }));
-    }
   }
   await createVersion(tx, labItemId, kind, actorId, { live: await loadLive(labItemId, tx) });
   return tx.labVersion.findUniqueOrThrow({ where: { labItemId_kind: { labItemId, kind } }, include: { items: true } });
@@ -193,7 +177,7 @@ async function ensureEditable(tx: Tx, labItemId: string, kind: KindArg, actorId:
 // ── Editing ──────────────────────────────────────────────────────────────
 
 /**
- * One edit to the lab's Draft or Ideal proposal. Ids may be the version's own rows or
+ * One edit to the lab's Draft. Ids may be the version's own rows or
  * real item ids (from the register), which map to the rows copied from them. A dry
  * run validates and reports the names it would give, then rolls back.
  */
@@ -291,8 +275,7 @@ async function persistRows(tx: Tx, versionId: string, before: VItem[], after: VI
   }
 }
 
-/** Opens the Draft (a copy of Current) or an Ideal proposal (a copy of the approved
- *  Ideal, or of Current) ready to edit — what the first edit would do anyway. */
+/** Opens the Draft (a copy of Current) ready to edit — what the first edit would do anyway. */
 export async function startVersion(actorId: string, labItemId: string, kind: KindArg): Promise<void> {
   await loadLab(labItemId);
   await assertCanEditLab(actorId, labItemId);
@@ -302,7 +285,7 @@ export async function startVersion(actorId: string, labItemId: string, kind: Kin
   });
 }
 
-/** Throws away an unsubmitted Draft or proposal. */
+/** Throws away an unsent Draft. */
 export async function discardVersion(actorId: string, labItemId: string, kind: KindArg): Promise<void> {
   await assertCanEditLab(actorId, labItemId);
   const v = await loadVersion(labItemId, kind);
@@ -348,23 +331,20 @@ export async function submitVersion(actorId: string, labItemId: string, kind: Ki
   if (v.status === "SUBMITTED") throw new HttpError(409, "Already waiting for the department head.");
   const [live, categories] = await Promise.all([loadLive(labItemId), loadCategories()]);
   const diff = await diffFor(v, live, categories);
-  if (kind === "DRAFT" && !diff.length) throw new HttpError(400, "The draft doesn't change anything yet.");
+  if (!diff.length) throw new HttpError(400, "There are no changes to send yet.");
   const request = await prisma.$transaction(async (tx) => {
     await tx.labVersion.update({ where: { id: v.id }, data: { status: "SUBMITTED", rejectionNote: null } });
     return tx.labCommitRequest.create({
-      data: { labItemId, targetKind: kind === "DRAFT" ? "VISIBLE" : "IDEAL", requesterId: actorId, versionId: v.id, summary: summaryOf(diff) as Prisma.InputJsonValue },
+      data: { labItemId, targetKind: "VISIBLE", requesterId: actorId, versionId: v.id, summary: summaryOf(diff) as Prisma.InputJsonValue },
     });
   });
   const dto = await getRequest(actorId, request.id, lab.ownerOrgNodeId);
   const head = await currentHeadOf(lab.ownerOrgNodeId);
-  const what = kind === "DRAFT" ? "draft" : "ideal proposal";
   await notify(head?.id, actorId, {
-    subject: `${lab.name}: a ${what} is waiting for your approval`,
+    subject: `${lab.name}: changes are waiting for your approval`,
     paragraphs: [
-      `${esc(dto.requesterName)} submitted the ${what} for <strong>${esc(lab.name)}</strong> (${diff.length} change${diff.length === 1 ? "" : "s"}).`,
-      kind === "DRAFT"
-        ? "Approving it applies the changes to the register. Sending it back returns it to the custodian with your reason."
-        : "Approving it makes this the lab's Ideal, which purchasing measures the lab against.",
+      `${esc(dto.requesterName)} sent the changes for <strong>${esc(lab.name)}</strong> (${diff.length} change${diff.length === 1 ? "" : "s"}).`,
+      "Approving them applies the changes to the register. Sending them back returns them to the custodian with your reason.",
     ],
     path: "/approvals",
     action: "Review it in Approvals",
@@ -385,23 +365,21 @@ export async function withdrawVersion(actorId: string, labItemId: string, kind: 
 
 /**
  * The department head's decision. A vacant headship BLOCKS (nobody may decide).
- * APPROVE on a Draft merges it into the live register as the custodian (who made
- * it), refusing — STALE, naming what changed — anything touched since the copy was
- * taken; APPROVE on a proposal makes it the lab's Ideal. REJECT returns it to the
- * custodian with the reason.
+ * APPROVE merges the Draft into the live register as the custodian (who made it),
+ * refusing — STALE, naming what changed — anything touched since the copy was taken.
+ * REJECT returns it to the custodian with the reason.
  */
 export async function decideCommit(actorId: string, requestId: string, decision: "APPROVE" | "REJECT", note?: string): Promise<LabCommitRequestDto> {
   const dto = await decideCommitNow(actorId, requestId, decision, note);
-  const what = dto.targetKind === "VISIBLE" ? "draft" : "ideal proposal";
   const outcome =
     dto.status === "APPLIED"
-      ? { subject: `${dto.labName}: your ${what} was approved`, text: dto.targetKind === "VISIBLE" ? "Its changes are now in the register." : "It is now the lab's Ideal." }
+      ? { subject: `${dto.labName}: your changes were approved`, text: "They are now in the register." }
       : dto.status === "STALE"
-        ? { subject: `${dto.labName}: your draft couldn't be applied`, text: "Something it changes was edited in the register after the draft was copied. Refresh the draft from Current, redo the change, and submit again." }
-        : { subject: `${dto.labName}: your ${what} was sent back`, text: "It's back on Lab states for you to change and submit again." };
+        ? { subject: `${dto.labName}: your changes couldn't be applied`, text: "Something they change was edited in the register after you started. Start again from the current lab, redo the change, and send again." }
+        : { subject: `${dto.labName}: your changes were sent back`, text: "They are back with you to change and send again." };
   await notify(dto.requesterId, actorId, {
     subject: outcome.subject,
-    paragraphs: [`${esc(dto.decidedByName ?? "The department head")} decided the ${what} for <strong>${esc(dto.labName)}</strong>. ${outcome.text}${quoted(dto.resolution)}`],
+    paragraphs: [`${esc(dto.decidedByName ?? "The department head")} decided the changes for <strong>${esc(dto.labName)}</strong>. ${outcome.text}${quoted(dto.resolution)}`],
     path: "/lab-states",
   });
   return dto;
@@ -422,15 +400,6 @@ async function decideCommitNow(actorId: string, requestId: string, decision: "AP
       prisma.labCommitRequest.update({ where: { id: requestId }, data: { status: "REJECTED", ...decided, resolution: note ?? null } }),
       prisma.labVersion.update({ where: { id: version.id }, data: { status: "EDITING", rejectionNote: note?.trim() || "Sent back by the department head." } }),
     ]);
-    return getRequest(actorId, requestId);
-  }
-
-  if (version.kind === "IDEAL_PROPOSAL") {
-    await prisma.$transaction(async (tx) => {
-      await tx.labVersion.deleteMany({ where: { labItemId: request.labItemId, kind: "IDEAL" } });
-      await tx.labVersion.update({ where: { id: version.id }, data: { kind: "IDEAL", status: "APPROVED", rejectionNote: null } });
-      await tx.labCommitRequest.update({ where: { id: requestId }, data: { status: "APPLIED", ...decided, resolution: note ?? null } });
-    });
     return getRequest(actorId, requestId);
   }
 
@@ -536,31 +505,29 @@ async function mergeDraft(tx: Tx, authorId: string, rows: VItem[], diff: DiffEnt
   if (removed.length) await apply({ kind: "deleteItem", itemIds: removed });
 }
 
-// ── From the register: auto-staging when a department uses drafts ───────
+// ── From the register: every custodian edit inside a lab is drafted ──────
 
 const OP_KINDS = new Set(["createItem", "setName", "setStatus", "setQuantity", "setProperty", "addCustomProperty", "setCustomProperty", "removeCustomProperty", "deleteItem", "moveInTree"]);
 
 /**
- * Called by the write door before a direct edit. When every item the edit touches is
- * owned by a department with drafts turned on (and the actor isn't the admin), the
- * edit goes into that lab's Draft instead of the register and this returns the
- * "staged" result; otherwise it returns null and the edit applies directly.
+ * Called by the write door before a direct edit. An edit to something inside a lab
+ * goes into that lab's Draft instead of the register, and this returns the "staged"
+ * result; it returns null (apply directly) for the admin, for stores, for photos, for
+ * transfers (they have their own approval line) and for a change to the place itself.
+ *
+ * A staged edit must be one the custodian could make: it is first run through the
+ * ordinary write path as a dry run, so it is refused exactly as a direct edit would be
+ * (not theirs → 404, a colliding property, a wrong type, a stale version) before it
+ * ever reaches the draft.
  */
 export async function stageFromRegister(actorId: string, input: ItemChangeInput, opts?: { dryRun?: boolean }): Promise<ItemChangeResultDto | null> {
   if (input.kind === "transferItem" || input.kind === "addImage" || input.kind === "removeImage") return null;
-  if (input.kind === "createItem" && !input.parentId) return null; // a brand-new lab is nobody's draft
+  if (input.kind === "createItem" && !input.parentId) return null; // a new place is nobody's draft
   const targets =
     input.kind === "createItem" ? [input.parentId!] : input.kind === "moveInTree" ? [...input.itemIds, ...(input.value ? [input.value] : [])] : input.itemIds;
   if (!targets.length) return null;
-  const rows = await prisma.item.findMany({ where: { id: { in: targets } }, select: { ownerOrgNodeId: true } });
-  const owners = await prisma.orgNode.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.ownerOrgNodeId))] } }, select: { name: true, draftWorkflowEnabled: true } });
-  const drafting = owners.find((o) => o.draftWorkflowEnabled);
-  if (!drafting) return null;
   if (await scope.isSysAdmin(actorId)) return null; // the admin's corrections stay direct
 
-  if (!OP_KINDS.has(input.kind) || (input.kind === "moveInTree" && !input.value)) {
-    throw new HttpError(403, `${drafting.name} uses draft mode — custody, ownership and moves out of a lab go through a transfer, not a draft.`);
-  }
   const labs = await prisma.$queryRaw<{ start: string; root: string }[]>`
     WITH RECURSIVE up AS (
       SELECT id AS start, id, "parentId" FROM "Item" WHERE id = ANY(${targets})
@@ -569,17 +536,33 @@ export async function stageFromRegister(actorId: string, input: ItemChangeInput,
     )
     SELECT start, id AS root FROM up WHERE "parentId" IS NULL
   `;
-  const labIds = [...new Set(labs.map((l) => l.root))];
-  if (labIds.length !== 1) throw new HttpError(400, "A draft covers one lab at a time — change one lab's items at a time.");
-  const labItemId = labIds[0];
+  const rootIds = [...new Set(labs.map((l) => l.root))];
+  // A change to the place itself (its name, its details, removing it) is the place
+  // manager's, not part of anyone's draft of its contents.
+  if (input.kind !== "createItem" && targets.some((t) => rootIds.includes(t))) return null;
+  const roots = await prisma.item.findMany({
+    where: { id: { in: rootIds } },
+    select: { id: true, name: true, category: { select: { key: true } }, custodian: { select: { roles: { select: { kind: true } } } } },
+  });
+  // A store — the store category, or a place the store keeper runs — is worked directly.
+  const isStore = (r: (typeof roots)[number]) => r.category.key === "store" || r.custodian.roles.some((x) => x.kind === "STORE_KEEPER");
+  const drafted = roots.filter((r) => !isStore(r));
+  if (!drafted.length) return null; // everything touched sits in a store
+  if (drafted.length !== 1 || rootIds.length !== 1) throw new HttpError(400, "Changes are drafted one lab at a time — change one lab's items at a time.");
+  if (!OP_KINDS.has(input.kind) || (input.kind === "moveInTree" && !input.value)) {
+    throw new HttpError(403, `Custody, ownership and moves out of ${drafted[0].name} go through a transfer, not a draft.`);
+  }
+  const labItemId = drafted[0].id;
+
+  // Refused here exactly as a direct edit would be — before anything reaches the draft.
+  await applyChange(actorId, input, { dryRun: true, bypassDraftWorkflowBlock: true });
 
   const { expectedVersions: _ignored, note: _note, ...rest } = input as ItemChangeInput & { expectedVersions?: unknown; note?: unknown };
   void _ignored;
   void _note;
   const op = rest as unknown as VersionOpInput;
   const res = await applyVersionEdit(actorId, labItemId, "DRAFT", op, { ...opts, note: typeof _note === "string" ? _note : undefined });
-  const lab = await prisma.item.findUniqueOrThrow({ where: { id: labItemId }, select: { name: true } });
-  return { applied: 0, itemIds: [], staged: { labItemId, labName: lab.name }, ...(res.plannedNames ? { plannedNames: res.plannedNames } : {}) };
+  return { applied: 0, itemIds: [], staged: { labItemId, labName: drafted[0].name }, ...(res.plannedNames ? { plannedNames: res.plannedNames } : {}) };
 }
 
 /** Register markers: which real items a pending Draft would change, and how. */
@@ -637,25 +620,6 @@ function treeNodes(rows: Array<VItem & { critical: boolean }>, categories: Recor
   }));
 }
 
-function statRows(ideal: VItem[], live: PrismaItem[], labItemId: string, categories: Record<string, Category>): IdealStatRowDto[] {
-  const liveNodes = live.map((l) => ({ ...toLive(l), sourceItemId: l.id, critical: l.critical }));
-  const statuses = effectiveStatuses(liveNodes, categories);
-  const attention = new Map<string, number>();
-  for (const l of live) {
-    if (l.id === labItemId) continue;
-    if (NEEDS_ATTENTION.includes(statusOf(statuses, l.id))) attention.set(l.categoryId, (attention.get(l.categoryId) ?? 0) + 1);
-  }
-  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-  return idealStats(ideal, live.map(toLive), labItemId)
-    .map((r) => ({
-      ...r,
-      categoryName: categories[r.categoryId]?.name ?? r.categoryId,
-      categoryIconKey: categories[r.categoryId]?.iconKey ?? "Package",
-      needsAttention: attention.get(r.categoryId) ?? 0,
-    }))
-    .sort((a, b) => b.gap - a.gap || collator.compare(a.categoryName, b.categoryName));
-}
-
 async function versionDto(v: Awaited<ReturnType<typeof loadVersion>>, live: PrismaItem[], categories: Record<string, Category>): Promise<LabVersionDto | null> {
   if (!v) return null;
   return {
@@ -673,14 +637,7 @@ async function versionDto(v: Awaited<ReturnType<typeof loadVersion>>, live: Pris
 export async function getLabStates(actorId: string, labItemId: string): Promise<LabStatesDto> {
   const lab = await loadLab(labItemId);
   await scope.assertMaySeeLabAggregate(actorId, labItemId);
-  const [live, categories, draft, ideal, proposal, head] = await Promise.all([
-    loadLive(labItemId),
-    loadCategories(),
-    loadVersion(labItemId, "DRAFT"),
-    loadVersion(labItemId, "IDEAL"),
-    loadVersion(labItemId, "IDEAL_PROPOSAL"),
-    currentHeadOf(lab.ownerOrgNodeId),
-  ]);
+  const [live, categories, draft, head] = await Promise.all([loadLive(labItemId), loadCategories(), loadVersion(labItemId, "DRAFT"), currentHeadOf(lab.ownerOrgNodeId)]);
   const commits = await prisma.labCommitRequest.findMany({ where: { labItemId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true } });
   return {
     lab: {
@@ -691,16 +648,11 @@ export async function getLabStates(actorId: string, labItemId: string): Promise<
       custodianId: lab.custodianId,
       custodianName: lab.custodian.name,
       headName: head?.name ?? null,
-      draftWorkflowEnabled: lab.ownerOrg.draftWorkflowEnabled,
     },
     canEdit: await canEditLab(actorId, labItemId),
     isHead: head?.id === actorId,
     current: treeNodes(live.map((l) => ({ ...toLive(l), sourceItemId: l.id, critical: l.critical })), categories),
     draft: await versionDto(draft, live, categories),
-    ideal: await versionDto(ideal, live, categories),
-    idealProposal: await versionDto(proposal, live, categories),
-    idealStats: ideal ? statRows(ideal.items.map(toVItem), live, labItemId, categories) : [],
-    proposalStats: proposal ? statRows(proposal.items.map(toVItem), live, labItemId, categories) : [],
     commits: await Promise.all(commits.map((c) => getRequest(actorId, c.id, lab.ownerOrgNodeId))),
   };
 }
@@ -736,11 +688,10 @@ export async function listLabs(actorId: string): Promise<LabSummaryDto[]> {
       categoryIconKey: l.category.iconKey,
       ownerOrgNodeId: l.ownerOrgNodeId,
       ownerOrgNodeName: l.ownerOrg.name,
+      custodianId: l.custodianId,
       custodianName: l.custodian.name,
       draft: l.labVersions.find((v) => v.kind === "DRAFT")?.status ?? null,
       draftChanges: draftChanges.get(l.id) ?? 0,
-      hasIdeal: l.labVersions.some((v) => v.kind === "IDEAL"),
-      proposal: l.labVersions.find((v) => v.kind === "IDEAL_PROPOSAL")?.status ?? null,
       pendingCommits: l.labCommitRequests.length,
     }))
     .sort((a, b) => collator.compare(a.ownerOrgNodeName, b.ownerOrgNodeName) || collator.compare(a.name, b.name));
@@ -794,63 +745,4 @@ export async function listForActor(actorId: string, box: "inbox" | "mine"): Prom
     select: { id: true },
   });
   return Promise.all(rows.map((r) => getRequest(actorId, r.id)));
-}
-
-// ── Purchasing: Ideal vs Current ─────────────────────────────────────────
-
-async function idealSheetRows(labItemId: string, categories: Record<string, Category>): Promise<IdealVsActualRowDto[]> {
-  const ideal = await loadVersion(labItemId, "IDEAL");
-  if (!ideal) return [];
-  const live = await loadLive(labItemId);
-  const liveNodes = live.map((l) => ({ ...toLive(l), sourceItemId: l.id, critical: l.critical }));
-  const statuses = effectiveStatuses(liveNodes, categories);
-  return idealStats(ideal.items.map(toVItem), live.map(toLive), labItemId).map((r) => ({
-    categoryId: r.categoryId,
-    categoryName: categories[r.categoryId]?.name ?? r.categoryId,
-    idealQty: r.idealCount,
-    actualCount: r.currentCount,
-    gap: r.gap,
-    brokenItems: live
-      .filter((l) => l.id !== labItemId && l.categoryId === r.categoryId && NEEDS_ATTENTION.includes(statusOf(statuses, l.id)))
-      .map((l) => ({ id: l.id, name: l.name, status: statusOf(statuses, l.id) })),
-    buyGap: r.topMissing,
-    // Replace what failed itself; impaired containers are mended through their parts.
-    replaceCount: live.filter((l) => l.id !== labItemId && l.categoryId === r.categoryId && (l.status === "BROKEN" || l.status === "LOST")).length,
-  }));
-}
-
-export async function getIdealVsActual(actorId: string, labItemId: string): Promise<IdealVsActualRowDto[]> {
-  await scope.assertMaySeeLabAggregate(actorId, labItemId);
-  return idealSheetRows(labItemId, await loadCategories());
-}
-
-/**
- * What a department could buy to bring every one of its labs to its approved Ideal —
- * each lab it OWNS that has an approved Ideal, rolled up by
- * lib/domain/purchasables.ts. Readable by the department's live head or the admin.
- */
-export async function getDepartmentPurchasables(actorId: string, orgNodeId: string): Promise<DepartmentPurchasablesDto> {
-  const node = await prisma.orgNode.findUnique({ where: { id: orgNodeId }, select: { id: true, name: true } });
-  if (!node) throw new HttpError(404, "Org node not found");
-  if (!(await scope.isSysAdmin(actorId))) {
-    const head = await currentHeadOf(orgNodeId);
-    if (head?.id !== actorId) throw new HttpError(403, "Only this unit's head may compute its purchasables.");
-  }
-  const labs = await prisma.item.findMany({
-    where: { ownerOrgNodeId: orgNodeId, deletedAt: null, parentId: null, labVersions: { some: { kind: "IDEAL" } } },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-  const categories = await loadCategories();
-  const sheets: LabIdealSheet[] = [];
-  for (const lab of labs) sheets.push({ labItemId: lab.id, labName: lab.name, rows: await idealSheetRows(lab.id, categories) });
-  return { orgNodeId: node.id, orgNodeName: node.name, labCount: labs.length, rows: aggregatePurchasables(sheets) };
-}
-
-/** Admin-only: turns a department's draft workflow on or off. Already-open drafts are
- *  untouched either way; only where NEW register edits go changes. */
-export async function setDraftWorkflowEnabled(orgNodeId: string, enabled: boolean): Promise<void> {
-  const node = await prisma.orgNode.findUnique({ where: { id: orgNodeId }, select: { id: true } });
-  if (!node) throw new HttpError(404, "Org node not found");
-  await prisma.orgNode.update({ where: { id: orgNodeId }, data: { draftWorkflowEnabled: enabled } });
 }

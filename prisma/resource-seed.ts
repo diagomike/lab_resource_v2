@@ -40,28 +40,14 @@ if (process.env.NODE_ENV === "production") {
 
 /**
  * Rebuilding categories mints fresh ids every run. `NeedLine.categoryId` is a real FK
- * (onDelete: SetNull), so it survives a rebuild unharmed — but `AccessView.extraFilters`
- * and `ApprovalPolicy.appliesTo` are plain Json blobs that CAN embed a categoryId with no
- * FK behind it, and `ChangeRequest.payload`/`ChainStep.receipt` can too. Once any of those
- * exist, a reset silently orphans whatever they were pointing at. None of Phase 11/12/14
- * (access views / approvals / procurement) has landed yet, so these tables are empty in
- * dev today — this guard is here so that stays true, or the reset stops instead of
- * quietly corrupting real records. See ~/.claude/plans/wait-i-want-gentle-haven.md's note
- * on this exact risk.
+ * (onDelete: SetNull), so it survives a rebuild unharmed — but `ChangeRequest.payload`
+ * and `ChainStep.receipt` are Json blobs that CAN embed a categoryId with no FK behind
+ * it. Once any exist, a reset silently orphans whatever they point at, so the reset
+ * stops instead — reset the whole database (`prisma migrate reset`) to start over.
  */
 async function assertSafeToReset(): Promise<void> {
-  // Only a view with a saved filter can hold a category id. A plain scope view (the ICT
-  // office's, which prisma/seed.ts creates before this runs) has nothing to go stale.
-  const hasFilter = (f: Prisma.JsonValue | null) => f !== null && !(typeof f === "object" && Object.keys(f as object).length === 0);
-  const [accessViews, policies, requests, needs] = await Promise.all([
-    prisma.accessView.findMany({ select: { extraFilters: true } }).then((views) => views.filter((v) => hasFilter(v.extraFilters)).length),
-    prisma.approvalPolicy.count(),
-    prisma.changeRequest.count(),
-    prisma.needLine.count(),
-  ]);
+  const [requests, needs] = await Promise.all([prisma.changeRequest.count(), prisma.needLine.count()]);
   const found = [
-    accessViews && `${accessViews} AccessView row(s)`,
-    policies && `${policies} ApprovalPolicy row(s)`,
     requests && `${requests} ChangeRequest row(s)`,
     needs && `${needs} NeedLine row(s)`,
   ].filter(Boolean);
@@ -593,16 +579,12 @@ async function main(): Promise<void> {
       })),
   });
 
-  // From here on CSE's lab changes go through its custodians' drafts and the head's
-  // approval (Lab states); the load above is the initial register import.
-  await prisma.orgNode.update({ where: { id: ids.cse }, data: { draftWorkflowEnabled: true } });
-
   const roots = items.filter((i) => i.parentId === null).length;
   console.log(`  ${ALL_CATEGORY_SPECS.length} categories across ${ALL_GROUP_NAMES.length} groups`);
   console.log(`  ${items.length} items (${roots} roots), ${imageCount} real equipment photographs`);
   console.log(`  ${Object.keys(peopleIdByEmail).length} Chemical Engineering lab custodians; ${Object.keys(araIdByEmail).length} CSE lab custodians (ARAs)`);
   console.log(`  Chemical Engineering: 4 named labs with real equipment, 1 expired-chemical store; ASTU Main Store (store keeper)`);
-  console.log(`  Computer Science and Engineering: ${cse.summary.length} labs (drafts ON)`);
+  console.log(`  Computer Science and Engineering: ${cse.summary.length} labs`);
   const pcs = cse.summary.reduce((a, l) => a + l.present, 0);
   const broken = cse.summary.reduce((a, l) => a + l.brokenPcs.length, 0);
   console.log(`    ${pcs} workstations, ${broken} broken PCs, ${cse.summary.reduce((a, l) => a + l.brokenChairs, 0)} broken chairs, ${cse.summary.length * 20} outlets`);

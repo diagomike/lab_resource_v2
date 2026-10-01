@@ -7,16 +7,16 @@
  * Phase 14). This is a fresh, minimal spec for just the pure functions ported here.
  */
 import { describe, expect, it } from "vitest";
-import { canCompile, canRaiseNeed, canReceive, canRunPipeline, emptyLine, isEditable, isFinished, lineTotal, nextStage, receivedProgress, requestTotal, type PurchaseLine, type PurchaseRequest } from "./purchasing";
+import { canCompile, canRaiseNeed, canReceive, canRunPipeline, emptyLine, isEditable, isFinished, lineTotal, linesFromNeeds, nextStage, receivedProgress, requestTotal, type NeedForLines, type PurchaseLine, type PurchaseRequest } from "./purchasing";
 import type { Person } from "./types";
 
 const person = (roles: Person["roles"], homeOrgNodeId: string | null = "se"): Person => ({ id: "x", name: "x", homeOrgNodeId, roles });
 
 describe("who may do what", () => {
-  it("lets anybody attached to a unit raise a need, except a student", () => {
-    expect(canRaiseNeed(person(["STAFF"]))).toBe(true);
-    expect(canRaiseNeed(person(["STUDENT"]))).toBe(false);
-    expect(canRaiseNeed(person(["STAFF"], null))).toBe(false);
+  it("lets a custodian attached to a unit raise a need, and nobody else", () => {
+    expect(canRaiseNeed(person(["CUSTODIAN"]))).toBe(true);
+    expect(canRaiseNeed(person(["MANAGER"]))).toBe(false);
+    expect(canRaiseNeed(person(["CUSTODIAN"], null))).toBe(false);
     expect(canRaiseNeed(undefined)).toBe(false);
   });
 
@@ -136,5 +136,26 @@ describe("receivedProgress", () => {
 describe("emptyLine", () => {
   it("starts at quantity 1 with no needs answered yet", () => {
     expect(emptyLine("l1")).toEqual({ id: "l1", name: "", qty: 1, fromNeedIds: [] });
+  });
+});
+
+describe("linesFromNeeds — from the labs' needs to a request's lines", () => {
+  const need = (over: Partial<NeedForLines>): NeedForLines => ({ id: "n", name: "Oscilloscope", qty: 1, unit: "pcs", categoryId: "osc", labName: "Lab A", priority: "IMPORTANT", reason: "Signals course", spec: null, ...over });
+
+  it("merges the same thing asked for by several labs into one line, summing quantities", () => {
+    const lines = linesFromNeeds([need({ id: "a", qty: 2 }), need({ id: "b", name: " oscilloscope ", qty: 3, labName: "Lab B", reason: "Two broke" })]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ name: "Oscilloscope", qty: 5, unit: "pcs", categoryId: "osc", fromNeedIds: ["a", "b"] });
+    expect(lines[0].justification).toBe("Lab A (2): Signals course; Lab B (3): Two broke");
+  });
+
+  it("keeps different things, units or categories apart, most urgent first", () => {
+    const lines = linesFromNeeds([
+      need({ id: "a", name: "Fume hood", categoryId: null, priority: "NICE_TO_HAVE" }),
+      need({ id: "b", priority: "ESSENTIAL", spec: "100 MHz, 2 channels" }),
+      need({ id: "c", unit: "Set" }),
+    ]);
+    expect(lines.map((l) => l.fromNeedIds)).toEqual([["b"], ["c"], ["a"]]);
+    expect(lines[0].justification).toBe("Lab A (1): Signals course — 100 MHz, 2 channels");
   });
 });

@@ -3,7 +3,7 @@ import type { ItemChangeDto } from "@/lib/shared";
 import { errorResponse } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
 import { assertCanSeeItem } from "@/lib/server/resources/scope";
-import { resolveReadOverride } from "@/lib/server/resources/views";
+import { resolveReadOverride } from "@/lib/server/resources/read-scope";
 import { forItem } from "@/lib/server/resources/changes";
 
 type Params = { params: Promise<{ id: string }> };
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const sp = request.nextUrl.searchParams;
     const readOverride = await resolveReadOverride(user.id, sp);
 
-    await assertCanSeeItem(user.id, id, readOverride.scope?.mode, readOverride.scope?.explicitNodeIds);
+    await assertCanSeeItem(user.id, id, readOverride.scope?.mode);
     const rows = await forItem(id);
     return NextResponse.json<ItemChangeDto[]>(rows, { status: 200 });
   } catch (err) {

@@ -10,8 +10,7 @@
  * and no matching policy means DENY, never a silent allow.
  */
 import { z } from "zod";
-import { RoleKindSchema } from "../enums";
-import { CountingModeSchema, ItemChangeKindSchema, PolicyOutcomeSchema, RequestStatusSchema, StepSelectorTypeSchema, StepStatusSchema } from "./enums";
+import { RequestStatusSchema, StepSelectorTypeSchema, StepStatusSchema } from "./enums";
 import { ItemChangeResultDto, TransferItemChange } from "./item";
 
 // ── Selectors ────────────────────────────────────────────────────────────
@@ -39,42 +38,6 @@ export const StepSelector = z.discriminatedUnion("type", [
   z.object({ type: z.literal("REQUESTER_RECEIPT") }),
 ]);
 export type StepSelector = z.infer<typeof StepSelector>;
-
-export const ObjectSelector = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("ANY") }),
-  z.object({ type: z.literal("GROUP"), group: z.string() }),
-  z.object({ type: z.literal("CATEGORY"), categoryId: z.string() }),
-  z.object({ type: z.literal("COUNTING_MODE"), mode: CountingModeSchema }),
-]);
-export type ObjectSelector = z.infer<typeof ObjectSelector>;
-
-// ── Policies ─────────────────────────────────────────────────────────────
-
-export const ApprovalPolicyDto = z.object({
-  id: z.string(),
-  name: z.string(),
-  operation: ItemChangeKindSchema,
-  appliesTo: ObjectSelector,
-  /** null = matches every role. */
-  actorRole: RoleKindSchema.nullable(),
-  outcome: PolicyOutcomeSchema,
-  /** CHAIN only. An empty chain is treated as DENY — it routes to nobody. */
-  chain: z.array(StepSelector).nullable(),
-  enabled: z.boolean(),
-});
-export type ApprovalPolicyDto = z.infer<typeof ApprovalPolicyDto>;
-
-export const UpsertApprovalPolicyInput = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1),
-  operation: ItemChangeKindSchema,
-  appliesTo: ObjectSelector,
-  actorRole: RoleKindSchema.nullable(),
-  outcome: PolicyOutcomeSchema,
-  chain: z.array(StepSelector).optional(),
-  enabled: z.boolean().default(true),
-});
-export type UpsertApprovalPolicyInput = z.infer<typeof UpsertApprovalPolicyInput>;
 
 // ── Requests and their chains ───────────────────────────────────────────
 

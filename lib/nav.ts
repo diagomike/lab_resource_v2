@@ -42,13 +42,13 @@ export const NAV: NavGroup[] = [
       // (STAFF_ROLES, lib/server/auth/session.ts). Hiding the entry here is
       // convenience on top of that real enforcement, same discipline every other
       // role-gated item in this file already follows.
-      { key: "dashboard", label: "Dashboard", icon: "▦", path: "/dashboard", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
-      { key: "register", label: "Register", icon: "▤", path: "/register", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
+      { key: "dashboard", label: "Dashboard", icon: "▦", path: "/dashboard", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STORE_KEEPER"] },
+      { key: "register", label: "Register", icon: "▤", path: "/register", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STORE_KEEPER"] },
       // "University resources" is the Register's "Whole university" scope since
       // 2026-09-28 (RegisterScopeSwitch); /university redirects there.
       // Track 6 — lab calendars. Students are booked for by their advisor, so the
       // screen is for the roles the booking service itself accepts.
-      { key: "schedule", label: "Schedule", icon: "◴", path: "/schedule", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN", "STAFF"] },
+      { key: "schedule", label: "Schedule", icon: "◴", path: "/schedule", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN"] },
       // Track 7 — outside institutions' requests. The service decides what each person
       // sees (all of them for the AVP's office, their department's for heads/custodians).
       { key: "external-requests", label: "External requests", icon: "⇲", path: "/external-requests", roles: ["SYS_ADMIN", "MANAGER", "CUSTODIAN"] },
@@ -64,9 +64,9 @@ export const NAV: NavGroup[] = [
         // Everyone may raise a need except a student (lib/domain/purchasing.ts's
         // own canRaiseNeed gate) — hiding the entry is convenience, not the real
         // enforcement, which the server still applies on every write.
-        roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"],
+        roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STORE_KEEPER"],
       },
-      { key: "change-log", label: "Change log", icon: "◷", path: "/change-log", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STORE_KEEPER"] },
+      { key: "change-log", label: "Change log", icon: "◷", path: "/change-log", roles: ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STORE_KEEPER"] },
       { key: "categories", label: "Categories", icon: "◈", path: "/categories" },
     ],
   },
@@ -76,10 +76,6 @@ export const NAV: NavGroup[] = [
       { key: "admin-dashboard", label: "Overview", icon: "▦", path: "/admin/dashboard", roles: ["SYS_ADMIN"] },
       { key: "admin-people", label: "People & roles", icon: "◍", path: "/admin/people", roles: ["SYS_ADMIN", "MANAGER"] },
       { key: "admin-org-structure", label: "Org structure", icon: "⑃", path: "/admin/org-structure", roles: ["SYS_ADMIN"] },
-      // Access views are shared administrative vocabulary — same SYS_ADMIN/
-      // PROPERTY_ADMIN pairing categories.ts's own admin routes already use (Track 1
-      // of ~/.claude/plans/lets-merge-the-work-memoized-journal.md).
-      { key: "admin-access-views", label: "Access views", icon: "◫", path: "/admin/access-views", roles: ["SYS_ADMIN", "PROPERTY_ADMIN"] },
     ],
   },
 ];
@@ -109,7 +105,6 @@ export const META: Record<string, [string, string, string]> = {
   "admin-dashboard": ["Administration ›", "Overview", "Org nodes, personnel, and where to start"],
   "admin-people": ["Administration ›", "People & roles", "Invite someone, change what they may do, or retire their account"],
   "admin-org-structure": ["Administration › Structure ›", "Org structure", "The reporting hierarchy — create a node of any kind, assign its head, redraw its parents"],
-  "admin-access-views": ["Administration ›", "Access views", "What each kind of person sees in the register, and whether they may edit it"],
 
   profile: ["Me ›", "Profile & password", "Your details, your unit, and your sign-in password"],
   help: ["Me ›", "Help & guides", "How to do things in LRMS — the general guides, and the ones for your role"],
