@@ -4796,3 +4796,19 @@ its model that make porting it as-is the wrong move.
   - **Push not done:** `git push origin master` was refused by the session's permission system. The user pushes
     (12 commits ahead of `c1f8191`); Vercel then deploys. Neon credentials were read from `neon.env` by a
     scratchpad wrapper that sets DATABASE_URL (pooled) and DIRECT_URL (unpooled) without printing them.
+
+- **2026-09-29 (UX evaluation and simplification direction; docs only, no product changes)**
+  - An evaluation-only session. It produced **`docs/handoff-ux-simplification-2026-09-29.md`**, the starting point for
+    the next session.
+  - **The user's new direction** (in the hand-off, §2): cut the system to resource management with transparency,
+    plus sharing, purchase requesting and external usage.
+    - Remove the STAFF and STUDENT roles, Staff holdings, and access views.
+    - Replace lab ideals with richer custodian need requests.
+    - Custodians book their own labs and machines with a reason.
+    - **Keep every approval chain, including lab drafts** (compile, then submit once to the head).
+    - The work is to happen on a new branch. Open questions are listed in §2.
+  - **The two approval-line sessions (`271a523e`, `473cd6eb`) were checked against the repo and their
+    transcripts:** the commits, test runs (554 → 577), the 68/68 e2e validation and the Neon migrations are real.
+    `tsc` is clean on `307b7a2`.
+  - **Standing caution for future sessions:** the guide, walkthrough, story and Help documents and their Sep-24
+    screenshots are not a source of truth. Verify behaviour in code before describing it.
