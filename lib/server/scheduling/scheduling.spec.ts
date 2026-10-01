@@ -78,7 +78,7 @@ beforeAll(async () => {
   nodeId = (await prisma.orgNode.create({ data: { name: `${testKey}-dept`, level: 9, kind: "DEPARTMENT", active: true } })).id;
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
   for (const [key, bookingMode] of [["room", "ROOM"], ["machine", "EQUIPMENT"], ["desk", "NOT_BOOKABLE"]] as const) {
-    const c = await prisma.resourceCategory.create({ data: { key: `${testKey}-${key}`, name: `Sched ${key}`, iconKey: "Package", groupId, countingMode: "SERIALIZED", canBeRoot: true, bookingMode } });
+    const c = await prisma.resourceCategory.create({ data: { key: `${testKey}-${key}`, name: `Sched ${key}`, iconKey: "Package", groupId, countingMode: "SERIALIZED", isPlace: true, bookingMode } });
     categoryIds[key] = c.id;
   }
   labId = await makeItem("Sched Lab", categoryIds.room, null, custodianId);

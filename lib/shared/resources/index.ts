@@ -6,3 +6,4 @@ export * from "./approvals";
 export * from "./purchasing";
 export * from "./imports";
 export * from "./lab-drafts";
+export * from "./places";

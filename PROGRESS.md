@@ -4851,3 +4851,43 @@ its model that make porting it as-is the wrong move.
     sent it (chain Head → CoEEC Dean → CMD → AVP → Procurement shown). PR-2026-001 is left in dev.
   - **Production, later:** Neon needs both migrations; the first deletes STAFF/STUDENT role rows (accounts holding only
     those keep no role) and lab ideals. Not done — `master`/Neon untouched.
+
+- **2026-10-01 (UX-flow round, P2: roles and places)**
+  - **ADAA:** new `RoleKind ADAA` (Associate Dean of Academic Affairs), homed in the college or an office under it.
+    `lib/server/auth/capabilities.ts` `capabilitiesOf()` gives the plain facts (admin, Property Admin, procurement, store
+    keeper, custodian, ADAA, `headOf`, `deanOf`, AVP, office codes, `managesPlacesIn`). It is exposed as `MeContextDto.caps`.
+    `ROLE_LABEL` in `lib/shared/enums.ts` names roles everywhere.
+  - **Places vs things:** `ResourceCategory.isPlace` replaces `canBeRoot`, the placement setting and `CategoryPlacementRule`
+    (all dropped, migration `20261001220000_places_and_adaa`).
+    - Rule (`lib/domain/placement.ts` `canPlace`): a place is top level only; a thing goes into any place, or into a thing
+      whose "Made of" includes it (RAM into a motherboard).
+    - The editor's Placement section is now "What it is: a place / a thing".
+  - **Who manages places:** a department's head; the dean and ADAA for their college and its departments; Property Admin
+    for the university (Main Store); the admin everywhere.
+    - Custodians never create or edit a place, in the register too: a top-level create, or an edit to a place item, is a 403.
+      They run a place's contents through the lab's changes.
+    - Places belong to the university, a college or a department, never to an office.
+  - **Labs & stores** (`/places`, replacing `/lab-states`, which redirects):
+    - the list, grouped "You run" and then by unit, with block, room, seats, item count, needs attention, draft state
+      and Bookable;
+    - "Add a lab or store": kind, unit, name, the kind's details (required marked), and the custodian chosen from the
+      unit's custodians, who is emailed;
+    - a place's page (`/places/[id]`) shows its details, "Edit name and details", "Change who runs it" (held items move
+      with it and both people are told), and "Remove" (only when empty), above the lab's tabs (In the lab · Changes ·
+      Approvals);
+    - services in `lib/server/resources/places.ts` and the `app/api/places/*` routes; spec `places.spec.ts` (9 tests).
+  - **Seed (not yet run):**
+    - Lab, Workshop and Studio have Block and Room (required), Seats and Purpose; they are bookable rooms, and Lab is
+      publicly listed.
+    - Store has Level (Main / College / Department store), Block and Room.
+    - The CSE and ChemE labs get block and room split ("B528-RG16" → 528 / G16), and the "source" field is gone.
+    - `seed.ts` has ASTU's five colleges (CoEEC, CoMCME, CoCEA, CoANS, CoHSS), their departments, and an ADAA office per
+      college occupied by `adaa.<college>@astu.edu.et`.
+    - The full reseed needs `migrate reset`, so it is left for the single reseed after P3's catalogue. An attempt to run
+      `seed.ts` over the live data failed part-way (it expects an empty DB), and dev was restored from
+      `backups/lrms_v2-2026-10-01-before-p2-reseed.dump`.
+  - **Checks:**
+    - `tsc` clean, 529/529 tests, `next build` clean.
+    - The browser pane was unavailable, so this was a read-only API smoke on the production build with mail off, one
+      login per role. The CSE head manages 31 CSE places and may add only in CSE. A CSE custodian runs 2 and manages
+      none. Property Admin manages the Main Store. The admin manages all 39.

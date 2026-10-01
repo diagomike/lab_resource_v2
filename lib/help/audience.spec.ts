@@ -17,6 +17,7 @@ function me(roles: RoleKind[], post?: { kind: "DEPARTMENT" | "COLLEGE" | "UNIVER
       : null,
     canSeeCost: false,
     scopeMode: "ORG_SUBTREE",
+    caps: { isAdmin: false, isPropertyAdmin: false, isProcurement: false, isStoreKeeper: false, isCustodian: false, isAdaa: false, headOf: [], deanOf: [], isAvp: false, officeCodes: [], adaaCollegeId: null, managesPlacesIn: [] },
   };
 }
 const roleChapters = (m: MeContextDto) => [...helpChaptersFor(m, ALL)].filter((c) => !(GENERAL_CHAPTERS as readonly string[]).includes(c)).sort();

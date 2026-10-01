@@ -7,6 +7,7 @@ import { useTheme } from "../../lib/theme-context";
 import { useAuth } from "../../lib/auth-context";
 import { canAccessPath } from "../../lib/nav";
 import { helpChaptersFor, helpHrefFor } from "../../lib/help/audience";
+import { ROLE_LABEL } from "@/lib/shared";
 
 function initials(name: string): string {
   const words = name
@@ -130,7 +131,7 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
         <div className="leading-tight pr-4 hidden lg:block">
           <div className="text-11 font-medium whitespace-nowrap">{user?.name ?? "…"}</div>
           <div className="text-9.5 opacity-60 whitespace-nowrap">
-            {roles.map((r) => r.toLowerCase()).join(" · ")}
+            {roles.map((r) => ROLE_LABEL[r]).join(" · ")}
           </div>
         </div>
       </div>

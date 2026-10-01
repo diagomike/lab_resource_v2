@@ -111,9 +111,7 @@ beforeAll(async () => {
     groupId,
     countingMode: "SERIALIZED",
     impairRule: "ANY_CRITICAL",
-    canBeRoot: false,
-    placement: "ANYWHERE",
-    allowedParentCategoryIds: [],
+    isPlace: false,
     fields: [],
     templateChildren: [],
   });

@@ -152,7 +152,7 @@ beforeAll(async () => {
   custodian2Id = await makeUser("custodian-2", ["CUSTODIAN"], { homeNodeId: nodeA });
 
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
-  roomCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-room`, name: "Ext Room", iconKey: "Package", groupId, countingMode: "SERIALIZED", canBeRoot: true, bookingMode: "ROOM", publicListed: true } })).id;
+  roomCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-room`, name: "Ext Room", iconKey: "Package", groupId, countingMode: "SERIALIZED", isPlace: true, bookingMode: "ROOM", publicListed: true } })).id;
   machineCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-xrd`, name: "Ext XRD", iconKey: "Package", groupId, countingMode: "SERIALIZED", bookingMode: "EQUIPMENT", publicListed: true } })).id;
   labId = (await prisma.item.create({ data: { name: "Ext Lab", categoryId: roomCategoryId, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: nodeA, currentOrgNodeId: nodeA, custodianId } })).id;
   lab2Id = (await prisma.item.create({ data: { name: "Ext Lab Two", categoryId: roomCategoryId, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: nodeA, currentOrgNodeId: nodeA, custodianId: custodian2Id } })).id;

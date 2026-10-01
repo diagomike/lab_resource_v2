@@ -23,6 +23,7 @@ import * as scope from "../org/scope";
 import * as itemScope from "../resources/scope";
 import { issueInvitation } from "../people/people";
 import { generateToken, hashIp, hashToken } from "./token";
+import { capabilitiesOf } from "./capabilities";
 
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7);
 const PASSWORD_RESET_TTL_HOURS = 2;
@@ -302,6 +303,7 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
         : null,
     canSeeCost: await scope.canSeeCost(user.id),
     scopeMode: await itemScope.defaultModeFor(user.id),
+    caps: await capabilitiesOf(user.id),
   };
 }
 

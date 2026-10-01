@@ -10,6 +10,7 @@ import { PeopleTable } from "@/components/people/PeopleTable";
 import { Panel, Screen, Tag, Button, ErrorNote, Modal } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { EntityPicker } from "@/components/EntityPicker";
+import { ROLE_LABEL } from "@/lib/shared";
 
 /**
  * The personnel register that /register/people promised since Phase 0 and never had. One
@@ -27,6 +28,7 @@ const ALL_ROLE_KINDS: RoleKind[] = [
   "PROCUREMENT",
   "MANAGER",
   "CUSTODIAN",
+  "ADAA",
   "STORE_KEEPER",
   "EXTERNAL",
 ];
@@ -214,7 +216,7 @@ export default function PersonnelPage() {
                 <option value="">Role: any</option>
                 {ALL_ROLE_KINDS.map((r) => (
                   <option key={r} value={r}>
-                    {r.toLowerCase().replace("_", " ")}
+                    {ROLE_LABEL[r]}
                   </option>
                 ))}
               </select>
@@ -351,7 +353,7 @@ function RoleChip({
       >
         {active && <span className="text-accent text-9.5 leading-none">✓</span>}
       </span>
-      {role.toLowerCase().replace("_", " ")}
+      {ROLE_LABEL[role]}
     </button>
   );
 }

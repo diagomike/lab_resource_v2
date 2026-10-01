@@ -82,7 +82,7 @@ async function forestFingerprint(): Promise<string> {
       (SELECT count(*) FROM "Item"), (SELECT coalesce(sum(version), 0) FROM "Item"), (SELECT max("updatedAt") FROM "Item"),
       (SELECT count(*) FROM "ItemImage"), (SELECT coalesce(sum("sortOrder"), 0) FROM "ItemImage"), (SELECT max("createdAt") FROM "ItemImage"),
       (SELECT count(*) FROM "ResourceCategory"), (SELECT coalesce(sum(version), 0) FROM "ResourceCategory"), (SELECT max("updatedAt") FROM "ResourceCategory"),
-      (SELECT count(*) FROM "CategoryField"), (SELECT count(*) FROM "CategoryTemplateChild"), (SELECT count(*) FROM "CategoryPlacementRule"),
+      (SELECT count(*) FROM "CategoryField"), (SELECT count(*) FROM "CategoryTemplateChild"),
       (SELECT md5(coalesce(string_agg(id || ':' || name || ':' || "sortOrder", ',' ORDER BY id), '')) FROM "CategoryGroup")
     ) AS k`;
   return row.k;
@@ -117,7 +117,7 @@ function pathFor(forest: Forest, id: string): string[] {
 async function buildForest(): Promise<Forest> {
   const [itemRows, categoryRows] = await Promise.all([
     prisma.item.findMany({ where: { deletedAt: null }, include: { images: true } }),
-    prisma.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true } }),
+    prisma.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true } }),
   ]);
   const categories = toDomainCategoryMap(categoryRows);
   const items = itemRows.map((r) => toDomainItem(r, r.images));

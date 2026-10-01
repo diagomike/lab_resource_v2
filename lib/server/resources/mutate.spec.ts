@@ -249,7 +249,7 @@ describe("F-029 — a category's required fields are enforced when creating an i
   it("refuses a create that leaves a required field empty, and accepts it once filled", async () => {
     const cat = await prisma.resourceCategory.create({
       data: {
-        key: `__test-f029-${Date.now()}`, name: "F029 Required Test", iconKey: "Box", groupId, countingMode: "SERIALIZED", canBeRoot: true,
+        key: `__test-f029-${Date.now()}`, name: "F029 Required Test", iconKey: "Box", groupId, countingMode: "SERIALIZED", isPlace: true,
         fields: { create: [{ key: "serial", label: "Serial number", type: "TEXT", required: true }] },
       },
     });

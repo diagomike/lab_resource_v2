@@ -360,7 +360,7 @@ export function Inspector({
             {stagedIn && (
               <div className="text-10.5 bg-soft border border-accent rounded-2 px-8 py-6">
                 Staged in <strong>{stagedIn.labName}</strong>&apos;s draft — the register changes once the department head approves.{" "}
-                <Link href={`/lab-states?lab=${stagedIn.labItemId}&tab=draft&item=${item.id}`} className="text-accent hover:underline">
+                <Link href={`/places/${stagedIn.labItemId}?tab=draft&item=${item.id}`} className="text-accent hover:underline">
                   Review &amp; submit →
                 </Link>
               </div>
@@ -373,13 +373,13 @@ export function Inspector({
                     {l}
                   </div>
                 ))}
-                <Link href={`/lab-states?lab=${pendingHere.labItemId}&tab=draft&item=${item.id}`} className="text-accent hover:underline">
+                <Link href={`/places/${pendingHere.labItemId}?tab=draft&item=${item.id}`} className="text-accent hover:underline">
                   Open the draft →
                 </Link>
               </div>
             )}
             {item.parentId === null && (
-              <Link href={`/lab-states?lab=${item.id}`} className="self-start text-10.5 text-accent border border-accent rounded-2 px-8 py-4">
+              <Link href={`/places/${item.id}`} className="self-start text-10.5 text-accent border border-accent rounded-2 px-8 py-4">
                 Lab states — current · draft · ideal →
               </Link>
             )}

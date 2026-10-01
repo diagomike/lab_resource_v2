@@ -47,6 +47,12 @@ let sysAdminId: string;
 let propertyAdminId: string;
 let groupId: string;
 let categoryId: string;
+/** Labs, stores and destinations are places; what moves between them is a thing. */
+let placeCategoryId: string;
+/** A rack or a shelf: a thing made of the thing category, so things may go inside it. */
+let containerCategoryId: string;
+/** Which fixture category an item named like this belongs to. */
+const categoryFor = (name: string) => (/\b(Lab|Dest|Store)\b/.test(name) ? placeCategoryId : /\b(Rack|Shelf)\b/.test(name) ? containerCategoryId : categoryId);
 const testKey = `__test-approvals-${Date.now()}`;
 
 const createdUserIds: string[] = [];
@@ -79,8 +85,9 @@ async function setHead(nodeId: string, headId: string | null) {
 }
 
 async function makeItem(ownerOrgNodeId: string, custodianId: string, name: string) {
+  // A destination ("… Lab", "… Dest", "… Store") is a place; a rack or shelf holds things.
   const item = await prisma.item.create({
-    data: { categoryId, name, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId, currentOrgNodeId: ownerOrgNodeId, custodianId },
+    data: { categoryId: categoryFor(name), name, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId, currentOrgNodeId: ownerOrgNodeId, custodianId },
   });
   createdItemIds.push(item.id);
   return item.id;
@@ -119,13 +126,17 @@ beforeAll(async () => {
     groupId,
     countingMode: "SERIALIZED",
     impairRule: "ANY_CRITICAL",
-    canBeRoot: true,
-    placement: "ANYWHERE",
-    allowedParentCategoryIds: [],
+    isPlace: false,
     fields: [],
     templateChildren: [],
   });
   categoryId = category.id;
+  placeCategoryId = (
+    await categories.create(sysAdminId, { key: `${testKey}-place`, name: "Approvals Test Place", iconKey: "Building2", groupId, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: true, fields: [], templateChildren: [] })
+  ).id;
+  containerCategoryId = (
+    await categories.create(sysAdminId, { key: `${testKey}-rack`, name: "Approvals Test Rack", iconKey: "Server", groupId, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: false, fields: [], templateChildren: [{ childCategoryId: categoryId, qty: 1, critical: false }] })
+  ).id;
 
   await makePolicy({ id: `${testKey}-auto-propadmin`, actorRole: "PROPERTY_ADMIN", outcome: "AUTO" });
   await makePolicy({ id: `${testKey}-chain-custodian`, actorRole: "CUSTODIAN", outcome: "CHAIN", chain: CUSTODIAN_CHAIN });
@@ -134,10 +145,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.chainStep.deleteMany({ where: { requestId: { in: createdRequestIds } } });
   await prisma.changeRequest.deleteMany({ where: { id: { in: createdRequestIds } } });
-  await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: createdItemIds } }, { categoryId }] } });
+  await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: createdItemIds } }, { categoryId: { in: [categoryId, placeCategoryId, containerCategoryId] } }] } });
   await prisma.item.deleteMany({ where: { id: { in: createdItemIds } } });
   await prisma.orgNode.deleteMany({ where: { id: { in: createdNodeIds } } });
-  await prisma.resourceCategory.delete({ where: { id: categoryId } });
+  await prisma.resourceCategory.deleteMany({ where: { id: { in: [containerCategoryId, categoryId, placeCategoryId] } } });
   await prisma.categoryGroup.delete({ where: { id: groupId } });
   await prisma.userRole.deleteMany({ where: { userId: { in: createdUserIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
@@ -516,7 +527,7 @@ describe("R2-1 (2026-09-23 run) — an item already in a pending transfer can't 
   async function makeChild(parentId: string, name: string) {
     const parent = await prisma.item.findUniqueOrThrow({ where: { id: parentId } });
     const item = await prisma.item.create({
-      data: { categoryId, name, countingMode: "SERIALIZED", status: "WORKING", parentId, ownerOrgNodeId: parent.ownerOrgNodeId, currentOrgNodeId: parent.currentOrgNodeId, custodianId: parent.custodianId },
+      data: { categoryId: categoryFor(name), name, countingMode: "SERIALIZED", status: "WORKING", parentId, ownerOrgNodeId: parent.ownerOrgNodeId, currentOrgNodeId: parent.currentOrgNodeId, custodianId: parent.custodianId },
     });
     createdItemIds.push(item.id);
     return item.id;
@@ -881,9 +892,7 @@ describe("movements — permanent transfers go to the CMD, Main Store movements 
         groupId,
         countingMode: "SERIALIZED",
         impairRule: "NEVER",
-        canBeRoot: true,
-        placement: "ANYWHERE",
-        allowedParentCategoryIds: [],
+        isPlace: true,
         fields: [],
         templateChildren: [],
       });

@@ -62,18 +62,17 @@ beforeAll(async () => {
 
   const [open, container, other] = await Promise.all([
     prisma.resourceCategory.create({ data: { key: `${testKey}-open`, name: "Containers Open", iconKey: "box", groupId, countingMode: "SERIALIZED" } }),
-    prisma.resourceCategory.create({ data: { key: `${testKey}-container`, name: "Containers Container", iconKey: "box", groupId, countingMode: "SERIALIZED" } }),
-    prisma.resourceCategory.create({ data: { key: `${testKey}-other`, name: "Containers Other", iconKey: "box", groupId, countingMode: "SERIALIZED" } }),
+    prisma.resourceCategory.create({ data: { key: `${testKey}-container`, name: "Containers Container", iconKey: "box", groupId, countingMode: "SERIALIZED", isPlace: true } }),
+    prisma.resourceCategory.create({ data: { key: `${testKey}-other`, name: "Containers Other", iconKey: "box", groupId, countingMode: "SERIALIZED", isPlace: true } }),
   ]);
   openCategoryId = open.id;
   containerCategoryId = container.id;
   otherCategoryId = other.id;
 
   const restricted = await prisma.resourceCategory.create({
-    data: { key: `${testKey}-restricted`, name: "Containers Restricted", iconKey: "box", groupId, countingMode: "SERIALIZED", placement: "ONLY_LISTED" },
+    data: { key: `${testKey}-restricted`, name: "Containers Another Place", iconKey: "box", groupId, countingMode: "SERIALIZED", isPlace: true },
   });
   restrictedCategoryId = restricted.id;
-  await prisma.categoryPlacementRule.create({ data: { childCategoryId: restrictedCategoryId, parentCategoryId: containerCategoryId } });
 
   const [seContainerItem, seOtherItem, chemContainerItem] = await Promise.all([
     prisma.item.create({
@@ -95,14 +94,13 @@ afterAll(async () => {
   const itemIds = [seContainerItemId, seOtherItemId, chemContainerItemId];
   await prisma.itemChange.deleteMany({ where: { itemId: { in: itemIds } } });
   await prisma.item.deleteMany({ where: { id: { in: itemIds } } });
-  await prisma.categoryPlacementRule.deleteMany({ where: { childCategoryId: restrictedCategoryId } });
   await prisma.resourceCategory.deleteMany({ where: { id: { in: [openCategoryId, containerCategoryId, otherCategoryId, restrictedCategoryId] } } });
   await prisma.categoryGroup.delete({ where: { id: groupId } });
   await prisma.$disconnect();
 });
 
 describe("items.containers — in scope, write-eligible, placement-legal", () => {
-  it("offers every custodied item as a destination for an ANYWHERE category, and never a foreign department's", async () => {
+  it("offers every place the custodian holds as a destination for a thing, and never a foreign department's", async () => {
     const options = await containers(seCustodianId, openCategoryId);
     const ids = options.map((o) => o.id);
     expect(ids).toContain(seContainerItemId);
@@ -110,12 +108,9 @@ describe("items.containers — in scope, write-eligible, placement-legal", () =>
     expect(ids).not.toContain(chemContainerItemId);
   });
 
-  it("restricts an ONLY_LISTED category to only the container categories on its allow-list", async () => {
+  it("offers a place no destination at all — places are top level only", async () => {
     const options = await containers(seCustodianId, restrictedCategoryId);
-    const ids = options.map((o) => o.id);
-    expect(ids).toContain(seContainerItemId); // containerCategoryId is on the allow-list
-    expect(ids).not.toContain(seOtherItemId); // otherCategoryId is not
-    expect(ids).not.toContain(chemContainerItemId); // not visible to this custodian anyway
+    expect(options).toEqual([]);
   });
 
   it("excludes an item the caller can see (org subtree reach) but does not custody — visibility alone is not write-eligibility", async () => {

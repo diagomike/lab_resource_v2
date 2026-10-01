@@ -7,11 +7,13 @@
  * People & roles.
  *
  *   ASTU (AVP)
- *   ├─ College of Electrical Engineering and Computing (CoEEC dean)
- *   │   ├─ Software Engineering (SE head — cross-department checks only)
- *   │   └─ Computer Science and Engineering (CSE head)
- *   ├─ College of Mechanical, Chemical and Materials Engineering
- *   │   └─ Chemical Engineering (head.chem)
+ *   ├─ the five colleges, each with its departments and an Associate Dean of Academic
+ *   │  Affairs office (adaa.<college>@ — creates the college's labs and stores):
+ *   │   ├─ CoEEC (dean): CSE (head), SE (head), ECE, EPCE
+ *   │   ├─ CoMCME: Chemical Engineering (head.chem), Mechanical, Materials
+ *   │   ├─ CoCEA: Civil, Water Resources, Architecture
+ *   │   ├─ CoANS: Applied Chemistry, Biology, Geology, Physics, Mathematics
+ *   │   └─ CoHSS
  *   ├─ College Managing Director, code CMD (cmd@ — purchases after the dean, permanent transfers)
  *   ├─ Property Administration, code PROP (property.admin@ — Main Store movements)
  *   └─ Procurement Office, code PROC (procurement officer)
@@ -38,6 +40,55 @@ if (process.env.NODE_ENV === "production") {
 const prisma = new PrismaClient();
 
 const SEED_PASSWORD = "astu1234";
+
+/** ASTU's colleges and their departments (astu.edu.et, 2026). Codes are what other seed
+ *  files and the e2e suites look nodes up by — CSE, SE and CHEM above all. */
+const COLLEGES: Array<{ code: string; short: string; name: string; departments: Array<[code: string, name: string]> }> = [
+  {
+    code: "COEEC",
+    short: "CoEEC",
+    name: "College of Electrical Engineering and Computing",
+    departments: [
+      ["CSE", "Computer Science and Engineering"],
+      ["SE", "Software Engineering"],
+      ["ECE", "Electronics and Communication Engineering"],
+      ["EPCE", "Electrical Power and Control Engineering"],
+    ],
+  },
+  {
+    code: "COMCME",
+    short: "CoMCME",
+    name: "College of Mechanical, Chemical and Materials Engineering",
+    departments: [
+      ["CHEM", "Chemical Engineering"],
+      ["ME", "Mechanical Engineering"],
+      ["MSE", "Materials Science and Engineering"],
+    ],
+  },
+  {
+    code: "COCEA",
+    short: "CoCEA",
+    name: "College of Civil Engineering and Architecture",
+    departments: [
+      ["CE", "Civil Engineering"],
+      ["WRE", "Water Resources Engineering"],
+      ["ARCH", "Architecture"],
+    ],
+  },
+  {
+    code: "COANS",
+    short: "CoANS",
+    name: "College of Applied Natural Sciences",
+    departments: [
+      ["ACHEM", "Applied Chemistry"],
+      ["ABIO", "Applied Biology"],
+      ["AGEO", "Applied Geology"],
+      ["APHY", "Applied Physics"],
+      ["AMATH", "Applied Mathematics"],
+    ],
+  },
+  { code: "COHSS", short: "CoHSS", name: "College of Humanities and Social Sciences", departments: [] },
+];
 const UNIVERSITY_NAME = "Adama Science and Technology University";
 
 async function main() {
@@ -69,23 +120,33 @@ async function main() {
   const node = (name: string, level: number, kind: "UNIVERSITY" | "COLLEGE" | "DEPARTMENT" | "OFFICE", code: string) =>
     prisma.orgNode.create({ data: { name, level, kind, code } });
   const university = await node(UNIVERSITY_NAME, 0, "UNIVERSITY", "ASTU");
-  const coeec = await node("College of Electrical Engineering and Computing", 1, "COLLEGE", "COEEC");
-  const comcme = await node("College of Mechanical, Chemical and Materials Engineering", 1, "COLLEGE", "COMCME");
   const proc = await node("Procurement Office", 1, "OFFICE", "PROC");
-  const se = await node("Software Engineering", 2, "DEPARTMENT", "SE");
-  const cse = await node("Computer Science and Engineering", 2, "DEPARTMENT", "CSE");
-  const chem = await node("Chemical Engineering", 2, "DEPARTMENT", "CHEM");
-
-  const edges = [
-    { parentId: university.id, childId: coeec.id },
-    { parentId: university.id, childId: comcme.id },
-    { parentId: university.id, childId: proc.id },
-    { parentId: coeec.id, childId: se.id },
-    { parentId: coeec.id, childId: cse.id },
-    { parentId: comcme.id, childId: chem.id },
-  ];
+  const edges: Array<{ parentId: string; childId: string }> = [{ parentId: university.id, childId: proc.id }];
+  const nodeIds = [university.id, proc.id];
+  const byCode = new Map<string, string>();
+  const adaaOffices: Array<{ college: string; officeId: string; short: string }> = [];
+  for (const c of COLLEGES) {
+    const college = await node(c.name, 1, "COLLEGE", c.code);
+    edges.push({ parentId: university.id, childId: college.id });
+    nodeIds.push(college.id);
+    byCode.set(c.code, college.id);
+    for (const [code, name] of c.departments) {
+      const dept = await node(name, 2, "DEPARTMENT", code);
+      edges.push({ parentId: college.id, childId: dept.id });
+      nodeIds.push(dept.id);
+      byCode.set(code, dept.id);
+    }
+    const office = await node(`Associate Dean of Academic Affairs, ${c.short}`, 2, "OFFICE", `${c.code}-ADAA`);
+    edges.push({ parentId: college.id, childId: office.id });
+    nodeIds.push(office.id);
+    adaaOffices.push({ college: c.code, officeId: office.id, short: c.short });
+  }
   await prisma.orgEdge.createMany({ data: edges });
-  await prisma.orgClosure.createMany({ data: computeClosureRows([university.id, coeec.id, comcme.id, proc.id, se.id, cse.id, chem.id], edges) });
+  await prisma.orgClosure.createMany({ data: computeClosureRows(nodeIds, edges) });
+  const coeec = { id: byCode.get("COEEC")! };
+  const se = { id: byCode.get("SE")! };
+  const cse = { id: byCode.get("CSE")! };
+  const chem = { id: byCode.get("CHEM")! };
 
   // ── Posts: role accounts (rename to the real person later) + ChemE's own ─────
   const occupy = async (nodeId: string, userId: string) => {
@@ -107,6 +168,11 @@ async function main() {
   await occupy(se.id, seHead.id);
   await occupy(proc.id, procurement.id);
   await occupy(chem.id, chemHead.id);
+  // Each college's ADAA: homed in (and occupying) the college's ADAA office.
+  for (const o of adaaOffices) {
+    const adaa = await person(`adaa.${o.college.toLowerCase()}@astu.edu.et`, `${o.short} ADAA`, ["ADAA"], o.officeId, `Associate Dean of Academic Affairs, ${o.short}`);
+    await occupy(o.officeId, adaa.id);
+  }
 
   // The ICT Maintenance Office: a post that reads the whole university (see its own file).
   await ensureIctMaintenance(prisma, SEED_PASSWORD);
@@ -115,8 +181,8 @@ async function main() {
   // Property Administration: every Main Store movement (see its own file).
   await ensurePropertyOffice(prisma, SEED_PASSWORD);
 
-  console.log(`  10 org nodes: ASTU > CoEEC > {SE, CSE}; CoMCME > ChemE; Procurement Office (PROC); ICT Maintenance Office (ICT); College Managing Director (CMD); Property Administration (PROP)`);
-  console.log(`  admin@astu.edu.et, avp@, cmd@, property.admin@, coeec.dean@, cse.head@, se.head@, procurement@, store.keeper@ (all / ${SEED_PASSWORD})`);
+  console.log(`  ${nodeIds.length + 3} org nodes: ASTU > ${COLLEGES.map((c) => c.short).join(", ")} (each with its departments and an ADAA office); PROC, ICT, CMD, PROP`);
+  console.log(`  admin@astu.edu.et, avp@, cmd@, property.admin@, coeec.dean@, cse.head@, se.head@, procurement@, store.keeper@, adaa.<college>@ e.g. adaa.coeec@ (all / ${SEED_PASSWORD})`);
   console.log(`  Chemical Engineering: head.chem@, custodian.chem@ (Hanna Bekele)`);
   console.log(`  The 17 CSE lab custodians come with their labs — run prisma/resource-seed.ts next.`);
 }

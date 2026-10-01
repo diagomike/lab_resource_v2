@@ -35,16 +35,15 @@ let sysAdminId: string;
 let orgNodeId: string;
 let groupId: string;
 
-// canBeRoot:true, ONLY_LISTED with an empty allow-list — "a root and nothing else",
-// the same shape the seed gives Lab/Store.
+// A place — top level only, like the seed's Lab and Store.
 let rootOnlyCategoryId: string;
-// canBeRoot:false, ANYWHERE — an ordinary part that may go inside anything.
+// A thing with no parent made of it — places only.
 let openCategoryId: string;
-// canBeRoot:false, ONLY_LISTED, allow-listing ONLY openContainerCategoryId below.
+// A part (like RAM): goes into places, and into a thing made of it.
 let restrictedCategoryId: string;
-// canBeRoot:false, ANYWHERE — the one container restrictedCategoryId is allowed into.
+// A thing made of the part above (like a Motherboard).
 let openContainerCategoryId: string;
-// canBeRoot:false, ANYWHERE — a second, unlisted container restrictedCategoryId is NOT allowed into.
+// A thing NOT made of that part (like a Chair).
 let otherContainerCategoryId: string;
 
 let openContainerItemId: string;
@@ -66,7 +65,7 @@ beforeAll(async () => {
 
   const [rootOnly, open, openContainer, otherContainer] = await Promise.all([
     prisma.resourceCategory.create({
-      data: { key: `__test-placement-root-${stamp}`, name: "Placement Root Only", iconKey: "box", groupId, countingMode: "SERIALIZED", canBeRoot: true, placement: "ONLY_LISTED" },
+      data: { key: `__test-placement-root-${stamp}`, name: "Placement Root Only", iconKey: "box", groupId, countingMode: "SERIALIZED", isPlace: true },
     }),
     prisma.resourceCategory.create({
       data: { key: `__test-placement-open-${stamp}`, name: "Placement Open", iconKey: "box", groupId, countingMode: "SERIALIZED" },
@@ -84,10 +83,10 @@ beforeAll(async () => {
   otherContainerCategoryId = otherContainer.id;
 
   const restricted = await prisma.resourceCategory.create({
-    data: { key: `__test-placement-restricted-${stamp}`, name: "Placement Restricted", iconKey: "box", groupId, countingMode: "SERIALIZED", placement: "ONLY_LISTED" },
+    data: { key: `__test-placement-restricted-${stamp}`, name: "Placement Restricted", iconKey: "box", groupId, countingMode: "SERIALIZED" },
   });
   restrictedCategoryId = restricted.id;
-  await prisma.categoryPlacementRule.create({ data: { childCategoryId: restrictedCategoryId, parentCategoryId: openContainerCategoryId } });
+  await prisma.categoryTemplateChild.create({ data: { parentCategoryId: openContainerCategoryId, childCategoryId: restrictedCategoryId, qty: 1, critical: false } });
 
   const makeItem = (categoryId: string, name: string) =>
     prisma.item.create({
@@ -107,7 +106,7 @@ afterAll(async () => {
   const itemIds = [openContainerItemId, otherContainerItemId, restrictedItemId];
   await prisma.itemChange.deleteMany({ where: { itemId: { in: itemIds } } });
   await prisma.item.deleteMany({ where: { id: { in: itemIds } } });
-  await prisma.categoryPlacementRule.deleteMany({ where: { childCategoryId: restrictedCategoryId } });
+  await prisma.categoryTemplateChild.deleteMany({ where: { childCategoryId: restrictedCategoryId } });
   await prisma.resourceCategory.deleteMany({
     where: { id: { in: [rootOnlyCategoryId, openCategoryId, openContainerCategoryId, otherContainerCategoryId, restrictedCategoryId] } },
   });
@@ -116,7 +115,7 @@ afterAll(async () => {
 });
 
 describe("applyChange — placement enforcement", () => {
-  it("refuses to create a root-level item of a category that cannot be a root", async () => {
+  it("refuses to create a thing at the top level", async () => {
     await expect(
       applyChange(sysAdminId, {
         kind: "createItem",
@@ -130,7 +129,7 @@ describe("applyChange — placement enforcement", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("allows creating a root-level item of a category that may be a root", async () => {
+  it("allows creating a place at the top level", async () => {
     const result = await applyChange(sysAdminId, {
       kind: "createItem",
       categoryId: rootOnlyCategoryId,
@@ -144,19 +143,19 @@ describe("applyChange — placement enforcement", () => {
     await prisma.item.deleteMany({ where: { id: { in: result.itemIds } } });
   });
 
-  it("refuses to create an item under a container that is not on its category's allow-list", async () => {
+  it("refuses to create a part inside a thing that isn't made of it", async () => {
     await expect(
       applyChange(sysAdminId, { kind: "createItem", categoryId: restrictedCategoryId, parentId: otherContainerItemId, count: 1 }),
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("allows creating an item under a container that is on its category's allow-list", async () => {
+  it("allows creating a part inside a thing made of it", async () => {
     const result = await applyChange(sysAdminId, { kind: "createItem", categoryId: restrictedCategoryId, parentId: openContainerItemId, count: 1 });
     expect(result.applied).toBe(1);
     await prisma.item.deleteMany({ where: { id: { in: result.itemIds } } });
   });
 
-  it("refuses to move a restricted item into an unlisted container, leaving it untouched", async () => {
+  it("refuses to move a part into a thing that isn't made of it, leaving it untouched", async () => {
     const before = await prisma.item.findUniqueOrThrow({ where: { id: restrictedItemId } });
     await expect(applyChange(sysAdminId, { kind: "moveInTree", itemIds: [restrictedItemId], value: otherContainerItemId })).rejects.toMatchObject({ status: 400 });
     const after = await prisma.item.findUniqueOrThrow({ where: { id: restrictedItemId } });
@@ -164,18 +163,18 @@ describe("applyChange — placement enforcement", () => {
     expect(after.version).toBe(before.version);
   });
 
-  it("refuses to move a restricted item to the top level, since its category cannot be a root", async () => {
+  it("refuses to move a thing to the top level", async () => {
     await expect(applyChange(sysAdminId, { kind: "moveInTree", itemIds: [restrictedItemId], value: null })).rejects.toMatchObject({ status: 400 });
   });
 
-  it("allows moving a restricted item into a listed container", async () => {
+  it("allows moving a part into a thing made of it", async () => {
     const result = await applyChange(sysAdminId, { kind: "moveInTree", itemIds: [restrictedItemId], value: openContainerItemId });
     expect(result.applied).toBe(1);
     const after = await prisma.item.findUniqueOrThrow({ where: { id: restrictedItemId } });
     expect(after.parentId).toBe(openContainerItemId);
   });
 
-  it("refuses to transfer a restricted item into an unlisted destination, leaving it untouched", async () => {
+  it("refuses to transfer a part into a thing that isn't made of it, leaving it untouched", async () => {
     const before = await prisma.item.findUniqueOrThrow({ where: { id: restrictedItemId } });
     await expect(
       applyChange(sysAdminId, {

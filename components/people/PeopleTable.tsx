@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-table";
 import type { PersonDto } from "@/lib/shared";
 import { Tag, Button } from "@/components/ui";
+import { ROLE_LABEL } from "@/lib/shared";
 
 // v9 registers features explicitly — this table only ever needs client-side sort.
 // Filtering (search/role/status) is done by the caller before rows ever reach here,
@@ -70,7 +71,7 @@ export function PeopleTable({
         cell: ({ row }) => (
           <div className="flex flex-wrap gap-3 justify-end">
             {row.original.roles.map((r) => (
-              <Tag key={r}>{r.toLowerCase()}</Tag>
+              <Tag key={r}>{ROLE_LABEL[r]}</Tag>
             ))}
           </div>
         ),

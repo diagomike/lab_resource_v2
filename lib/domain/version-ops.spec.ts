@@ -15,7 +15,7 @@ const cat = (id: string, name: string, extra: Partial<Category> = {}): Category 
   ...extra,
 });
 const categories: Record<string, Category> = {
-  lab: cat("lab", "Lab", { canBeRoot: true }),
+  lab: cat("lab", "Lab", { isPlace: true }),
   ws: cat("ws", "Workstation", { defaultChildren: [{ categoryId: "pc", qty: 1, critical: true }, { categoryId: "chair", qty: 1, critical: false }] }),
   pc: cat("pc", "Computer"),
   chair: cat("chair", "Chair"),
@@ -63,9 +63,9 @@ describe("applyVersionOp", () => {
     expect(items.filter((i) => i.sourceItemId === null).every((i) => i.id.startsWith("new"))).toBe(true);
   });
 
-  it("refuses a placement the category rules forbid and a duplicate sibling name", () => {
-    const strict = { ...ctx, categories: { ...categories, outlet: cat("outlet", "Network Outlet", { placement: "ONLY_LISTED", allowedParentCategoryIds: ["lab"] }) } };
-    expect(() => applyVersionOp(base, { kind: "createItem", parentId: "ws1", categoryId: "outlet", count: 1 }, strict)).toThrow(VersionOpError);
+  it("refuses putting a place inside the lab, and a duplicate sibling name", () => {
+    const withRoom = { ...ctx, categories: { ...categories, room: cat("room", "Room", { isPlace: true }) } };
+    expect(() => applyVersionOp(base, { kind: "createItem", parentId: "ws1", categoryId: "room", count: 1 }, withRoom)).toThrow(VersionOpError);
     expect(() => applyVersionOp(base, { kind: "setName", itemIds: ["ws1"], value: "workstation 02" }, ctx)).toThrow(/already exists/);
   });
 
@@ -109,7 +109,9 @@ describe("diffVersion", () => {
   it("names nested places by their path inside the lab, not just the nearest container", () => {
     const { items } = applyVersionOp(base, { kind: "deleteItem", itemIds: ["pc1"] }, ctx);
     expect(diffVersion(items, current, baseIds, labels)[0].lines).toEqual(["Removed from Workstation 01"]);
-    const added = applyVersionOp(base, { kind: "createItem", parentId: "pc1", categoryId: "chair", count: 1, name: "Stool" }, ctx).items;
+    // A computer that lists a seat among its parts accepts one inside it.
+    const withSeat = { ...ctx, categories: { ...categories, pc: cat("pc", "Computer", { defaultChildren: [{ categoryId: "chair", qty: 1, critical: false }] }) } };
+    const added = applyVersionOp(base, { kind: "createItem", parentId: "pc1", categoryId: "chair", count: 1, name: "Stool" }, withSeat).items;
     expect(diffVersion(added, current, baseIds, labels)[0].lines[0]).toBe("Added in Workstation 01 › Computer");
   });
 

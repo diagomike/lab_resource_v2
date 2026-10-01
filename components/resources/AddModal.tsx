@@ -7,8 +7,6 @@ import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import type { ContainerOptionDto, CustomProps, CustomPropType, ItemChangeInput, ItemChildDto, ItemDetailDto, ItemPropValue, ResourceCategoryDto } from "@/lib/shared";
 import { CUSTOM_PROP_KEY_PATTERN, customPropTypes } from "@/lib/shared";
 import { api } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
-import { useEditOptions } from "@/lib/register/useEditOptions";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 import { previewItemChange, submitChange } from "@/lib/register/useItemChange";
 import { CustomPropInput, PropInput } from "./Inspector";
@@ -260,13 +258,8 @@ export function CategoryCombobox({
  * filters to destinations that are in scope, write-eligible, AND placement-legal — see
  * items.ts's `containers()` for why that is three separate checks, not one.
  *
- * "Top level" is offered only when the chosen category's own `canBeRoot` allows it AND
- * this person has some plausible path to `scope.ts`'s `assertCanCreateRoot` (widened
- * past SYS_ADMIN-only in 10a of ~/.claude/plans/wait-i-want-gentle-haven.md): SYS_ADMIN
- * anywhere, a CUSTODIAN/STORE_KEEPER at their own home unit with themselves as
- * custodian. A department head doesn't create resources (2026-09-22). The server re-checks all of this
- * regardless — this is a UI hint to avoid offering a choice that would just 403, not
- * the authority.
+ * Things only: a new place (a lab, a store) is created by the people who manage
+ * places, on Labs & stores — never here.
  */
 export function AddModal({
   open,
@@ -280,8 +273,6 @@ export function AddModal({
   defaultParentId?: string | null;
 }) {
   const router = useRouter();
-  const { user, me } = useAuth();
-  const editOptions = useEditOptions();
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoryId, setCategoryId] = useState("");
@@ -289,9 +280,6 @@ export function AddModal({
   const [containers, setContainers] = useState<ContainerOptionDto[]>([]);
   const [containersLoading, setContainersLoading] = useState(false);
   const [count, setCount] = useState(1);
-  const [ownerOrgNodeId, setOwnerOrgNodeId] = useState("");
-  const [currentOrgNodeId, setCurrentOrgNodeId] = useState("");
-  const [custodianId, setCustodianId] = useState("");
   /** Defaults to the category's own name, editable. The server numbers it against
    *  what is already in the destination ("Workstation 21…" after 01–20, gaps first —
    *  lib/domain/naming.ts). Reset whenever the category changes, same as `propDrafts`
@@ -305,11 +293,6 @@ export function AddModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const roles = user?.roles ?? [];
-  const isSysAdmin = roles.includes("SYS_ADMIN");
-  const isCustodianLike = roles.includes("CUSTODIAN") || roles.includes("STORE_KEEPER");
-  const ownNodeId = me?.scope?.nodeId ?? null;
-  const canAttemptRoot = isSysAdmin || (isCustodianLike && Boolean(ownNodeId));
 
   useEffect(() => {
     if (!open) return;
@@ -323,12 +306,9 @@ export function AddModal({
     setCustomPropDrafts([]);
     setError(null);
     setCategoriesLoading(true);
-    setOwnerOrgNodeId(ownNodeId ?? "");
-    setCurrentOrgNodeId(ownNodeId ?? "");
-    setCustodianId(user?.id ?? "");
     api
       .get<ResourceCategoryDto[]>("/resources/categories")
-      .then((rows) => setCategories(rows.filter((c) => c.active)))
+      .then((rows) => setCategories(rows.filter((c) => c.active && !c.isPlace)))
       .catch(() => setCategories([]))
       .finally(() => setCategoriesLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -364,14 +344,12 @@ export function AddModal({
 
   const selectedCategory = categories.find((c) => c.id === categoryId) ?? null;
   const containerOptions = useMemo(() => containerTreeOptions(containers), [containers]);
-  const canOfferRoot = Boolean(selectedCategory?.canBeRoot) && canAttemptRoot;
-  const isRootCreate = parent === "" && canOfferRoot;
 
   const templateRows = categoryId ? templateSize(categories, categoryId) : 0;
 
   const canSubmit =
     Boolean(categoryId) &&
-    (parent !== "" || (canOfferRoot && (isCustodianLike && !isSysAdmin ? true : Boolean(ownerOrgNodeId) && Boolean(custodianId))));
+    parent !== "";
 
   /** Same raw-string → typed-value coercion Inspector's own `commitProp` uses for a
    *  follow-up edit — a blank draft means "leave it unset", never sent at all (an
@@ -434,13 +412,6 @@ export function AddModal({
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(props ? { props } : {}),
         ...(customProps.data ? { customProps: customProps.data } : {}),
-        ...(isRootCreate
-          ? {
-              ownerOrgNodeId,
-              currentOrgNodeId: currentOrgNodeId || ownerOrgNodeId,
-              custodianId,
-            }
-          : {}),
       },
     };
   }
@@ -506,8 +477,6 @@ export function AddModal({
     );
   }
 
-  const ownerNodeName = editOptions.owner.find((o) => o.value === ownNodeId)?.label ?? "your unit";
-
   return (
     <Modal title="Add resources" onClose={onClose} width="480px">
       {error && <ErrorNote>{error}</ErrorNote>}
@@ -532,45 +501,12 @@ export function AddModal({
             value={parent}
             onChange={setParent}
             loading={containersLoading}
-            noneLabel={canOfferRoot ? "Top level (a new lab, store, building…)" : undefined}
             placeholder="Choose where it goes…"
           />
-          {!containersLoading && !canOfferRoot && containers.length === 0 && (
-            <div className="text-10.5 text-warn mt-4">You have no container in your custody that this category may be placed into.</div>
+          {!containersLoading && containers.length === 0 && (
+            <div className="text-10.5 text-warn mt-4">None of the places you run can hold this kind of thing.</div>
           )}
         </label>
-      )}
-      {isRootCreate && (
-        <div className="flex flex-col gap-8 rounded-2 border border-border2 p-10">
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold">A new top-level resource needs</div>
-          {isCustodianLike && !isSysAdmin ? (
-            <p className="text-10.5 text-dim">
-              Owning unit: <strong className="text-text">{ownerNodeName}</strong> · Custodian: <strong className="text-text">you</strong>
-            </p>
-          ) : (
-            <>
-              <label className="block">
-                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Owning unit</div>
-                <TreePicker options={editOptions.unitTree(editOptions.owner)} value={ownerOrgNodeId} onChange={setOwnerOrgNodeId} placeholder="Choose a unit…" />
-              </label>
-              <label className="block">
-                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Custodian</div>
-                <select
-                  value={custodianId}
-                  onChange={(e) => setCustodianId(e.target.value)}
-                  className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-                >
-                  <option value="">Choose…</option>
-                  {editOptions.custodian.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-        </div>
       )}
       {categoryId && (
         <label className="block">

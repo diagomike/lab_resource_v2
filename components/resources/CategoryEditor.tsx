@@ -8,7 +8,6 @@ import type {
   CategoryGroupDto,
   CategoryImpactDto,
   CategoryImpactNote,
-  CategoryPlacement,
   CountingMode,
   CreateCategoryInput,
   ImpairRule,
@@ -60,9 +59,7 @@ interface Draft {
   unit: string;
   impairRule: ImpairRule;
   active: boolean;
-  canBeRoot: boolean;
-  placement: CategoryPlacement;
-  allowedParentCategoryIds: string[];
+  isPlace: boolean;
   bookingMode: BookingMode;
   publicListed: boolean;
   fields: FieldDraft[];
@@ -80,9 +77,7 @@ function draftFrom(c: ResourceCategoryDto | null, defaultGroupId: string): Draft
       unit: "",
       impairRule: "ANY_CRITICAL",
       active: true,
-      canBeRoot: false,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: false,
       bookingMode: "NOT_BOOKABLE",
       publicListed: false,
       fields: [],
@@ -98,9 +93,7 @@ function draftFrom(c: ResourceCategoryDto | null, defaultGroupId: string): Draft
     unit: c.unit ?? "",
     impairRule: c.impairRule,
     active: c.active,
-    canBeRoot: c.canBeRoot,
-    placement: c.placement,
-    allowedParentCategoryIds: c.allowedParents.map((p) => p.parentCategoryId),
+    isPlace: c.isPlace,
     bookingMode: c.bookingMode,
     publicListed: c.publicListed,
     fields: c.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, options: f.options, unit: f.unit ?? "", summary: f.summary, longText: f.longText, required: f.required })),
@@ -117,9 +110,7 @@ function toInput(draft: Draft): CreateCategoryInput {
     countingMode: draft.countingMode,
     unit: draft.countingMode === "BULK" ? draft.unit.trim() || undefined : undefined,
     impairRule: draft.impairRule,
-    canBeRoot: draft.canBeRoot,
-    placement: draft.placement,
-    allowedParentCategoryIds: draft.placement === "ONLY_LISTED" ? draft.allowedParentCategoryIds : [],
+    isPlace: draft.isPlace,
     bookingMode: draft.countingMode === "SERIALIZED" ? draft.bookingMode : "NOT_BOOKABLE",
     publicListed: draft.publicListed,
     fields: draft.fields.map((f, i) => ({
@@ -214,13 +205,6 @@ export function CategoryEditor({
   }
   function updateChild(i: number, p: Partial<ChildDraft>) {
     patch({ templateChildren: draft.templateChildren.map((c, j) => (i === j ? { ...c, ...p } : c)) });
-  }
-  function toggleAllowedParent(id: string) {
-    patch({
-      allowedParentCategoryIds: draft.allowedParentCategoryIds.includes(id)
-        ? draft.allowedParentCategoryIds.filter((x) => x !== id)
-        : [...draft.allowedParentCategoryIds, id],
-    });
   }
   function addChild() {
     patch({ templateChildren: [...draft.templateChildren, { childCategoryId: "", qty: 1, critical: false }] });
@@ -417,58 +401,24 @@ export function CategoryEditor({
           </section>
 
           <section className="flex flex-col gap-6">
-            <SectionTitle>Placement — where this may go</SectionTitle>
-            <p className="text-10.5 text-dim">
-              Not a capacity limit — this governs which KIND of container an item of this category may sit inside, never how many a
-              container may hold.
-            </p>
-            <label className="flex items-center gap-6 text-10.5">
-              <input type="checkbox" checked={draft.canBeRoot} onChange={(e) => patch({ canBeRoot: e.target.checked })} />
-              May be a top-level resource (a Lab, a Store) with no parent
-            </label>
+            <SectionTitle>What it is</SectionTitle>
             <div className="flex flex-wrap gap-8">
-              {(["ANYWHERE", "ONLY_LISTED"] as CategoryPlacement[]).map((mode) => (
+              {[false, true].map((place) => (
                 <button
-                  key={mode}
+                  key={String(place)}
                   type="button"
-                  onClick={() => patch({ placement: mode })}
-                  className={`max-w-[320px] flex-1 text-left rounded-2 border px-10 py-8 text-11 ${draft.placement === mode ? "border-accent bg-soft" : "border-border2 hover:bg-panel2"}`}
+                  onClick={() => patch({ isPlace: place })}
+                  className={`max-w-[320px] flex-1 text-left rounded-2 border px-10 py-8 text-11 ${draft.isPlace === place ? "border-accent bg-soft" : "border-border2 hover:bg-panel2"}`}
                 >
-                  <div className="font-semibold">{mode === "ANYWHERE" ? "May be placed inside anything" : "Only inside listed categories"}</div>
+                  <div className="font-semibold">{place ? "A place" : "A thing"}</div>
                   <div className="text-10 text-dim mt-2">
-                    {mode === "ANYWHERE"
-                      ? "The default — no restriction on what may directly contain this."
-                      : "Restrict placement to an explicit allow-list below."}
+                    {place
+                      ? "A lab, workshop, studio or store. Always top level; heads create them and assign a custodian."
+                      : "Goes into labs and stores — and inside any thing that lists it under \u201cMade of\u201d (RAM inside a Motherboard)."}
                   </div>
                 </button>
               ))}
             </div>
-            {draft.placement === "ONLY_LISTED" && (
-              <div className="flex flex-col gap-4">
-                <FieldLabel>Allowed parent categories</FieldLabel>
-                {childOptions.length === 0 ? (
-                  <p className="text-10.5 text-dim">No other categories exist yet.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-6">
-                    {childOptions.map((c) => (
-                      <label
-                        key={c.id}
-                        className={`flex items-center gap-4 rounded-2 border px-8 py-4 text-10.5 cursor-pointer ${draft.allowedParentCategoryIds.includes(c.id) ? "border-accent bg-soft" : "border-border2 hover:bg-panel2"}`}
-                      >
-                        <input type="checkbox" checked={draft.allowedParentCategoryIds.includes(c.id)} onChange={() => toggleAllowedParent(c.id)} />
-                        {c.name}
-                      </label>
-                    ))}
-                  </div>
-                )}
-                {draft.allowedParentCategoryIds.length === 0 && (
-                  <p className="text-10.5 text-dim">
-                    An empty list plus "only listed" means this category may never be placed inside anything else — combined with "may
-                    be a top-level resource" above, that makes it a root and nothing else.
-                  </p>
-                )}
-              </div>
-            )}
           </section>
 
           <section className="flex flex-col gap-6">
@@ -611,24 +561,11 @@ function CategoryReadOnly({ category, usageCount }: { category: ResourceCategory
         <Tag>{category.groupName}</Tag>
         <Tag>{category.countingMode === "SERIALIZED" ? "Individual units" : `Bulk${category.unit ? ` · ${category.unit}` : ""}`}</Tag>
         <Tag>{RULE_LABEL[category.impairRule]}</Tag>
-        {category.canBeRoot && <Tag>Can be a root</Tag>}
+        {category.isPlace && <Tag>A place</Tag>}
         {category.bookingMode !== "NOT_BOOKABLE" && <Tag>{BOOKING_LABEL[category.bookingMode]}</Tag>}
         {category.publicListed && <Tag>On public portal</Tag>}
-        <Tag>{category.placement === "ANYWHERE" ? "Placeable anywhere" : "Placement restricted"}</Tag>
         <Tag>{usageCount} item{usageCount === 1 ? "" : "s"}</Tag>
       </div>
-      {category.placement === "ONLY_LISTED" && (
-        <section className="flex flex-col gap-6">
-          <SectionTitle>Allowed parents</SectionTitle>
-          <div className="flex flex-wrap gap-6">
-            {category.allowedParents.length === 0 ? (
-              <p className="text-10.5 text-dim">None — this category may never be placed inside another (root only, if enabled above).</p>
-            ) : (
-              category.allowedParents.map((p) => <Tag key={p.id}>{p.parentCategoryName}</Tag>)
-            )}
-          </div>
-        </section>
-      )}
       {category.fields.length > 0 && (
         <section className="flex flex-col gap-6">
           <SectionTitle>Fields</SectionTitle>

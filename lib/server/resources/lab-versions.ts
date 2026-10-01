@@ -43,7 +43,7 @@ type KindArg = "DRAFT";
 // ── Loading ──────────────────────────────────────────────────────────────
 
 async function loadCategoryRows(client: Tx | typeof prisma = prisma) {
-  return client.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true } });
+  return client.resourceCategory.findMany({ include: { group: { select: { name: true } }, fields: true, templateAsParent: true } });
 }
 
 async function loadCategories(client: Tx | typeof prisma = prisma): Promise<Record<string, Category>> {
@@ -380,7 +380,7 @@ export async function decideCommit(actorId: string, requestId: string, decision:
   await notify(dto.requesterId, actorId, {
     subject: outcome.subject,
     paragraphs: [`${esc(dto.decidedByName ?? "The department head")} decided the changes for <strong>${esc(dto.labName)}</strong>. ${outcome.text}${quoted(dto.resolution)}`],
-    path: "/lab-states",
+    path: dto.status === "APPLIED" ? `/places/${dto.labItemId}` : `/places/${dto.labItemId}?tab=draft`,
   });
   return dto;
 }

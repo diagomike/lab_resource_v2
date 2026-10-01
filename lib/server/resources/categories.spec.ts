@@ -63,9 +63,7 @@ describe("categories — validation", () => {
         groupId,
         countingMode: "SERIALIZED",
         impairRule: "ANY_CRITICAL",
-        canBeRoot: false,
-        placement: "ANYWHERE",
-        allowedParentCategoryIds: [],
+        isPlace: false,
         fields: [
           { key: "x", label: "X", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 },
           { key: "x", label: "X again", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 1 },
@@ -83,9 +81,7 @@ describe("categories — validation", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
-      canBeRoot: false,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: false,
       fields: [],
       templateChildren: [],
     });
@@ -98,9 +94,7 @@ describe("categories — validation", () => {
         groupId,
         countingMode: "SERIALIZED",
         impairRule: "ANY_CRITICAL",
-        canBeRoot: false,
-        placement: "ANYWHERE",
-        allowedParentCategoryIds: [],
+        isPlace: false,
         fields: [],
         templateChildren: [
           { childCategoryId: part.id, qty: 1, critical: false },
@@ -118,9 +112,7 @@ describe("categories — validation", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
-      canBeRoot: false,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: false,
       fields: [],
       templateChildren: [],
     });
@@ -144,9 +136,7 @@ describe("categories — deleting a category used as another's default part", ()
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
-      canBeRoot: false,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: false,
       fields: [],
       templateChildren: [],
     });
@@ -157,9 +147,7 @@ describe("categories — deleting a category used as another's default part", ()
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
-      canBeRoot: false,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: false,
       fields: [],
       templateChildren: [{ childCategoryId: part.id, qty: 1, critical: false }],
     });
@@ -188,9 +176,7 @@ describe("categories — atomic version-conflict handling", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
-      canBeRoot: false,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: false,
       fields: [{ key: "note", label: "Note", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
       templateChildren: [],
     });
@@ -218,9 +204,7 @@ describe("categories — atomic version-conflict handling", () => {
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "ANY_CRITICAL",
-      canBeRoot: false,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: false,
       fields: [],
       templateChildren: [],
     });
@@ -253,9 +237,7 @@ describe("F-027 — BULK to SERIALIZED is refused (409), never a raw 500, while 
       countingMode: "BULK",
       unit: "L",
       impairRule: "NEVER",
-      canBeRoot: true,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: true,
       fields: [],
       templateChildren: [],
     });
@@ -288,9 +270,7 @@ describe("F-051 — bookingMode cannot be removed while future reservations exis
       groupId,
       countingMode: "SERIALIZED",
       impairRule: "NEVER",
-      canBeRoot: true,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: true,
       bookingMode: "ROOM",
       fields: [],
       templateChildren: [],
@@ -333,9 +313,7 @@ describe("F-027 — BULK to SERIALIZED, the safe case", () => {
       countingMode: "BULK",
       unit: "Unit",
       impairRule: "NEVER",
-      canBeRoot: true,
-      placement: "ANYWHERE",
-      allowedParentCategoryIds: [],
+      isPlace: true,
       fields: [],
       templateChildren: [],
     });
@@ -363,7 +341,7 @@ describe("F-030 — category name/key/icon hygiene", () => {
   });
 
   it("refuses an icon that is not in the registry, on create and on update", async () => {
-    const base = { name: "F030 Icon", groupId, countingMode: "SERIALIZED" as const, impairRule: "NEVER" as const, canBeRoot: true, placement: "ANYWHERE" as const, allowedParentCategoryIds: [], fields: [], templateChildren: [] };
+    const base = { name: "F030 Icon", groupId, countingMode: "SERIALIZED" as const, impairRule: "NEVER" as const, isPlace: true as const, fields: [], templateChildren: [] };
     await expect(categories.create(sysAdminId, { ...base, key: key("bad-icon"), iconKey: "NoSuchIcon" })).rejects.toMatchObject({ status: 400 });
     const cat = await categories.create(sysAdminId, { ...base, key: key("good-icon"), iconKey: "Box" });
     await expect(categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, iconKey: "NoSuchIcon", purgeKeys: [] })).rejects.toMatchObject({ status: 400 });
@@ -374,7 +352,7 @@ describe("F-029 — required fields", () => {
   it("the impact preview counts existing items that lack a newly required field", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("req-preview"), name: "F029 Preview", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
-      canBeRoot: true, placement: "ANYWHERE", allowedParentCategoryIds: [], fields: [], templateChildren: [],
+      isPlace: true, fields: [], templateChildren: [],
     });
     const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
     const item = await prisma.item.create({
@@ -394,7 +372,7 @@ describe("F-028 — a field type change cannot leave unreadable values behind", 
   it("is refused while an item holds an incompatible value, and allowed when the field is purged in the same save", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("type-change"), name: "F028 Type", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
-      canBeRoot: true, placement: "ANYWHERE", allowedParentCategoryIds: [], templateChildren: [],
+      isPlace: true, templateChildren: [],
       fields: [{ key: "reading", label: "Reading", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
     });
     const orgNode = await prisma.orgNode.findFirstOrThrow({ where: { active: true } });
@@ -416,7 +394,7 @@ describe("F-028 — a field type change cannot leave unreadable values behind", 
   it("allows a change every stored value survives", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("type-safe"), name: "F028 Safe", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
-      canBeRoot: true, placement: "ANYWHERE", allowedParentCategoryIds: [], templateChildren: [],
+      isPlace: true, templateChildren: [],
       fields: [{ key: "reading", label: "Reading", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0 }],
     });
     const done = await categories.update(sysAdminId, cat.id, {

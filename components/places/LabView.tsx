@@ -1,154 +1,38 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { DiffEntryDto, LabCommitRequestDto, LabStatesDto, LabSummaryDto, LabTreeNodeDto, LabVersionDto, ResourceCategoryDto, VersionOpInput } from "@/lib/shared";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { DiffEntryDto, LabCommitRequestDto, LabStatesDto, LabTreeNodeDto, LabVersionDto, ResourceCategoryDto, VersionOpInput } from "@/lib/shared";
 import { STATUS_LABEL } from "@/lib/domain/status";
 import { api, ApiError } from "@/lib/api";
-import { Button, ConfirmDialog, ErrorNote, Modal, Panel, Screen, Tag } from "@/components/ui";
+import { Button, ConfirmDialog, ErrorNote, Modal, Panel, Tag } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
-import { StatusChip } from "./StatusChip";
-import { CategoryIcon } from "./IconPicker";
-import { CategoryCombobox } from "./AddModal";
-import { LabCommitCard } from "./LabCommitCard";
+import { StatusChip } from "@/components/resources/StatusChip";
+import { CategoryIcon } from "@/components/resources/IconPicker";
+import { CategoryCombobox } from "@/components/resources/AddModal";
+import { LabCommitCard } from "@/components/resources/LabCommitCard";
 
 /**
- * A lab's changes — one lab at a time, as horizontal tabs:
+ * One lab's contents and changes, as horizontal tabs (the lab's own page, places/[id],
+ * shows its name, details and custodian above these):
  *  - In the lab:  the live register for this lab.
- *  - My changes:  the whole lab with its pending changes applied (changed · added ·
+ *  - Changes:     the whole lab with its pending changes applied (changed · added ·
  *                 removed marked in place). The custodian's register edits gather here;
  *                 they send them once and the head approves — then they merge.
  *  - Approvals:   this lab's requests, and (for a head) everything waiting on them.
  */
 
-type Tab = "current" | "draft" | "approvals";
-const TABS: Array<{ key: Tab; label: string }> = [
+export type LabTab = "current" | "draft" | "approvals";
+type Tab = LabTab;
+export const LAB_TABS: Array<{ key: Tab; label: string }> = [
   { key: "current", label: "In the lab" },
   { key: "draft", label: "Changes" },
   { key: "approvals", label: "Approvals" },
 ];
 const EDITABLE_STATUSES = ["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const;
 
-function LabStatesInner() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const params = useSearchParams();
-  const labId = params.get("lab");
-  const tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "current") as Tab;
-  const focusItem = params.get("item");
-
-  const [labs, setLabs] = useState<LabSummaryDto[] | null>(null);
-  const [states, setStates] = useState<LabStatesDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
-  const [reloadToken, setReloadToken] = useState(0);
-  const reload = useCallback(() => setReloadToken((t) => t + 1), []);
-
-  const go = useCallback(
-    (patch: Record<string, string | null>) => {
-      const qp = new URLSearchParams(params.toString());
-      for (const [k, v] of Object.entries(patch)) (v === null ? qp.delete(k) : qp.set(k, v));
-      router.replace(`${pathname}?${qp.toString()}`);
-    },
-    [params, pathname, router],
-  );
-
-  useEffect(() => {
-    api
-      .get<LabSummaryDto[]>("/resources/labs")
-      .then((rows) => {
-        setLabs(rows);
-        if (!labId && rows.length) go({ lab: rows[0].id });
-      })
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load your labs"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadToken]);
-
-  useEffect(() => {
-    if (!labId) return;
-    let live = true;
-    api
-      .get<LabStatesDto>(`/resources/labs/${labId}/states`)
-      .then((s) => live && (setStates(s), setError(null)))
-      .catch((e) => live && setError(e instanceof ApiError ? e.message : "Could not load this lab"));
-    return () => {
-      live = false;
-    };
-  }, [labId, reloadToken]);
-
-  const shown = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    return (labs ?? []).filter((l) => !needle || `${l.name} ${l.ownerOrgNodeName} ${l.custodianName}`.toLowerCase().includes(needle));
-  }, [labs, filter]);
-  const byUnit = useMemo(() => {
-    const m = new Map<string, LabSummaryDto[]>();
-    for (const l of shown) m.set(l.ownerOrgNodeName, [...(m.get(l.ownerOrgNodeName) ?? []), l]);
-    return [...m.entries()];
-  }, [shown]);
-
-  return (
-    <Screen>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <div className="grid gap-12 md:grid-cols-[250px_minmax(0,1fr)] items-start">
-        <Panel title="Labs">
-          <div className="p-8 border-b border-border">
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Find a lab…"
-              className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
-            />
-          </div>
-          {labs === null ? (
-            <PanelLoading rows={4} />
-          ) : labs.length === 0 ? (
-            <div className="px-12 py-12 text-11 text-dim">You don&apos;t hold or head any lab.</div>
-          ) : (
-            <div className="max-h-[70vh] overflow-y-auto py-4">
-              {byUnit.map(([unit, rows]) => (
-                <div key={unit}>
-                  <div className="px-12 pt-8 pb-3 text-9.5 uppercase tracking-label text-faint font-semibold">{unit}</div>
-                  {rows.map((l) => (
-                    <button
-                      key={l.id}
-                      onClick={() => go({ lab: l.id, item: null })}
-                      className={`w-full text-left px-12 py-6 flex flex-col gap-2 ${l.id === labId ? "bg-sel" : "hover:bg-panel2"}`}
-                    >
-                      <span className="flex items-center gap-6 text-11">
-                        <CategoryIcon iconKey={l.categoryIconKey} className="size-12 flex-none text-dim" />
-                        <span className="truncate font-medium">{l.name}</span>
-                      </span>
-                      <span className="flex flex-wrap gap-4 pl-18">
-                        {l.draft && <Tag tone={l.draft === "SUBMITTED" ? "warn" : "accent"}>{l.draft === "SUBMITTED" ? "sent to the head" : `${l.draftChanges} unsent change${l.draftChanges === 1 ? "" : "s"}`}</Tag>}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-
-        {!labId ? (
-          <Panel>
-            <div className="px-14 py-14 text-11.5 text-dim">Choose a lab.</div>
-          </Panel>
-        ) : !states || states.lab.id !== labId ? (
-          <Panel>
-            <PanelLoading rows={6} />
-          </Panel>
-        ) : (
-          <LabView states={states} tab={tab} onTab={(t) => go({ tab: t })} focusItem={focusItem} onChanged={reload} />
-        )}
-      </div>
-    </Screen>
-  );
-}
-
 // ── One lab ─────────────────────────────────────────────────────────────
 
-function LabView({ states, tab, onTab, focusItem, onChanged }: { states: LabStatesDto; tab: Tab; onTab: (t: Tab) => void; focusItem: string | null; onChanged: () => void }) {
-  const { lab } = states;
+export function LabView({ states, tab, onTab, focusItem, onChanged }: { states: LabStatesDto; tab: Tab; onTab: (t: Tab) => void; focusItem: string | null; onChanged: () => void }) {
   const pendingCount = states.commits.filter((c) => c.status === "PENDING").length;
   const badge: Record<Tab, ReactNode> = {
     current: null,
@@ -157,23 +41,20 @@ function LabView({ states, tab, onTab, focusItem, onChanged }: { states: LabStat
   };
   return (
     <div className="flex flex-col gap-10 min-w-0">
-      <div className="bg-panel border border-border rounded-3 px-14 py-10">
-        <div className="text-13 font-semibold">{lab.name}</div>
-        <div className="text-10.5 text-dim mt-2">
-          {lab.ownerOrgNodeName} · custodian {lab.custodianName} · head {lab.headName ?? <span className="text-warn">vacant</span>}
-        </div>
-        <div className="flex gap-4 mt-10 border-b border-border -mb-10">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => onTab(t.key)}
-              className={`px-12 py-7 text-11 font-medium flex items-center gap-6 border-b-2 -mb-px ${tab === t.key ? "border-accent text-text" : "border-transparent text-dim hover:text-text"}`}
-            >
-              {t.label}
-              {badge[t.key]}
-            </button>
-          ))}
-        </div>
+      <div role="tablist" aria-label="This lab" className="flex gap-2 border-b border-border overflow-x-auto">
+        {LAB_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => onTab(t.key)}
+            className={`px-12 h-32 text-12 font-medium flex items-center gap-6 border-b-2 -mb-px whitespace-nowrap ${tab === t.key ? "border-accent text-text" : "border-transparent text-dim hover:text-text"}`}
+          >
+            {t.label}
+            {badge[t.key]}
+          </button>
+        ))}
       </div>
 
       {tab === "current" && (
@@ -820,14 +701,5 @@ function ApprovalsTab({ states, onChanged }: { states: LabStatesDto; onChanged: 
         </Panel>
       )}
     </div>
-  );
-}
-
-/** useSearchParams needs a Suspense boundary in the Next.js App Router. */
-export default function LabStatesPage() {
-  return (
-    <Suspense>
-      <LabStatesInner />
-    </Suspense>
   );
 }

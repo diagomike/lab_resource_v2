@@ -74,10 +74,10 @@ beforeAll(async () => {
   sysAdminId = (await prisma.user.findFirstOrThrow({ where: { roles: { some: { kind: "SYS_ADMIN" } } } })).id;
   deptId = (await prisma.orgNode.create({ data: { name: `${testKey}-dept`, level: 2, kind: "DEPARTMENT" } })).id;
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
-  const base = { groupId, countingMode: "SERIALIZED" as const, impairRule: "ANY_CRITICAL" as const, placement: "ANYWHERE" as const, allowedParentCategoryIds: [], fields: [], iconKey: "Package" };
-  pcCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-pc`, name: "LV Computer", canBeRoot: false, templateChildren: [] })).id;
-  wsCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-ws`, name: "LV Workstation", canBeRoot: false, templateChildren: [{ childCategoryId: pcCat, qty: 1, critical: true }] })).id;
-  labCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-lab`, name: "LV Lab", canBeRoot: true, templateChildren: [] })).id;
+  const base = { groupId, countingMode: "SERIALIZED" as const, impairRule: "ANY_CRITICAL" as const, fields: [], iconKey: "Package" };
+  pcCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-pc`, name: "LV Computer", isPlace: false, templateChildren: [] })).id;
+  wsCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-ws`, name: "LV Workstation", isPlace: false, templateChildren: [{ childCategoryId: pcCat, qty: 1, critical: true }] })).id;
+  labCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-lab`, name: "LV Lab", isPlace: true, templateChildren: [] })).id;
 
   custodianId = await makeUser("custodian", ["CUSTODIAN"]);
   headId = await makeUser("head", ["MANAGER"]);

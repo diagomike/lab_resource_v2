@@ -54,6 +54,8 @@ let sysAdminId: string;
 let groupId: string;
 let serializedCategoryId: string;
 let bulkCategoryId: string;
+/** Labs and stores are places; what they hold is a thing. */
+let placeCategoryId: string;
 let procurementNodeId: string;
 let procurementUserId: string;
 let realOfficeIdsToRestore: string[] = [];
@@ -86,7 +88,7 @@ async function makeUser(suffix: string, roles: string[] = []) {
 /** A lab owned by `ownerOrgNodeId` and run by `custodianId` — needs are raised for one. */
 async function makeLab(ownerOrgNodeId: string, custodianId: string, name = "Purchasing Spec Lab"): Promise<string> {
   const lab = await prisma.item.create({
-    data: { categoryId: serializedCategoryId, name, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId, currentOrgNodeId: ownerOrgNodeId, custodianId },
+    data: { categoryId: placeCategoryId, name, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId, currentOrgNodeId: ownerOrgNodeId, custodianId },
   });
   createdItemIds.push(lab.id);
   return lab.id;
@@ -148,9 +150,7 @@ beforeAll(async () => {
     groupId,
     countingMode: "SERIALIZED",
     impairRule: "ANY_CRITICAL",
-    canBeRoot: false,
-    placement: "ANYWHERE",
-    allowedParentCategoryIds: [],
+    isPlace: false,
     fields: [],
     templateChildren: [],
   });
@@ -162,13 +162,14 @@ beforeAll(async () => {
     groupId,
     countingMode: "BULK",
     impairRule: "NEVER",
-    canBeRoot: false,
-    placement: "ANYWHERE",
-    allowedParentCategoryIds: [],
+    isPlace: false,
     fields: [],
     templateChildren: [],
   });
   bulkCategoryId = bulk.id;
+  placeCategoryId = (
+    await categories.create(sysAdminId, { key: `${testKey}-place`, name: "Purchasing Test Place", iconKey: "Warehouse", groupId, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: true, fields: [], templateChildren: [] })
+  ).id;
 
   const realOffices = await prisma.orgNode.findMany({ where: { kind: "OFFICE", name: "Procurement Office", active: true } });
   if (realOffices.length) {
@@ -221,7 +222,7 @@ afterAll(async () => {
   // Stock loaded into a test store that a failed assertion never got to record.
   const strays = await prisma.item.findMany({ where: { parentId: { in: createdItemIds } }, select: { id: true } });
   createdItemIds.push(...strays.map((i) => i.id).filter((id) => !createdItemIds.includes(id)));
-  await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: createdItemIds } }, { categoryId: { in: [serializedCategoryId, bulkCategoryId] } }] } });
+  await prisma.itemChange.deleteMany({ where: { OR: [{ itemId: { in: createdItemIds } }, { categoryId: { in: [serializedCategoryId, bulkCategoryId, placeCategoryId] } }] } });
   // Children (received stock) before parents (the store item itself) — Item.parentId
   // is RESTRICT, and a single deleteMany over both in one batch isn't guaranteed to
   // order itself child-first.
@@ -230,8 +231,7 @@ afterAll(async () => {
   await prisma.purchaseRequest.deleteMany({ where: { id: { in: createdRequestIds } } }); // cascades lines/events/steps
   await prisma.needLine.deleteMany({ where: { id: { in: createdNeedIds } } });
   await prisma.orgNode.deleteMany({ where: { id: { in: createdNodeIds } } });
-  await prisma.resourceCategory.delete({ where: { id: serializedCategoryId } });
-  await prisma.resourceCategory.delete({ where: { id: bulkCategoryId } });
+  await prisma.resourceCategory.deleteMany({ where: { id: { in: [serializedCategoryId, bulkCategoryId, placeCategoryId] } } });
   await prisma.categoryGroup.delete({ where: { id: groupId } });
   await prisma.userRole.deleteMany({ where: { userId: { in: createdUserIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
@@ -658,9 +658,9 @@ describe("the reporting pipeline and receiving", () => {
     const propertyId = await makeUser(`${prefix}-property`, ["PROPERTY_ADMIN"]);
     const storeItem = await prisma.item.create({
       data: {
-        categoryId: bulk ? bulkCategoryId : serializedCategoryId,
+        categoryId: placeCategoryId,
         name: `${prefix} Store`,
-        countingMode: bulk ? "BULK" : "SERIALIZED",
+        countingMode: "SERIALIZED",
         status: "WORKING",
         ownerOrgNodeId: at.deptId,
         currentOrgNodeId: at.deptId,

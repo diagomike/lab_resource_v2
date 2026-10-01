@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useMeContext } from "@/app/(workspace)/layout";
 import { Panel, Screen, Button, Tag, ErrorNote } from "@/components/ui";
 import { FONT_FAMILIES, FONT_SIZES, useTheme, type FontFamily, type FontSize } from "@/lib/theme-context";
+import { ROLE_LABEL } from "@/lib/shared";
 
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -47,7 +48,7 @@ export default function ProfilePage() {
           <dd className="flex flex-wrap gap-4">
             {(user?.roles ?? []).map((r) => (
               <Tag key={r} tone="accent">
-                {r.toLowerCase()}
+                {ROLE_LABEL[r]}
               </Tag>
             ))}
           </dd>

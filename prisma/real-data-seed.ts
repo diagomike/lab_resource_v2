@@ -274,9 +274,11 @@ export function buildRealDataItems(categories: Record<string, Category>, ids: Re
   const labByName = new Map<string, DomainItem>();
   for (const s of CHEM_LABS) {
     const lab = add("lab", null, s.name, ctxFor(s.email, "chem"));
-    lab.props.room = s.room;
+    // "B528-RG16" in the department's list: block 528, room G16.
+    const where = /^B(\d+)-R(.+)$/.exec(s.room);
+    lab.props.block = where ? where[1] : s.room;
+    lab.props.room = where ? where[2] : s.room;
     lab.props.purpose = s.purpose;
-    lab.props.source = "Laboratory list for chem.docx";
     labByName.set(s.name, lab);
   }
 
@@ -306,7 +308,7 @@ export function buildRealDataItems(categories: Record<string, Category>, ids: Re
   // ── Expired Chemical Store — the department's own disposal-pending inventory ────
   const storeCtx = ctxFor("amsaluaddisu@gmail.com", "chem");
   const store = add("store", null, "Chemical Engineering — Expired Chemical Store", storeCtx);
-  store.props.room = "Location not stated in source";
+  store.props.level = "Department store";
   for (const [name, physicalState, expiry, containers] of EXPIRED_CHEMICALS) {
     const it = add("expired-chemical-container", store.id, name, storeCtx);
     it.qty = containers;

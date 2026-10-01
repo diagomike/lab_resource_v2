@@ -9,7 +9,12 @@ const nextConfig: NextConfig = {
   // Old addresses keep working (bookmarks, emailed links): each lands on the screen
   // that replaced it.
   async redirects() {
-    return [{ source: "/university", destination: "/register?scope=university", permanent: false }];
+    return [
+      { source: "/university", destination: "/register?scope=university", permanent: false },
+      // Lab states became each lab's own page under Labs & stores.
+      { source: "/lab-states", has: [{ type: "query", key: "lab", value: "(?<lab>.+)" }], destination: "/places/:lab", permanent: false },
+      { source: "/lab-states", destination: "/places", permanent: false },
+    ];
   },
 
   async headers() {

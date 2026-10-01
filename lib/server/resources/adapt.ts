@@ -81,7 +81,6 @@ export function toDomainCategory(
   row: PrismaResourceCategory & { group: { name: string } },
   fields: PrismaCategoryField[],
   templateChildren: PrismaCategoryTemplateChild[],
-  placementRules: Array<{ parentCategoryId: string }> = [],
 ): Category {
   return {
     id: row.id,
@@ -96,26 +95,22 @@ export function toDomainCategory(
     group: row.group.name,
     defaultImage: row.defaultImageKey ? imageUrl(row.defaultImageKey) : undefined,
     version: row.version,
-    canBeRoot: row.canBeRoot,
-    placement: row.placement,
-    allowedParentCategoryIds: placementRules.map((r) => r.parentCategoryId),
+    isPlace: row.isPlace,
   };
 }
 
 /** Builds the `Record<string, Category>` lib/domain's functions take, from a batch of
- *  rows loaded with their fields/templateChildren/placementRulesAsChild relations
- *  included. */
+ *  rows loaded with their fields and templateChildren relations included. */
 export function toDomainCategoryMap(
   rows: Array<
     PrismaResourceCategory & {
       group: { name: string };
       fields: PrismaCategoryField[];
       templateAsParent: PrismaCategoryTemplateChild[];
-      placementRulesAsChild?: Array<{ parentCategoryId: string }>;
     }
   >,
 ): Record<string, Category> {
   const out: Record<string, Category> = {};
-  for (const row of rows) out[row.id] = toDomainCategory(row, row.fields, row.templateAsParent, row.placementRulesAsChild ?? []);
+  for (const row of rows) out[row.id] = toDomainCategory(row, row.fields, row.templateAsParent);
   return out;
 }

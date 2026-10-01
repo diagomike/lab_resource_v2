@@ -57,7 +57,7 @@ const SCREEN_SECTIONS: Array<[string, string[]]> = [
   ["/register", ["custodian--2-the-register", "custodian--13-university-resources-and-transfers", "ict-maintenance--3-build-a-maintenance-list", "store-keeper--2-hand-over-to-a-lab", "head--1-your-dashboard-and-register", "staff--1-look-things-up", "system-admin--6-corrections-and-the-change-log"]],
   ["/schedule", ["custodian--10-bookings-of-your-labs", "staff--2-book-a-lab"]],
   ["/external-requests", ["dean-avp--3-external-requests", "head--10-external-requests", "custodian--15-hold-rooms-or-a-machine-for-an-outside-request"]],
-  ["/lab-states", ["custodian--7-updates-in-a-drafts-department", "head--2-decide-lab-updates-and-ideals"]],
+  ["/places", ["custodian--7-updates-in-a-drafts-department", "head--2-decide-lab-updates-and-ideals"]],
   ["/approvals", ["dean-avp--1-purchase-requests", "property-admin--3-approving-movements", "procurement--1-approve-a-request", "head--2-decide-lab-updates-and-ideals", "custodian--14-accept-a-handover", "student--what-you-see"]],
   ["/purchasing", ["head--5-compile-a-purchase-request", "procurement--2-your-pipeline", "property-admin--2-import-records", "store-keeper--1-load-an-import-record", "custodian--12-raise-a-need", "staff--5-raise-a-need"]],
   ["/change-log", ["head--3-the-change-log", "system-admin--6-corrections-and-the-change-log"]],

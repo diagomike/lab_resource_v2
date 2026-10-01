@@ -185,10 +185,10 @@ export function buildCseLabItems(
     const { present, brokenPcs } = labCounts(spec.required);
 
     const lab = add("lab", null, labName(spec), ctx);
-    lab.props.room = `B${spec.block}-R${spec.room}`;
+    lab.props.block = String(spec.block);
+    lab.props.room = String(spec.room);
     lab.props.seats = DESIGNED_FOR;
     lab.props.purpose = "Computer Science and Engineering computer laboratory";
-    lab.props.source = "docs/cse_labs.md (Lab holders and number of computers required)";
 
     const setups = Array.from({ length: present }, (_, k) => add("setup", lab.id, `Workstation ${String(k + 1).padStart(2, "0")}`, ctx));
     add("table", lab.id, "Teacher Table", ctx);

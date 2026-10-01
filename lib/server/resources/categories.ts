@@ -4,10 +4,9 @@ import type { CategoryFieldType, CategoryImpactDto, CreateCategoryInput, Resourc
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
 import { categoryImpact, coerces } from "@/lib/domain/edit-impact";
-import { canPlace } from "@/lib/domain/placement";
 import { icons as LUCIDE_ICONS } from "lucide-react";
 import type { Category } from "@/lib/domain/types";
-import { toDomainCategory, toDomainCategoryMap, toDomainItem } from "./adapt";
+import { toDomainCategory, toDomainItem } from "./adapt";
 import { wouldCreateTemplateCycle } from "./template-cycle";
 import { LIVE_STATES } from "../scheduling/context";
 
@@ -17,7 +16,6 @@ const CATEGORY_INCLUDE = {
   group: { select: { name: true } },
   fields: { orderBy: { sortOrder: "asc" as const } },
   templateAsParent: { include: { childCategory: { select: { name: true } } } },
-  placementRulesAsChild: { include: { parentCategory: { select: { id: true, name: true } } } },
 } as const;
 
 type CategoryRow = Awaited<ReturnType<typeof loadOne>>;
@@ -40,11 +38,9 @@ function toDto(row: NonNullable<CategoryRow>): ResourceCategoryDto {
     defaultImageKey: row.defaultImageKey,
     version: row.version,
     active: row.active,
-    canBeRoot: row.canBeRoot,
-    placement: row.placement,
+    isPlace: row.isPlace,
     bookingMode: row.bookingMode,
     publicListed: row.publicListed,
-    allowedParents: row.placementRulesAsChild.map((r) => ({ id: r.id, parentCategoryId: r.parentCategoryId, parentCategoryName: r.parentCategory.name })),
     fields: row.fields.map((f) => ({
       id: f.id,
       key: f.key,
@@ -158,26 +154,6 @@ async function assertTemplateChildrenValid(client: Tx, parentId: string | null, 
   }
 }
 
-/** An allow-list entry must not be duplicated (the schema's own
- *  `@@unique([childCategoryId, parentCategoryId])` would otherwise surface as a raw
- *  constraint error) and every id in it must name a real category. No cycle check —
- *  unlike template children, an allow-list is not a build graph; a category naming
- *  itself as its own allowed parent is a legitimate "a small box may nest inside a
- *  bigger one of the same kind", not a structural error (the physical item tree's own
- *  `isWithinSubtree` guard is what actually prevents an item nesting inside itself). */
-async function assertPlacementRulesValid(client: Tx, parentCategoryIds: string[]): Promise<void> {
-  if (!parentCategoryIds.length) return;
-  const seen = new Set<string>();
-  for (const id of parentCategoryIds) {
-    if (seen.has(id)) throw new HttpError(400, "A category cannot be listed as an allowed parent more than once");
-    seen.add(id);
-  }
-  const found = await client.resourceCategory.findMany({ where: { id: { in: parentCategoryIds } }, select: { id: true } });
-  if (found.length !== parentCategoryIds.length) {
-    throw new HttpError(400, "One or more allowed-parent categories do not exist");
-  }
-}
-
 /** Scheduling reserves individual units by time window; stock is never reserved that
  *  way (see prisma/schema.prisma's BookingMode note). */
 function assertBookableCountingMode(bookingMode: string | undefined, countingMode: string): void {
@@ -204,7 +180,6 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
   const existingKey = await prisma.resourceCategory.findUnique({ where: { key: input.key } });
   if (existingKey) throw new HttpError(400, `A category with key "${input.key}" already exists`);
   await assertTemplateChildrenValid(prisma, null, input.templateChildren.map((c) => c.childCategoryId));
-  await assertPlacementRulesValid(prisma, input.allowedParentCategoryIds);
 
   let created;
   try {
@@ -218,17 +193,11 @@ export async function create(actorId: string, input: CreateCategoryInput): Promi
           countingMode: input.countingMode,
           unit: input.unit ?? null,
           impairRule: input.impairRule,
-          canBeRoot: input.canBeRoot,
-          placement: input.placement,
+          isPlace: input.isPlace,
           bookingMode: input.bookingMode ?? "NOT_BOOKABLE",
           publicListed: input.publicListed ?? false,
         },
       });
-      if (input.allowedParentCategoryIds.length) {
-        await tx.categoryPlacementRule.createMany({
-          data: input.allowedParentCategoryIds.map((parentCategoryId) => ({ childCategoryId: row.id, parentCategoryId })),
-        });
-      }
       if (input.fields.length) {
         await tx.categoryField.createMany({
           data: input.fields.map((f) => ({
@@ -356,12 +325,7 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
       await assertTemplateChildrenValid(tx, id, nextTemplateChildren.map((c) => c.childCategoryId));
     }
 
-    const nextAllowedParentCategoryIds = input.allowedParentCategoryIds ?? before.placementRulesAsChild.map((r) => r.parentCategoryId);
-    if (input.allowedParentCategoryIds) {
-      await assertPlacementRulesValid(tx, input.allowedParentCategoryIds);
-    }
-
-    const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent, before.placementRulesAsChild);
+    const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent);
     const afterDomain: Category = {
       ...beforeDomain,
       name: input.name ?? beforeDomain.name,
@@ -369,9 +333,7 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
       countingMode: input.countingMode ?? beforeDomain.countingMode,
       unit: input.unit === undefined ? beforeDomain.unit : (input.unit ?? undefined),
       impairRule: input.impairRule ?? beforeDomain.impairRule,
-      canBeRoot: input.canBeRoot ?? beforeDomain.canBeRoot,
-      placement: input.placement ?? beforeDomain.placement,
-      allowedParentCategoryIds: nextAllowedParentCategoryIds,
+      isPlace: input.isPlace ?? beforeDomain.isPlace,
       fields: nextFields.map((f) => ({
         key: f.key,
         label: f.label,
@@ -452,21 +414,11 @@ export async function update(actorId: string, id: string, input: UpdateCategoryI
         ...(input.unit !== undefined ? { unit: input.unit } : {}),
         ...(input.impairRule !== undefined ? { impairRule: input.impairRule } : {}),
         ...(input.active !== undefined ? { active: input.active } : {}),
-        ...(input.canBeRoot !== undefined ? { canBeRoot: input.canBeRoot } : {}),
-        ...(input.placement !== undefined ? { placement: input.placement } : {}),
+        ...(input.isPlace !== undefined ? { isPlace: input.isPlace } : {}),
         ...(input.bookingMode !== undefined ? { bookingMode: input.bookingMode } : {}),
         ...(input.publicListed !== undefined ? { publicListed: input.publicListed } : {}),
       },
     });
-
-    if (input.allowedParentCategoryIds) {
-      await tx.categoryPlacementRule.deleteMany({ where: { childCategoryId: id } });
-      if (input.allowedParentCategoryIds.length) {
-        await tx.categoryPlacementRule.createMany({
-          data: input.allowedParentCategoryIds.map((parentCategoryId) => ({ childCategoryId: id, parentCategoryId })),
-        });
-      }
-    }
 
     if (input.fields) {
       await tx.categoryField.deleteMany({ where: { categoryId: id } });
@@ -604,10 +556,9 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
   const before = await loadOne(id);
   if (!before) throw new HttpError(404, "Category not found");
 
-  const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent, before.placementRulesAsChild);
+  const beforeDomain = toDomainCategory(before, before.fields, before.templateAsParent);
   const nextFields = draft.fields ?? before.fields.map((f) => ({ ...f, unit: f.unit ?? undefined }));
   const nextTemplateChildren = draft.templateChildren ?? before.templateAsParent.map((c) => ({ childCategoryId: c.childCategoryId, qty: c.qty, critical: c.critical }));
-  const nextAllowedParentCategoryIds = draft.allowedParentCategoryIds ?? before.placementRulesAsChild.map((r) => r.parentCategoryId);
   const afterDomain: Category = {
     ...beforeDomain,
     name: draft.name ?? beforeDomain.name,
@@ -615,9 +566,7 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
     countingMode: draft.countingMode ?? beforeDomain.countingMode,
     unit: draft.unit === undefined ? beforeDomain.unit : (draft.unit ?? undefined),
     impairRule: draft.impairRule ?? beforeDomain.impairRule,
-    canBeRoot: draft.canBeRoot ?? beforeDomain.canBeRoot,
-    placement: draft.placement ?? beforeDomain.placement,
-    allowedParentCategoryIds: nextAllowedParentCategoryIds,
+    isPlace: draft.isPlace ?? beforeDomain.isPlace,
     fields: nextFields.map((f) => ({
       key: f.key,
       label: f.label,
@@ -660,29 +609,19 @@ export async function previewImpact(id: string, draft: Omit<UpdateCategoryInput,
   };
 }
 
-/** A template edge ("Computer is built from Motherboard") and a placement rule
- *  ("Motherboard may be placed inside Computer") are two independent, separately
- *  edited configurations — nothing keeps them in sync automatically. This is a
- *  deliberate warning, not a block: `categoryImpact`'s own notes stay pure (no
- *  database access), so this lives here in the server layer instead, where the full
- *  category map that `canPlace` needs is available via `toDomainCategoryMap`. */
+/** A place can't be anyone's part (it never sits inside anything) — said in the preview
+ *  rather than left to fail when the template is first used. */
 async function placementContradictionWarning(categoryId: string, afterDomain: Category): Promise<CategoryImpactDto["notes"][number] | null> {
+  void categoryId;
   if (!afterDomain.defaultChildren.length) return null;
-  const rows = await prisma.resourceCategory.findMany({
-    include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true },
-  });
-  const categories = toDomainCategoryMap(rows);
-  categories[categoryId] = afterDomain;
-
-  const contradicting = afterDomain.defaultChildren.filter((c) => !canPlace(categories, c.categoryId, categoryId));
-  if (!contradicting.length) return null;
-
-  const names = contradicting.map((c) => categories[c.categoryId]?.name ?? c.categoryId);
+  const places = await prisma.resourceCategory.findMany({ where: { id: { in: afterDomain.defaultChildren.map((c) => c.categoryId) }, isPlace: true }, select: { name: true } });
+  if (!places.length) return null;
+  const names = places.map((p) => p.name);
   return {
     id: "placement-contradiction",
     severity: "warning",
-    title: "Default parts that this category's own placement rules would refuse",
-    detail: `${names.join(", ")} ${names.length === 1 ? "is" : "are"} a default part of this category, but ${names.length === 1 ? "its" : "their"} own placement rule does not allow it to be placed here. The two configurations disagree — creating from this template would violate the child's placement rule.`,
+    title: "A place can't be a part",
+    detail: `${names.join(", ")} ${names.length === 1 ? "is a place" : "are places"} (top level only), so ${names.length === 1 ? "it" : "they"} can't be built into this.`,
     orphanKeys: [],
   };
 }
@@ -700,14 +639,7 @@ function describeCategoryEdit(prev: Category, next: Category): Array<{ field: st
   scalar("counting mode", prev.countingMode, next.countingMode);
   scalar("unit", prev.unit, next.unit);
   scalar("failure rule", prev.impairRule, next.impairRule);
-  scalar("can be root", prev.canBeRoot, next.canBeRoot);
-  scalar("placement mode", prev.placement, next.placement);
-
-  const prevAllowedParents = new Set(prev.allowedParentCategoryIds);
-  const nextAllowedParents = new Set(next.allowedParentCategoryIds);
-  if (prevAllowedParents.size !== nextAllowedParents.size || [...prevAllowedParents].some((id) => !nextAllowedParents.has(id))) {
-    out.push({ field: "allowed parents", before: [...prevAllowedParents], after: [...nextAllowedParents] });
-  }
+  scalar("place", prev.isPlace ?? false, next.isPlace ?? false);
 
   const describeField = (f: Category["fields"][number]) =>
     `${f.label} (${f.type}${f.options?.length ? `: ${f.options.join("/")}` : ""}${f.unit ? `, ${f.unit}` : ""})`;

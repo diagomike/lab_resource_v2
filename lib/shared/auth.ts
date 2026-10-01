@@ -64,6 +64,34 @@ export type SessionUserDto = z.infer<typeof SessionUserDto>;
  * hiding a column is not access control. The API omits cost fields entirely for users
  * who lack it rather than sending them and trusting the UI to hide them.
  */
+/**
+ * What this person does, in plain facts — computed server-side from their roles and the
+ * posts they occupy (lib/server/auth/capabilities.ts). The sidebar, Home and each screen
+ * decide what to show from these; the server re-checks every action regardless.
+ */
+export const CapabilitiesDto = z.object({
+  isAdmin: z.boolean(),
+  isPropertyAdmin: z.boolean(),
+  isProcurement: z.boolean(),
+  isStoreKeeper: z.boolean(),
+  isCustodian: z.boolean(),
+  isAdaa: z.boolean(),
+  /** Departments this person heads (occupies). */
+  headOf: z.array(z.string()),
+  /** Colleges this person is dean of (occupies). */
+  deanOf: z.array(z.string()),
+  /** Occupies the university root (the AVP). */
+  isAvp: z.boolean(),
+  /** Codes of the offices this person occupies ("CMD", "PROP", "PROC", "ICT"). */
+  officeCodes: z.array(z.string()),
+  /** The college an ADAA answers for. */
+  adaaCollegeId: z.string().nullable(),
+  /** Units whose labs and stores this person creates and manages (heads, the ADAA,
+   *  Property Administration for the university's Main Store, the admin for all). */
+  managesPlacesIn: z.array(z.string()),
+});
+export type CapabilitiesDto = z.infer<typeof CapabilitiesDto>;
+
 export const MeContextDto = z.object({
   user: SessionUserDto,
   scope: ScopeDto.nullable(),
@@ -74,5 +102,6 @@ export const MeContextDto = z.object({
    *  not resource reach specifically (they usually agree, but MY_CUSTODY has no org
    *  node of its own). */
   scopeMode: ScopeModeSchema,
+  caps: CapabilitiesDto,
 });
 export type MeContextDto = z.infer<typeof MeContextDto>;

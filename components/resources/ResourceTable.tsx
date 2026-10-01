@@ -158,7 +158,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
               </button>
               {!isCluster(r) && pending?.[r.item.id] && (
                 <Link
-                  href={`/lab-states?lab=${pending[r.item.id].labItemId}&tab=draft&item=${r.item.id}`}
+                  href={`/places/${pending[r.item.id].labItemId}?tab=draft&item=${r.item.id}`}
                   onClick={(e) => e.stopPropagation()}
                   title={["Pending in the lab's draft:", ...pending[r.item.id].lines, "", "Click to open the draft"].join("\n")}
                   className="flex-none text-12 font-bold leading-none text-warn hover:text-accent"

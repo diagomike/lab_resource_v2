@@ -58,6 +58,10 @@ export async function applyChange(
     dryRun?: boolean;
     bypassDraftWorkflowBlock?: boolean;
     viaApprovalEngine?: boolean;
+    /** A change to a place itself (create it, rename it, its details, its custodian)
+     *  made through Labs & stores — lib/server/resources/places.ts has already checked
+     *  that the actor manages places for the owning unit. */
+    asPlaceManager?: boolean;
     /**
      * F-035 of the 2026-09-15 campaign — a caller-supplied transaction, so several
      * operations (a lab commit's whole staged batch — see lab-drafts.ts's
@@ -79,19 +83,22 @@ export async function applyChange(
   // instead of the register (lab-versions.ts), and the head approves the batch — never
   // for the calls that ARE the approved outcome of a draft or a transfer, which pass
   // the flags below.
-  if (!opts?.tx && !opts?.bypassDraftWorkflowBlock && !opts?.viaApprovalEngine) {
+  if (!opts?.tx && !opts?.bypassDraftWorkflowBlock && !opts?.viaApprovalEngine && !opts?.asPlaceManager) {
     const { stageFromRegister } = await import("./lab-versions");
     const staged = await stageFromRegister(actorId, input, { dryRun: opts?.dryRun });
     if (staged) return staged;
   }
-  await assertAuthorized(actorId, input, opts?.viaApprovalEngine);
+  if (opts?.asPlaceManager) await assertCustodyLandsOnEligible(input);
+  else await assertAuthorized(actorId, input, opts?.viaApprovalEngine);
   // Computed once, against committed state, alongside assertAuthorized's own check —
   // threaded into performChange only for createItem, which is the one write kind
   // where a NON-admin's client-supplied accountability fields (owner/current/
   // custodian on a CHILD) must be silently overridden by the parent's rather than
   // trusted (F-023 of the 2026-09-15 campaign). Every other kind's authorization is
   // already fully decided by assertAuthorized/assertCanMutate above.
-  const isAdmin = await scope.isSysAdmin(actorId);
+  // A place manager's change to the place itself was authorized by places.ts; it is
+  // trusted here the way the admin's is (fields taken as given, no custody re-checks).
+  const isAdmin = (await scope.isSysAdmin(actorId)) || !!opts?.asPlaceManager;
 
   if (opts?.tx) {
     await assertVersionsMatch(opts.tx, input);
@@ -141,18 +148,29 @@ export function previewChange(actorId: string, input: ItemChangeInput, bypassDra
 //    which roles a caller holds (custody is the `Item.custodianId` column, a data
 //    fact, not a role label). ──────────────────────────────────────────────────────
 
-async function assertAuthorized(actorId: string, input: ItemChangeInput, viaApprovalEngine?: boolean): Promise<void> {
-  // F-024 of the 2026-09-15 campaign: checked before the SYS_ADMIN exemption below,
-  // not after — custody landing on a disabled account or a student is exactly as
-  // stuck (they can never sign in to act on it, or shouldn't hold assets at all)
-  // regardless of who handed it to them.
+/** F-024 of the 2026-09-15 campaign: custody landing on a disabled account would be
+ *  stuck (they can never sign in to act on it) whoever handed it to them — checked for
+ *  everyone, the admin and place managers included. */
+async function assertCustodyLandsOnEligible(input: ItemChangeInput): Promise<void> {
   if (input.kind === "setCustodian") await scope.assertEligibleCustodian(input.value);
-  // Same floor for a NEW item's named custodian — assertCanCreateRoot below is
-  // never reached for SYS_ADMIN (they return before it), which the E2E re-run (R-07)
-  // caught: an admin could still create a root with a DISABLED custodian.
   if (input.kind === "createItem" && input.custodianId) await scope.assertEligibleCustodian(input.custodianId);
+}
+
+async function assertAuthorized(actorId: string, input: ItemChangeInput, viaApprovalEngine?: boolean): Promise<void> {
+  await assertCustodyLandsOnEligible(input);
 
   if (await scope.isSysAdmin(actorId)) return;
+
+  // Places (labs, workshops, stores) are static and managed from above: the unit's
+  // head, the college's ADAA or Property Administration create them, change their
+  // details and assign their custodians on Labs & stores (places.ts). Never here.
+  if (input.kind === "createItem" && !input.parentId) {
+    throw new HttpError(403, "New labs and stores are created on Labs & stores by the unit's head.");
+  }
+  if (input.kind !== "createItem" && input.kind !== "addImage" && input.kind !== "removeImage" && input.kind !== "transferItem") {
+    const places = await prisma.item.count({ where: { id: { in: input.itemIds }, deletedAt: null, category: { isPlace: true } } });
+    if (places) throw new HttpError(403, "A lab's or store's own name, details and custodian are changed on Labs & stores by the unit's head.");
+  }
 
   if (input.kind !== "transferItem") {
     // Only custodians and the store keeper change resources (2026-09-22: "the head
@@ -245,16 +263,7 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viaAppr
       await scope.assertCanMutate(actorId, [input.parentId]);
       return;
     }
-    // A root has no existing item to check custody against — assertCanCreateRoot is
-    // its own, deliberately narrower policy (scope.ts's own header), widened past
-    // SYS_ADMIN-only so a department can actually register its first resource. Both
-    // fields are required for a root by applyCreateItem anyway; validated here too so
-    // the authorization check has something real to test.
-    if (!input.ownerOrgNodeId || !input.custodianId) {
-      throw new HttpError(400, "A top-level resource must have an owning unit and a custodian.");
-    }
-    await scope.assertCanCreateRoot(actorId, { ownerOrgNodeId: input.ownerOrgNodeId, custodianId: input.custodianId });
-    return;
+    return; // a new place: refused above unless the admin (places.ts manages them)
   }
 
   await scope.assertCanMutate(actorId, input.itemIds);
@@ -324,7 +333,7 @@ async function performChange(tx: Tx, actorId: string, input: ItemChangeInput, cl
     case "createItem":
       return applyCreateItem(tx, actorId, at, input, isAdmin);
     case "deleteItem":
-      return applyDeleteItem(tx, actorId, at, input, cleanupKeys);
+      return applyDeleteItem(tx, actorId, at, input, cleanupKeys, isAdmin);
     case "transferItem":
       return applyTransferItem(tx, actorId, at, input);
     case "moveInTree":
@@ -404,7 +413,7 @@ export async function createExactItems(
 
 async function loadAllCategoriesDomain(tx: Tx): Promise<Record<string, Category>> {
   const rows = await tx.resourceCategory.findMany({
-    include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true },
+    include: { group: { select: { name: true } }, fields: true, templateAsParent: true },
   });
   return toDomainCategoryMap(rows);
 }
@@ -494,8 +503,8 @@ async function applyCreateItem(
 
   // A CHILD (parentId set) always inherits its parent's accountability for a
   // non-admin caller — the client-supplied owner/current/custodian fields exist for
-  // SYS_ADMIN corrections and for a brand-new ROOT (which has no parent to inherit
-  // from and is validated by assertCanCreateRoot instead). Without this, a custodian
+  // SYS_ADMIN corrections and for a brand-new place (which has no parent to inherit
+  // from and is authorized by places.ts instead). Without this, a custodian
   // adding a resource under their own lab could fabricate inventory owned by, held
   // in, or answered for by an entirely different department (F-023 of the
   // 2026-09-15 campaign) — assertAuthorized's own custody check only covers the
@@ -731,13 +740,14 @@ async function applyDeleteItem(
   at: Date,
   input: Extract<ItemChangeInput, { kind: "deleteItem" }>,
   cleanupKeys: string[],
+  trusted: boolean,
 ): Promise<ItemChangeResultDto> {
   const roots = await tx.item.findMany({ where: { id: { in: input.itemIds }, deletedAt: null } });
   if (!roots.length) return { applied: 0, itemIds: [] };
 
   const doomed = await subtreeDeepestFirst(tx, roots.map((r) => r.id));
   try {
-    await assertSubtreeInScope(actorId, doomed);
+    if (!trusted) await assertSubtreeInScope(actorId, doomed);
   } catch (err) {
     // The cheap batched check failed — the actor has SOME standing here (assertAuthorized
     // already confirmed it for the roots before this transaction opened) but the subtree

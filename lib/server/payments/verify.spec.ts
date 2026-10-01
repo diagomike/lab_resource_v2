@@ -141,7 +141,7 @@ beforeAll(async () => {
   nodeA = (await prisma.orgNode.create({ data: { name: `${testKey}-dept`, level: 2, kind: "DEPARTMENT", active: true, userId: headId } })).id;
   await prisma.orgEdge.create({ data: { parentId: collegeNode, childId: nodeA } });
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
-  roomCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-room`, name: "Pay Room", iconKey: "Package", groupId, countingMode: "SERIALIZED", canBeRoot: true, bookingMode: "ROOM" } })).id;
+  roomCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-room`, name: "Pay Room", iconKey: "Package", groupId, countingMode: "SERIALIZED", isPlace: true, bookingMode: "ROOM" } })).id;
   labId = (await prisma.item.create({ data: { name: "Pay Lab", categoryId: roomCategoryId, countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: nodeA, currentOrgNodeId: nodeA, custodianId } })).id;
 }, HOOK_TIMEOUT);
 

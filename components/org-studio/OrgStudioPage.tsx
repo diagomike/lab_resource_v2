@@ -19,6 +19,7 @@ import { api, ApiError } from "@/lib/api";
 import { Panel, Screen, Tag, Button, ErrorNote, ConfirmDialog } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { EntityPicker } from "@/components/EntityPicker";
+import { ROLE_LABEL } from "@/lib/shared";
 
 /**
  * The whole org chart on one canvas — one place to see the structure AND create a node
@@ -776,7 +777,7 @@ function InviteAndAssignForm({
                 }}
                 className="border h-22 px-8 rounded-2 text-10.5"
               >
-                {r.toLowerCase().replace("_", " ")}
+                {ROLE_LABEL[r]}
               </button>
             );
           })}

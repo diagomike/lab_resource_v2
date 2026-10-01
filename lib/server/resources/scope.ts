@@ -270,37 +270,6 @@ export async function assertCanMutate(userId: string, itemIds: string[]): Promis
   throw new HttpError(404, "Resource not found");
 }
 
-/**
- * Who may place a NEW university-level root (a Lab, a Store — no existing item to
- * check custody against, which is exactly why this is its own policy rather than a
- * variant of `assertCanMutate`). Deliberately narrower than ordinary read scope, and
- * different in shape from create-beneath-a-parent:
- *  - SYS_ADMIN — anywhere.
- *  - CUSTODIAN / STORE_KEEPER — a root owned by their OWN home unit specifically,
- *    with THEMSELVES as its custodian (a lab assistant registering their own lab) —
- *    never an arbitrary unit, and never naming someone else as custodian on their
- *    own say-so.
- * Refused with 403, not 404: a create has no existing row whose presence a 404 would
- * need to hide, and "Resource not found" on an Add button is just confusing.
- */
-export async function assertCanCreateRoot(userId: string, input: { ownerOrgNodeId: string; custodianId: string }): Promise<void> {
-  // F-024 of the 2026-09-15 campaign: custody landing on an account that can't act
-  // (disabled) or shouldn't hold assets (a student) was never checked here, for
-  // ANY actor including SYS_ADMIN — a root lab could be created with a disabled or
-  // student custodian just as readily as an ordinary CUSTODIAN/setCustodian call
-  // could hand it one directly (mutate.ts's own use of this same assertion).
-  await assertEligibleCustodian(input.custodianId);
-
-  if (await isSysAdmin(userId)) return;
-
-  const roles = await rolesOf(userId);
-  if (roles.includes("CUSTODIAN") || roles.includes("STORE_KEEPER")) {
-    const own = await orgScope.ownNodeId(userId);
-    if (own && own === input.ownerOrgNodeId && input.custodianId === userId) return;
-  }
-  throw new HttpError(403, "You are not allowed to create a top-level resource here.");
-}
-
 // ── University-wide read (2026-10-01) ─────────────────────────────────────────────
 //
 // Transparency across ASTU: every signed-in internal account reads the whole

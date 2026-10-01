@@ -29,11 +29,25 @@ export const roleKinds = [
   "PROCUREMENT",
   "MANAGER",
   "CUSTODIAN",
+  "ADAA",
   "STORE_KEEPER",
   "EXTERNAL",
 ] as const;
 export const RoleKindSchema = z.enum(roleKinds);
 export type RoleKind = (typeof roleKinds)[number];
+
+/** A role in words, wherever a person's roles are shown. MANAGER is whoever holds a post
+ *  (a head, a dean, an office) — the post itself is named alongside where it matters. */
+export const ROLE_LABEL: Record<RoleKind, string> = {
+  SYS_ADMIN: "System administrator",
+  PROPERTY_ADMIN: "Property Administration",
+  PROCUREMENT: "Procurement",
+  MANAGER: "Head of a unit",
+  CUSTODIAN: "Lab custodian",
+  ADAA: "Associate Dean, Academic Affairs",
+  STORE_KEEPER: "Store keeper",
+  EXTERNAL: "Outside requester",
+};
 
 // ── Org hierarchy ────────────────────────────────────────────────────────
 export const orgNodeKinds = ["UNIVERSITY", "COLLEGE", "DEPARTMENT", "OFFICE"] as const;

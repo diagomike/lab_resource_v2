@@ -5,7 +5,7 @@
  * "category" a later module might want.
  */
 import { z } from "zod";
-import { BookingModeSchema, CategoryFieldTypeSchema, CategoryPlacementSchema, CountingModeSchema, ImpairRuleSchema } from "./enums";
+import { BookingModeSchema, CategoryFieldTypeSchema, CountingModeSchema, ImpairRuleSchema } from "./enums";
 
 export const CategoryGroupDto = z.object({
   id: z.string(),
@@ -53,15 +53,6 @@ export const CategoryTemplateChildDto = z.object({
 });
 export type CategoryTemplateChildDto = z.infer<typeof CategoryTemplateChildDto>;
 
-/** One entry in a category's own placement allow-list — see lib/domain/placement.ts.
- *  Only consulted when the owning category's `placement` is ONLY_LISTED. */
-export const CategoryPlacementRuleDto = z.object({
-  id: z.string(),
-  parentCategoryId: z.string(),
-  parentCategoryName: z.string(),
-});
-export type CategoryPlacementRuleDto = z.infer<typeof CategoryPlacementRuleDto>;
-
 export const ResourceCategoryDto = z.object({
   id: z.string(),
   key: z.string(),
@@ -75,12 +66,8 @@ export const ResourceCategoryDto = z.object({
   defaultImageKey: z.string().nullable(),
   version: z.number().int(),
   active: z.boolean(),
-  /** May an item of this category be a top-level resource (a Lab, a Store)? */
-  canBeRoot: z.boolean(),
-  /** ANYWHERE (default) or ONLY_LISTED — see lib/domain/placement.ts. */
-  placement: CategoryPlacementSchema,
-  /** This category's own allow-list — only consulted when placement is ONLY_LISTED. */
-  allowedParents: z.array(CategoryPlacementRuleDto),
+  /** A place (a lab, workshop, studio or store): top level only (lib/domain/placement.ts). */
+  isPlace: z.boolean(),
   /** Scheduling (Track 6): may items of this category be booked, and as what. */
   bookingMode: BookingModeSchema,
   /** Public portal (Track 7): does its working count appear on the public catalog. */
@@ -122,9 +109,7 @@ export const CreateCategoryInput = z.object({
   countingMode: CountingModeSchema,
   unit: z.string().optional(),
   impairRule: ImpairRuleSchema.default("ANY_CRITICAL"),
-  canBeRoot: z.boolean().default(false),
-  placement: CategoryPlacementSchema.default("ANYWHERE"),
-  allowedParentCategoryIds: z.array(z.string()).default([]),
+  isPlace: z.boolean().default(false),
   /** Optional rather than defaulted, so existing callers composing this type need not
    *  name them — categories.ts applies NOT_BOOKABLE / false. */
   bookingMode: BookingModeSchema.optional(),
@@ -153,9 +138,7 @@ export const UpdateCategoryInput = z.object({
   countingMode: CountingModeSchema.optional(),
   unit: z.string().nullable().optional(),
   impairRule: ImpairRuleSchema.optional(),
-  canBeRoot: z.boolean().optional(),
-  placement: CategoryPlacementSchema.optional(),
-  allowedParentCategoryIds: z.array(z.string()).optional(),
+  isPlace: z.boolean().optional(),
   bookingMode: BookingModeSchema.optional(),
   publicListed: z.boolean().optional(),
   fields: z.array(CategoryFieldInput).optional(),

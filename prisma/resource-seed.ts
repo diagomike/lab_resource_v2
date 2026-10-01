@@ -74,6 +74,8 @@ export interface FieldSpec {
   options?: string[];
   unit?: string;
   summary?: boolean;
+  required?: boolean;
+  longText?: boolean;
 }
 
 interface ChildSpec {
@@ -96,31 +98,54 @@ export interface CategorySpec {
   impairRule: "ANY_CRITICAL" | "ALL_CRITICAL" | "NEVER";
   fields?: FieldSpec[];
   defaultChildren?: ChildSpec[];
-  /// Placement — see lib/domain/placement.ts. Every spec here defaults to the
-  /// schema's own default (canBeRoot: false, placement: ANYWHERE, must live inside
-  /// something, may live inside anything) unless named explicitly.
-  canBeRoot?: boolean;
-  placement?: "ANYWHERE" | "ONLY_LISTED";
+  /// A place (lab, store…): top level only — see lib/domain/placement.ts. Everything
+  /// else is a thing, inside a place or a thing made of it.
+  isPlace?: boolean;
+  bookingMode?: "NOT_BOOKABLE" | "ROOM" | "EQUIPMENT";
+  /// Its working count shows on the public portal (counts only).
+  publicListed?: boolean;
 }
 
 const CATEGORY_SPECS: CategorySpec[] = [
+  // ── Places: top level only, created by the unit's head (the ADAA for a college,
+  //    Property Administration for the Main Store), run by an assigned custodian. ──
   {
-    key: "lab", name: "Lab", iconKey: "Building2", group: "Places", countingMode: "SERIALIZED", impairRule: "ANY_CRITICAL",
-    // A root and nothing else — no lab inside a lab, no lab inside anything.
-    canBeRoot: true, placement: "ONLY_LISTED",
+    key: "lab", name: "Lab", iconKey: "FlaskConical", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
+    isPlace: true, bookingMode: "ROOM", publicListed: true,
     fields: [
-      { key: "room", label: "Room", type: "TEXT", summary: true },
+      { key: "block", label: "Block", type: "TEXT", summary: true, required: true },
+      { key: "room", label: "Room", type: "TEXT", summary: true, required: true },
       { key: "seats", label: "Seats", type: "NUMBER", summary: true },
-      { key: "purpose", label: "Purpose", type: "TEXT" },
-      { key: "source", label: "Source", type: "TEXT" },
+      { key: "purpose", label: "Purpose", type: "TEXT", longText: true },
+    ],
+  },
+  {
+    key: "workshop", name: "Workshop", iconKey: "Hammer", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
+    isPlace: true, bookingMode: "ROOM",
+    fields: [
+      { key: "block", label: "Block", type: "TEXT", summary: true, required: true },
+      { key: "room", label: "Room", type: "TEXT", summary: true, required: true },
+      { key: "seats", label: "Seats", type: "NUMBER", summary: true },
+      { key: "purpose", label: "Purpose", type: "TEXT", longText: true },
+    ],
+  },
+  {
+    key: "studio", name: "Studio", iconKey: "PencilRuler", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
+    isPlace: true, bookingMode: "ROOM",
+    fields: [
+      { key: "block", label: "Block", type: "TEXT", summary: true, required: true },
+      { key: "room", label: "Room", type: "TEXT", summary: true, required: true },
+      { key: "seats", label: "Seats", type: "NUMBER", summary: true },
+      { key: "purpose", label: "Purpose", type: "TEXT", longText: true },
     ],
   },
   {
     key: "store", name: "Store", iconKey: "Warehouse", group: "Places", countingMode: "SERIALIZED", impairRule: "NEVER",
-    canBeRoot: true, placement: "ONLY_LISTED",
+    isPlace: true,
     fields: [
+      { key: "level", label: "Level", type: "ENUM", options: ["Main store", "College store", "Department store"], summary: true, required: true },
+      { key: "block", label: "Block", type: "TEXT", summary: true },
       { key: "room", label: "Room", type: "TEXT", summary: true },
-      { key: "level", label: "Store level", type: "ENUM", options: ["Central", "College sub-store", "Departmental"], summary: true },
     ],
   },
   {
@@ -276,8 +301,9 @@ async function createCategories(): Promise<{ categories: Record<string, Category
         countingMode: spec.countingMode,
         unit: spec.unit ?? null,
         impairRule: spec.impairRule,
-        canBeRoot: spec.canBeRoot ?? false,
-        placement: spec.placement ?? "ANYWHERE",
+        isPlace: spec.isPlace ?? false,
+        bookingMode: spec.bookingMode ?? "NOT_BOOKABLE",
+        publicListed: spec.publicListed ?? false,
         fields: spec.fields?.length
           ? {
               create: spec.fields.map((f, i) => ({
@@ -287,6 +313,8 @@ async function createCategories(): Promise<{ categories: Record<string, Category
                 options: f.options ?? [],
                 unit: f.unit ?? null,
                 summary: f.summary ?? false,
+                required: f.required ?? false,
+                longText: f.longText ?? false,
                 sortOrder: i,
               })),
             }
@@ -381,8 +409,8 @@ function buildItems(categories: Record<string, Category>, ids: SeedIds, idByKey:
   // ── ASTU Main Store — university-owned, held by the store keeper; purchased stock
   //    is received here before it is handed over to a lab. ─────────────────────
   const mainStore = add("store", null, "ASTU Main Store", { ownerOrgNodeId: ids.university, custodianId: ids.storeKeeperId, now });
-  mainStore.props.room = "Central stores building";
-  mainStore.props.level = "Central";
+  mainStore.props.level = "Main store";
+  mainStore.props.block = "Central stores building";
   const stockCtx: InstantiateCtx = { ownerOrgNodeId: ids.university, custodianId: ids.storeKeeperId, now };
   instantiateMany(categories, catId("table"), mainStore.id, 3, stockCtx).forEach((i) => items.push(i));
   instantiateMany(categories, catId("chair"), mainStore.id, 3, stockCtx).forEach((i) => items.push(i));
@@ -390,15 +418,17 @@ function buildItems(categories: Record<string, Category>, ids: SeedIds, idByKey:
   // ── Chemical Engineering ────────────────────────────────────────────────
   const chemCtx: InstantiateCtx = { ownerOrgNodeId: ids.chem, custodianId: ids.chemCustodianId, now };
   const chemLab = add("lab", null, "Mechanical Unit Operations Laboratory", chemCtx);
-  chemLab.props.room = "C-105";
+  chemLab.props.block = "C";
+  chemLab.props.room = "105";
   chemLab.props.seats = 20;
   chemLab.props.purpose = "Unit operations practicals";
   add("table", chemLab.id, "Table", chemCtx);
   add("chair", chemLab.id, "Chair", chemCtx);
 
   const store = add("store", null, "Chemistry Store — Room C-12", chemCtx);
-  store.props.room = "C-12";
-  store.props.level = "Departmental";
+  store.props.level = "Department store";
+  store.props.block = "C";
+  store.props.room = "12";
 
   const chemicals: Array<[string, string, string, number, number, boolean]> = [
     ["Acetone", "67-64-1", "Flammable", 2500, 99, false],

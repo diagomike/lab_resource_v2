@@ -154,7 +154,7 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   if (!person) return { outcome: "DENIED", reason: "Nobody is signed in." };
 
   const categoryRows = await prisma.resourceCategory.findMany({
-    include: { group: { select: { name: true } }, fields: true, templateAsParent: true, placementRulesAsChild: true },
+    include: { group: { select: { name: true } }, fields: true, templateAsParent: true },
   });
   const categories = toDomainCategoryMap(categoryRows);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { ROLE_LABEL, type RoleKind } from "@/lib/shared";
 
 /**
  * The six global states, per the design's `globalStates`. Each is a panel-level
@@ -105,7 +106,7 @@ export function PermissionDenied({
               ? roles.length > 0 && (
                   <>
                     You are signed in as{" "}
-                    <span className="text-text">{roles.map((r) => r.toLowerCase()).join(" and ")}</span>.
+                    <span className="text-text">{roles.map((r) => ROLE_LABEL[r as RoleKind] ?? r).join(" and ")}</span>.
                   </>
                 )
               : scope && (

@@ -90,7 +90,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
         )}
         {request.status === "PENDING" && !request.canDecide && <span className="text-10.5 text-faint">Waiting on {request.labName}&apos;s department head.</span>}
         {showLabLink && (
-          <Link href={`/lab-states?lab=${request.labItemId}&tab=draft`} className="ml-auto text-10.5 text-accent hover:underline">
+          <Link href={`/places/${request.labItemId}?tab=draft`} className="ml-auto text-10.5 text-accent hover:underline">
             Open the lab →
           </Link>
         )}

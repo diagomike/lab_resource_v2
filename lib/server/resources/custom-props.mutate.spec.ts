@@ -42,8 +42,16 @@ let chemCustodianId: string;
 
 let groupId: string;
 let categoryId: string;
+let labCategoryId: string;
+let seLabId: string;
+let chemLabId: string;
 let seItemId: string;
 let chemItemId: string;
+
+/** The write the register performs once the head approves the custodian's changes —
+ *  what these tests are about (types, collisions, versions, audit lines). A custodian's
+ *  plain edit inside a lab is drafted first; one test below shows that. */
+const write = (actorId: string, input: Parameters<typeof applyChange>[1]) => applyChange(actorId, input, { bypassDraftWorkflowBlock: true });
 
 beforeAll(async () => {
   ({ applyChange } = await import("./mutate"));
@@ -78,13 +86,22 @@ beforeAll(async () => {
     },
   });
   categoryId = category.id;
+  labCategoryId = (
+    await prisma.resourceCategory.create({ data: { key: `__test-custom-props-lab-${Date.now()}`, name: "Custom Props Test Lab", iconKey: "Building2", groupId, countingMode: "SERIALIZED", isPlace: true } })
+  ).id;
+  const [seLab, chemLab] = await Promise.all([
+    prisma.item.create({ data: { categoryId: labCategoryId, name: "SE Custom Props Lab", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: seNode.id, currentOrgNodeId: seNode.id, custodianId: seCustodianId } }),
+    prisma.item.create({ data: { categoryId: labCategoryId, name: "ChemE Custom Props Lab", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: chemNode.id, currentOrgNodeId: chemNode.id, custodianId: chemCustodianId } }),
+  ]);
+  seLabId = seLab.id;
+  chemLabId = chemLab.id;
 
   const [seItem, chemItem] = await Promise.all([
     prisma.item.create({
-      data: { categoryId, name: "SE Custom Props Item", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: seNode.id, currentOrgNodeId: seNode.id, custodianId: seCustodianId },
+      data: { categoryId, parentId: seLabId, name: "SE Custom Props Item", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: seNode.id, currentOrgNodeId: seNode.id, custodianId: seCustodianId },
     }),
     prisma.item.create({
-      data: { categoryId, name: "ChemE Custom Props Item", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: chemNode.id, currentOrgNodeId: chemNode.id, custodianId: chemCustodianId },
+      data: { categoryId, parentId: chemLabId, name: "ChemE Custom Props Item", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: chemNode.id, currentOrgNodeId: chemNode.id, custodianId: chemCustodianId },
     }),
   ]);
   seItemId = seItem.id;
@@ -92,9 +109,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.itemChange.deleteMany({ where: { itemId: { in: [seItemId, chemItemId] } } });
+  await prisma.labVersion.deleteMany({ where: { labItemId: { in: [seLabId, chemLabId] } } });
+  await prisma.itemChange.deleteMany({ where: { itemId: { in: [seItemId, chemItemId, seLabId, chemLabId] } } });
   await prisma.item.deleteMany({ where: { id: { in: [seItemId, chemItemId] } } });
-  await prisma.resourceCategory.delete({ where: { id: categoryId } });
+  await prisma.item.deleteMany({ where: { id: { in: [seLabId, chemLabId] } } });
+  await prisma.resourceCategory.deleteMany({ where: { id: { in: [categoryId, labCategoryId] } } });
   await prisma.categoryGroup.delete({ where: { id: groupId } });
   await prisma.$disconnect();
 });
@@ -102,7 +121,7 @@ afterAll(async () => {
 describe("custom properties — creation, persistence, and typing", () => {
   it("creates a custom property, persists its exact type and value across a reload, and logs an audit line naming the key", async () => {
     const before = await prisma.item.findUniqueOrThrow({ where: { id: seItemId } });
-    const result = await applyChange(seCustodianId, {
+    const result = await write(seCustodianId, {
       kind: "addCustomProperty",
       itemIds: [seItemId],
       key: "Asset Tag",
@@ -122,7 +141,7 @@ describe("custom properties — creation, persistence, and typing", () => {
   it("edits an existing custom property's value, keeping its declared type, and logs before/after", async () => {
     const before = await getOne(seCustodianId, seItemId);
     const v = before.version;
-    await applyChange(seCustodianId, {
+    await write(seCustodianId, {
       kind: "setCustomProperty",
       itemIds: [seItemId],
       key: "Asset Tag",
@@ -139,7 +158,7 @@ describe("custom properties — creation, persistence, and typing", () => {
 
   it("removes a custom property entirely, and logs its final value as `before`", async () => {
     const before = await getOne(seCustodianId, seItemId);
-    await applyChange(seCustodianId, { kind: "removeCustomProperty", itemIds: [seItemId], key: "Asset Tag", expectedVersions: { [seItemId]: before.version } });
+    await write(seCustodianId, { kind: "removeCustomProperty", itemIds: [seItemId], key: "Asset Tag", expectedVersions: { [seItemId]: before.version } });
 
     const after = await getOne(seCustodianId, seItemId);
     expect(after.customProps["Asset Tag"]).toBeUndefined();
@@ -152,7 +171,7 @@ describe("custom properties — creation, persistence, and typing", () => {
 describe("custom properties — collisions and validation", () => {
   it("refuses a duplicate custom-property key on the same item", async () => {
     const before = await getOne(seCustodianId, seItemId);
-    await applyChange(seCustodianId, {
+    await write(seCustodianId, {
       kind: "addCustomProperty",
       itemIds: [seItemId],
       key: "Dup Key",
@@ -163,29 +182,29 @@ describe("custom properties — collisions and validation", () => {
     const after1 = await getOne(seCustodianId, seItemId);
 
     await expect(
-      applyChange(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "dup key", type: "TEXT", value: "y", expectedVersions: { [seItemId]: after1.version } }),
+      write(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "dup key", type: "TEXT", value: "y", expectedVersions: { [seItemId]: after1.version } }),
     ).rejects.toMatchObject({ status: 400 });
 
     const after2 = await getOne(seCustodianId, seItemId);
     expect(after2.version).toBe(after1.version); // refused, nothing written
 
-    await applyChange(seCustodianId, { kind: "removeCustomProperty", itemIds: [seItemId], key: "Dup Key", expectedVersions: { [seItemId]: after1.version } });
+    await write(seCustodianId, { kind: "removeCustomProperty", itemIds: [seItemId], key: "Dup Key", expectedVersions: { [seItemId]: after1.version } });
   });
 
   it("refuses a custom-property key that collides with the category's own field", async () => {
     const before = await getOne(seCustodianId, seItemId);
     await expect(
-      applyChange(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "Brand", type: "TEXT", value: "x", expectedVersions: { [seItemId]: before.version } }),
+      write(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "Brand", type: "TEXT", value: "x", expectedVersions: { [seItemId]: before.version } }),
     ).rejects.toMatchObject({ status: 400 });
   });
 
   it("refuses an unsafe key and a value of the wrong type", async () => {
     const before = await getOne(seCustodianId, seItemId);
     await expect(
-      applyChange(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "bad:key", type: "TEXT", value: "x", expectedVersions: { [seItemId]: before.version } }),
+      write(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "bad:key", type: "TEXT", value: "x", expectedVersions: { [seItemId]: before.version } }),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
-      applyChange(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "Weight", type: "NUMBER", value: "heavy", expectedVersions: { [seItemId]: before.version } }),
+      write(seCustodianId, { kind: "addCustomProperty", itemIds: [seItemId], key: "Weight", type: "NUMBER", value: "heavy", expectedVersions: { [seItemId]: before.version } }),
     ).rejects.toMatchObject({ status: 400 });
   });
 });
@@ -194,7 +213,7 @@ describe("custom properties — version conflicts, authorization, and scope", ()
   it("refuses a stale addCustomProperty write and applies nothing", async () => {
     const before = await getOne(seCustodianId, seItemId);
     await expect(
-      applyChange(seCustodianId, {
+      write(seCustodianId, {
         kind: "addCustomProperty",
         itemIds: [seItemId],
         key: "Stale Test",
@@ -209,9 +228,19 @@ describe("custom properties — version conflicts, authorization, and scope", ()
     expect(after.customProps["Stale Test"]).toBeUndefined();
   });
 
-  it("lets the item's own custodian add and edit a custom property directly, with no approval chain", async () => {
+  it("drafts the custodian's own edit inside a lab for the head, then applies it once approved", async () => {
     const before = await getOne(seCustodianId, seItemId);
-    const result = await applyChange(seCustodianId, {
+    const drafted = await applyChange(seCustodianId, {
+      kind: "addCustomProperty",
+      itemIds: [seItemId],
+      key: "Custody Test",
+      type: "BOOLEAN",
+      value: true,
+      expectedVersions: { [seItemId]: before.version },
+    });
+    expect(drafted.staged?.labItemId).toBe(seLabId);
+    await prisma.labVersion.deleteMany({ where: { labItemId: seLabId } });
+    const result = await write(seCustodianId, {
       kind: "addCustomProperty",
       itemIds: [seItemId],
       key: "Custody Test",
@@ -225,7 +254,7 @@ describe("custom properties — version conflicts, authorization, and scope", ()
   it("refuses a MANAGER adding a custom property in their own department without custody (2026-09-22)", async () => {
     const before = await getOne(sysAdminId, seItemId);
     await expect(
-      applyChange(seHeadId, {
+      write(seHeadId, {
         kind: "addCustomProperty",
         itemIds: [seItemId],
         key: "Head Write Test",
@@ -239,7 +268,7 @@ describe("custom properties — version conflicts, authorization, and scope", ()
   it("still refuses a MANAGER from a DIFFERENT department — the widening is subtree-scoped, not blanket", async () => {
     const before = await getOne(sysAdminId, seItemId);
     await expect(
-      applyChange(chemHeadId, {
+      write(chemHeadId, {
         kind: "addCustomProperty",
         itemIds: [seItemId],
         key: "Should Not Apply",
@@ -256,7 +285,7 @@ describe("custom properties — version conflicts, authorization, and scope", ()
 
   it("SYS_ADMIN can add a custom property on an item outside their own org", async () => {
     const before = await getOne(sysAdminId, chemItemId);
-    const result = await applyChange(sysAdminId, {
+    const result = await write(sysAdminId, {
       kind: "addCustomProperty",
       itemIds: [chemItemId],
       key: "Admin Test",

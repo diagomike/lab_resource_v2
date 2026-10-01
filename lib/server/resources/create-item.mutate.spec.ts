@@ -38,10 +38,10 @@ let seHeadId: string;
 let chemHeadId: string;
 
 let groupId: string;
-// canBeRoot:true, ONLY_LISTED empty allow-list — the same "a lab is a root and
+// isPlace:true, ONLY_LISTED empty allow-list — the same "a lab is a root and
 // nothing else" shape the real Lab category has, with a room/seats field pair.
 let labLikeCategoryId: string;
-// canBeRoot:false, ANYWHERE — an ordinary part that may go inside anything, for the
+// isPlace:false, ANYWHERE — an ordinary part that may go inside anything, for the
 // create-BENEATH-a-parent case (assertCanMutate, not assertCanCreateRoot).
 let partCategoryId: string;
 let seNodeId: string;
@@ -77,8 +77,7 @@ beforeAll(async () => {
       iconKey: "Building2",
       groupId,
       countingMode: "SERIALIZED",
-      canBeRoot: true,
-      placement: "ONLY_LISTED",
+      isPlace: true,
       fields: {
         create: [
           { key: "room", label: "Room", type: "TEXT", sortOrder: 0 },

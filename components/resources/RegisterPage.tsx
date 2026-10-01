@@ -132,14 +132,12 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
     });
   }
 
-  const MOVE_TOP_LEVEL = "__top_level__";
-  function bulkMove(rawValue: string) {
-    if (!rawValue) return; // the picker's own placeholder, not a real choice
-    const value = rawValue === MOVE_TOP_LEVEL ? null : rawValue;
+  function bulkMove(value: string) {
+    if (!value) return; // the picker's own placeholder, not a real choice
     request({
       input: { kind: "moveInTree", itemIds: selectedRootIds, value },
       title: "Relocation",
-      message: `Move ${selectedRootIds.length} selected resource${selectedRootIds.length === 1 ? "" : "s"} (with everything inside them) to ${value ? (moveTargets.find((t) => t.id === value)?.name ?? "the chosen destination") : "the top level"}?`,
+      message: `Move ${selectedRootIds.length} selected resource${selectedRootIds.length === 1 ? "" : "s"} (with everything inside them) to ${moveTargets.find((t) => t.id === value)?.name ?? "the chosen destination"}?`,
       tone: "warn",
     });
   }
@@ -261,12 +259,7 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
             </div>
             <div className="w-[190px]">
               <TreePicker
-                options={[
-                  ...(selectedRows.every((r) => categories.find((c) => c.id === r.categoryId)?.canBeRoot)
-                    ? [{ id: MOVE_TOP_LEVEL, label: "Top level", iconKey: "Layers3", ancestors: [] }]
-                    : []),
-                  ...containerTreeOptions(moveTargets),
-                ]}
+                options={containerTreeOptions(moveTargets)}
                 value=""
                 onChange={(id) => id && bulkMove(id)}
                 placeholder="Move to…"
