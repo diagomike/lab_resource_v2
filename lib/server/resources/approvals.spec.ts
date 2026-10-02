@@ -449,7 +449,7 @@ describe("store handover: the main store hands stock over to a department", () =
     await makePolicy({ id: `${testKey}-chain-storekeeper`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: STORE_CHAIN });
   });
 
-  it("routes receiving head → Property Administration → receiving custodian; owner, current unit and custody all move only once the custodian accepts", async () => {
+  it("routes Property Administration → receiving custodian (the head is told, not asked); owner, current unit and custody all move only once the custodian accepts", async () => {
     const keeperId = await makeUser("store-keeper", ["STORE_KEEPER"]);
     const labHeadId = await makeUser("store-lab-head", ["MANAGER"]);
     const labCustodianId = await makeUser("store-lab-custodian", ["CUSTODIAN"]);
@@ -462,7 +462,6 @@ describe("store handover: the main store hands stock over to a department", () =
     const preview = await approvals.previewTransfer(keeperId, handoverInput([stockA, stockB], labId, deptNodeId, labCustodianId));
     expect(preview.outcome).toBe("ROUTED");
     expect(preview.steps?.map((s) => [s.selector, s.approverId])).toEqual([
-      ["TARGET_HEAD", labHeadId],
       ["NODE_OCCUPANT", propertyAdminId],
       ["TARGET_CUSTODIAN", labCustodianId],
     ]);
@@ -472,10 +471,9 @@ describe("store handover: the main store hands stock over to a department", () =
     createdRequestIds.push(result.request.id);
     expect(result.request.summary).toMatch(/^Store handover: 2 resources/);
 
-    // The custodian cannot accept before the head and Property Administration have approved.
+    // The custodian cannot accept before Property Administration has approved; the head has no step.
     await expect(approvals.decideStep(labCustodianId, result.request.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
-    await approvals.decideStep(labHeadId, result.request.id, "APPROVE");
-    await expect(approvals.decideStep(labCustodianId, result.request.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
+    await expect(approvals.decideStep(labHeadId, result.request.id, "APPROVE")).rejects.toMatchObject({ status: 403 });
     await approvals.decideStep(propertyAdminId, result.request.id, "APPROVE");
 
     let item = await prisma.item.findUniqueOrThrow({ where: { id: stockA } });
@@ -592,7 +590,7 @@ describe("R2-1 (2026-09-23 run): an item already in a pending transfer can't be 
     const s = await stage("r21-freed");
     const stock = await makeItem(s.storeNodeId, s.keeperId, "R21 Freed Stock");
     const first = await s.request(s.toLab(0, [stock]));
-    await approvals.decideStep(s.heads[0], first.id, "REJECT", "wrong lab");
+    await approvals.decideStep(propertyAdminId, first.id, "REJECT", "wrong lab");
     const second = await s.request(s.toLab(1, [stock]));
     expect(second.status).toBe("PENDING");
   });
@@ -648,7 +646,6 @@ describe("R2-3 (2026-09-23 run): a handover can name what arrives the way the la
     const r = await approvals.requestTransfer(keeperId, input("Workstation"));
     if (r.outcome !== "ROUTED") throw new Error("expected ROUTED");
     createdRequestIds.push(r.request.id);
-    await approvals.decideStep(headId, r.request.id, "APPROVE");
     await approvals.decideStep(propertyAdminId, r.request.id, "APPROVE");
     expect((await approvals.decideStep(custodianId, r.request.id, "APPROVE")).status).toBe("APPLIED");
 
@@ -807,7 +804,6 @@ describe("a tree selection: a container ticked together with what is inside it",
     const stored = await prisma.changeRequest.findUniqueOrThrow({ where: { id: result.request.id } });
     expect((stored.payload as { itemIds: string[] }).itemIds).toEqual([computerId]);
 
-    await approvals.decideStep(headId, result.request.id, "APPROVE");
     await approvals.decideStep(propertyAdminId, result.request.id, "APPROVE");
     await approvals.decideStep(custodianId, result.request.id, "APPROVE");
 

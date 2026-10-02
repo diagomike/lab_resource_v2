@@ -207,3 +207,44 @@ describe("calibration (R6)", () => {
     expect(updated.fields.map((f) => [f.key, f.type])).toContainEqual(["lastCalibrated", "DATE"]);
   });
 });
+
+describe("distribute from the store (R5)", () => {
+  it("offers what a purchase brought for the lab that asked; one send per lab goes Property Administration → the lab's custodian; never offered twice", async () => {
+    const distribution = await import("./distribution");
+    const store = await place(`${testKey} Dist Store`, storeCat, universityId, keeperId);
+    const lab = await place(`${testKey} Dist Lab`, labCat, deptA, custA);
+    const stock = [await thing(store, `${testKey} Scope 1`), await thing(store, `${testKey} Scope 2`), await thing(store, `${testKey} Scope 3`)];
+
+    // A need for 2 of them, carried into a purchase that has closed.
+    const pr = await prisma.purchaseRequest.create({
+      data: { reference: `${testKey}-PR`, orgNodeId: deptA, raisedById: custA, title: "Scopes", stage: "CLOSED", lines: { create: { name: "Scope", qty: 2, categoryId: thingCat } } },
+      include: { lines: true },
+    });
+    const need = await prisma.needLine.create({
+      data: { raisedById: custA, orgNodeId: deptA, name: "Scope", qty: 2, categoryId: thingCat, labItemId: lab, reason: "for the lab", status: "CARRIED", purchaseLineId: pr.lines[0].id },
+    });
+    try {
+      const view = await distribution.distributionFor(keeperId);
+      const group = view.suggestions.find((g) => g.lab.id === lab)!;
+      expect(group.lines.map((l) => [l.needId, l.qty, l.items.length])).toEqual([[need.id, 2, 3]]);
+      await expect(distribution.distributionFor(custA)).rejects.toMatchObject({ status: 403 });
+
+      const sendIds = group.lines[0].items.slice(0, 2).map((i) => i.id);
+      const out = await distribution.distribute(keeperId, { sends: [{ labId: lab, itemIds: sendIds, needIds: [need.id] }] });
+      expect(out.results.map((r) => r.ok)).toEqual([true]);
+      const request = await prisma.changeRequest.findFirstOrThrow({ where: { requesterId: keeperId }, include: { steps: { orderBy: { order: "asc" } } }, orderBy: { createdAt: "desc" } });
+      expect(request.steps.map((s) => [s.selector, s.approverId])).toEqual([
+        ["NODE_OCCUPANT", propertyAdminId],
+        ["TARGET_CUSTODIAN", custA],
+      ]);
+      // Delivered (pending): the need isn't offered again, and its items aren't free stock.
+      const after = await distribution.distributionFor(keeperId);
+      expect(after.suggestions.some((g) => g.lab.id === lab)).toBe(false);
+      expect(after.stock.flatMap((s) => s.items.map((i) => i.id))).toEqual(expect.arrayContaining([stock[2]]));
+      expect(after.stock.flatMap((s) => s.items.map((i) => i.id))).not.toContain(sendIds[0]);
+    } finally {
+      await prisma.needLine.delete({ where: { id: need.id } });
+      await prisma.purchaseRequest.delete({ where: { id: pr.id } });
+    }
+  });
+});

@@ -313,7 +313,7 @@ describe("movementChain: the line each movement walks", () => {
   });
 
   it("every Main Store movement goes to Property Administration, never Procurement", () => {
-    expect(types(movementChain("STORE_OUT", offices))).toEqual(["TARGET_HEAD", "property-office", "TARGET_CUSTODIAN"]);
+    expect(types(movementChain("STORE_OUT", offices))).toEqual(["property-office", "TARGET_CUSTODIAN"]);
     expect(types(movementChain("FROM_STORE", offices))).toEqual(["ITEM_CUSTODIAN", "TARGET_HEAD", "property-office", "REQUESTER_RECEIPT"]);
     expect(types(movementChain("TO_STORE", offices))).toEqual(["OWNER_HEAD", "property-office", "TARGET_CUSTODIAN"]);
     expect(types(movementChain("TO_STORE", { ...offices, askItemCustodian: true }))).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "property-office", "TARGET_CUSTODIAN"]);

@@ -46,7 +46,7 @@ These come to you in **Approvals**, after the departments' own consent:
 
 | Movement | The chain | You come |
 |---|---|---|
-| **From the store** to a lab | receiving head → **you** → receiving custodian accepts | before the custodian takes it on |
+| **From the store** to a lab | **you** → receiving custodian accepts (the head is told) | first, before the custodian takes it on |
 | **A lab's request** for something in the store | store keeper releases → receiving head → **you** → receipt | before it leaves the store |
 | **Return to the store** | owning head → **you** → store keeper accepts | before it comes back in |
 | **Permanent transfer** between colleges | … both heads → College Managing Director → **you** → receipt | last, before receipt |

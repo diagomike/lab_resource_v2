@@ -149,7 +149,7 @@ Booking requests also appear in **Approvals** and on **Home**.
    Something from the Main Store is always given, not lent.
 4. Say why, and click **Request transfer**. The dialog shows who must agree, in order. Follow it on **Home** or **Approvals → Sent by me**. When everyone has agreed, you **confirm receipt** and it moves into your lab.
 
-**Accepting a handover.** When the store keeper sends new stock to your lab, you're told it's coming. Once your head and Property Administration approve, it waits for you on **Home** and in **Approvals**: click **Accept into my custody** when it's in your hands.
+**Accepting a handover.** When the store keeper sends new stock to your lab, you're told it's coming. Once Property Administration approves, it waits for you on **Home** and in **Approvals**: click **Accept into my custody** when it's in your hands.
 
 **Giving something back.** Tick it in **Resources** and click **Return to store…** Your head and Property Administration approve, and the store keeper accepts it.
 

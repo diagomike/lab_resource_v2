@@ -304,6 +304,9 @@ export const TransferItemChange = Base.extend({
      *  line's name ("Workstation Setup 147"); with `renameAs: "Workstation"` it lands as
      *  the next free "Workstation NN" beside the lab's own. */
     renameAs: z.string().trim().min(1).max(120).optional(),
+    /** A store send answering lab needs (Distribute): which ones it delivers, so they
+     *  aren't offered again. */
+    forNeedIds: z.array(z.string()).max(50).optional(),
   }),
 });
 

@@ -251,7 +251,7 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
 const MOVEMENT_REASON: Record<MovementShape, string> = {
   LOAN: "A loan needs both units and a receipt",
   PERMANENT: "A permanent transfer needs both units, the College Managing Director and a receipt",
-  STORE_OUT: "Issuing from the store needs the receiving head and Property Administration",
+  STORE_OUT: "Sending from the store needs Property Administration, then the receiving custodian accepts it",
   FROM_STORE: "Taking from the store needs the receiving head and Property Administration",
   TO_STORE: "Returning to the store needs the owning head and Property Administration",
   RETURN: "Returning it to its own owning unit",
@@ -700,7 +700,10 @@ export async function requestTransfer(actorId: string, rawInput: TransferInput):
 
   const request = await getRequest(actorId, requestId);
   await tellNextApprover(request, actorId);
-  if (movement === "STORE_OUT") await tellRecipient(request, input.transfer.targetCustodianId, actorId);
+  if (movement === "STORE_OUT") {
+    await tellRecipient(request, input.transfer.targetCustodianId, actorId);
+    await tellReceivingHead(request, input.transfer.targetOrgNodeId, actorId);
+  }
   return { outcome: "ROUTED", request };
 }
 
@@ -730,9 +733,21 @@ async function tellRecipient(request: ChangeRequestDto, recipientId: string | nu
     subject: `Coming to you from the store: ${request.summary}`,
     paragraphs: [
       `${esc(request.requesterName)} is handing over <strong>${esc(request.summary)}</strong> to you.${quoted(request.note)}`,
-      "Once your head and Property Administration approve it, accept it under <strong>Approvals</strong> when it is in your hands.",
+      "Once Property Administration approves it, accept it under <strong>Approvals</strong> when it is in your hands.",
     ],
     path: paths.decide("transfer", request.id),
+    action: "Open the request",
+  });
+}
+
+/** Stock coming from the store into a department: its head is told (not asked). */
+async function tellReceivingHead(request: ChangeRequestDto, unitId: string, actorId: string): Promise<void> {
+  const unit = await prisma.orgNode.findUnique({ where: { id: unitId }, select: { userId: true, kind: true } });
+  if (!unit?.userId || unit.kind !== "DEPARTMENT") return;
+  await notify(unit.userId, actorId, {
+    subject: `Coming to your department from the store: ${request.summary}`,
+    paragraphs: [`${esc(request.requesterName)} is sending <strong>${esc(request.summary)}</strong> from the store. Property Administration approves it, and the lab's custodian accepts it.${quoted(request.note)}`],
+    path: paths.mine("transfer", request.id).replace("box=mine&", ""),
     action: "Open the request",
   });
 }

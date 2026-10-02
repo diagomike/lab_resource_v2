@@ -20,6 +20,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useHomeCounts } from "@/lib/home-counts";
 import { ProcurementPanel } from "./ProcurementPanel";
+import { DistributePanel } from "./DistributePanel";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog, Tabs } from "@/components/ui";
 import { PanelLoading, InlineError } from "@/components/states";
 import { ImportsPanel } from "./ImportsPanel";
@@ -1224,7 +1225,7 @@ function RequestListPanel({
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type Section = "needs" | "requests" | "procurement" | "arrivals";
+type Section = "needs" | "requests" | "procurement" | "arrivals" | "distribute";
 
 /**
  * Purchasing, in three sections:
@@ -1263,6 +1264,7 @@ function PurchasingInner() {
     "requests",
     ...(seesProcurement ? (["procurement"] as const) : []),
     ...(seesArrivals ? (["arrivals"] as const) : []),
+    ...(canLoadStore ? (["distribute"] as const) : []),
   ];
   // Each person lands where their work starts: custodians and heads on the labs' needs,
   // the store and Property Administration on arrivals, everyone else on requests.
@@ -1328,7 +1330,7 @@ function PurchasingInner() {
     const live = liveCounts?.tabs[`purchasing.${s}`];
     return {
       key: s,
-      label: s === "needs" ? "Lab needs" : s === "requests" ? "Requests" : s === "procurement" ? "Procurement" : "Arrivals",
+      label: s === "needs" ? "Lab needs" : s === "requests" ? "Requests" : s === "procurement" ? "Procurement" : s === "distribute" ? "Distribute" : "Arrivals",
       count: s === "needs" && headsUnit && openNeeds ? openNeeds.length : live?.action,
       following: live?.following,
     };
@@ -1407,6 +1409,8 @@ function PurchasingInner() {
           />
         </>
       )}
+
+      {section === "distribute" && <DistributePanel key={`distribute-${refreshKey}`} />}
 
       {section === "procurement" && <ProcurementPanel key={`procurement-${refreshKey}`} categories={categories} canRun={canRunPipeline} focusId={params.get("procurement")} />}
 

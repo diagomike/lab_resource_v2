@@ -32,14 +32,23 @@ You can't load **more than the record says arrived** ("Only 1 pcs of … are lef
 
 ## 2. Move stock to a lab
 
+**Purchasing → Distribute** is the quickest way.
+
+- **Bought for the labs** lays out what each purchase brought for the labs that asked for it: per lab, each thing it asked for, how many, and that many free units in your stores already chosen (*Chair: asked 13, send 13 of 58 free*). Change a count if you like, then **Send to …** for one lab, or **Send all**.
+- **Send by hand** sends anything else: choose the lab (search by lab, unit or custodian), what and how many, optionally how the lab names them (*Workstation*), and **Send**.
+
+Each send is one store handover per lab: **Property Administration** approves it, then **the lab's custodian accepts** it into their care. The department's head is told it is coming. Follow your sends under **Approvals → Sent by me**.
+
+You can also do it from **Resources**, one lab at a time:
+
 1. In **Resources**, open the **ASTU Main Store** and the group you need (e.g. **Workstation Setup ×151**).
 2. Tick the items for one lab, then click **Move to another place…**
-3. Search for the **Destination** lab (or a place inside it, like its Switch Rack). The dialog shows who must agree: **the receiving department's head**, then **Property Administration**, then **the receiving custodian accepts**. If the items are all one kind and the lab numbers its own (*Workstation 01…*), **Name them there as** suggests the lab's naming.
+3. Search for the **Destination** lab (or a place inside it, like its Switch Rack). The dialog shows who must agree: **Property Administration**, then **the receiving custodian accepts**. If the items are all one kind and the lab numbers its own (*Workstation 01…*), **Name them there as** suggests the lab's naming.
 4. Confirm. The receiving custodian is told it's coming.
 
 ![Move to another place](img/store-keeper/02-move.jpg)
 
-Nothing moves until all three have said yes. Meanwhile the items show **⇄** in the store (*⇄ 5 promised*), so they can't be promised to a second lab. When the custodian accepts, the items move into the lab, owned by that department and in the custodian's custody.
+Nothing moves until both have said yes. Meanwhile the items show **⇄** in the store (*⇄ 5 promised*), so they can't be promised to a second lab. When the custodian accepts, the items move into the lab, owned by that department and in the custodian's custody.
 
 ## 3. Returns and requests
 

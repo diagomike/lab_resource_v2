@@ -339,7 +339,9 @@ export function movementChain(shape: MovementShape, ctx: MovementContext): StepS
     case "FROM_STORE":
       return [{ type: "ITEM_CUSTODIAN" }, ...receivingCustodian, { type: "TARGET_HEAD" }, ...property, { type: "REQUESTER_RECEIPT" }];
     case "STORE_OUT":
-      return [{ type: "TARGET_HEAD" }, ...property, { type: "TARGET_CUSTODIAN" }];
+      // The store sending stock to a lab (2026-10-02): Property Administration approves,
+      // the receiving custodian accepts it. The receiving head is told, not asked.
+      return [...property, { type: "TARGET_CUSTODIAN" }];
     case "TO_STORE":
       return [...(ctx.askItemCustodian ? [{ type: "ITEM_CUSTODIAN" as const }] : []), { type: "OWNER_HEAD" }, ...property, { type: "TARGET_CUSTODIAN" }];
     case "RETURN":

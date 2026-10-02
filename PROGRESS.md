@@ -5318,3 +5318,22 @@ its model that make porting it as-is the wrong move.
     does. Worth watching.
   - **Left for the e2e pass:** `e2e/validate-approval-lines.ts`, `drive-cse-cycle.ts`, `stage-guide.ts` and
     `suites/B-purchasing.ts` still call the retired `/advance`.
+- **2026-10-03 (feedback round, R5: distribute from the store)**
+  - **Chain:** a store-to-lab send (STORE_OUT) is now Property Administration → the receiving custodian accepts
+    (`movementChain`); the receiving department's head is told (`tellReceivingHead`), not asked. Approval specs updated.
+  - **Service `lib/server/resources/distribution.ts`** + `GET/POST /api/resources/distributions` (store keeper / admin):
+    the stores they keep; **suggestions** = lab needs (CARRIED, with a lab) whose purchase reached the store, matched to
+    free working stock of the purchase line's kind in those stores (not promised in a pending transfer), grouped by lab;
+    free stock by kind; every lab for sending by hand. **Send** = one ordinary store handover per lab through
+    `requestTransfer` (transferOwnership, the lab's custodian, optional rename), each reported ok/refused. A send carries
+    `transfer.forNeedIds` (new optional field) so a need being delivered isn't offered again.
+  - **Screen:** Purchasing → **Distribute** (`components/resources/DistributePanel.tsx`): "Bought for the labs" (per lab:
+    each need, "send N of M free", the units chosen, Send to … / Send all) and "Send by hand" (find a lab, kind and count,
+    optional "name them there as"). Results per lab and a toast linking to Sent by me.
+  - New DB spec in `roles-2026-10.spec.ts` (suggestion → send → chain PROP → custodian → not offered again). Guide: store
+    keeper §2, Property Admin's movements table, custodian's "accepting a handover".
+  - **Checks:** `tsc` clean, 632/632, build clean. On :3200 as the store keeper, Distribute lays out PR-2026-001's needs for
+    B510-R8 and B510-R9 from the user's earlier test (chairs, storage, monitors, RAM, computers, each capped by free
+    stock). Not sent from the UI (it is the user's own test data); the send path is covered by the spec.
+  - **Known gap:** handovers made by hand before this round carry no `forNeedIds`, so a lab already served that way can
+    still be offered its need here; the keeper sees the counts and decides.
