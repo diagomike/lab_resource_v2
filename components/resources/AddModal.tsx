@@ -12,6 +12,7 @@ import { previewItemChange, submitChange } from "@/lib/register/useItemChange";
 import { CustomPropInput, PropInput } from "./Inspector";
 import { CategoryIcon } from "./IconPicker";
 import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
+import { couldNotLoad, toast } from "@/components/toast";
 
 /** How many rows one instantiation of this category actually produces, parts
  *  included — the wire-DTO-shaped twin of lib/domain/edit-impact.ts's
@@ -203,7 +204,7 @@ export function CategoryCombobox({
             style={panelPosition}
           >
             {loading ? (
-              <div className="px-8 py-8 text-10.5 text-faint">Loading categories…</div>
+              <div className="px-8 py-8 text-11 text-faint">Loading categories…</div>
             ) : filtered.length > 0 ? (
               filtered.map((category, index) => (
                 <button
@@ -220,12 +221,12 @@ export function CategoryCombobox({
                   <Check className={`size-12 flex-none ${category.id === value ? "text-accent" : "opacity-0"}`} />
                   <CategoryIcon iconKey={category.iconKey} className="size-13 flex-none text-dim" />
                   <span className="min-w-0 flex-1 truncate">{category.name}</span>
-                  <span className="max-w-[45%] truncate text-10 text-faint">{category.groupName}</span>
+                  <span className="max-w-[45%] truncate text-11 text-faint">{category.groupName}</span>
                 </button>
               ))
             ) : (
               <div className="p-5">
-                <div className="px-3 pb-6 text-10.5 text-faint">No category found.</div>
+                <div className="px-3 pb-6 text-11 text-faint">No category found.</div>
                 <button
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
@@ -309,7 +310,7 @@ export function AddModal({
     api
       .get<ResourceCategoryDto[]>("/resources/categories")
       .then((rows) => setCategories(rows.filter((c) => c.active && !c.isPlace)))
-      .catch(() => setCategories([]))
+      .catch(couldNotLoad("the categories", () => setCategories([])))
       .finally(() => setCategoriesLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -338,7 +339,7 @@ export function AddModal({
         // one — never leave a stale, now-illegal selection sitting in the field.
         setParent((p) => (p && !rows.some((r) => r.id === p) ? "" : p));
       })
-      .catch(() => setContainers([]))
+      .catch(couldNotLoad("where things can go", () => setContainers([])))
       .finally(() => setContainersLoading(false));
   }, [open, categoryId]);
 
@@ -449,6 +450,9 @@ export function AddModal({
       setError(r.message);
       return;
     }
+    const staged = r.result.staged;
+    if (staged) toast.success(`Added to ${staged.labName}'s changes — not sent to the head yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+    else toast.success(preview.names.length === 1 ? `Added ${preview.names[0]}` : `Added ${preview.names.length} resources`);
     onCreated();
     onClose();
   }
@@ -460,7 +464,7 @@ export function AddModal({
     return (
       <Modal title="Preview — Add resources" onClose={onClose} width="480px">
         {error && <ErrorNote>{error}</ErrorNote>}
-        <p className="text-10.5 text-dim">
+        <p className="text-11 text-dim">
           Adds <strong className="text-text">{preview.names.length}</strong> × {selectedCategory?.name} to <strong className="text-text">{destinationName}</strong>
           {preview.rows > preview.names.length ? ` — ${preview.rows} rows in total, parts included` : ""}. New rows are highlighted among what&apos;s already there.
         </p>
@@ -478,10 +482,10 @@ export function AddModal({
   }
 
   return (
-    <Modal title="Add resources" onClose={onClose} width="480px">
+    <Modal title="Add resources" onClose={onClose} width="480px" dirty={!!name.trim() || Object.values(propDrafts).some((v) => v.trim()) || customPropDrafts.length > 0}>
       {error && <ErrorNote>{error}</ErrorNote>}
       <label className="block">
-        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Category</div>
+        <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Category</div>
         <CategoryCombobox
           categories={categories}
           value={categoryId}
@@ -495,7 +499,7 @@ export function AddModal({
       </label>
       {categoryId && (
         <label className="block">
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Into</div>
+          <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Into</div>
           <TreePicker
             options={containerOptions}
             value={parent}
@@ -504,13 +508,13 @@ export function AddModal({
             placeholder="Choose where it goes…"
           />
           {!containersLoading && containers.length === 0 && (
-            <div className="text-10.5 text-warn mt-4">None of the places you run can hold this kind of thing.</div>
+            <div className="text-11 text-warn mt-4">None of the places you run can hold this kind of thing.</div>
           )}
         </label>
       )}
       {categoryId && (
         <label className="block">
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
+          <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -521,11 +525,11 @@ export function AddModal({
       )}
       {selectedCategory && selectedCategory.fields.length > 0 && (
         <div>
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
+          <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
           <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
             {selectedCategory.fields.map((f) => (
               <label key={f.key} className="block">
-                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">{f.unit ? `${f.label} (${f.unit})` : f.label}{f.required ? " *" : ""}</div>
+                <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">{f.unit ? `${f.label} (${f.unit})` : f.label}{f.required ? " *" : ""}</div>
                 <PropInput field={f} value={propDrafts[f.key] ?? ""} onChange={(v) => setPropDrafts((d) => ({ ...d, [f.key]: v }))} onCommit={() => {}} />
               </label>
             ))}
@@ -536,8 +540,8 @@ export function AddModal({
         <div>
           <div className="flex items-center justify-between gap-8 mb-6">
             <div>
-              <div className="text-9.5 uppercase tracking-label text-faint font-semibold">Optional properties</div>
-              <div className="text-10 text-faint mt-2">Item-specific fields applied to every resource in this batch.</div>
+              <div className="text-10.5 uppercase tracking-label text-faint font-semibold">Optional properties</div>
+              <div className="text-11 text-faint mt-2">Item-specific fields applied to every resource in this batch.</div>
             </div>
             <button
               type="button"
@@ -547,7 +551,7 @@ export function AddModal({
                   { id: `${Date.now()}-${Math.random()}`, key: "", type: "TEXT", value: "" },
                 ])
               }
-              className="flex items-center gap-5 text-10.5 text-accent hover:text-accent2"
+              className="flex items-center gap-5 text-11 text-accent hover:text-accent2"
             >
               <Plus className="size-12" />
               Add field
@@ -558,7 +562,7 @@ export function AddModal({
               {customPropDrafts.map((draft) => (
                 <div key={draft.id} className="grid grid-cols-[minmax(0,1fr)_100px_minmax(0,1fr)_24px] items-end gap-6 rounded-2 border border-border2 p-8">
                   <label className="min-w-0">
-                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Key</div>
+                    <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Key</div>
                     <input
                       value={draft.key}
                       onChange={(event) =>
@@ -569,7 +573,7 @@ export function AddModal({
                     />
                   </label>
                   <label>
-                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Type</div>
+                    <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Type</div>
                     <select
                       value={draft.type}
                       onChange={(event) =>
@@ -589,7 +593,7 @@ export function AddModal({
                     </select>
                   </label>
                   <label className="min-w-0">
-                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Value</div>
+                    <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Value</div>
                     <CustomPropInput
                       type={draft.type}
                       value={draft.value}
@@ -615,7 +619,7 @@ export function AddModal({
         </div>
       )}
       <label className="block">
-        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">How many</div>
+        <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">How many</div>
         <input
           type="number"
           min={1}
@@ -626,7 +630,7 @@ export function AddModal({
         />
       </label>
       {categoryId && (
-        <p className="text-10.5 text-dim">
+        <p className="text-11 text-dim">
           Creates {count} × {categories.find((c) => c.id === categoryId)?.name}
           {templateRows > 1 && (
             <>
@@ -664,7 +668,7 @@ function PreviewList({ existing, added, iconKey }: { existing: ItemChildDto[]; a
         >
           <CategoryIcon iconKey={r.iconKey} className="size-12 flex-none" />
           <span className="min-w-0 flex-1 truncate">{r.name}</span>
-          {r.isNew && <span className="text-9.5 font-semibold uppercase tracking-label text-good">new</span>}
+          {r.isNew && <span className="text-10.5 font-semibold uppercase tracking-label text-good">new</span>}
         </div>
       ))}
     </div>

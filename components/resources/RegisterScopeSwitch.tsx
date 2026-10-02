@@ -31,7 +31,7 @@ export function RegisterScopeSwitch({ scope }: { scope: "mine" | "university" })
           aria-pressed={scope === s}
           onClick={() => scope !== s && router.push(s === "university" ? "/register?scope=university" : "/register")}
           style={{ background: scope === s ? "var(--accent)" : "var(--panel2)", color: scope === s ? "#fff" : "var(--dim)" }}
-          className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
+          className="border-0 text-11 font-medium px-9 py-4 rounded-2"
         >
           {s === "mine" ? "Mine" : "Whole university"}
         </button>

@@ -10,11 +10,11 @@ import { GROUP_BY_OPTIONS, type GroupByKey } from "@/lib/register/useRegisterSta
 export function GroupByBar({ value, onChange }: { value: GroupByKey[]; onChange: (next: GroupByKey[]) => void }) {
   const unused = GROUP_BY_OPTIONS.filter((o) => !value.includes(o.key));
   const labelOf = (k: GroupByKey) => GROUP_BY_OPTIONS.find((o) => o.key === k)?.label ?? k;
-  const selectCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent";
+  const selectCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent";
 
   return (
-    <div className="flex flex-wrap items-center gap-6 px-14 py-7 border-b border-border text-10.5">
-      <span className="text-9.5 uppercase tracking-label text-faint font-semibold">Group by</span>
+    <div className="flex flex-wrap items-center gap-6 px-14 py-7 border-b border-border text-11">
+      <span className="text-10.5 uppercase tracking-label text-faint font-semibold">Group by</span>
       {value.map((k, i) => (
         <span key={k} className="flex items-center gap-4">
           {i > 0 && <span className="text-faint">then</span>}

@@ -20,6 +20,7 @@ import { Panel, Screen, Tag, Button, ErrorNote, ConfirmDialog } from "@/componen
 import { PanelLoading } from "@/components/states";
 import { EntityPicker } from "@/components/EntityPicker";
 import { ROLE_LABEL } from "@/lib/shared";
+import { couldNotLoad } from "@/components/toast";
 
 /**
  * The whole org chart on one canvas — one place to see the structure AND create a node
@@ -56,7 +57,7 @@ function OrgNodeCard({ data }: NodeProps<Node<CardData>>) {
         <Tag>{node.kind.toLowerCase()}</Tag>
         {!node.active && <Tag tone="bad">inactive</Tag>}
       </div>
-      <div className="mt-4 text-9.5 text-faint truncate">
+      <div className="mt-4 text-10.5 text-faint truncate">
         {node.occupant ? node.occupant.name : "headless"}
       </div>
     </div>
@@ -116,6 +117,46 @@ function ViewModeTabs({
  * list can still show at a glance; parent names are spelled out per card since the list
  * can't draw the connecting lines the graph does.
  */
+const KIND_PLURAL: Record<OrgNodeKind, string> = { UNIVERSITY: "The university", COLLEGE: "Colleges", DEPARTMENT: "Departments", OFFICE: "Offices" };
+
+/** "Colleges and offices" — what sits at one step of the structure, in words. */
+function tierTitle(nodes: OrgNodeDto[]): string {
+  const kinds = [...new Set(nodes.map((n) => n.kind))].map((k) => KIND_PLURAL[k]);
+  return kinds.length > 1 ? `${kinds.slice(0, -1).join(", ")} and ${kinds[kinds.length - 1].toLowerCase()}` : kinds[0] ?? "";
+}
+
+/** Every unit under `id`, at any depth — never offered as its parent. */
+function descendantsOf(nodes: OrgNodeDto[], id: string): Set<string> {
+  const out = new Set<string>();
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const n of nodes) if (n.parentIds.includes(cur) && !out.has(n.id)) (out.add(n.id), stack.push(n.id));
+  }
+  return out;
+}
+
+/** Parent choices, grouped in the order of the structure; once one is ticked, only units
+ *  beside it stay open (a unit's parents sit side by side). */
+function ParentChoices({ candidates, chosen, onToggle }: { candidates: OrgNodeDto[]; chosen: string[]; onToggle: (id: string) => void }) {
+  const tier = candidates.find((n) => chosen.includes(n.id))?.level;
+  const sorted = [...candidates].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  if (!sorted.length) return <span className="text-11 text-faint">There is nothing to put it under yet.</span>;
+  return (
+    <div className="flex flex-wrap gap-6">
+      {sorted.map((n) => {
+        const off = tier !== undefined && n.level !== tier;
+        return (
+          <label key={n.id} className={`flex items-center gap-5 text-11 border border-border2 rounded-2 px-8 py-4 ${off ? "text-faint opacity-60" : "text-dim"}`} title={off ? "Parents sit side by side — untick the current choice to pick from elsewhere" : undefined}>
+            <input type="checkbox" checked={chosen.includes(n.id)} disabled={off} onChange={() => onToggle(n.id)} />
+            {n.name}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 function NodeCardList({
   nodes,
   selectedId,
@@ -133,14 +174,14 @@ function NodeCardList({
   }, [nodes]);
 
   if (nodes.length === 0) {
-    return <div className="px-14 py-20 text-11.5 text-faint">No nodes yet — create one below.</div>;
+    return <div className="px-14 py-20 text-11.5 text-faint">Nothing here yet — add the university first.</div>;
   }
 
   return (
     <div className="h-full overflow-y-auto px-14 py-12 flex flex-col gap-16">
       {byLevel.map(([level, levelNodes]) => (
         <div key={level}>
-          <div className="text-9.5 uppercase tracking-wider text-faint font-semibold mb-6">Level {level}</div>
+          <div className="text-10.5 uppercase tracking-wider text-faint font-semibold mb-6">{tierTitle(levelNodes)}</div>
           <div className="flex flex-col gap-6">
             {levelNodes.map((n) => (
               <button
@@ -158,12 +199,12 @@ function NodeCardList({
                 <div className="mt-4 flex items-center gap-4 flex-wrap">
                   {!n.active && <Tag tone="bad">inactive</Tag>}
                   {n.parentIds.length > 0 && (
-                    <span className="text-9.5 text-faint">
+                    <span className="text-10.5 text-faint">
                       under {n.parentIds.map((p) => nodeById.get(p)?.name ?? "?").join(", ")}
                     </span>
                   )}
                 </div>
-                <div className="mt-4 text-9.5 text-faint truncate">
+                <div className="mt-4 text-10.5 text-faint truncate">
                   {n.occupant ? n.occupant.name : "headless"}
                 </div>
               </button>
@@ -214,7 +255,7 @@ export default function OrgStudioPage() {
       .get<OrgNodeDto[]>("/org/nodes?scope=all")
       .then(setNodes)
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load the org map"));
-    api.get<PersonDto[]>("/people").then(setPeople).catch(() => setPeople([]));
+    api.get<PersonDto[]>("/people").then(setPeople).catch(couldNotLoad("the people", () => setPeople([])));
   }
   useEffect(reload, []);
 
@@ -318,18 +359,17 @@ export default function OrgStudioPage() {
     <Screen>
       {error && <ErrorNote>{error}</ErrorNote>}
       <Panel
-        title="Org structure"
+        title="Organisation"
         actions={
           <Button variant="primary" onClick={() => setShowNewForm((s) => !s)}>
-            {showNewForm ? "Cancel" : "+ New node"}
+            {showNewForm ? "Cancel" : "+ New unit"}
           </Button>
         }
       >
         <div className="px-14 py-10 border-b border-border flex flex-col md:flex-row md:items-center md:justify-between gap-8">
           <div className="text-11 text-dim leading-loose">
-            Click any node to inspect it — assign or vacate its occupant, reassign its parent(s), or
-            deactivate/delete it. Pick University, College, Department or Office right in the create form below;
-            there's no separate page per kind.
+            Click a unit to see who heads it, change what it sits under, or retire it. Its place in the
+            structure follows from what it sits under.
           </div>
           <ViewModeTabs value={viewMode} onChange={setViewMode} />
         </div>
@@ -374,7 +414,7 @@ export default function OrgStudioPage() {
 
             <div className="w-full md:w-320 md:shrink-0 overflow-y-auto">
               {!selected ? (
-                <div className="px-14 py-20 text-11.5 text-faint">Select a node on the map to inspect it.</div>
+                <div className="px-14 py-20 text-11.5 text-faint">Choose a unit to see its details.</div>
               ) : (
                 <div className="flex flex-col gap-14 px-14 py-14">
                   <NodeHeaderEditor
@@ -385,7 +425,7 @@ export default function OrgStudioPage() {
                   />
 
                   <div>
-                    <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-6">Occupant</div>
+                    <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-6">Occupant</div>
                     <EntityPicker
                       options={people
                         .filter((p) => p.status !== "DISABLED")
@@ -403,7 +443,7 @@ export default function OrgStudioPage() {
                       <button
                         type="button"
                         onClick={() => setShowInviteForm(true)}
-                        className="mt-6 text-10.5 text-accent"
+                        className="mt-6 text-11 text-accent"
                       >
                         + Invite someone new and assign them here
                       </button>
@@ -421,10 +461,13 @@ export default function OrgStudioPage() {
                     )}
                   </div>
 
-                  {selected.level > 0 && (
+                  {selected.kind !== "UNIVERSITY" && (
                     <ParentsEditor
                       selected={selected}
-                      candidates={(nodes ?? []).filter((n) => n.level === selected.level - 1 && n.active)}
+                      candidates={(() => {
+                        const below = descendantsOf(nodes ?? [], selected.id);
+                        return (nodes ?? []).filter((n) => n.active && n.id !== selected.id && !below.has(n.id));
+                      })()}
                       onSave={saveParents}
                     />
                   )}
@@ -530,11 +573,8 @@ export default function OrgStudioPage() {
   );
 }
 
-/**
- * A node's parent(s) must sit exactly one level above it — org.service.ts's
- * assertAdjacentParents enforces this server-side, but filtering the candidate list to
- * `level - 1` up front means the admin can never even SELECT an invalid combination.
- */
+/** Where a unit sits: the units it reports under. Its place in the structure follows
+ *  (lib/server/org/org.ts `reassignParents`). */
 function ParentsEditor({
   selected,
   candidates,
@@ -555,21 +595,8 @@ function ParentsEditor({
 
   return (
     <div>
-      <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-6">
-        Parent(s) — level {selected.level - 1}
-      </div>
-      {candidates.length === 0 ? (
-        <div className="text-10.5 text-faint">No active nodes exist at level {selected.level - 1} yet.</div>
-      ) : (
-        <div className="flex flex-wrap gap-6">
-          {candidates.map((n) => (
-            <label key={n.id} className="flex items-center gap-5 text-10.5 text-dim border border-border2 rounded-2 px-8 py-4">
-              <input type="checkbox" checked={draft.includes(n.id)} onChange={() => toggle(n.id)} />
-              {n.name}
-            </label>
-          ))}
-        </div>
-      )}
+      <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-6">Sits under</div>
+      <ParentChoices candidates={candidates} chosen={draft} onToggle={toggle} />
       {dirty && (
         <div className="mt-8">
           <Button variant="primary" disabled={draft.length === 0} onClick={() => onSave(draft)}>
@@ -657,7 +684,7 @@ function NodeHeaderEditor({
         <select
           value={selected.kind}
           onChange={(e) => onRequestKindChange(e.target.value as OrgNodeKind)}
-          className="border border-border2 bg-panel h-22 px-6 rounded-2 text-10.5 outline-none focus:border-accent"
+          className="border border-border2 bg-panel h-22 px-6 rounded-2 text-11 outline-none focus:border-accent"
         >
           {KIND_OPTIONS.map((k) => (
             <option key={k} value={k}>
@@ -665,17 +692,16 @@ function NodeHeaderEditor({
             </option>
           ))}
         </select>
-        <Tag>level {selected.level}</Tag>
         <Tag tone={selected.active ? "good" : "bad"}>{selected.active ? "active" : "inactive"}</Tag>
       </div>
 
       <div className="mt-8 flex items-center gap-8">
-        <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Code</span>
+        <span className="text-11 uppercase tracking-wider text-dim font-semibold">Code</span>
         <input
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder="e.g. PROC — a stable key some lookups use instead of the name"
-          className="flex-1 border border-border2 bg-panel h-24 px-8 rounded-2 text-10.5 outline-none focus:border-accent"
+          className="flex-1 border border-border2 bg-panel h-24 px-8 rounded-2 text-11 outline-none focus:border-accent"
         />
         {codeDirty && (
           <Button onClick={saveCode} disabled={codeSaving}>
@@ -743,7 +769,7 @@ function InviteAndAssignForm({
   return (
     <div className="border border-border2 rounded-3 p-10 bg-panel2 flex flex-col gap-9">
       <label className="block">
-        <div className="text-10.5 text-dim mb-3">Name</div>
+        <div className="text-11 text-dim mb-3">Name</div>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -752,7 +778,7 @@ function InviteAndAssignForm({
         />
       </label>
       <label className="block">
-        <div className="text-10.5 text-dim mb-3">Email</div>
+        <div className="text-11 text-dim mb-3">Email</div>
         <input
           type="email"
           value={email}
@@ -761,7 +787,7 @@ function InviteAndAssignForm({
         />
       </label>
       <div>
-        <div className="text-10.5 text-dim mb-3">Role</div>
+        <div className="text-11 text-dim mb-3">Role</div>
         <div className="flex gap-6 flex-wrap">
           {OCCUPANT_ROLE_OPTIONS.map((r) => {
             const on = roles.includes(r);
@@ -775,7 +801,7 @@ function InviteAndAssignForm({
                   background: on ? "var(--soft)" : "var(--panel)",
                   color: on ? "var(--accent)" : "var(--dim)",
                 }}
-                className="border h-22 px-8 rounded-2 text-10.5"
+                className="border h-22 px-8 rounded-2 text-11"
               >
                 {ROLE_LABEL[r]}
               </button>
@@ -805,23 +831,17 @@ function NewNodeForm({
   onDone: () => void;
   onError: (m: string) => void;
 }) {
-  const maxLevel = nodes.length ? Math.max(...nodes.map((n) => n.level)) : -1;
   const [name, setName] = useState("");
-  const [kind, setKind] = useState<OrgNodeKind>(maxLevel < 0 ? "UNIVERSITY" : "DEPARTMENT");
-  const [level, setLevel] = useState(Math.max(maxLevel + 1, 0));
+  const [kind, setKind] = useState<OrgNodeKind>(nodes.length ? "DEPARTMENT" : "UNIVERSITY");
   const [parentIds, setParentIds] = useState<string[]>([]);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const isRoot = kind === "UNIVERSITY";
 
-  const parentCandidates = nodes.filter((n) => n.level === level - 1 && n.active);
+  const parentCandidates = nodes.filter((n) => n.active);
 
   function toggleParent(id: string) {
     setParentIds((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
-  }
-
-  function changeLevel(next: number) {
-    setLevel(next);
-    setParentIds([]); // the old selection almost certainly isn't at the new level - 1
   }
 
   async function submit() {
@@ -829,13 +849,13 @@ function NewNodeForm({
       onError("Name is required");
       return;
     }
-    if (level > 0 && parentIds.length === 0) {
-      onError("Pick at least one parent — only a level 0 node has none");
+    if (!isRoot && parentIds.length === 0) {
+      onError("Choose what it sits under — only the university itself sits under nothing");
       return;
     }
     setBusy(true);
     try {
-      await api.post("/org/nodes", { name: name.trim(), level, kind, parentIds: level === 0 ? [] : parentIds, code: code.trim() || undefined });
+      await api.post("/org/nodes", { name: name.trim(), kind, parentIds: isRoot ? [] : parentIds, code: code.trim() || undefined });
       onDone();
     } catch (e) {
       onError(e instanceof ApiError ? e.message : "Could not create this node");
@@ -848,7 +868,7 @@ function NewNodeForm({
     <div className="px-14 py-12 border-b border-border flex flex-col gap-10 bg-panel2">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
         <label className="block">
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Name</span>
+          <span className="text-11 uppercase tracking-wider text-dim font-semibold">Name</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -857,17 +877,7 @@ function NewNodeForm({
           />
         </label>
         <label className="block">
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Level</span>
-          <input
-            type="number"
-            min={0}
-            value={level}
-            onChange={(e) => changeLevel(Math.max(0, Number(e.target.value)))}
-            className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent"
-          />
-        </label>
-        <label className="block">
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Kind</span>
+          <span className="text-11 uppercase tracking-wider text-dim font-semibold">Kind</span>
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value as OrgNodeKind)}
@@ -881,7 +891,7 @@ function NewNodeForm({
           </select>
         </label>
         <label className="block">
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Code (optional)</span>
+          <span className="text-11 uppercase tracking-wider text-dim font-semibold">Code (optional)</span>
           <input
             value={code}
             onChange={(e) => setCode(e.target.value)}
@@ -890,28 +900,19 @@ function NewNodeForm({
           />
         </label>
       </div>
-      {level === 0 ? (
-        <div className="text-10.5 text-faint">Level 0 is the university root — it has no parent.</div>
+      {isRoot ? (
+        <div className="text-11 text-faint">The university is the top of the structure — it sits under nothing.</div>
       ) : (
         <div>
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Parent(s) — level {level - 1}</span>
-          <div className="mt-6 flex flex-wrap gap-8 max-h-[140px] overflow-y-auto">
-            {parentCandidates.length === 0 ? (
-              <span className="text-10.5 text-faint">No active nodes exist at level {level - 1} yet.</span>
-            ) : (
-              parentCandidates.map((n) => (
-                <label key={n.id} className="flex items-center gap-5 text-11 text-dim border border-border2 rounded-2 px-8 py-4">
-                  <input type="checkbox" checked={parentIds.includes(n.id)} onChange={() => toggleParent(n.id)} />
-                  {n.name}
-                </label>
-              ))
-            )}
+          <span className="text-11 uppercase tracking-wider text-dim font-semibold">Sits under</span>
+          <div className="mt-6 max-h-[160px] overflow-y-auto">
+            <ParentChoices candidates={parentCandidates} chosen={parentIds} onToggle={toggleParent} />
           </div>
         </div>
       )}
       <div>
         <Button variant="primary" disabled={busy} onClick={submit}>
-          {busy ? "Creating…" : "Create node"}
+          {busy ? "Creating…" : "Create unit"}
         </Button>
       </div>
     </div>

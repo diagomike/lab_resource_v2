@@ -141,13 +141,13 @@ export function AttachmentPicker({
       <div className="flex flex-wrap items-center gap-8">
         <button
           type="button"
-          className="inline-flex items-center gap-4 h-24 px-8 rounded-2 border border-dashed border-border2 text-10.5 text-dim hover:text-text hover:border-accent disabled:opacity-45"
+          className="inline-flex items-center gap-4 h-24 px-8 rounded-2 border border-dashed border-border2 text-11 text-dim hover:text-text hover:border-accent disabled:opacity-45"
           onClick={() => inputRef.current?.click()}
           disabled={disabled || room <= 0}
         >
           <Paperclip size={12} aria-hidden /> {label}
         </button>
-        <span className="text-9.5 text-faint">
+        <span className="text-10.5 text-faint">
           {hint ?? "PDF, photo or scan, or .xlsx"} · up to {formatBytes(ATTACHMENT_LIMITS.fileBytes)} each, {ATTACHMENT_LIMITS.perAction} per action
           {value.length ? ` · ${value.length} ready (${formatBytes(total)})` : ""}
         </span>
@@ -157,7 +157,7 @@ export function AttachmentPicker({
       {(value.length > 0 || uploading.length > 0) && (
         <ul className="flex flex-col gap-3">
           {value.map((f) => (
-            <li key={f.id} className="flex items-center gap-6 text-10.5">
+            <li key={f.id} className="flex items-center gap-6 text-11">
               <FileChip file={f} />
               <button type="button" className="text-faint hover:text-bad" onClick={() => remove(f.id)} disabled={disabled} aria-label={`Remove ${f.fileName}`}>
                 <X size={12} />
@@ -165,7 +165,7 @@ export function AttachmentPicker({
             </li>
           ))}
           {uploading.map((u) => (
-            <li key={u.key} className={`flex items-center gap-6 text-10.5 ${u.error ? "text-bad" : "text-dim"}`}>
+            <li key={u.key} className={`flex items-center gap-6 text-11 ${u.error ? "text-bad" : "text-dim"}`}>
               {u.error ? (
                 <>
                   <span className="flex-1">{u.error}</span>
@@ -228,11 +228,11 @@ export function RequestDocuments({ history }: { history: PurchaseRequestDto["his
   const count = entries.reduce((n, e) => n + e.attachments.length, 0);
   return (
     <div className="flex flex-col gap-4">
-      <span className="text-9.5 uppercase tracking-label text-faint">Documents ({count})</span>
+      <span className="text-10.5 uppercase tracking-label text-faint">Documents ({count})</span>
       <ul className="flex flex-col gap-3">
         {entries.flatMap((e) =>
           e.attachments.map((f) => (
-            <li key={f.id} className="flex flex-wrap items-center gap-6 text-10.5">
+            <li key={f.id} className="flex flex-wrap items-center gap-6 text-11">
               <FileChip file={f} />
               <span className="text-faint">
                 — {e.byName}

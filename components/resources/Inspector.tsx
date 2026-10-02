@@ -18,6 +18,7 @@ import Link from "next/link";
 import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 import { ChangeModal } from "./ChangeModal";
 import { CategoryIcon } from "./IconPicker";
+import { couldNotLoad } from "@/components/toast";
 
 /**
  * The single-item edit surface — corrections (name, status-as-typed-fact... no,
@@ -123,7 +124,7 @@ export function Inspector({
         api
           .get<ResourceCategoryDto[]>("/resources/categories")
           .then((cats) => setCategory(cats.find((c) => c.id === i.categoryId) ?? null))
-          .catch(() => setCategory(null));
+          .catch(couldNotLoad("this item's category", () => setCategory(null)));
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load this resource"));
   }
@@ -156,10 +157,8 @@ export function Inspector({
       title: "Rename",
       message: `Rename "${item.name}" to "${nameDraft.trim()}"?`,
     });
-    if (!r.ok) {
-      setNameDraft(item.name);
-      setInlineError(r.message);
-    }
+    // A failed save keeps what was typed, so it can be fixed and saved again.
+    if (!r.ok) setInlineError(r.message);
   }
 
   async function commitQty() {
@@ -175,10 +174,7 @@ export function Inspector({
       title: "Set quantity",
       message: `Set quantity to ${n}?`,
     });
-    if (!r.ok) {
-      setQtyDraft(String(item.qty));
-      setInlineError(r.message);
-    }
+    if (!r.ok) setInlineError(r.message);
   }
 
   async function commitProp(field: CategoryFieldDto) {
@@ -195,10 +191,7 @@ export function Inspector({
       title: "Property correction",
       message: `Set ${field.label} to ${raw || "blank"}?`,
     });
-    if (!r.ok) {
-      setPropDrafts((d) => ({ ...d, [field.key]: before === null ? "" : String(before) }));
-      setInlineError(r.message);
-    }
+    if (!r.ok) setInlineError(r.message);
   }
 
   function coerceCustomValue(type: CustomPropType, raw: string): ItemPropValue {
@@ -311,7 +304,7 @@ export function Inspector({
                 <Button variant="primary" onClick={() => setPullOpen(true)}>
                   Request to my lab…
                 </Button>
-                <span className="text-10.5 text-faint">Held by {item.custodianName} · {item.ownerOrgNodeName}</span>
+                <span className="text-11 text-faint">Held by {item.custodianName} · {item.ownerOrgNodeName}</span>
               </div>
             )}
           </>
@@ -328,9 +321,9 @@ export function Inspector({
                   onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                   className="text-13 font-semibold bg-transparent outline-none border-b border-transparent focus:border-accent w-full"
                 />
-                <div className="text-10.5 text-dim mt-2">{item.categoryName}</div>
+                <div className="text-11 text-dim mt-2">{item.categoryName}</div>
                 {item.path.length > 0 && (
-                  <div className="text-10 text-faint mt-2">
+                  <div className="text-11 text-faint mt-2">
                     {item.parentId && onNavigate ? (
                       <button type="button" onClick={() => onNavigate(item.parentId!)} className="hover:text-accent hover:underline" title={`Go up to ${item.path[item.path.length - 1]}`}>
                         ↑ {item.path.join(" › ")}
@@ -352,21 +345,21 @@ export function Inspector({
             </div>
 
             {item.readOnlyContext && (
-              <div className="text-10.5 text-warn bg-warnbg border border-warn rounded-2 px-8 py-6">
+              <div className="text-11 text-warn bg-warnbg border border-warn rounded-2 px-8 py-6">
                 You are seeing this as the container of something you can act on — not something you hold yourself. Editing here will be
                 refused.
               </div>
             )}
             {stagedIn && (
-              <div className="text-10.5 bg-soft border border-accent rounded-2 px-8 py-6">
-                Staged in <strong>{stagedIn.labName}</strong>&apos;s draft — the register changes once the department head approves.{" "}
+              <div className="text-11 bg-soft border border-accent rounded-2 px-8 py-6">
+                Added to <strong>{stagedIn.labName}</strong>&apos;s changes (not sent yet) — the register changes once the department head approves.{" "}
                 <Link href={`/places/${stagedIn.labItemId}?tab=draft&item=${item.id}`} className="text-accent hover:underline">
-                  Review &amp; submit →
+                  Review and send →
                 </Link>
               </div>
             )}
             {pendingHere && !stagedIn && (
-              <div className="text-10.5 bg-warnbg border border-warn rounded-2 px-8 py-6">
+              <div className="text-11 bg-warnbg border border-warn rounded-2 px-8 py-6">
                 <div className="font-medium text-warn mb-2">* Pending in the lab&apos;s draft</div>
                 {pendingHere.lines.map((l, i) => (
                   <div key={i} className="text-dim">
@@ -379,7 +372,7 @@ export function Inspector({
               </div>
             )}
             {item.parentId === null && (
-              <Link href={`/places/${item.id}`} className="self-start text-10.5 text-accent border border-accent rounded-2 px-8 py-4">
+              <Link href={`/places/${item.id}`} className="self-start text-11 text-accent border border-accent rounded-2 px-8 py-4">
                 Lab states — current · draft · ideal →
               </Link>
             )}
@@ -401,13 +394,10 @@ export function Inspector({
                   <span className="text-11 text-faint">1 unit</span>
                 )}
               </EditField>
-              <EditField label="Version">
-                <span className="text-11 font-mono text-faint">{item.version}</span>
-              </EditField>
             </div>
 
             <div>
-              <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Accountability</div>
+              <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Accountability</div>
               <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
                 <EditField label="Custodian">
                   <span className="text-11">{item.custodianName}</span>
@@ -422,12 +412,12 @@ export function Inspector({
                   </span>
                 </EditField>
               </div>
-              <p className="text-10 text-faint mt-6">Use "Change this…" below to hand off custody, ownership, current unit or position.</p>
+              <p className="text-11 text-faint mt-6">Use "Change this…" below to hand off custody, ownership, current unit or position.</p>
             </div>
 
             {category && category.fields.length > 0 && (
               <div>
-                <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
+                <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
                 <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
                   {category.fields.map((f) => (
                     <EditField key={f.key} label={f.unit ? `${f.label} (${f.unit})` : f.label}>
@@ -440,13 +430,13 @@ export function Inspector({
 
             <div>
               <div className="flex items-center gap-8 mb-6">
-                <div className="text-9.5 uppercase tracking-label text-faint font-semibold">Custom properties</div>
-                <span className="text-9.5 text-faint" title="Item-specific facts this resource carries beyond its category's own fields — visible only here, not shared with other items of this category.">
+                <div className="text-10.5 uppercase tracking-label text-faint font-semibold">Custom properties</div>
+                <span className="text-10.5 text-faint" title="Item-specific facts this resource carries beyond its category's own fields — visible only here, not shared with other items of this category.">
                   (this item only)
                 </span>
               </div>
               {Object.keys(item.customProps).length === 0 && !addingCustom && (
-                <div className="text-10.5 text-faint mb-6">No optional properties on this resource yet.</div>
+                <div className="text-11 text-faint mb-6">No optional properties on this resource yet.</div>
               )}
               {Object.keys(item.customProps).length > 0 && (
                 <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11 mb-8">
@@ -454,7 +444,7 @@ export function Inspector({
                     <EditField key={key} label={key}>
                       <div className="flex items-center gap-6">
                         <CustomPropInput type={c.type} value={customPropDrafts[key] ?? ""} onChange={(v) => setCustomPropDrafts((d) => ({ ...d, [key]: v }))} onCommit={() => commitCustomProp(key, c.type)} />
-                        <button type="button" onClick={() => requestRemoveCustomProp(key)} className="text-10 text-bad flex-none" title="Remove this property">
+                        <button type="button" onClick={() => requestRemoveCustomProp(key)} className="text-11 text-bad flex-none" title="Remove this property">
                           ×
                         </button>
                       </div>
@@ -465,7 +455,7 @@ export function Inspector({
               {addingCustom ? (
                 <div className="flex flex-wrap items-end gap-6 border border-border2 rounded-2 p-8">
                   <label className="w-[160px]">
-                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
+                    <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
                     <input
                       autoFocus
                       value={newCustomName}
@@ -475,7 +465,7 @@ export function Inspector({
                     />
                   </label>
                   <label className="w-[100px]">
-                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Type</div>
+                    <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Type</div>
                     <select
                       value={newCustomType}
                       onChange={(e) => {
@@ -492,7 +482,7 @@ export function Inspector({
                     </select>
                   </label>
                   <label className="min-w-[120px] flex-1">
-                    <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Value</div>
+                    <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Value</div>
                     <CustomPropInput type={newCustomType} value={newCustomValue} onChange={setNewCustomValue} onCommit={() => {}} />
                   </label>
                   <Button variant="primary" onClick={submitAddCustomProp}>
@@ -514,7 +504,7 @@ export function Inspector({
                     setAddingCustom(true);
                     setInlineError(null);
                   }}
-                  className="text-10.5 text-accent"
+                  className="text-11 text-accent"
                 >
                   + Add optional property
                 </button>
@@ -524,15 +514,15 @@ export function Inspector({
             <ContainsSection children={item.children} onNavigate={onNavigate} />
 
             <div>
-              <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
+              <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
               {changes === null ? (
                 <PanelLoading rows={2} />
               ) : changes.length === 0 ? (
-                <div className="text-10.5 text-faint">No changes recorded yet.</div>
+                <div className="text-11 text-faint">No changes recorded yet.</div>
               ) : (
                 <div className="flex flex-col gap-6">
                   {changes.slice(0, 20).map((c) => (
-                    <div key={c.id} className="text-10.5 border-b border-border pb-6">
+                    <div key={c.id} className="text-11 border-b border-border pb-6">
                       <span className="text-dim">{CHANGE_LABEL[c.kind]}</span>
                       {c.field && <span className="text-faint"> · {c.field}</span>}
                       {(c.before !== null || c.after !== null) && (
@@ -541,7 +531,7 @@ export function Inspector({
                           · {changeValueLabel(c.field, c.before)} → {changeValueLabel(c.field, c.after)}
                         </span>
                       )}
-                      <div className="text-9.5 text-faint mt-1">
+                      <div className="text-10.5 text-faint mt-1">
                         {c.actorName} · {new Date(c.at).toLocaleString()}
                       </div>
                     </div>
@@ -554,7 +544,7 @@ export function Inspector({
               <Button variant="primary" onClick={() => setChangeOpen(true)}>
                 Change this…
               </Button>
-              {canHandOver && <Button onClick={() => setTransferOpen(true)}>Hand over to a lab…</Button>}
+              {canHandOver && <Button onClick={() => setTransferOpen(true)}>Move to another place…</Button>}
               {/* On loan (owner ≠ current unit) and this account is its own custodian —
                   the lender's side of the 2026-09-20 return flow (F-039). Reuses the
                   same PullTransferModal/`/resources/transfers` call the pull button
@@ -657,9 +647,9 @@ function ReadOnlyBody({
 
       <div>
         <div className="text-13 font-semibold">{item.name}</div>
-        <div className="text-10.5 text-dim mt-2">{item.categoryName}</div>
+        <div className="text-11 text-dim mt-2">{item.categoryName}</div>
         {item.path.length > 0 && (
-          <div className="text-10 text-faint mt-2">
+          <div className="text-11 text-faint mt-2">
             {item.parentId && onNavigate ? (
               <button type="button" onClick={() => onNavigate(item.parentId!)} className="hover:text-accent hover:underline" title={`Go up to ${item.path[item.path.length - 1]}`}>
                 ↑ {item.path.join(" › ")}
@@ -673,7 +663,7 @@ function ReadOnlyBody({
 
       <div className="flex items-center gap-8">
         <StatusChip status={item.effectiveStatus} />
-        {item.effectiveStatus !== item.status && <span className="text-10.5 text-faint">Set directly: {STATUS_LABEL[item.status]}</span>}
+        {item.effectiveStatus !== item.status && <span className="text-11 text-faint">Set directly: {STATUS_LABEL[item.status]}</span>}
       </div>
 
       <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
@@ -696,7 +686,7 @@ function ReadOnlyBody({
 
       {category && category.fields.length > 0 && (
         <div>
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
+          <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
           <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
             {category.fields.map((f) => (
               <EditField key={f.key} label={f.unit ? `${f.label} (${f.unit})` : f.label}>
@@ -709,7 +699,7 @@ function ReadOnlyBody({
 
       {Object.keys(item.customProps).length > 0 && (
         <div>
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Custom properties</div>
+          <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Custom properties</div>
           <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
             {Object.entries(item.customProps).map(([key, c]) => (
               <EditField key={key} label={key}>
@@ -723,18 +713,18 @@ function ReadOnlyBody({
       <ContainsSection children={item.children} onNavigate={onNavigate} />
 
       <div>
-        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
+        <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">History</div>
         {changes === null ? (
           <PanelLoading rows={2} />
         ) : changes.length === 0 ? (
-          <div className="text-10.5 text-faint">No changes recorded yet.</div>
+          <div className="text-11 text-faint">No changes recorded yet.</div>
         ) : (
           <div className="flex flex-col gap-6">
             {changes.slice(0, 20).map((c) => (
-              <div key={c.id} className="text-10.5 border-b border-border pb-6">
+              <div key={c.id} className="text-11 border-b border-border pb-6">
                 <span className="text-dim">{CHANGE_LABEL[c.kind]}</span>
                 {c.field && <span className="text-faint"> · {c.field}</span>}
-                <div className="text-9.5 text-faint mt-1">
+                <div className="text-10.5 text-faint mt-1">
                   {c.actorName} · {new Date(c.at).toLocaleString()}
                 </div>
               </div>
@@ -754,9 +744,9 @@ function ReadOnlyBody({
 function ContainsSection({ children, onNavigate }: { children: ItemDetailDto["children"]; onNavigate?: (id: string) => void }) {
   return (
     <div>
-      <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-6">Contains ({children.length})</div>
+      <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Contains ({children.length})</div>
       {children.length === 0 ? (
-        <div className="text-10.5 text-faint">Nothing physically nested inside this resource.</div>
+        <div className="text-11 text-faint">Nothing physically nested inside this resource.</div>
       ) : (
         <div className="flex flex-col gap-4">
           {children.map((c) => (
@@ -794,7 +784,7 @@ function formatPropValue(v: ItemPropValue): string {
 function EditField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">{label}</div>
+      <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">{label}</div>
       {children}
     </div>
   );

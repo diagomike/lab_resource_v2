@@ -7,7 +7,7 @@ import PortalChrome from "@/components/portal/PortalChrome";
 import { Panel, ErrorNote, Button } from "@/components/ui";
 
 const inputClass = "h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent w-full";
-const labelClass = "text-9.5 uppercase tracking-label text-faint font-semibold";
+const labelClass = "text-10.5 uppercase tracking-label text-faint font-semibold";
 
 /** Public — an outside institution creates its requester account, then confirms its email. */
 export default function PortalSignupPage() {

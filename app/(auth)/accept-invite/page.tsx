@@ -67,7 +67,7 @@ function AcceptInviteForm() {
           <div className="text-11.5 text-dim leading-loose mb-10">Set up your account to finish.</div>
 
           <label className="block">
-            <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Full name</span>
+            <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Full name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -78,7 +78,7 @@ function AcceptInviteForm() {
           </label>
 
           <label className="block mt-10">
-            <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Phone (optional)</span>
+            <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Phone (optional)</span>
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -87,7 +87,7 @@ function AcceptInviteForm() {
           </label>
 
           <label className="block mt-10">
-            <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Password</span>
+            <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Password</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -100,7 +100,7 @@ function AcceptInviteForm() {
           </label>
 
           <label className="block mt-10">
-            <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Confirm password</span>
+            <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Confirm password</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -127,7 +127,7 @@ function AcceptInviteForm() {
           >
             {busy ? "Setting up…" : "Create your account"}
           </button>
-          <Link href="/login" className="block text-center text-10.5 text-dim mt-10">
+          <Link href="/login" className="block text-center text-11 text-dim mt-10">
             Already registered? Sign in
           </Link>
         </form>

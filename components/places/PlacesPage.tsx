@@ -8,6 +8,7 @@ import { Button, Panel, Screen, Tag } from "@/components/ui";
 import { EmptyState, InlineError, PanelLoading } from "@/components/states";
 import { CategoryIcon } from "@/components/resources/IconPicker";
 import { AddPlaceModal } from "./PlaceForms";
+import { couldNotLoad } from "@/components/toast";
 
 /** "Block 510 · Room 8 · 25 seats" — the details people recognise a place by. */
 export function placeSummary(p: Pick<PlaceDto, "props">): string {
@@ -44,7 +45,7 @@ export default function PlacesPage() {
   useEffect(() => {
     load();
     api.get<PlaceOptionsDto>("/places/options").then(setOptions).catch(() => setOptions({ kinds: [], units: [] }));
-    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategories).catch(() => setCategories([]));
+    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategories).catch(couldNotLoad("the categories", () => setCategories([])));
   }, []);
 
   const canAdd = Boolean(options?.units.length && options.kinds.length);
@@ -105,7 +106,7 @@ export default function PlacesPage() {
 function PlaceGroup({ title, places }: { title: string; places: PlaceDto[] }) {
   return (
     <section className="border-b border-border last:border-0">
-      <h3 className="px-14 pt-10 pb-4 text-10 uppercase tracking-label text-dim font-semibold">
+      <h3 className="px-14 pt-10 pb-4 text-11 uppercase tracking-label text-dim font-semibold">
         {title} <span className="font-mono normal-case">({places.length})</span>
       </h3>
       <ul>
@@ -115,11 +116,11 @@ function PlaceGroup({ title, places }: { title: string; places: PlaceDto[] }) {
               <CategoryIcon iconKey={p.categoryIconKey} className="size-16 text-dim flex-none" />
               <span className="flex flex-col min-w-[200px] flex-1">
                 <span className="text-12 font-medium">{p.name}</span>
-                <span className="text-10.5 text-dim">
+                <span className="text-11 text-dim">
                   {[p.categoryName, placeSummary(p), p.isMine ? null : `run by ${p.custodianName}`].filter(Boolean).join(" · ")}
                 </span>
               </span>
-              <span className="text-10.5 text-dim font-mono whitespace-nowrap">
+              <span className="text-11 text-dim font-mono whitespace-nowrap">
                 {p.itemCount.toLocaleString()} thing{p.itemCount === 1 ? "" : "s"}
               </span>
               {p.needsAttention > 0 && <Tag tone="bad">{p.needsAttention} need attention</Tag>}

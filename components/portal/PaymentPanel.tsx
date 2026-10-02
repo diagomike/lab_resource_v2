@@ -15,7 +15,7 @@ import { formatEtb, parseEtb } from "@/components/external/labels";
  */
 
 const inputClass = "h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
-const labelClass = "text-9.5 uppercase tracking-label text-faint font-semibold";
+const labelClass = "text-10.5 uppercase tracking-label text-faint font-semibold";
 
 export const PAYMENT_STATUS_LABEL: Record<PaymentVerificationStatus, string> = {
   VERIFIED: "Verified",
@@ -93,7 +93,7 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
         {payment.attempts.length > 0 && (
           <div className="flex flex-col gap-4">
             {payment.attempts.map((a, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-8 text-10.5">
+              <div key={i} className="flex flex-wrap items-center gap-8 text-11">
                 <span className="font-mono">{a.reference}</span>
                 <span className="text-dim">{payment.providers.find((p) => p.id === a.provider)?.label ?? a.provider}</span>
                 {a.amountSantim !== null && <span className="font-mono">{formatEtb(a.amountSantim)}</span>}

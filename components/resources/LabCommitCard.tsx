@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { LabCommitRequestDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { Button, ConfirmDialog, ErrorNote, Tag } from "@/components/ui";
+import { useToast } from "@/components/toast";
 
 const STATUS_TONE: Record<string, "warn" | "good" | "bad" | "neutral"> = {
   PENDING: "warn",
@@ -21,6 +22,7 @@ const KIND_LINE: Record<string, string> = { changed: "text-text", added: "text-g
  * Approve / Send back for the department head.
  */
 export function LabCommitCard({ request, onDecided, showLabLink = true }: { request: LabCommitRequestDto; onDecided: () => void; showLabLink?: boolean }) {
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | null>(null);
@@ -33,6 +35,8 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
       await api.post(`/resources/lab-commits/${request.id}/decide`, { decision, note: note || undefined });
       setConfirming(null);
       setNote("");
+      if (decision === "APPROVE") toast.success(`${request.labName}: the changes are applied`, { href: `/places/${request.labItemId}`, linkLabel: "Open the lab" });
+      else toast.success(`${request.labName}: sent back to ${request.requesterName}`);
       onDecided();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not record this decision");
@@ -46,9 +50,12 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
       <div className="flex items-start justify-between gap-10">
         <div className="min-w-0">
           <div className="text-11.5 font-medium">
-            {request.labName} · Changes to the lab
+            <Link href={`/places/${request.labItemId}`} className="text-text hover:text-accent">
+              {request.labName}
+            </Link>{" "}
+            · Changes to the lab
           </div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             by {request.requesterName} · {new Date(request.createdAt).toLocaleString()}
             {request.decidedByName ? ` · decided by ${request.decidedByName}` : ""}
           </div>
@@ -57,7 +64,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
       </div>
 
       {request.summary.length > 0 ? (
-        <ul className="flex flex-col gap-3 text-10.5">
+        <ul className="flex flex-col gap-3 text-11">
           {request.summary.slice(0, 40).map((s, i) => (
             <li key={i} className="flex gap-6">
               <span className={`min-w-0 font-medium ${KIND_LINE[s.kind]}`}>
@@ -71,10 +78,10 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
           {request.summary.length > 40 && <li className="text-faint">…and {request.summary.length - 40} more</li>}
         </ul>
       ) : (
-        <div className="text-10.5 text-faint">No changes listed.</div>
+        <div className="text-11 text-faint">No changes listed.</div>
       )}
 
-      {request.resolution && <div className="text-10.5 text-dim italic">“{request.resolution}”</div>}
+      {request.resolution && <div className="text-11 text-dim italic">“{request.resolution}”</div>}
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="flex flex-wrap items-center gap-8 pt-2">
@@ -88,9 +95,9 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
             </Button>
           </>
         )}
-        {request.status === "PENDING" && !request.canDecide && <span className="text-10.5 text-faint">Waiting on {request.labName}&apos;s department head.</span>}
+        {request.status === "PENDING" && !request.canDecide && <span className="text-11 text-faint">Waiting on {request.labName}&apos;s department head.</span>}
         {showLabLink && (
-          <Link href={`/places/${request.labItemId}?tab=draft`} className="ml-auto text-10.5 text-accent hover:underline">
+          <Link href={`/places/${request.labItemId}?tab=draft`} className="ml-auto text-11 text-accent hover:underline">
             Open the lab →
           </Link>
         )}
@@ -114,7 +121,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder={confirming === "REJECT" ? "Reason (shown to the custodian)" : "Optional note"}
-                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
               />
             </div>
           }

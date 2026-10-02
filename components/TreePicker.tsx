@@ -234,7 +234,7 @@ export function TreePicker({
   return (
     <div ref={rootRef} className="relative" id={id}>
       <div className={`flex items-center rounded-2 border bg-panel ${open ? "border-accent" : "border-border2"} ${disabled ? "opacity-50" : ""}`}>
-        {prefix && <span className="flex-none whitespace-nowrap pl-8 text-10.5 text-faint">{prefix}:</span>}
+        {prefix && <span className="flex-none whitespace-nowrap pl-8 text-11 text-faint">{prefix}:</span>}
         {!open && selected?.iconKey && <CategoryIcon iconKey={selected.iconKey} className="ml-7 size-12 flex-none text-dim" />}
         <input
           ref={inputRef}
@@ -252,7 +252,7 @@ export function TreePicker({
           className="h-24 min-w-0 flex-1 bg-transparent px-8 text-11 outline-none"
         />
         {!open && selected && selected.ancestors.length > 0 && (
-          <span className="max-w-[45%] truncate pr-4 text-9.5 text-faint">in {selected.ancestors[selected.ancestors.length - 1].label}</span>
+          <span className="max-w-[45%] truncate pr-4 text-10.5 text-faint">in {selected.ancestors[selected.ancestors.length - 1].label}</span>
         )}
         <button
           type="button"
@@ -284,9 +284,9 @@ export function TreePicker({
               </button>
             )}
             {loading ? (
-              <div className="px-8 py-8 text-10.5 text-faint">Loading…</div>
+              <div className="px-8 py-8 text-11 text-faint">Loading…</div>
             ) : rows.length === 0 ? (
-              <div className="px-8 py-8 text-10.5 text-faint">{query ? "Nothing matches." : "Nothing to choose from."}</div>
+              <div className="px-8 py-8 text-11 text-faint">{query ? "Nothing matches." : "Nothing to choose from."}</div>
             ) : (
               rows.map(({ node, match }) => {
                 const hasKids = node.children.length > 0;
@@ -317,7 +317,7 @@ export function TreePicker({
                     >
                       {node.iconKey && <CategoryIcon iconKey={node.iconKey} className={`size-12 flex-none ${node.selectable ? "text-dim" : "text-faint"}`} />}
                       <span className={`min-w-0 flex-1 truncate ${node.selectable && match ? "" : "text-faint"}`}>{node.label}</span>
-                      {node.hint && <span className="max-w-[40%] truncate text-9.5 text-faint">{node.hint}</span>}
+                      {node.hint && <span className="max-w-[40%] truncate text-10.5 text-faint">{node.hint}</span>}
                       {node.id === value && <Check className="size-11 flex-none text-accent" />}
                     </button>
                   </div>

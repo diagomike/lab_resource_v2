@@ -408,7 +408,7 @@ export async function createExactItems(
       itemId: idMap.get(top.id)!,
       itemName: top.name,
       categoryId: top.categoryId,
-      note: "Added through an approved lab draft",
+      note: "Added through lab changes the head approved",
       ...scopeSnapshot(parent),
     },
   });
@@ -736,7 +736,7 @@ async function liveDependentBlockers(tx: Tx, subtreeIds: string[]): Promise<stri
   if (reservations.length) blockers.push(`${reservations.length} upcoming booking(s) (e.g. "${reservations[0].title}")`);
   if (series.length) blockers.push(`${series.length} active class timetable(s) (e.g. "${series[0].title}")`);
   if (transfers.length) blockers.push(`${transfers.length} pending transfer request(s) (e.g. "${transfers[0].summary}")`);
-  if (drafts.length) blockers.push(`${drafts.length} lab draft or ideal proposal(s) awaiting the department head`);
+  if (drafts.length) blockers.push(`${drafts.length} lab change list(s) waiting for the department head`);
   return blockers;
 }
 

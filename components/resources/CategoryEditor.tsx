@@ -20,6 +20,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Button, ConfirmDialog, ErrorNote, Tag } from "@/components/ui";
 import { CategoryIcon, IconPicker } from "./IconPicker";
 import { CategoryChangeCard } from "./CategoryChangeCard";
+import { couldNotLoad } from "@/components/toast";
 
 // ── Words ───────────────────────────────────────────────────────────────────────────
 
@@ -267,7 +268,7 @@ export function CategoryEditor({
     api
       .get<{ waiting: CategoryChangeDto[]; mine: CategoryChangeDto[] }>(`/resources/category-changes?category=${id}`)
       .then((r) => setChanges([...r.waiting, ...r.mine.filter((c) => c.status === "PENDING" || c.status === "STALE" || c.id === focusChangeId)]))
-      .catch(() => setChanges([]));
+      .catch(couldNotLoad("this category's waiting changes", () => setChanges([])));
   }
 
   // Another category opened: start over.
@@ -532,7 +533,7 @@ export function CategoryEditor({
       ) : (
         <>
           {category && (
-            <div className="text-10.5 text-dim flex flex-wrap gap-x-12 gap-y-2">
+            <div className="text-11 text-dim flex flex-wrap gap-x-12 gap-y-2">
               <span>
                 Looked after by <strong className="text-text font-medium">{category.stewardName}</strong>
               </span>
@@ -611,7 +612,7 @@ export function CategoryEditor({
 
           <section className="flex flex-col gap-8">
             <SectionTitle>Details to record</SectionTitle>
-            <p className="text-10.5 text-dim -mt-4">What people fill in for each one — model, serial number, capacity. Details marked “in summary” show in the resources table.</p>
+            <p className="text-11 text-dim -mt-4">What people fill in for each one — model, serial number, capacity. Details marked “in summary” show in the resources table.</p>
             <FieldsEditor
               fields={draft.fields}
               usage={usage.counts}
@@ -646,7 +647,7 @@ export function CategoryEditor({
           {!draft.isPlace && (
             <section className="flex flex-col gap-8">
               <SectionTitle>Comes with</SectionTitle>
-              <p className="text-10.5 text-dim -mt-4">
+              <p className="text-11 text-dim -mt-4">
                 Parts built in when one is added — a computer comes with a monitor, keyboard and mouse. Only these can go inside it later (RAM inside a motherboard). Items already recorded keep the parts they have.
               </p>
               <ChildrenEditor
@@ -683,7 +684,7 @@ export function CategoryEditor({
                     </Choice>
                   ))}
                 </div>
-                {draft.countingMode !== "SERIALIZED" && <p className="text-10.5 text-dim">Something counted as a quantity is never booked by time.</p>}
+                {draft.countingMode !== "SERIALIZED" && <p className="text-11 text-dim">Something counted as a quantity is never booked by time.</p>}
               </fieldset>
               <label className="flex items-center gap-6 text-11">
                 <input type="checkbox" checked={draft.publicListed} onChange={(e) => patch({ publicListed: e.target.checked })} />
@@ -698,7 +699,7 @@ export function CategoryEditor({
             </div>
           </details>
 
-          {problems.length > 0 && dirty && <p className="text-10.5 text-warn">{problems[0]}</p>}
+          {problems.length > 0 && dirty && <p className="text-11 text-warn">{problems[0]}</p>}
           <div className="flex flex-wrap items-center gap-10 pt-10 border-t border-border">
             {isNew ? (
               <Button variant="primary" disabled={problems.length > 0 || busy} onClick={createNow}>
@@ -744,7 +745,7 @@ export function CategoryEditor({
                   <Button variant="danger" disabled={busy || usageCount > 0} onClick={() => setConfirmingDelete(true)}>
                     Remove category
                   </Button>
-                  {usageCount > 0 && <span className="text-10.5 text-dim">It can be removed once nothing is filed under it — or mark it “Not in use” under More options.</span>}
+                  {usageCount > 0 && <span className="text-11 text-dim">It can be removed once nothing is filed under it — or mark it “Not in use” under More options.</span>}
                 </div>
               )}
             </div>
@@ -787,10 +788,10 @@ export function CategoryEditor({
 const inputCls = "w-full h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
 
 function FieldLabel({ children }: { children: ReactNode }) {
-  return <div className="text-10 uppercase tracking-label text-dim font-semibold mb-3">{children}</div>;
+  return <div className="text-11 uppercase tracking-label text-dim font-semibold mb-3">{children}</div>;
 }
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h3 className="text-10.5 uppercase tracking-label text-dim font-semibold">{children}</h3>;
+  return <h3 className="text-11 uppercase tracking-label text-dim font-semibold">{children}</h3>;
 }
 function Choice({ on, onClick, children, help, disabled }: { on: boolean; onClick: () => void; children: ReactNode; help?: string; disabled?: boolean }) {
   return (
@@ -802,7 +803,7 @@ function Choice({ on, onClick, children, help, disabled }: { on: boolean; onClic
       className={`max-w-[300px] text-left rounded-2 border px-10 py-6 text-11 disabled:opacity-40 ${on ? "border-accent bg-soft text-text" : "border-border2 hover:bg-panel2 text-dim"}`}
     >
       <span className="font-medium">{children}</span>
-      {help && <span className="block text-10.5 text-dim mt-2">{help}</span>}
+      {help && <span className="block text-11 text-dim mt-2">{help}</span>}
     </button>
   );
 }
@@ -856,7 +857,7 @@ function CategoryReadOnly({ category, usageCount, canEdit }: { category: Resourc
           </div>
         </section>
       )}
-      <p className="text-10.5 text-dim">
+      <p className="text-11 text-dim">
         Looked after by {category.stewardName}.{" "}
         {category.isPlace && canEdit
           ? "Labs, workshops, studios and stores are kept by Property Administration — ask them for a change."
@@ -927,7 +928,7 @@ function FieldsEditor({
                 </label>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-12 text-10.5 text-dim">
+            <div className="flex flex-wrap items-center gap-12 text-11 text-dim">
               <label className="flex items-center gap-4">
                 <input type="checkbox" checked={f.required} onChange={(e) => onUpdate(f.uid, { required: e.target.checked })} />
                 Required
@@ -972,7 +973,7 @@ function FieldsEditor({
               </div>
             )}
             {used > 0 && f.originalType && f.type !== f.originalType && (
-              <p className="text-10.5 text-dim">
+              <p className="text-11 text-dim">
                 The {used} value{used === 1 ? "" : "s"} recorded {used === 1 ? "is" : "are"} converted to {TYPE_LABEL[f.type].toLowerCase()} where {used === 1 ? "it reads as one" : "they read as one"} (“16 GB” → 16). Anything that doesn&apos;t stays on its item as an extra detail — the review lists them.
               </p>
             )}
@@ -1010,7 +1011,7 @@ function ChildrenEditor({
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-4 text-10.5 text-dim" title="When a needed part fails, this is out of order too">
+          <label className="flex items-center gap-4 text-11 text-dim" title="When a needed part fails, this is out of order too">
             <input type="checkbox" checked={c.critical} onChange={(e) => onUpdate(i, { critical: e.target.checked })} />
             Needed for it to work
           </label>
@@ -1090,7 +1091,7 @@ function ReviewPanel({
             <span>
               <span className="font-semibold">{n.title}</span> — {n.detail}
             </span>
-            {n.examples.length > 0 && <span className="text-10.5 opacity-90">For example: {n.examples.join("; ")}</span>}
+            {n.examples.length > 0 && <span className="text-11 opacity-90">For example: {n.examples.join("; ")}</span>}
             {n.optionMove && (
               <label className="flex flex-wrap items-center gap-6 text-text">
                 Move them to
@@ -1114,7 +1115,7 @@ function ReviewPanel({
               <label className="flex flex-wrap items-center gap-6 text-text">
                 Fill the {n.fill.count} with
                 <FillInput type={n.fill.type} options={n.fill.options} value={choices.fills[n.fill.key] ?? ""} onChange={(v) => onChoices({ ...choices, fills: { ...choices.fills, [n.fill!.key]: v } })} />
-                <span className="text-10.5 text-dim">or leave it empty to keep them blank</span>
+                <span className="text-11 text-dim">or leave it empty to keep them blank</span>
               </label>
             )}
           </div>

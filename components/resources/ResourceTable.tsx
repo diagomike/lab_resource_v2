@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import {
   columnVisibilityFeature,
   createColumnHelper,
@@ -14,7 +15,7 @@ import {
 } from "@tanstack/react-table";
 import Link from "next/link";
 import type { ItemRowDto, PendingMarkersDto, PendingTransferMarkersDto } from "@/lib/shared";
-import { aggregate, describeAgg, type RowNode } from "@/lib/domain/tree";
+import { aggregate, describeAgg, sortRows, type RowNode, type RowSort } from "@/lib/domain/tree";
 import { CategoryIcon } from "./IconPicker";
 import { StatusChip } from "./StatusChip";
 import { ItemThumb } from "./ItemImages";
@@ -61,6 +62,8 @@ export interface ResourceTableProps {
   /** Items a pending transfer or handover will move — shown with a `⇄` (a count on a
    *  cluster row) so nobody promises them a second time. */
   pendingTransfers?: PendingTransferMarkersDto;
+  /** Says what to do when the list is empty (no filters vs. filters that match nothing). */
+  emptyText?: string;
   /** While a filter is on: the genuine matches (null/omitted: not filtering), and the
    *  matches under any item. Rows that are only context (the lab around a matching
    *  computer, a matching computer's parts) are dimmed, and group, cluster and context
@@ -69,7 +72,36 @@ export interface ResourceTableProps {
   matchedUnder?: (id: string) => string[];
 }
 
-export function ResourceTable({ rows, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true, pending, pendingTransfers, matched, matchedUnder }: ResourceTableProps) {
+/** The columns a header click sorts by, and what each compares (the first member's value
+ *  for a cluster of identical things). */
+const SORTABLE: Record<string, (r: ItemRowDto) => string | number | null> = {
+  name: (r) => r.name,
+  path: (r) => r.path.join(" › "),
+  category: (r) => r.categoryName,
+  status: (r) => r.effectiveStatus,
+  qty: (r) => r.qty,
+  custodian: (r) => r.custodianName,
+  currentOrg: (r) => r.currentOrgNodeName,
+  owner: (r) => r.ownerOrgNodeName,
+};
+
+export function ResourceTable({ rows: unsorted, byId, expanded, onExpandedChange, selection, onSelectionChange, onInspect, showPath, selectable = true, pending, pendingTransfers, matched, matchedUnder, emptyText }: ResourceTableProps) {
+  const [sort, setSort] = useState<RowSort | null>(null);
+  const rows = useMemo(() => {
+    if (!sort) return unsorted;
+    const pick = SORTABLE[sort.key];
+    return sortRows(
+      unsorted,
+      (r) => {
+        const first = byId.get(r.kind === "item" ? r.item.id : r.memberIds[0]);
+        return first ? pick(first) : null;
+      },
+      sort.dir,
+    );
+  }, [unsorted, sort, byId]);
+  /** First click: A→Z (smallest first); second: Z→A; third: back to the register's order. */
+  const cycle = (key: string) =>
+    setSort((s) => (!s || s.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
   const columns = useMemo(() => {
     const rowOf = (id: string) => byId.get(id);
     const nameAgg = (values: (string | undefined)[]) => aggregate(values.map((v) => v ?? null));
@@ -124,12 +156,23 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           if (isGroup(r)) {
             return (
               <div className="flex items-center gap-6" style={{ paddingLeft: row.depth * 16 }}>
-                <span className="w-14 h-14 flex-none flex items-center justify-center text-9.5 text-dim">{row.getIsExpanded() ? "▾" : "▸"}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    row.toggleExpanded();
+                  }}
+                  aria-expanded={row.getIsExpanded()}
+                  aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${r.label}`}
+                  className="w-14 h-14 flex-none flex items-center justify-center text-10.5 text-dim hover:text-text border-0 bg-transparent p-0 cursor-pointer"
+                >
+                  <span aria-hidden="true">{row.getIsExpanded() ? "▾" : "▸"}</span>
+                </button>
                 {r.iconKey && <CategoryIcon iconKey={r.iconKey} className="w-13 h-13 flex-none text-dim" />}
                 <span className="truncate text-11.5 font-semibold">{r.label}</span>
                 {/* How many top-level resources the heading holds — hidden while filtering,
                     when the Qty column counts the matches instead ("40 Computer", not "2"). */}
-                {!filtering && <span className="text-9.5 font-mono text-faint flex-none">{r.members.length}</span>}
+                {!filtering && <span className="text-10.5 font-mono text-faint flex-none">{r.members.length}</span>}
               </div>
             );
           }
@@ -140,9 +183,13 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
                   e.stopPropagation();
                   row.toggleExpanded();
                 }}
-                className={`w-14 h-14 flex-none flex items-center justify-center text-9.5 ${canExpand ? "text-dim hover:text-text" : "invisible"}`}
+                aria-expanded={canExpand ? row.getIsExpanded() : undefined}
+                aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${first?.name ?? "row"}`}
+                tabIndex={canExpand ? undefined : -1}
+                aria-hidden={canExpand ? undefined : true}
+                className={`w-14 h-14 flex-none flex items-center justify-center text-10.5 ${canExpand ? "text-dim hover:text-text" : "invisible"}`}
               >
-                {row.getIsExpanded() ? "▾" : "▸"}
+                <span aria-hidden="true">{row.getIsExpanded() ? "▾" : "▸"}</span>
               </button>
               <CategoryIcon iconKey={first?.categoryIconKey} className="w-13 h-13 flex-none text-dim" />
               <button
@@ -160,9 +207,9 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
                 <Link
                   href={`/places/${pending[r.item.id].labItemId}?tab=draft&item=${r.item.id}`}
                   onClick={(e) => e.stopPropagation()}
-                  title={["Pending in the lab's draft:", ...pending[r.item.id].lines, "", "Click to open the draft"].join("\n")}
+                  title={["Waiting in the lab's changes (not sent yet):", ...pending[r.item.id].lines, "", "Click to open them"].join("\n")}
                   className="flex-none text-12 font-bold leading-none text-warn hover:text-accent"
-                  aria-label="Has pending draft changes"
+                  aria-label="Has changes not sent yet"
                 >
                   *
                 </Link>
@@ -178,11 +225,11 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
                   ⇄
                 </Link>
               )}
-              {isCluster(r) && <span className="text-9.5 font-mono text-faint flex-none">×{r.members.length}</span>}
+              {isCluster(r) && <span className="text-10.5 font-mono text-faint flex-none">×{r.members.length}</span>}
               {isCluster(r) && pendingTransfers && (() => {
                 const promised = idsOf(r).filter((id) => pendingTransfers[id]).length;
                 return promised ? (
-                  <span className="flex-none text-9.5 text-warn" title={`${promised} of these are in a pending transfer or handover — the rest are free to hand over.`}>
+                  <span className="flex-none text-10.5 text-warn" title={`${promised} of these are in a pending transfer or handover — the rest are free to hand over.`}>
                     ⇄ {promised} promised
                   </span>
                 ) : null;
@@ -202,7 +249,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
             const r = row.original;
             if (r.kind !== "item") return null;
             const path = rowOf(r.item.id)?.path ?? [];
-            return <span className="text-10.5 text-dim">{path.length ? path.join(" › ") : "—"}</span>;
+            return <span className="text-11 text-dim">{path.length ? path.join(" › ") : "—"}</span>;
           },
         }),
       );
@@ -215,9 +262,9 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         cell: ({ row }) => {
           if (isGroup(row.original)) {
             const agg = nameAgg(aggRowsOf(row.original).map((m) => m.categoryName));
-            return <span className="text-10.5 text-faint">{describeAgg(agg)}</span>;
+            return <span className="text-11 text-faint">{describeAgg(agg)}</span>;
           }
-          return <span className="text-10.5 text-dim">{rowOf(idsOf(row.original)[0])?.categoryName ?? "—"}</span>;
+          return <span className="text-11 text-dim">{rowOf(idsOf(row.original)[0])?.categoryName ?? "—"}</span>;
         },
       }),
 
@@ -235,7 +282,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
               <div className="flex flex-wrap items-center gap-4">
                 {sorted.map(([s, n]) => (
                   <span key={s} className="flex items-center gap-2">
-                    <span className="text-9.5 font-mono text-faint">{n}</span>
+                    <span className="text-10.5 font-mono text-faint">{n}</span>
                     <StatusChip status={s as ItemRowDto["effectiveStatus"]} />
                   </span>
                 ))}
@@ -255,26 +302,26 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           const first = rowOf(idsOf(r)[0]);
           if (filtering && (isGroup(r) || isCluster(r) || isContext(r))) {
             const hits = aggRowsOf(r);
-            if (!hits.length) return <span className="text-10.5 font-mono text-faint">—</span>;
+            if (!hits.length) return <span className="text-11 font-mono text-faint">—</span>;
             const count = hits.length; // matching items — bulk amounts in mixed units don't add up
             const kinds = new Set(hits.map((h) => h.categoryName));
             const label = kinds.size === 1 ? [...kinds][0] : "matches";
             return (
-              <span className="text-10.5 font-mono text-dim whitespace-nowrap" title={`${count.toLocaleString()} matching ${label} here`}>
+              <span className="text-11 font-mono text-dim whitespace-nowrap" title={`${count.toLocaleString()} matching ${label} here`}>
                 {count.toLocaleString()} <span className="font-sans text-faint">{label}</span>
               </span>
             );
           }
-          if (isGroup(r)) return <span className="text-10.5 font-mono text-faint" title="Top-level resources in this group">×{r.members.length}</span>;
+          if (isGroup(r)) return <span className="text-11 font-mono text-faint" title="Top-level resources in this group">×{r.members.length}</span>;
           if (isCluster(r)) {
             if (first?.countingMode === "BULK") {
               const total = r.members.reduce((a, m) => a + m.qty, 0);
-              return <span className="text-10.5 font-mono text-dim">{total.toLocaleString()}</span>;
+              return <span className="text-11 font-mono text-dim">{total.toLocaleString()}</span>;
             }
-            return <span className="text-10.5 font-mono text-dim">{r.members.length} units</span>;
+            return <span className="text-11 font-mono text-dim">{r.members.length} units</span>;
           }
-          if (first?.countingMode === "BULK") return <span className="text-10.5 font-mono">{r.item.qty.toLocaleString()}</span>;
-          return <span className="text-10.5 font-mono text-faint">1</span>;
+          if (first?.countingMode === "BULK") return <span className="text-11 font-mono">{r.item.qty.toLocaleString()}</span>;
+          return <span className="text-11 font-mono text-faint">1</span>;
         },
       }),
 
@@ -283,7 +330,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         header: "Custodian",
         cell: ({ row }) => {
           const agg = nameAgg(rollupRowsOf(row.original).map((m) => m.custodianName));
-          return <span className="text-10.5 truncate block">{describeAgg(agg)}</span>;
+          return <span className="text-11 truncate block">{describeAgg(agg)}</span>;
         },
       }),
 
@@ -292,7 +339,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         header: "Current unit",
         cell: ({ row }) => {
           const agg = nameAgg(rollupRowsOf(row.original).map((m) => m.currentOrgNodeName));
-          return <span className="text-10.5 truncate block">{describeAgg(agg)}</span>;
+          return <span className="text-11 truncate block">{describeAgg(agg)}</span>;
         },
       }),
 
@@ -301,7 +348,7 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
         header: "Owner",
         cell: ({ row }) => {
           const agg = nameAgg(rollupRowsOf(row.original).map((m) => m.ownerOrgNodeName));
-          return <span className="text-10.5 truncate block">{describeAgg(agg)}</span>;
+          return <span className="text-11 truncate block">{describeAgg(agg)}</span>;
         },
       }),
     );
@@ -331,16 +378,36 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
   const modelRows = table.getRowModel().rows;
 
   return (
-    <div className="overflow-x-auto">
+    // Its own scroll area, so the column headings stay in view down a long register.
+    <div className="overflow-auto max-h-[calc(100vh-230px)] min-h-[240px]">
       <table className="w-full border-collapse min-w-[900px]">
-        <thead>
+        <thead className="sticky top-0 z-[1] bg-panel">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-border">
-              {hg.headers.map((h) => (
-                <th key={h.id} className="text-9.5 uppercase tracking-label text-faint font-semibold px-8 py-7 text-left">
-                  {h.isPlaceholder ? null : <table.FlexRender header={h} />}
-                </th>
-              ))}
+              {hg.headers.map((h) => {
+                const sortable = h.column.id in SORTABLE;
+                const on = sort?.key === h.column.id ? sort.dir : null;
+                return (
+                  <th
+                    key={h.id}
+                    aria-sort={on === "asc" ? "ascending" : on === "desc" ? "descending" : sortable ? "none" : undefined}
+                    className="text-10.5 uppercase tracking-label text-faint font-semibold px-8 py-7 text-left bg-panel"
+                  >
+                    {h.isPlaceholder ? null : sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => cycle(h.column.id)}
+                        className={`border-0 bg-transparent p-0 inline-flex items-center gap-4 uppercase tracking-label font-semibold cursor-pointer text-10.5 ${on ? "text-text" : "text-faint hover:text-text"}`}
+                      >
+                        <table.FlexRender header={h} />
+                        {on === "asc" ? <ArrowUp size={11} aria-hidden="true" /> : on === "desc" ? <ArrowDown size={11} aria-hidden="true" /> : <ArrowUpDown size={11} aria-hidden="true" className="opacity-50" />}
+                      </button>
+                    ) : (
+                      <table.FlexRender header={h} />
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           ))}
         </thead>
@@ -362,8 +429,8 @@ export function ResourceTable({ rows, byId, expanded, onExpandedChange, selectio
           ))}
           {modelRows.length === 0 && (
             <tr>
-              <td colSpan={10} className="text-center text-11.5 text-faint py-20">
-                No resources match the current filters.
+              <td colSpan={10} className="text-center text-11.5 text-dim py-20 px-14">
+                {emptyText ?? "Nothing matches these filters. Clear a filter to see more."}
               </td>
             </tr>
           )}

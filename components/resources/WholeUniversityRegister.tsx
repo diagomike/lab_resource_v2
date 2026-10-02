@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
+import { useRegisterState, EMPTY_FILTERS, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { GroupByBar } from "./GroupByBar";
 import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 import { NEEDS_ATTENTION } from "@/lib/domain/status";
@@ -13,6 +13,7 @@ import { FilterBar } from "./FilterBar";
 import { Inspector } from "./Inspector";
 import { PullTransferModal } from "./PullTransferModal";
 import { RegisterScopeSwitch } from "./RegisterScopeSwitch";
+import { ExportViewButton } from "./ExportViewButton";
 
 const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
@@ -90,13 +91,14 @@ export function WholeUniversityRegister() {
         actions={
           <div className="flex items-center gap-10">
             <RegisterScopeSwitch scope="university" />
+            <ExportViewButton rows={state.rowNodes} byId={state.byId} fileBase="University resources" paged={state.mode === "flat" && state.total > state.pageSize} />
             {state.mode !== "flat" && (
               <button
                 onClick={() => state.setExpanded(allExpanded ? {} : true)}
                 title={allExpanded ? "Collapse all" : "Expand all"}
-                className="border border-border2 bg-panel2 text-dim h-24 px-9 rounded-2 text-10.5 flex items-center gap-5 flex-none"
+                className="border border-border2 bg-panel2 text-dim h-24 px-9 rounded-2 text-11 flex items-center gap-5 flex-none"
               >
-                <span>{allExpanded ? "▾" : "▸"}</span>
+                <span aria-hidden="true">{allExpanded ? "▾" : "▸"}</span>
                 <span>{allExpanded ? "Collapse all" : "Expand all"}</span>
               </button>
             )}
@@ -110,7 +112,7 @@ export function WholeUniversityRegister() {
                     background: state.mode === m ? "var(--accent)" : "var(--panel2)",
                     color: state.mode === m ? "#fff" : "var(--dim)",
                   }}
-                  className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
+                  className="border-0 text-11 font-medium px-9 py-4 rounded-2"
                 >
                   {MODE_LABEL[m]}
                 </button>
@@ -124,13 +126,13 @@ export function WholeUniversityRegister() {
 
         {state.selectedItemIds.length > 0 && (
           <div className="flex items-center gap-8 px-14 py-7 border-b border-border bg-panel2">
-            <span className="text-10.5 text-dim">
+            <span className="text-11 text-dim">
               {pullItems.length === 0 ? "Everything selected is already yours" : `${pullItems.length} to request`}
             </span>
             <Button variant="primary" disabled={pullItems.length === 0} onClick={() => setPullOpen(true)}>
               Request for my lab…
             </Button>
-            <button onClick={() => state.setSelection({})} className="text-10.5 text-faint ml-auto">
+            <button onClick={() => state.setSelection({})} className="text-11 text-faint ml-auto">
               Clear selection
             </button>
           </div>
@@ -153,13 +155,14 @@ export function WholeUniversityRegister() {
             pendingTransfers={transferMarkers}
             matched={state.matched}
             matchedUnder={state.matchedUnder}
+            emptyText={JSON.stringify(state.filters) === JSON.stringify(EMPTY_FILTERS) ? "Nothing is registered in the university yet." : undefined}
           />
         )}
       </Panel>
 
       <Panel
         title="Totals by owning unit × category"
-        actions={<span className="text-10.5 text-faint">Counts reflect the filters below</span>}
+        actions={<span className="text-11 text-faint">Counts reflect the filters below</span>}
       >
         {state.loading ? (
           <PanelLoading rows={4} />
@@ -169,7 +172,7 @@ export function WholeUniversityRegister() {
           <div className="overflow-x-auto">
             <table className="w-full text-11">
               <thead>
-                <tr className="text-9.5 uppercase tracking-label text-faint font-semibold border-b border-border">
+                <tr className="text-10.5 uppercase tracking-label text-faint font-semibold border-b border-border">
                   <th className="text-left px-14 py-8">Owning unit</th>
                   <th className="text-left px-14 py-8">Category</th>
                   <th className="text-right px-14 py-8">Working</th>

@@ -159,7 +159,7 @@ function CategoriesInner() {
               />
               {grouped.map(([g, cats]) => (
                 <div key={g.id}>
-                  <div className="px-4 py-4 text-10 uppercase tracking-label text-dim font-semibold">{g.name}</div>
+                  <div className="px-4 py-4 text-11 uppercase tracking-label text-dim font-semibold">{g.name}</div>
                   {cats.map((c) => (
                     <button
                       key={c.id}
@@ -172,7 +172,7 @@ function CategoriesInner() {
                       <span className="flex-1 truncate">{c.name}</span>
                       {c.pendingChanges > 0 && <Tag tone="warn">waiting</Tag>}
                       {!c.active && <Tag>not in use</Tag>}
-                      <span className={`text-10 font-mono ${selectedId === c.id ? "opacity-80" : "text-dim"}`}>{usage[c.id] ?? 0}</span>
+                      <span className={`text-11 font-mono ${selectedId === c.id ? "opacity-80" : "text-dim"}`}>{usage[c.id] ?? 0}</span>
                     </button>
                   ))}
                 </div>
@@ -209,7 +209,7 @@ function CategoriesInner() {
               ) : (
                 <div className="h-full flex flex-col items-center justify-center gap-6 text-11.5 text-dim py-44 text-center">
                   <span>Pick a category to see the details it records{canEdit ? ", or add a new one" : ""}.</span>
-                  {canEdit && <span className="text-10.5">Changes that only add apply at once; changes to what items already hold go to your head first.</span>}
+                  {canEdit && <span className="text-11">Changes that only add apply at once; changes to what items already hold go to your head first.</span>}
                 </div>
               )}
             </div>

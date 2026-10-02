@@ -62,7 +62,7 @@ export function PeopleTable({
       helper.accessor((p) => p.email, {
         id: "email",
         header: "Email",
-        cell: ({ getValue }) => <span className="font-mono text-10.5">{getValue()}</span>,
+        cell: ({ getValue }) => <span className="font-mono text-11">{getValue()}</span>,
       }) as ColumnDef<typeof features, PersonDto, unknown>,
 
       helper.display({
@@ -92,7 +92,7 @@ export function PeopleTable({
         cell: ({ row }) => {
           const p = row.original;
           return (
-            <div className="text-10.5">
+            <div className="text-11">
               {p.occupiesNodeName ? <span className="text-text">Heads {p.occupiesNodeName}</span> : (p.homeNodeName ?? <span className="text-faint">—</span>)}
             </div>
           );
@@ -108,7 +108,7 @@ export function PeopleTable({
       helper.accessor((p) => p.createdAt, {
         id: "joined",
         header: "Added",
-        cell: ({ getValue }) => <span className="text-10">{new Date(getValue()).toLocaleDateString("en-GB")}</span>,
+        cell: ({ getValue }) => <span className="text-11">{new Date(getValue()).toLocaleDateString("en-GB")}</span>,
       }) as ColumnDef<typeof features, PersonDto, unknown>,
 
       helper.display({
@@ -154,7 +154,7 @@ export function PeopleTable({
                 <th
                   key={h.id}
                   onClick={SORTABLE.has(h.column.id) ? h.column.getToggleSortingHandler() : undefined}
-                  className={`text-9.5 uppercase tracking-label text-faint font-semibold px-12 py-7 text-left ${SORTABLE.has(h.column.id) ? "cursor-pointer select-none hover:text-dim" : ""}`}
+                  className={`text-10.5 uppercase tracking-label text-faint font-semibold px-12 py-7 text-left ${SORTABLE.has(h.column.id) ? "cursor-pointer select-none hover:text-dim" : ""}`}
                 >
                   {h.isPlaceholder ? null : (
                     <span className="inline-flex items-center gap-3">

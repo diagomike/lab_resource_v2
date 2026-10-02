@@ -714,7 +714,7 @@ async function tellNextApprover(request: ChangeRequestDto, actorId: string): Pro
     subject: `A transfer is waiting for you: ${request.summary}`,
     paragraphs: [
       `${esc(request.requesterName)}'s request has reached your step (${esc(step.label)}): <strong>${esc(request.summary)}</strong>.${quoted(request.note)}`,
-      step.receipt ? "Confirm it under <strong>Approvals → Transfers</strong> once it's with you." : "Approve or reject it under <strong>Approvals → Transfers</strong>.",
+      step.receipt ? "Confirm it under <strong>Approvals</strong> once it's with you — the button below opens it." : "Approve or reject it — the button below opens it.",
     ],
     path: paths.decide("transfer", request.id),
     action: "Open the request",
@@ -730,7 +730,7 @@ async function tellRecipient(request: ChangeRequestDto, recipientId: string | nu
     subject: `Coming to you from the store: ${request.summary}`,
     paragraphs: [
       `${esc(request.requesterName)} is handing over <strong>${esc(request.summary)}</strong> to you.${quoted(request.note)}`,
-      "Once your head and Property Administration approve it, accept it under <strong>Approvals → Transfers</strong> when it is in your hands.",
+      "Once your head and Property Administration approve it, accept it under <strong>Approvals</strong> when it is in your hands.",
     ],
     path: paths.decide("transfer", request.id),
     action: "Open the request",

@@ -51,15 +51,12 @@ export default {
       topdim: "var(--topdim)",
     },
 
-    /* Literal px, because the design specifies literal px. Never below 10 except the
-       8.5 used for scale-point captions inside a rating control.
+    /* Literal px, because the design specifies literal px. Nothing below 10.5 (tags and
+       small caps labels); running text starts at 11 (readability floor, 2026-10-02).
        Every value is scaled by --font-scale (default 1, see index.css and
        theme-context.tsx) so the user's font-size preference reaches every text-*
        utility in the app without touching each call site individually. */
     fontSize: {
-      "8.5": "calc(8.5px * var(--font-scale, 1))",
-      "9.5": "calc(9.5px * var(--font-scale, 1))",
-      10: "calc(10px * var(--font-scale, 1))",
       "10.5": "calc(10.5px * var(--font-scale, 1))",
       11: "calc(11px * var(--font-scale, 1))",
       "11.5": "calc(11.5px * var(--font-scale, 1))",

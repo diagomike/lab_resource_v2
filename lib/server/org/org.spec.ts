@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * and a global "at most one level-0 node" invariant, so this file follows the same
  * discipline as `purchasing.spec.ts`: every node it creates is either a freshly
  * created orphan (no edges into the real shared chart) or an in-place edit of a
- * fixture it owns. It never creates a level-0 node through `org.create`/`changeLevel`
+ * fixture it owns. It never creates a level-0 node through `org.create`
  * itself (the real seeded university root already occupies that slot), so F-002's
  * single-root invariant is exercised against the REAL root rather than a second one
  * this file would have to tear down.
@@ -154,35 +154,45 @@ describe("F-004 — delete names purchasing/external blockers instead of a raw 5
   });
 });
 
-describe("F-005 — change-level cannot strand a node or its former children", () => {
-  it("is refused while the node still has children", async () => {
-    const collegeId = await makeNode("f5-college-with-child", "COLLEGE", 1);
-    const deptId = await org.create({ name: `${testKey}-f5-dept`, level: 2, kind: "DEPARTMENT", parentIds: [collegeId] }).then((n) => n.id);
-    createdNodeIds.push(deptId);
-
-    await expect(org.changeLevel(collegeId, 2)).rejects.toMatchObject({ status: 400 });
+describe("levels follow parents — nobody types a level", () => {
+  it("a new unit sits one below its parents, whatever level was sent", async () => {
+    const collegeId = await makeNode("lv-college", "COLLEGE", 1);
+    const dept = await org.create({ name: `${testKey}-lv-dept`, level: 7, kind: "DEPARTMENT", parentIds: [collegeId] });
+    createdNodeIds.push(dept.id);
+    expect(dept.level).toBe(2);
+    expect(dept.parentIds).toEqual([collegeId]);
   });
 
-  it("requires new parents at the target level, and applies atomically when given", async () => {
-    const mover = await makeNode("f5-mover", "OFFICE", 5);
-    const wrongLevelParent = await makeNode("f5-wrong-parent", "OFFICE", 3);
-    const rightLevelParent = await makeNode("f5-right-parent", "OFFICE", 5);
+  it("refuses parents at different places in the structure", async () => {
+    const college = await makeNode("lv-college-2", "COLLEGE", 1);
+    const dept = await makeNode("lv-dept-2", "DEPARTMENT", 2);
+    await expect(org.create({ name: `${testKey}-lv-mixed`, kind: "OFFICE", parentIds: [college, dept] })).rejects.toMatchObject({ status: 400 });
+  });
 
-    // No parentIds for a non-zero target level: refused, not silently stranded.
-    await expect(org.changeLevel(mover, 6)).rejects.toMatchObject({ status: 400 });
-
-    // A parent that isn't exactly one level below the target: refused.
-    await expect(org.changeLevel(mover, 6, [wrongLevelParent])).rejects.toMatchObject({ status: 400 });
-
-    // The right-level parent, supplied atomically with the move, succeeds and leaves
-    // the node reachable from it — never the old parentless/childless state F-005
-    // found (the mover keeps no memory of its old level 5 siblings, by design: every
-    // edge in either direction is invalidated by a level change).
-    const moved = await org.changeLevel(mover, 6, [rightLevelParent]);
-    expect(moved.level).toBe(6);
-    expect(moved.parentIds).toEqual([rightLevelParent]);
-    const closureRow = await prisma.orgClosure.findUnique({ where: { ancestorId_descendantId: { ancestorId: rightLevelParent, descendantId: mover } } });
+  it("moving a unit with nothing under it re-levels it with its new parents", async () => {
+    const college = await makeNode("lv-college-3", "COLLEGE", 1);
+    const dept = await makeNode("lv-dept-3", "DEPARTMENT", 2);
+    const office = await org.create({ name: `${testKey}-lv-office`, kind: "OFFICE", parentIds: [college] });
+    createdNodeIds.push(office.id);
+    expect(office.level).toBe(2);
+    const moved = await org.reassignParents(office.id, [dept]);
+    expect(moved.level).toBe(3);
+    expect(moved.parentIds).toEqual([dept]);
+    const closureRow = await prisma.orgClosure.findUnique({ where: { ancestorId_descendantId: { ancestorId: dept, descendantId: office.id } } });
     expect(closureRow).not.toBeNull();
+  });
+
+  it("refuses a move that would change the level of a unit with units under it (F-005: nothing is stranded)", async () => {
+    const college = await makeNode("lv-college-4", "COLLEGE", 1);
+    const otherDept = await makeNode("lv-dept-4", "DEPARTMENT", 2);
+    const unit = await org.create({ name: `${testKey}-lv-unit`, kind: "DEPARTMENT", parentIds: [college] });
+    createdNodeIds.push(unit.id);
+    const child = await org.create({ name: `${testKey}-lv-child`, kind: "OFFICE", parentIds: [unit.id] });
+    createdNodeIds.push(child.id);
+    await expect(org.reassignParents(unit.id, [otherDept])).rejects.toMatchObject({ status: 400 });
+    // Alongside the current parent (same level) is fine.
+    const college2 = await makeNode("lv-college-5", "COLLEGE", 1);
+    expect((await org.reassignParents(unit.id, [college, college2])).level).toBe(2);
   });
 });
 

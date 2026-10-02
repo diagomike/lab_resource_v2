@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRollup, buildSearchList, buildTree, groupRows, indexItems, type RowNode } from "./tree";
+import { buildRollup, buildSearchList, buildTree, groupRows, indexItems, sortRows, type RowNode } from "./tree";
 import type { Category, Item } from "./types";
 
 const now = "2026-01-01T00:00:00.000Z";
@@ -108,5 +108,28 @@ describe("groupRows — the grouped register", () => {
 
   it("returns the rows unchanged with no grouping chosen", () => {
     expect(groupRows(roots, [])).toBe(roots);
+  });
+});
+
+describe("sortRows", () => {
+  const leaf = (id: string, name: string, children: RowNode[] = []): RowNode =>
+    ({ kind: "item", id, item: { id, name } as Item, children, memberIds: [id], depth: 0 }) as RowNode;
+  const group = (id: string, children: RowNode[]): RowNode => ({ kind: "group", id, label: id, members: [], memberIds: [], children, depth: 0 });
+  const nameOf = (r: RowNode) => (r.kind === "item" ? r.item.name : null);
+  const names = (rows: RowNode[]) => rows.map((r) => (r.kind === "item" ? r.item.name : r.id));
+
+  it("orders siblings the way people read numbers, and keeps children under their parent", () => {
+    const rows = [leaf("b", "PC 10", [leaf("x", "RAM 2"), leaf("y", "RAM 1")]), leaf("a", "PC 2")];
+    const out = sortRows(rows, nameOf, "asc");
+    expect(names(out)).toEqual(["PC 2", "PC 10"]);
+    expect(names(out[1].children)).toEqual(["RAM 1", "RAM 2"]);
+    expect(names(sortRows(rows, nameOf, "desc"))).toEqual(["PC 10", "PC 2"]);
+  });
+
+  it("keeps headings in the grouping's order and sorts what is under them; blanks go last", () => {
+    const rows = [group("CSE", [leaf("1", "b"), leaf("2", ""), leaf("3", "a")]), group("ECE", [])];
+    const out = sortRows(rows, nameOf, "desc");
+    expect(names(out)).toEqual(["CSE", "ECE"]);
+    expect(names(out[0].children)).toEqual(["b", "a", ""]);
   });
 });

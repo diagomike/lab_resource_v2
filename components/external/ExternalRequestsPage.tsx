@@ -26,7 +26,7 @@ import { PAYMENT_STATUS_LABEL, paymentTone } from "@/components/portal/PaymentPa
  */
 
 const inputClass = "h-26 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent";
-const labelClass = "text-9.5 uppercase tracking-label text-faint font-semibold";
+const labelClass = "text-10.5 uppercase tracking-label text-faint font-semibold";
 
 function message(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
@@ -224,12 +224,12 @@ function SubmitDepartmentModal({ assignment, onClose, onDone }: { assignment: Ex
         </div>
       ))}
       <div>
-        <button type="button" className="text-10.5 text-accent" onClick={() => setContacts([...contacts, blankContact()])}>
+        <button type="button" className="text-11 text-accent" onClick={() => setContacts([...contacts, blankContact()])}>
           + Another contact
         </button>
       </div>
       {assignment.holdCount === 0 && (
-        <label className="flex items-center gap-6 text-10.5">
+        <label className="flex items-center gap-6 text-11">
           <input type="checkbox" checked={noCalendar} onChange={(e) => setNoCalendar(e.target.checked)} />
           Nothing of ours needs a calendar slot (e.g. consumables only)
         </label>
@@ -358,7 +358,7 @@ function HoldModal({ request, onClose, onDone }: { request: ExternalRequestDto; 
           <span className={labelClass}>Only these machines (leave empty to hold the whole room)</span>
           <div className="flex flex-wrap gap-4 max-h-[120px] overflow-y-auto">
             {room.equipment.map((m) => (
-              <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-10.5 cursor-pointer ${machines.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
+              <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-11 cursor-pointer ${machines.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
                 <input type="checkbox" checked={machines.includes(m.id)} onChange={() => setMachines(machines.includes(m.id) ? machines.filter((x) => x !== m.id) : [...machines, m.id])} />
                 {m.place ? `${m.place} › ` : ""}
                 {m.name}
@@ -406,7 +406,7 @@ type Pending =
 
 function TaskLine({ task, onAct }: { task: ExternalTaskDto; onAct: (p: Pending) => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-8 text-10.5 pl-12">
+    <div className="flex flex-wrap items-center gap-8 text-11 pl-12">
       <span className="min-w-[160px]">{task.custodianName}</span>
       <span className="text-dim flex-1 min-w-[160px]">
         {task.want} · {task.holdCount} held{task.note ? ` · "${task.note}"` : ""}
@@ -464,22 +464,22 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
           <div className="text-11.5 font-medium">
             {college ? "College" : "Department"} — {a.orgNodeName}
           </div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             {who}: {a.headName ?? "vacant"} · {a.holdCount} slot{a.holdCount === 1 ? "" : "s"} held
             {a.amountSantim !== null ? ` · ${formatEtb(a.amountSantim)}` : ""}
             {a.noCalendarNeeded ? " · no calendar needed" : ""}
           </div>
           {a.sheetUrl && (
-            <a href={a.sheetUrl} target="_blank" rel="noreferrer" className="text-10.5 text-accent underline break-all">
+            <a href={a.sheetUrl} target="_blank" rel="noreferrer" className="text-11 text-accent underline break-all">
               Cost breakdown
             </a>
           )}
           {a.contacts.length > 0 && (
-            <div className="text-10.5 text-dim">
+            <div className="text-11 text-dim">
               Contacts: {a.contacts.map((c) => `${c.name}${c.role ? ` (${c.role})` : ""} · ${c.phone}`).join("; ")}
             </div>
           )}
-          {a.note && <div className="text-10.5 text-dim italic">"{a.note}"</div>}
+          {a.note && <div className="text-11 text-dim italic">"{a.note}"</div>}
         </div>
         <Tag tone={assignmentTone(a.status)}>{assignmentStatusLabel(a.level, a.status)}</Tag>
         {a.can.forward && <Button onClick={() => onAct({ kind: "forward", assignment: a })}>Forward to departments…</Button>}
@@ -567,9 +567,9 @@ function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: 
         <span className="text-dim">{p.provider}</span>
         {p.amountSantim !== null && <span className="font-mono">{formatEtb(p.amountSantim)}</span>}
         <Tag tone={paymentTone(p.status)}>{PAYMENT_STATUS_LABEL[p.status]}</Tag>
-        <span className="text-faint text-10">{new Date(p.createdAt).toLocaleString()}</span>
+        <span className="text-faint text-11">{new Date(p.createdAt).toLocaleString()}</span>
         {p.receiptUrl && (
-          <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="text-10.5 text-accent underline">
+          <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="text-11 text-accent underline">
             Bank receipt
           </a>
         )}
@@ -585,7 +585,7 @@ function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: 
           </>
         )}
       </div>
-      <div className="text-10.5 text-dim flex flex-col gap-2">
+      <div className="text-11 text-dim flex flex-col gap-2">
         {(p.payerName || p.receiverName || p.receiverAccount) && (
           <span>
             {p.payerName ? `From ${p.payerName}` : ""}
@@ -599,9 +599,9 @@ function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: 
       {open && (
         <div className="flex flex-col gap-6 border border-border2 rounded-2 p-8">
           {open === "APPROVE" ? (
-            <div className="text-10.5 text-dim">Check the bank statement for this reference. Accept the amount actually received — it counts towards the quote; once the total is reached, you confirm the payment.</div>
+            <div className="text-11 text-dim">Check the bank statement for this reference. Accept the amount actually received — it counts towards the quote; once the total is reached, you confirm the payment.</div>
           ) : (
-            <div className="text-10.5 text-dim">The requester is emailed this reason and may submit another reference.</div>
+            <div className="text-11 text-dim">The requester is emailed this reason and may submit another reference.</div>
           )}
           {open === "APPROVE" && <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount received, ETB" className={inputClass} />}
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={open === "APPROVE" ? "Note (optional)" : "Reason"} className={inputClass} />
@@ -755,7 +755,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
               {/* A whole-room hold's one resource is the lab itself — don't name it twice (G-16). */}
               <span className="text-dim">{h.resources.some((x) => x.name !== h.labName) ? h.resources.map((x) => x.name).join(", ") : "whole room"}</span>
               <Tag tone={h.state === "CONFIRMED" ? "good" : h.state === "HELD" ? "cross" : "neutral"}>{STATE_LABEL[h.state]}</Tag>
-              {h.holdExpiresAt && h.state === "HELD" && <span className="text-faint text-10">until {new Date(h.holdExpiresAt).toLocaleDateString()}</span>}
+              {h.holdExpiresAt && h.state === "HELD" && <span className="text-faint text-11">until {new Date(h.holdExpiresAt).toLocaleDateString()}</span>}
             </div>
           ))
         )}
@@ -774,7 +774,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
       <Panel title="History">
         <div className="px-14 py-8 flex flex-col gap-4">
           {r.events.map((e, i) => (
-            <div key={i} className="text-10.5">
+            <div key={i} className="text-11">
               <span className="font-mono text-dim">{new Date(e.at).toLocaleString()}</span> · {e.actorLabel} · {e.kind.replace(/_/g, " ").toLowerCase()}
               {e.note ? <span className="text-dim"> — {e.note}</span> : null}
             </div>
@@ -837,10 +837,10 @@ export default function ExternalRequestsPage() {
                   <Tag tone={externalStatusTone(row.status)}>{EXTERNAL_STATUS_LABEL[row.status]}</Tag>
                 </div>
                 <div className="text-11 truncate">{row.organizationName}</div>
-                <div className="text-10 text-faint">
+                <div className="text-11 text-faint">
                   {KIND_LABEL[row.kind]} · {row.firstWindow ? `${row.firstWindow.date}${row.windowCount > 1 ? ` +${row.windowCount - 1}` : ""}` : ""} · {row.acceptedCount}/{row.assignmentCount} departments
                 </div>
-                {row.waitingOnMe && <div className="text-10 text-accent font-medium">Waiting on you</div>}
+                {row.waitingOnMe && <div className="text-11 text-accent font-medium">Waiting on you</div>}
               </button>
             ))
           )}

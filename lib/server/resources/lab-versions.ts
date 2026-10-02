@@ -57,7 +57,7 @@ async function loadLab(labItemId: string, client: Tx | typeof prisma = prisma) {
     include: { ownerOrg: { select: { id: true, name: true, user: { select: { id: true, name: true } } } }, custodian: { select: { id: true, name: true } } },
   });
   if (!lab || lab.deletedAt) throw new HttpError(404, "Resource not found");
-  if (lab.parentId) throw new HttpError(400, "Changes are drafted for a whole lab, not for something inside one.");
+  if (lab.parentId) throw new HttpError(400, "Changes are collected for a whole lab, not for something inside one.");
   return lab;
 }
 
@@ -203,7 +203,7 @@ export async function applyVersionEdit(
       const mapId = (id: string) => {
         if (own.has(id)) return id;
         const mapped = bySource.get(id);
-        if (!mapped) throw new HttpError(400, "That item isn't part of this lab's copy — it may have been added after the copy was made. Refresh the draft from Current first.");
+        if (!mapped) throw new HttpError(400, "That item isn't part of this lab's copy — it may have been added after the copy was made. Use “Start again from the lab” on My changes first.");
         return mapped;
       };
       const mapped: VersionOp =
@@ -408,7 +408,7 @@ async function decideCommitNow(actorId: string, requestId: string, decision: "AP
   const stale = async (message: string) => {
     await prisma.$transaction([
       prisma.labCommitRequest.update({ where: { id: requestId }, data: { status: "STALE", ...decided, resolution: message } }),
-      prisma.labVersion.update({ where: { id: version.id }, data: { status: "EDITING", rejectionNote: `Couldn't be applied: ${message} Refresh the draft from Current and redo the change.` } }),
+      prisma.labVersion.update({ where: { id: version.id }, data: { status: "EDITING", rejectionNote: `Couldn't be applied: ${message} Use “Start again from the lab” on My changes and redo the change.` } }),
     ]);
     return getRequest(actorId, requestId);
   };
@@ -436,7 +436,7 @@ async function decideCommitNow(actorId: string, requestId: string, decision: "AP
         const changed = [...touchedReal].filter((id) => !lockedById.has(id) || (base[id] !== undefined && lockedById.get(id)!.version !== base[id]));
         if (changed.length) {
           const names = changed.map((id) => (lockedById.get(id) ? `"${lockedById.get(id)!.name}"` : "an item that no longer exists"));
-          throw new HttpError(409, `Changed in the register since this draft was copied: ${names.join(", ")}.`);
+          throw new HttpError(409, `Changed in the register since you started these changes: ${names.join(", ")}.`);
         }
 
         await mergeDraft(tx, request.requesterId, version.items.map(toVItem), diff, liveById, cleanupKeys);
@@ -549,9 +549,9 @@ export async function stageFromRegister(actorId: string, input: ItemChangeInput,
   const isStore = (r: (typeof roots)[number]) => r.category.key === "store" || r.custodian.roles.some((x) => x.kind === "STORE_KEEPER");
   const drafted = roots.filter((r) => !isStore(r));
   if (!drafted.length) return null; // everything touched sits in a store
-  if (drafted.length !== 1 || rootIds.length !== 1) throw new HttpError(400, "Changes are drafted one lab at a time — change one lab's items at a time.");
+  if (drafted.length !== 1 || rootIds.length !== 1) throw new HttpError(400, "Changes are collected one lab at a time — change one lab's items at a time.");
   if (!OP_KINDS.has(input.kind) || (input.kind === "moveInTree" && !input.value)) {
-    throw new HttpError(403, `Custody, ownership and moves out of ${drafted[0].name} go through a transfer, not a draft.`);
+    throw new HttpError(403, `Custody, ownership and moves out of ${drafted[0].name} go through a move (transfer), not the lab's changes.`);
   }
   const labItemId = drafted[0].id;
 

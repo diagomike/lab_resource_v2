@@ -134,20 +134,20 @@ export default function HelpPage() {
     <div className="grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)] min-h-full">
       <aside className="border-b md:border-b-0 md:border-r border-border bg-panel2 p-12 flex flex-col gap-12 md:sticky md:top-0 md:self-start md:max-h-[calc(100vh-110px)] md:overflow-y-auto">
         <label className="flex flex-col gap-4">
-          <span className="text-9.5 uppercase tracking-label text-faint font-semibold">Search the guides</span>
+          <span className="text-10.5 uppercase tracking-label text-faint font-semibold">Search the guides</span>
           <input
             id="help-search"
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. hand over, booking, send back"
+            placeholder="e.g. move, booking, send back"
             className="h-28 px-9 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
           />
         </label>
 
         {/* Phones: one picker instead of the lists. */}
         <label className="md:hidden flex flex-col gap-4">
-          <span className="text-9.5 uppercase tracking-label text-faint font-semibold">Guide</span>
+          <span className="text-10.5 uppercase tracking-label text-faint font-semibold">Guide</span>
           <select id="help-chapter" value={current.id} onChange={(e) => open(e.target.value)} className="h-28 px-6 rounded-2 border border-border2 bg-panel text-11.5">
             <optgroup label="General">
               {general.map((c) => (
@@ -177,9 +177,9 @@ export default function HelpPage() {
               {results.map((r) => (
                 <li key={r.section.id}>
                   <button type="button" onClick={() => open(r.chapter.id, r.section.id.endsWith("--top") ? undefined : r.section.id)} className="w-full text-left border border-border rounded-2 bg-panel hover:border-accent px-12 py-9">
-                    <span className="block text-9.5 uppercase tracking-label text-faint">{r.chapter.title}</span>
+                    <span className="block text-10.5 uppercase tracking-label text-faint">{r.chapter.title}</span>
                     <span className="block text-12 font-medium text-text">{r.section.title}</span>
-                    <span className="block text-10.5 text-dim mt-2">{r.snippet}</span>
+                    <span className="block text-11 text-dim mt-2">{r.snippet}</span>
                   </button>
                 </li>
               ))}
@@ -192,7 +192,7 @@ export default function HelpPage() {
                 That guide is for another role. Here are the guides for yours.
               </div>
             )}
-            <div className="text-9.5 uppercase tracking-label text-faint font-semibold">{current.group === "general" ? "General" : "For your role"}</div>
+            <div className="text-10.5 uppercase tracking-label text-faint font-semibold">{current.group === "general" ? "General" : "For your role"}</div>
             <h1 className="text-21 font-semibold leading-tight mt-2">{current.title}</h1>
             <p className="text-11.5 text-dim mt-2">{current.hint}</p>
             {toc.length > 2 && (
@@ -205,7 +205,7 @@ export default function HelpPage() {
                       e.preventDefault();
                       open(current.id, s.id);
                     }}
-                    className="text-10.5 px-8 py-2 rounded-full bg-panel2 border border-border text-dim hover:text-accent hover:border-accent no-underline"
+                    className="text-11 px-8 py-2 rounded-full bg-panel2 border border-border text-dim hover:text-accent hover:border-accent no-underline"
                   >
                     {s.title}
                   </a>
@@ -231,7 +231,7 @@ function ChapterList({ label, chapters, current, onOpen }: { label: string; chap
   if (!chapters.length) return null;
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-9.5 uppercase tracking-label text-faint font-semibold px-6 pb-2">{label}</div>
+      <div className="text-10.5 uppercase tracking-label text-faint font-semibold px-6 pb-2">{label}</div>
       {chapters.map((c) => (
         <button
           key={c.id}
@@ -241,7 +241,7 @@ function ChapterList({ label, chapters, current, onOpen }: { label: string; chap
           className={`text-left rounded-2 px-8 py-6 border-0 ${c.id === current ? "bg-soft text-accent" : "bg-transparent text-text hover:bg-panel3"}`}
         >
           <span className="block text-11.5 font-medium">{c.title}</span>
-          <span className="block text-9.5 text-faint leading-snug">{c.hint}</span>
+          <span className="block text-10.5 text-faint leading-snug">{c.hint}</span>
         </button>
       ))}
     </div>

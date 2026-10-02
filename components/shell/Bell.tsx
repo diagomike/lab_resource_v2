@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Bell as BellIcon } from "lucide-react";
 import type { NotificationDto, NotificationsDto } from "@/lib/shared";
 import { api } from "@/lib/api";
 import { useHomeCounts } from "@/lib/home-counts";
@@ -84,11 +85,8 @@ export default function Bell() {
         title="Updates"
         className={`relative border border-topline2 h-26 md:h-24 px-8 md:px-9 rounded-3 text-11 flex items-center gap-5 flex-none ${open ? "bg-topsel text-top" : "bg-topfill2 text-current"}`}
       >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-        </svg>
-        {unread > 0 && <span className="text-9.5 font-semibold font-mono bg-bad text-white rounded-full px-5 leading-relaxed">{unread > 99 ? "99+" : unread}</span>}
+        <BellIcon size={13} aria-hidden="true" />
+        {unread > 0 && <span className="text-10.5 font-semibold font-mono bg-bad text-white rounded-full px-5 leading-relaxed">{unread > 99 ? "99+" : unread}</span>}
       </button>
 
       {open && (
@@ -128,8 +126,8 @@ export default function Bell() {
                   <span className={`w-6 h-6 rounded-full mt-5 flex-none ${n.read ? "bg-transparent" : "bg-accent"}`} aria-hidden="true" />
                   <span className="min-w-0 flex-1">
                     <span className={`block text-11.5 leading-snug ${n.read ? "text-dim" : "text-text font-medium"}`}>{n.title}</span>
-                    {n.body && <span className="block text-10.5 text-dim leading-normal mt-2 line-clamp-2">{n.body}</span>}
-                    <span className="block text-10 text-faint mt-3">
+                    {n.body && <span className="block text-11 text-dim leading-normal mt-2 line-clamp-2">{n.body}</span>}
+                    <span className="block text-11 text-faint mt-3">
                       {n.actorName ? `${n.actorName} · ` : ""}
                       {timeAgo(n.createdAt)}
                     </span>

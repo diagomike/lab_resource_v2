@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
@@ -26,6 +27,7 @@ import { LabCommitCard } from "./LabCommitCard";
 import { CategoryChangeCard } from "./CategoryChangeCard";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
+import { useToast } from "@/components/toast";
 
 const STATUS_TONE: Record<string, "warn" | "good" | "bad" | "neutral"> = {
   PENDING: "warn",
@@ -70,6 +72,7 @@ function ChainTrail({ steps }: { steps: ChainStepDto[] }) {
 }
 
 function TransferRequestCard({ request, viewerId, onDecided }: { request: ChangeRequestDto; viewerId: string; onDecided: () => void }) {
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | null>(null);
@@ -88,6 +91,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
       await api.post(`/resources/transfers/${request.id}/decide`, { decision, note: note || undefined });
       setConfirming(null);
       setNote("");
+      toast.success(decision === "REJECT" ? `Rejected: ${request.summary}` : isReceipt || isAcceptance ? `Received: ${request.summary}` : `Approved: ${request.summary}`);
       onDecided();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not record this decision");
@@ -101,7 +105,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
       <div className="flex items-center justify-between">
         <div>
           <div className="text-11.5 font-medium">{request.summary}</div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             by {request.requesterName} · {new Date(request.createdAt).toLocaleString()}
           </div>
         </div>
@@ -110,7 +114,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
 
       <ChainTrail steps={request.steps} />
 
-      {request.resolution && <div className="text-10.5 text-dim italic">"{request.resolution}"</div>}
+      {request.resolution && <div className="text-11 text-dim italic">"{request.resolution}"</div>}
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {canDecide && (
@@ -124,7 +128,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
         </div>
       )}
       {request.status === "PENDING" && !canDecide && currentStep && (
-        <div className="text-10.5 text-faint">
+        <div className="text-11 text-faint">
           {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting — ${currentStep.label} is currently vacant.`}
         </div>
       )}
@@ -151,7 +155,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Optional note"
-                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
               />
             </div>
           }
@@ -166,18 +170,20 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
 // ── Track 6 — lab bookings (one decider: the room's custodian) ─────────────────
 
 function BookingCard({ booking, onDecided }: { booking: ReservationDto; onDecided: () => void }) {
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clashes, setClashes] = useState<ClashDto[]>([]);
   const [note, setNote] = useState("");
 
-  async function act(path: string, body: unknown) {
+  async function act(path: string, body: unknown, done: string) {
     setBusy(true);
     setError(null);
     setClashes([]);
     try {
       await api.post(path, body);
       setNote("");
+      toast.success(done);
       onDecided();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not update this booking");
@@ -192,36 +198,36 @@ function BookingCard({ booking, onDecided }: { booking: ReservationDto; onDecide
       <div className="flex items-center justify-between gap-8">
         <div>
           <div className="text-11.5 font-medium">{booking.title}</div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             <span className="font-mono">
               {booking.date} {booking.start}–{booking.end}
             </span>{" "}
-            · {booking.labName}
+            · <Link href={`/places/${booking.labItemId}`} className="text-dim hover:text-accent">{booking.labName}</Link>
             {booking.resources.some((r) => r.name !== booking.labName) ? ` · ${booking.resources.map((r) => r.name).join(", ")}` : " · whole room"}
             {booking.requestedByName ? ` · by ${booking.requestedByName}` : ""}
           </div>
-          {booking.onBehalfOfNote && <div className="text-10.5 text-dim">On behalf of: {booking.onBehalfOfNote}</div>}
+          {booking.onBehalfOfNote && <div className="text-11 text-dim">On behalf of: {booking.onBehalfOfNote}</div>}
         </div>
         <Tag tone={booking.state === "CONFIRMED" ? "good" : booking.state === "REQUESTED" ? "warn" : booking.state === "DECLINED" ? "bad" : "neutral"}>{STATE_LABEL[booking.state]}</Tag>
       </div>
-      {booking.note && <div className="text-10.5 text-dim italic">"{booking.note}"</div>}
+      {booking.note && <div className="text-11 text-dim italic">"{booking.note}"</div>}
       {error && <ErrorNote>{error}</ErrorNote>}
       <ClashList clashes={clashes} heading="In the way" />
       {(booking.canDecide || booking.canCancel) && (
         <div className="flex flex-wrap items-center gap-8 pt-4">
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent" />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent" />
           {booking.canDecide && (
             <>
-              <Button variant="primary" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/decide`, { decision: "APPROVE", note: note || undefined })}>
+              <Button variant="primary" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/decide`, { decision: "APPROVE", note: note || undefined }, `Booking confirmed: ${booking.labName}, ${booking.date}`)}>
                 Approve
               </Button>
-              <Button variant="danger" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/decide`, { decision: "DECLINE", note: note || undefined })}>
+              <Button variant="danger" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/decide`, { decision: "DECLINE", note: note || undefined }, `Booking declined: ${booking.labName}, ${booking.date}`)}>
                 Decline
               </Button>
             </>
           )}
           {!booking.canDecide && booking.canCancel && (
-            <Button variant="danger" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/cancel`, { note: note || undefined })}>
+            <Button variant="danger" disabled={busy} onClick={() => act(`/scheduling/bookings/${booking.id}/cancel`, { note: note || undefined }, `Booking cancelled: ${booking.labName}, ${booking.date}`)}>
               Cancel booking
             </Button>
           )}
@@ -237,6 +243,7 @@ function BookingCard({ booking, onDecided }: { booking: ReservationDto; onDecide
 // resubmit rather than only approve/reject. ──────────────────────────────────────
 
 function PurchaseRequestCard({ request, viewerId, onDecided }: { request: PurchaseRequestDto; viewerId: string; onDecided: () => void }) {
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"APPROVE" | "REJECT" | "REVISE" | null>(null);
@@ -255,6 +262,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
       setConfirming(null);
       setNote("");
       setFiles([]);
+      toast.success(decision === "APPROVE" ? `Approved ${request.reference}` : decision === "REJECT" ? `Rejected ${request.reference}` : `${request.reference} sent back for revision`);
       onDecided();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not record this decision");
@@ -270,7 +278,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
           <div className="text-11.5 font-medium">
             {request.reference} · {request.title}
           </div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             {request.orgNodeName} · by {request.raisedByName} · {new Date(request.createdAt).toLocaleString()}
           </div>
         </div>
@@ -281,7 +289,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
 
       <div className="flex flex-col gap-3">
         {request.lines.map((l) => (
-          <div key={l.id} className="text-10.5 text-dim">
+          <div key={l.id} className="text-11 text-dim">
             {l.name} · {l.qty}
             {l.unit ? ` ${l.unit}` : ""}
             {l.estimatedUnitCost !== null ? ` · ~${l.estimatedUnitCost}/unit` : ""}
@@ -290,7 +298,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
         ))}
       </div>
 
-      {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
+      {request.feedback && <div className="text-11 text-dim italic">"{request.feedback}"</div>}
       <RequestDocuments history={request.history} />
       <HistoryTimeline history={request.history} />
       {error && !confirming && <ErrorNote>{error}</ErrorNote>}
@@ -309,7 +317,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
         </div>
       )}
       {request.stage === "APPROVING" && !canDecide && currentStep && (
-        <div className="text-10.5 text-faint">
+        <div className="text-11 text-faint">
           {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting — ${currentStep.label} is currently vacant.`}
         </div>
       )}
@@ -334,7 +342,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Optional note"
-                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
               />
               <AttachmentPicker
                 value={files}
@@ -587,7 +595,7 @@ function Inbox() {
                   className={`flex flex-col gap-4 rounded-4 ${on ? "border-2 border-accent bg-soft p-4" : ""}`}
                   aria-current={on ? "true" : undefined}
                 >
-                  <div className="flex items-center gap-6 text-10 uppercase tracking-label font-semibold text-faint px-2">
+                  <div className="flex items-center gap-6 text-11 uppercase tracking-label font-semibold text-faint px-2">
                     {KIND_LABEL[e.kind]}
                     {on && <span className="text-accent normal-case tracking-normal">· the one you followed</span>}
                   </div>

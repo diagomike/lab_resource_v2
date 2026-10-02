@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * The shared vocabulary every list and detail screen is built from.
@@ -49,13 +49,15 @@ export function Button({
 }: {
   children: ReactNode;
   onClick?: () => void;
-  variant?: "default" | "primary" | "danger";
+  /** danger only for what destroys or can't be undone; warn for "are you sure". */
+  variant?: "default" | "primary" | "warn" | "danger";
   type?: "button" | "submit";
   disabled?: boolean;
 }) {
   const styles: Record<string, string> = {
     default: "bg-panel2 border-border2 text-text",
     primary: "bg-accent border-accent text-white",
+    warn: "bg-warnbg border-warn text-warn",
     danger: "bg-badbg border-bad text-bad",
   };
   return (
@@ -63,7 +65,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`border h-24 px-10 rounded-2 text-11 font-medium whitespace-nowrap disabled:opacity-45 ${styles[variant]}`}
+      className={`border h-28 px-12 rounded-2 text-11.5 font-medium whitespace-nowrap disabled:opacity-45 ${styles[variant]}`}
     >
       {children}
     </button>
@@ -88,7 +90,7 @@ export function Tag({
   };
   return (
     <span
-      className={`inline-block border rounded-2 px-6 py-1 text-9.5 font-mono whitespace-nowrap ${tones[tone]}`}
+      className={`inline-block border rounded-2 px-6 py-1 text-10.5 font-mono whitespace-nowrap ${tones[tone]}`}
     >
       {children}
     </span>
@@ -130,7 +132,7 @@ export function Table<T>({
               <th
                 key={c.header}
                 style={{ width: c.width }}
-                className={`text-9.5 uppercase tracking-label text-faint font-semibold px-12 py-7 ${
+                className={`text-10.5 uppercase tracking-label text-faint font-semibold px-12 py-7 ${
                   c.mono ? "text-right" : "text-left"
                 }`}
               >
@@ -193,7 +195,7 @@ export function Tabs<K extends string>({
           >
             {t.label}
             {t.count ? (
-              <span className="rounded-full bg-warnbg text-warn border border-warn px-6 text-10 font-mono leading-snug">
+              <span className="rounded-full bg-warnbg text-warn border border-warn px-6 text-11 font-mono leading-snug">
                 {t.count}
                 <span className="sr-only"> waiting</span>
               </span>
@@ -216,58 +218,117 @@ export function ErrorNote({ children }: { children: ReactNode }) {
   );
 }
 
-/** An overlay dialog for an action that needs more room than a row of buttons — still
- *  flush and un-shadowed, matching the rest of the design; the backdrop is what separates
- *  it from the page, not elevation. Click the backdrop or the × to dismiss. */
 /** Open modals, innermost last — Escape closes only the top one (a Change dialog opened
  *  over an item's details closes alone, leaving the details open). */
 const openModals: object[] = [];
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * An overlay dialog for an action that needs more room than a row of buttons — still
+ * flush and un-shadowed, matching the rest of the design; the backdrop is what separates
+ * it from the page, not elevation.
+ *
+ * Keyboard: focus moves into the dialog when it opens (its first field), Tab stays inside
+ * it, and focus goes back to whatever opened it on close. With `dirty` (something typed
+ * and not saved), the backdrop, Escape and × ask before throwing it away — only the
+ * dialog's own Cancel/Save buttons close it outright.
+ */
 export function Modal({
   title,
   onClose,
   children,
   width = "480px",
+  dirty = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   width?: string;
+  /** Something typed here isn't saved yet: closing by accident asks first. */
+  dirty?: boolean;
 }) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const [asking, setAsking] = useState(false);
+  const askingRef = useRef(asking);
+  askingRef.current = asking;
+
+  /** A close the person didn't press Cancel/Save for: ask first when work would be lost. */
+  const requestClose = useCallback(() => {
+    if (dirtyRef.current && !askingRef.current) setAsking(true);
+    else closeRef.current();
+  }, []);
+
   useEffect(() => {
     const me = {};
     openModals.push(me);
+    const opener = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    // The first field, or the first control, or the dialog itself.
+    const first = dialog?.querySelector<HTMLElement>("input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled])") ?? dialog?.querySelector<HTMLElement>(FOCUSABLE);
+    (first ?? dialog)?.focus();
+
     function onKeyDown(e: KeyboardEvent) {
-      // A picker inside the modal that closed its own list on this Escape marks it handled.
-      if (e.key !== "Escape" || e.defaultPrevented || openModals[openModals.length - 1] !== me) return;
-      e.preventDefault();
-      closeRef.current();
+      if (openModals[openModals.length - 1] !== me) return;
+      if (e.key === "Escape") {
+        // A picker inside the modal that closed its own list on this Escape marks it handled.
+        if (e.defaultPrevented) return;
+        e.preventDefault();
+        if (askingRef.current) setAsking(false);
+        else requestClose();
+        return;
+      }
+      if (e.key !== "Tab" || !dialog) return;
+      const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+      if (!items.length) return;
+      const [head, tail] = [items[0], items[items.length - 1]];
+      if (e.shiftKey && (document.activeElement === head || !dialog.contains(document.activeElement))) {
+        e.preventDefault();
+        tail.focus();
+      } else if (!e.shiftKey && (document.activeElement === tail || !dialog.contains(document.activeElement))) {
+        e.preventDefault();
+        head.focus();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       openModals.splice(openModals.indexOf(me), 1);
+      if (opener && document.contains(opener)) opener.focus();
     };
-  }, []);
+  }, [requestClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-14">
-      <div className="absolute inset-0 bg-black opacity-50" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-black opacity-50" onClick={requestClose} aria-hidden="true" />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative bg-panel border border-border2 rounded-3 max-h-[85vh] overflow-y-auto w-full"
+        tabIndex={-1}
+        className="relative bg-panel border border-border2 rounded-3 max-h-[85vh] overflow-y-auto w-full outline-none"
         style={{ maxWidth: width }}
       >
-        <div className="flex items-center gap-8 px-14 py-9 border-b border-border sticky top-0 bg-panel">
+        <div className="flex items-center gap-8 px-14 py-9 border-b border-border sticky top-0 bg-panel z-10">
           <div className="text-11 uppercase tracking-widest text-dim font-semibold flex-1">{title}</div>
-          <button type="button" onClick={onClose} aria-label="Close" className="text-14 leading-none text-faint hover:text-text px-4">
+          <button type="button" onClick={requestClose} aria-label="Close" className="text-14 leading-none text-faint hover:text-text px-4">
             ×
           </button>
         </div>
+        {asking && (
+          <div role="alertdialog" aria-label="Discard your changes?" className="flex flex-wrap items-center gap-8 px-14 py-9 border-b border-warn bg-warnbg sticky top-[37px] z-10">
+            <span className="text-11.5 text-warn font-medium flex-1 min-w-[160px]">You have changes that aren&apos;t saved. Discard them?</span>
+            <Button variant="danger" onClick={() => closeRef.current()}>
+              Discard
+            </Button>
+            <Button onClick={() => setAsking(false)}>Keep editing</Button>
+          </div>
+        )}
         <div className="px-14 py-14 flex flex-col gap-14">{children}</div>
       </div>
     </div>
@@ -312,7 +373,7 @@ export function ConfirmDialog({
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex items-center gap-8">
-        <Button variant={tone === "primary" ? "primary" : "danger"} onClick={onConfirm} disabled={busy || confirmDisabled}>
+        <Button variant={tone} onClick={onConfirm} disabled={busy || confirmDisabled}>
           {busy ? "Working…" : confirmLabel}
         </Button>
         <Button onClick={onCancel} disabled={busy}>

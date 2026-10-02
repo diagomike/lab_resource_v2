@@ -182,7 +182,7 @@ export async function createImport(actorId: string, input: CreateImportInput): P
     subject: `${dto.reference} is ready to load into the store`,
     paragraphs: [
       `${esc(dto.createdByName)} recorded what arrived${dto.purchaseReference ? ` for <strong>${esc(dto.purchaseReference)}</strong>` : dto.egpReference ? ` (EGP ${esc(dto.egpReference)})` : ""}: ${dto.lines.length} line${dto.lines.length === 1 ? "" : "s"}.${quoted(dto.note)}`,
-      "Load it into the store under <strong>Purchasing → Imports</strong>.",
+      "Load it into the store under <strong>Purchasing → Arrivals</strong>.",
     ],
     path: paths.arrivals(),
     action: "Open Arrivals",

@@ -131,7 +131,7 @@ export function KeySearchInput({ value, onChange, keys }: { value: string; onCha
       />
       {open && (
         <div role="listbox" className="absolute left-0 top-full z-50 mt-2 w-[320px] max-h-[280px] overflow-y-auto rounded-2 border border-border2 bg-panel p-3">
-          <div className="px-7 pb-3 pt-2 text-9.5 uppercase tracking-label text-faint">
+          <div className="px-7 pb-3 pt-2 text-10.5 uppercase tracking-label text-faint">
             {token?.value === null ? "Fields you can search by" : `Values of @${token?.key}`}
           </div>
           {suggestions.map((s, i) => (
@@ -146,10 +146,10 @@ export function KeySearchInput({ value, onChange, keys }: { value: string; onCha
               className={`flex w-full items-baseline gap-8 rounded-2 px-7 py-4 text-left ${i === active ? "bg-panel2" : ""}`}
             >
               <span className="flex-none font-mono text-11 text-accent">{s.primary}</span>
-              <span className="min-w-0 flex-1 truncate text-10 text-faint">{s.secondary}</span>
+              <span className="min-w-0 flex-1 truncate text-11 text-faint">{s.secondary}</span>
             </button>
           ))}
-          <div className="px-7 pb-2 pt-4 text-9.5 text-faint">↑↓ to move · Enter or Tab to choose · Esc to close</div>
+          <div className="px-7 pb-2 pt-4 text-10.5 text-faint">↑↓ to move · Enter or Tab to choose · Esc to close</div>
         </div>
       )}
     </div>

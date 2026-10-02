@@ -10,6 +10,7 @@ import { StatusChip } from "@/components/resources/StatusChip";
 import { CategoryIcon } from "@/components/resources/IconPicker";
 import { CategoryCombobox } from "@/components/resources/AddModal";
 import { LabCommitCard } from "@/components/resources/LabCommitCard";
+import { couldNotLoad, toast } from "@/components/toast";
 
 /**
  * One lab's contents and changes, as horizontal tabs (the lab's own page, places/[id],
@@ -25,7 +26,7 @@ export type LabTab = "current" | "draft" | "approvals";
 type Tab = LabTab;
 export const LAB_TABS: Array<{ key: Tab; label: string }> = [
   { key: "current", label: "In the lab" },
-  { key: "draft", label: "Changes" },
+  { key: "draft", label: "My changes" },
   { key: "approvals", label: "Approvals" },
 ];
 const EDITABLE_STATUSES = ["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const;
@@ -139,6 +140,13 @@ function VersionPanel({
     try {
       await api.post(`/resources/labs/${labId}/versions/${kind}/${a}`);
       setConfirm(null);
+      const said: Partial<Record<typeof a, string>> = {
+        submit: "Sent to the head for approval. You'll be told when they decide.",
+        withdraw: "Taken back — you can keep editing.",
+        discard: "Your unsent changes were discarded.",
+        refresh: "Started again from what is in the lab now.",
+      };
+      if (said[a]) toast.success(said[a]!);
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "That didn't work");
@@ -190,7 +198,7 @@ function VersionPanel({
         </div>
       }
     >
-      <div className="px-14 py-9 text-10.5 text-dim border-b border-border">{explain}</div>
+      <div className="px-14 py-9 text-11 text-dim border-b border-border">{explain}</div>
       {error && (
         <div className="px-14 pt-9">
           <ErrorNote>{error}</ErrorNote>
@@ -200,7 +208,7 @@ function VersionPanel({
         <div className="px-14 py-12 text-11 text-dim">{emptyText}</div>
       ) : (
         <>
-          <div className="px-14 py-9 border-b border-border flex flex-wrap items-center gap-8 text-10.5">
+          <div className="px-14 py-9 border-b border-border flex flex-wrap items-center gap-8 text-11">
             <Tag tone={version.status === "SUBMITTED" ? "warn" : "accent"}>{version.status === "SUBMITTED" ? "Waiting for the head" : "Not sent yet"}</Tag>
             <span className="text-dim">
               by {version.createdByName} · updated {new Date(version.updatedAt).toLocaleString()}
@@ -238,15 +246,15 @@ function ChangesList({ diff, label }: { diff: DiffEntryDto[]; label: string }) {
   const word = { changed: "changed", added: "new", removed: "removed" } as const;
   return (
     <div className="border-b border-border">
-      <button onClick={() => setOpen((o) => !o)} className="w-full text-left px-14 py-8 text-10.5 font-semibold uppercase tracking-label text-faint flex items-center gap-6">
-        <span>{open ? "▾" : "▸"}</span>
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="w-full text-left px-14 py-8 text-11 font-semibold uppercase tracking-label text-faint flex items-center gap-6">
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
         What it changes · {diff.length} {diff.length === 1 ? "entry" : "entries"} <span className="normal-case tracking-normal font-normal">({label})</span>
       </button>
       {open && (
         <div className="px-14 pb-10 flex flex-col gap-3 max-h-[240px] overflow-y-auto">
-          {diff.length === 0 && <div className="text-10.5 text-faint">Nothing yet — it matches.</div>}
+          {diff.length === 0 && <div className="text-11 text-faint">Nothing yet — it matches.</div>}
           {diff.map((d, i) => (
-            <div key={i} className="text-10.5 flex gap-8">
+            <div key={i} className="text-11 flex gap-8">
               <span className={`w-60 flex-none font-semibold ${tone[d.kind]}`}>{word[d.kind]}</span>
               <span className="font-medium">
                 {d.name}
@@ -316,7 +324,7 @@ function TreeView({ nodes, markers, focusItem, addedIds }: { nodes: LabTreeNodeD
         <TreeRow key={node.id} node={node} depth={depth} hasKids={hasKids} open={!collapsed.has(node.id)} onToggle={() => toggle(node.id)} focused={node.id === focusItem || node.sourceItemId === focusItem}>
           {addedIds?.has(node.id) && <Tag tone="good">to acquire</Tag>}
           {markers?.get(node.id) && (
-            <span className="text-10 text-warn truncate" title={markers.get(node.id)!.join("\n")}>
+            <span className="text-11 text-warn truncate" title={markers.get(node.id)!.join("\n")}>
               * {markers.get(node.id)!.join(" · ")}
             </span>
           )}
@@ -328,7 +336,7 @@ function TreeView({ nodes, markers, focusItem, addedIds }: { nodes: LabTreeNodeD
 
 function TreeControls({ onExpand, onCollapse }: { onExpand: () => void; onCollapse: () => void }) {
   return (
-    <div className="flex gap-10 px-14 py-6 border-b border-border text-10.5">
+    <div className="flex gap-10 px-14 py-6 border-b border-border text-11">
       <button onClick={onExpand} className="text-accent hover:underline">
         Expand all
       </button>
@@ -372,12 +380,19 @@ function TreeRow({
       ) : (
         onSelect && <span className="w-13 flex-none" />
       )}
-      <button onClick={onToggle} className={`w-14 flex-none text-9.5 text-dim ${hasKids ? "" : "invisible"}`}>
-        {open ? "▾" : "▸"}
+      <button
+        onClick={onToggle}
+        aria-expanded={hasKids ? open : undefined}
+        aria-label={`${open ? "Collapse" : "Expand"} ${node.name}`}
+        tabIndex={hasKids ? undefined : -1}
+        aria-hidden={hasKids ? undefined : true}
+        className={`w-14 flex-none text-10.5 text-dim ${hasKids ? "" : "invisible"}`}
+      >
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
       </button>
       <CategoryIcon iconKey={node.categoryIconKey} className="size-12 flex-none text-dim" />
       <span className={`truncate ${removed ? "line-through text-bad" : ""} ${depth === 0 ? "font-semibold" : ""}`}>{node.name}</span>
-      <span className="text-10 text-faint truncate flex-none max-w-[120px]">{node.categoryName}</span>
+      <span className="text-11 text-faint truncate flex-none max-w-[120px]">{node.categoryName}</span>
       <span className="flex-none">
         <StatusChip status={node.effectiveStatus} />
       </span>
@@ -432,7 +447,7 @@ function VersionTree({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-10 px-14 py-6 border-b border-border text-10.5">
+      <div className="flex flex-wrap items-center gap-10 px-14 py-6 border-b border-border text-11">
         <button onClick={() => setCollapsed(new Set())} className="text-accent hover:underline">
           Expand all
         </button>
@@ -442,7 +457,7 @@ function VersionTree({
         {editable && selectedIds.length > 0 && (
           <span className="flex items-center gap-6 ml-auto">
             <span className="text-accent font-medium">{selectedIds.length} selected</span>
-            <select defaultValue="" onChange={(e) => (setStatus(selectedIds, e.target.value), (e.target.value = ""))} className="h-22 px-6 rounded-2 border border-border2 bg-panel text-10.5">
+            <select defaultValue="" onChange={(e) => (setStatus(selectedIds, e.target.value), (e.target.value = ""))} className="h-22 px-6 rounded-2 border border-border2 bg-panel text-11">
               <option value="">Set status…</option>
               {EDITABLE_STATUSES.map((s) => (
                 <option key={s} value={s}>
@@ -476,9 +491,9 @@ function VersionTree({
               onSelect={editable && !isRoot ? (on) => setSelected((s) => (on ? new Set(s).add(node.id) : (s.delete(node.id), new Set(s)))) : undefined}
             >
               {isRemoved && <Tag tone="bad">removed</Tag>}
-              {addedTop.has(node.id) ? <Tag tone="good">new</Tag> : addedAll.has(node.id) ? <span className="text-9.5 text-good">new</span> : null}
+              {addedTop.has(node.id) ? <Tag tone="good">new</Tag> : addedAll.has(node.id) ? <span className="text-10.5 text-good">new</span> : null}
               {changedLines.get(node.id) && (
-                <span className="text-10 text-warn truncate" title={changedLines.get(node.id)!.join("\n")}>
+                <span className="text-11 text-warn truncate" title={changedLines.get(node.id)!.join("\n")}>
                   {changedLines.get(node.id)!.join(" · ")}
                 </span>
               )}
@@ -489,7 +504,7 @@ function VersionTree({
                       value={node.status}
                       onChange={(e) => setStatus([node.id], e.target.value)}
                       title="Set this item's own status"
-                      className="h-20 px-4 rounded-2 border border-border2 bg-panel text-10"
+                      className="h-20 px-4 rounded-2 border border-border2 bg-panel text-11"
                     >
                       {EDITABLE_STATUSES.map((s) => (
                         <option key={s} value={s}>
@@ -542,7 +557,7 @@ function VersionTree({
 
 function RowButton({ onClick, title, children }: { onClick: () => void; title: string; children: ReactNode }) {
   return (
-    <button onClick={onClick} title={title} className="h-20 px-5 rounded-2 border border-border2 text-10 text-dim hover:text-accent hover:border-accent">
+    <button onClick={onClick} title={title} className="h-20 px-5 rounded-2 border border-border2 text-11 text-dim hover:text-accent hover:border-accent">
       {children}
     </button>
   );
@@ -605,17 +620,17 @@ function AddInsideDialog({ parent, onOp, onClose }: { parent: LabTreeNodeDto; on
   return (
     <Modal title={`Add inside ${parent.name}`} onClose={onClose} width="440px">
       <label className="block">
-        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Category</div>
+        <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Category</div>
         <CategoryCombobox categories={categories} value={categoryId} loading={loading} onChange={setCategoryId} onAddCategory={onClose} />
       </label>
       {categoryId && (
         <div className="grid grid-cols-[1fr_90px] gap-8">
           <label className="block">
-            <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
+            <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Name</div>
             <input value={name} onChange={(e) => setName(e.target.value)} className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent" />
           </label>
           <label className="block">
-            <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">How many</div>
+            <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">How many</div>
             <input
               type="number"
               min={1}
@@ -628,7 +643,7 @@ function AddInsideDialog({ parent, onOp, onClose }: { parent: LabTreeNodeDto; on
         </div>
       )}
       {planned && (
-        <div className="rounded-2 border border-good bg-goodbg px-10 py-7 text-10.5">
+        <div className="rounded-2 border border-good bg-goodbg px-10 py-7 text-11">
           <div className="font-semibold text-good mb-3">Will add</div>
           {planned.join(", ")}
         </div>
@@ -675,7 +690,7 @@ function ApprovalsTab({ states, onChanged }: { states: LabStatesDto; onChanged: 
     api
       .get<LabCommitRequestDto[]>("/resources/lab-commits?box=inbox")
       .then(setInbox)
-      .catch(() => setInbox([]));
+      .catch(couldNotLoad("the bookings waiting on this lab", () => setInbox([])));
   }, [states]);
   const others = (inbox ?? []).filter((r) => r.labItemId !== states.lab.id);
   return (

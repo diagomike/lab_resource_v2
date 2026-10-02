@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
@@ -21,9 +22,10 @@ import { PanelLoading, InlineError } from "@/components/states";
 import { ImportsPanel } from "./ImportsPanel";
 import { AttachmentPicker, RequestDocuments, discardAttachments } from "./PurchaseAttachments";
 import { CategoryCombobox } from "./AddModal";
+import { couldNotLoad, toast } from "@/components/toast";
 
 const inputCls = "h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
-const labelCls = "text-10 uppercase tracking-label text-dim font-semibold";
+const labelCls = "text-11 uppercase tracking-label text-dim font-semibold";
 
 /** What a need's status means to the person following it. */
 function needStatusText(n: NeedLineDto): { text: string; tone: "warn" | "good" | "bad" | "neutral" } {
@@ -223,7 +225,7 @@ function AskForSomething({ categories, labs, replacing, onCancelReplacing, onRai
               <label key={p} className={`flex-1 min-w-[160px] cursor-pointer rounded-2 border px-10 py-8 ${priority === p ? "border-accent bg-soft" : "border-border2 hover:bg-panel2"}`}>
                 <input type="radio" name="priority" value={p} checked={priority === p} onChange={() => setPriority(p)} className="sr-only" />
                 <span className="block text-11.5 font-semibold">{PRIORITY_TEXT[p]}</span>
-                <span className="block text-10.5 text-dim mt-2">{PRIORITY_HELP[p]}</span>
+                <span className="block text-11 text-dim mt-2">{PRIORITY_HELP[p]}</span>
               </label>
             ))}
           </div>
@@ -275,8 +277,10 @@ function ReplacementsPanel({ rows, onAsk }: { rows: ReplacementSuggestionDto[]; 
             <span className="text-11.5 font-medium">
               {r.items.length} × {r.categoryName}
             </span>
-            <span className="text-10.5 text-dim">· {r.labName}</span>
-            <span className="text-10.5 text-dim basis-full sm:basis-auto">{replacementReason(r)}</span>
+            <span className="text-11 text-dim">
+              · <Link href={`/places/${r.labItemId}`} className="text-dim hover:text-accent">{r.labName}</Link>
+            </span>
+            <span className="text-11 text-dim basis-full sm:basis-auto">{replacementReason(r)}</span>
             <span className="flex-1" />
             <Button onClick={() => onAsk(r)}>Ask for {r.items.length === 1 ? "a replacement" : `${r.items.length} replacements`}</Button>
           </li>
@@ -297,6 +301,7 @@ function MyNeeds({ needs, onChanged }: { needs: NeedLineDto[] | null; onChanged:
     setError(null);
     try {
       await api.delete(`/resources/needs/${encodeURIComponent(withdrawing.id)}`);
+      toast.success(`Withdrawn: ${withdrawing.name}`);
       setWithdrawing(null);
       onChanged();
     } catch (e) {
@@ -326,14 +331,19 @@ function MyNeeds({ needs, onChanged }: { needs: NeedLineDto[] | null; onChanged:
                       × {n.qty}
                       {n.unit ? ` ${n.unit}` : ""}
                     </span>
-                    {n.labName && <span className="text-dim"> · {n.labName}</span>}
+                    {n.labName && (
+                      <span className="text-dim">
+                        {" "}
+                        · {n.labItemId ? <Link href={`/places/${n.labItemId}`} className="text-dim hover:text-accent">{n.labName}</Link> : n.labName}
+                      </span>
+                    )}
                   </div>
-                  <div className="text-10.5 text-dim">
+                  <div className="text-11 text-dim">
                     {n.kind === "REPLACEMENT" && n.replacesItems.length ? `Replaces ${n.replacesItems.length === 1 ? n.replacesItems[0].name : `${n.replacesItems.length} items`} · ` : ""}“{n.reason}”
                   </div>
-                  {n.status === "DECLINED" && n.note && <div className="text-10.5 text-bad">Head: “{n.note}”</div>}
+                  {n.status === "DECLINED" && n.note && <div className="text-11 text-bad">Head: “{n.note}”</div>}
                   {n.purchaseReference && n.purchaseStage && (
-                    <div className="text-10.5 text-dim">
+                    <div className="text-11 text-dim">
                       {n.purchaseReference} · {STAGE_LABEL[n.purchaseStage]}
                     </div>
                   )}
@@ -341,7 +351,7 @@ function MyNeeds({ needs, onChanged }: { needs: NeedLineDto[] | null; onChanged:
                 <Tag tone={PRIORITY_TONE[n.priority]}>{PRIORITY_TEXT[n.priority]}</Tag>
                 <Tag tone={status.tone}>{status.text}</Tag>
                 {n.status === "OPEN" && (
-                  <button type="button" className="text-10.5 text-bad hover:underline" onClick={() => setWithdrawing(n)}>
+                  <button type="button" className="text-11 text-bad hover:underline" onClick={() => setWithdrawing(n)}>
                     Withdraw
                   </button>
                 )}
@@ -407,6 +417,7 @@ function LabNeedsReview({
     setDeclineError(null);
     try {
       await api.post<NeedLineDto>(`/resources/needs/${encodeURIComponent(declining.id)}/decline`, { note: note.trim() });
+      toast.success(`Declined: ${declining.name}. ${declining.raisedByName} was told why.`);
       setDeclining(null);
       setNote("");
       setChosen((prev) => {
@@ -441,7 +452,7 @@ function LabNeedsReview({
         <div className="px-14 py-12 text-11.5 text-dim">No open needs. When a custodian asks for something for a lab, it appears here for you to carry into a request or decline.</div>
       ) : (
         <div className="flex flex-col">
-          <div className="px-14 py-8 text-10.5 text-dim border-b border-border flex items-center gap-10">
+          <div className="px-14 py-8 text-11 text-dim border-b border-border flex items-center gap-10">
             <label className="flex items-center gap-6 cursor-pointer">
               <input type="checkbox" checked={chosen.size === needs.length} onChange={(e) => setChosen(e.target.checked ? new Set(needs.map((n) => n.id)) : new Set())} />
               Choose all {needs.length}
@@ -465,16 +476,16 @@ function LabNeedsReview({
                         </span>
                         {n.categoryName && <span className="text-dim"> · {n.categoryName}</span>}
                       </div>
-                      <div className="text-10.5 text-dim">
+                      <div className="text-11 text-dim">
                         {n.kind === "REPLACEMENT" && n.replacesItems.length ? <span className="text-bad">Replaces {n.replacesItems.length === 1 ? n.replacesItems[0].name : `${n.replacesItems.length} broken or lost items`} · </span> : null}“{n.reason}”
                         {n.spec ? <span> · {n.spec}</span> : null}
                       </div>
-                      <div className="text-10 text-faint">
+                      <div className="text-11 text-faint">
                         {n.raisedByName} · {new Date(n.createdAt).toLocaleDateString()}
                       </div>
                     </div>
                     <Tag tone={PRIORITY_TONE[n.priority]}>{PRIORITY_TEXT[n.priority]}</Tag>
-                    <button type="button" className="text-10.5 text-bad hover:underline" onClick={() => (setDeclining(n), setNote(""), setDeclineError(null))}>
+                    <button type="button" className="text-11 text-bad hover:underline" onClick={() => (setDeclining(n), setNote(""), setDeclineError(null))}>
                       Decline…
                     </button>
                   </li>
@@ -548,7 +559,7 @@ function LinesEditor({ lines, onChange, categories }: { lines: EditableLine[]; o
     <div className="flex flex-col gap-8">
       {lines.map((l, i) => (
         <fieldset key={l.key} className="flex flex-col gap-8 border border-border rounded-2 p-10">
-          <legend className="px-4 text-10.5 text-dim">
+          <legend className="px-4 text-11 text-dim">
             Line {i + 1}
             {l.fromNeedIds.length ? ` · answers ${l.fromNeedIds.length} lab need${l.fromNeedIds.length === 1 ? "" : "s"}` : ""}
           </legend>
@@ -593,7 +604,7 @@ function LinesEditor({ lines, onChange, categories }: { lines: EditableLine[]; o
             <textarea value={l.justification} onChange={(e) => update(l.key, { justification: e.target.value })} rows={2} className={`${inputCls} h-auto py-6`} />
           </label>
           <div>
-            <button type="button" className="text-10.5 text-bad hover:underline disabled:opacity-40" onClick={() => onChange(lines.filter((x) => x.key !== l.key))} disabled={lines.length === 1}>
+            <button type="button" className="text-11 text-bad hover:underline disabled:opacity-40" onClick={() => onChange(lines.filter((x) => x.key !== l.key))} disabled={lines.length === 1}>
               Remove this line
             </button>
           </div>
@@ -737,7 +748,7 @@ function BuildRequest({
                   <Tag tone={PRIORITY_TONE[n.priority]}>{PRIORITY_TEXT[n.priority]}</Tag>
                   <span className="font-medium">{n.name}</span>
                   <span className="font-mono text-dim">× {n.qty}</span>
-                  <span className="text-dim">· {n.labName ?? "—"}</span>
+                  <span className="text-dim">· {n.labItemId ? <Link href={`/places/${n.labItemId}`} className="text-dim hover:text-accent">{n.labName}</Link> : (n.labName ?? "—")}</span>
                   <span className="flex-1" />
                   <Button onClick={() => addNeeds([n])}>Add</Button>
                 </li>
@@ -756,7 +767,9 @@ function BuildRequest({
                   <span className="font-medium">
                     {r.items.length} × {r.categoryName}
                   </span>
-                  <span className="text-dim">· {r.labName}</span>
+                  <span className="text-dim">
+                    · <Link href={`/places/${r.labItemId}`} className="text-dim hover:text-accent">{r.labName}</Link>
+                  </span>
                   <span className="flex-1" />
                   <Button onClick={() => addReplacement(r)}>Add {r.items.length === 1 ? "a replacement" : `${r.items.length} replacements`}</Button>
                 </li>
@@ -792,7 +805,7 @@ function BuildRequest({
           >
             Close
           </Button>
-          <span className="text-10.5 text-dim">Goes to the dean first. Nothing is sent until you press Send.</span>
+          <span className="text-11 text-dim">Goes to the dean first. Nothing is sent until you press Send.</span>
         </div>
       </form>
     </Panel>
@@ -811,12 +824,12 @@ export function HistoryTimeline({ history }: { history: PurchaseRequestDto["hist
   return (
     <div className="flex flex-col gap-3 border-l-2 border-border pl-8">
       {history.length > 3 && (
-        <button type="button" className="self-start text-9.5 text-accent" onClick={() => setOpen((o) => !o)}>
+        <button type="button" className="self-start text-10.5 text-accent" onClick={() => setOpen((o) => !o)}>
           {open ? "Show latest only" : `Show full history (${history.length})`}
         </button>
       )}
       {shown.map((e, i) => (
-        <div key={`${e.at}-${i}`} className="text-10 text-dim">
+        <div key={`${e.at}-${i}`} className="text-11 text-dim">
           <span className="text-faint">{new Date(e.at).toLocaleString()}</span> · <span className="font-medium">{e.byName}</span> · {STAGE_LABEL[e.stage]}
           {e.note ? <span> — {e.note}</span> : null}
           {e.attachments.length ? (
@@ -880,6 +893,7 @@ function RequestCard({
     setError(null);
     try {
       await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note.trim() || undefined, attachmentIds: files.map((f) => f.id) });
+      toast.success(decision === "APPROVE" ? `Approved ${request.reference}` : decision === "REJECT" ? `Rejected ${request.reference}` : `${request.reference} sent back for revision`);
       setNote("");
       setFiles([]);
       onChanged();
@@ -913,6 +927,7 @@ function RequestCard({
     setError(null);
     try {
       await api.post(`/resources/purchase-requests/${request.id}/cancel`, procurementNote !== undefined ? { note: procurementNote, attachmentIds } : undefined);
+      toast.success(`${request.reference} ${procurementNote !== undefined ? "cancelled" : "withdrawn"}`);
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not cancel this request");
@@ -926,6 +941,7 @@ function RequestCard({
     setError(null);
     try {
       await api.post(`/resources/purchase-requests/${request.id}/advance`, { note: note.trim() || undefined });
+      toast.success(`${request.reference} moved on. ${request.raisedByName} was told.`);
       setNote("");
       onChanged();
     } catch (e) {
@@ -942,7 +958,7 @@ function RequestCard({
           <div className="text-11.5 font-medium">
             {request.reference} · {request.title}
           </div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             {request.orgNodeName} · by {request.raisedByName} · {new Date(request.createdAt).toLocaleString()}
           </div>
         </div>
@@ -950,21 +966,21 @@ function RequestCard({
       </div>
 
       <ChainTrail steps={request.steps} ended={isFinished(request.stage)} />
-      {request.feedback && <div className="text-10.5 text-dim italic">"{request.feedback}"</div>}
+      {request.feedback && <div className="text-11 text-dim italic">"{request.feedback}"</div>}
       <HistoryTimeline history={request.history} />
       <RequestDocuments history={request.history} />
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="flex flex-col gap-4">
         {request.lines.map((l) => (
-          <div key={l.id} className="text-10.5 text-dim flex items-center justify-between">
+          <div key={l.id} className="text-11 text-dim flex items-center justify-between">
             <span>
               {l.name} · {l.qty}
               {l.unit ? ` ${l.unit}` : ""}
               {l.estimatedUnitCost !== null ? ` · ~${l.estimatedUnitCost}/unit` : ""}
             </span>
             {l.receivedQty !== null && (
-              <span className="text-9.5">
+              <span className="text-10.5">
                 received {l.receivedQty}/{l.qty}
               </span>
             )}
@@ -972,7 +988,7 @@ function RequestCard({
         ))}
       </div>
       {ordered > 0 && received > 0 && (
-        <div className="text-9.5 text-faint">
+        <div className="text-10.5 text-faint">
           {received}/{ordered} received{received >= ordered ? " — complete" : ""}
         </div>
       )}
@@ -1002,7 +1018,7 @@ function RequestCard({
         </div>
       )}
       {request.stage === "APPROVING" && !canDecide && currentStep && (
-        <div className="text-10.5 text-faint">
+        <div className="text-11 text-faint">
           {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting — ${currentStep.label} is currently vacant.`}
         </div>
       )}
@@ -1057,7 +1073,7 @@ function RequestCard({
         <div>
           {/* Withdrawing ends the request for everyone in the chain — confirm first, like
               every other consequential action in the app. */}
-          <button className="text-10.5 text-bad" onClick={() => setConfirmWithdraw(true)} disabled={busy}>
+          <button className="text-11 text-bad" onClick={() => setConfirmWithdraw(true)} disabled={busy}>
             Withdraw this request
           </button>
         </div>
@@ -1083,7 +1099,7 @@ function RequestCard({
 
       {showAdvance && (
         <div className="pt-4 border-t border-border flex flex-wrap items-center justify-between gap-8">
-          <span className="text-10.5 text-dim">{STAGE_HELP[request.stage]}</span>
+          <span className="text-11 text-dim">{STAGE_HELP[request.stage]}</span>
           <div className="flex items-center gap-8">
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" className={`${inputCls} min-w-[200px]`} />
             <Button variant="primary" onClick={advance} disabled={busy}>
@@ -1109,7 +1125,7 @@ function ProcurementCancel({ busy, onCancel }: { busy: boolean; onCancel: (note:
 
   if (!open) {
     return (
-      <button className="text-10.5 text-bad" onClick={() => setOpen(true)} disabled={busy}>
+      <button className="text-11 text-bad" onClick={() => setOpen(true)} disabled={busy}>
         Cancel this order…
       </button>
     );
@@ -1117,7 +1133,7 @@ function ProcurementCancel({ busy, onCancel }: { busy: boolean; onCancel: (note:
   return (
     <div className="flex flex-col gap-6 pt-4 border-t border-border">
       <label className="flex flex-col gap-3">
-        <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Reason (required — visible to everyone tracking this order)</span>
+        <span className="text-11 uppercase tracking-wider text-dim font-semibold">Reason (required — visible to everyone tracking this order)</span>
         <input value={note} onChange={(e) => setNote(e.target.value)} className="border border-border2 bg-panel h-26 px-8 rounded-2 text-11.5 outline-none focus:border-accent" />
       </label>
       <AttachmentPicker value={files} onChange={setFiles} onBusyChange={setUploading} disabled={busy} label="Attach a letter" hint="e.g. the supplier's withdrawal" />
@@ -1271,14 +1287,14 @@ function PurchasingInner() {
     api
       .get<ResourceCategoryDto[]>("/resources/categories")
       .then(setCategories)
-      .catch(() => setCategories([]));
+      .catch(couldNotLoad("the categories", () => setCategories([])));
   }, []);
 
   const loadCustodian = useCallback(() => {
     if (!isCustodian || !user) return;
-    api.get<LabSummaryDto[]>("/resources/labs").then((rows) => setLabs(rows.filter((l) => l.custodianId === user.id))).catch(() => setLabs([]));
-    api.get<NeedLineDto[]>("/resources/needs").then(setMyNeeds).catch(() => setMyNeeds([]));
-    api.get<ReplacementSuggestionDto[]>("/resources/needs/replacements").then(setMyReplacements).catch(() => setMyReplacements([]));
+    api.get<LabSummaryDto[]>("/resources/labs").then((rows) => setLabs(rows.filter((l) => l.custodianId === user.id))).catch(couldNotLoad("your labs", () => setLabs([])));
+    api.get<NeedLineDto[]>("/resources/needs").then(setMyNeeds).catch(couldNotLoad("what you asked for", () => setMyNeeds([])));
+    api.get<ReplacementSuggestionDto[]>("/resources/needs/replacements").then(setMyReplacements).catch(couldNotLoad("the replacement suggestions", () => setMyReplacements([])));
   }, [isCustodian, user]);
 
   const headNodeId = headsUnit?.nodeId ?? null;
@@ -1289,7 +1305,7 @@ function PurchasingInner() {
       .get<NeedLineDto[]>(`/resources/needs?node=${encodeURIComponent(headNodeId)}`)
       .then(setOpenNeeds)
       .catch((e) => setOpenNeedsError(e instanceof ApiError ? e.message : "Could not load the labs' needs"));
-    api.get<ReplacementSuggestionDto[]>(`/resources/needs/replacements?node=${encodeURIComponent(headNodeId)}`).then(setUnitReplacements).catch(() => setUnitReplacements([]));
+    api.get<ReplacementSuggestionDto[]>(`/resources/needs/replacements?node=${encodeURIComponent(headNodeId)}`).then(setUnitReplacements).catch(couldNotLoad("the unit's replacement suggestions", () => setUnitReplacements([])));
   }, [headNodeId]);
 
   useEffect(loadCustodian, [loadCustodian]);

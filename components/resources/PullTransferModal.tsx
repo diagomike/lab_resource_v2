@@ -121,20 +121,20 @@ export function PullTransferModal({
   return (
     <Modal title={`Request ${label} to my lab`} onClose={onClose} width="480px">
       <div className="flex flex-col gap-6">
-        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Into</label>
+        <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Into</label>
         {targets === null ? (
-          <span className="text-10.5 text-faint">Loading your labs…</span>
+          <span className="text-11 text-faint">Loading your labs…</span>
         ) : targets.length === 0 ? (
-          <span className="text-10.5 text-bad">You don't hold a lab or container these resources may be placed in.</span>
+          <span className="text-11 text-bad">You don't hold a lab or container these resources may be placed in.</span>
         ) : (
           <TreePicker options={containerTreeOptions(targets)} value={targetId} onChange={setTargetId} placeholder="Choose where it should go…" />
         )}
       </div>
 
       <div className="flex flex-col gap-6">
-        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">How</label>
+        <label className="text-10.5 uppercase tracking-label text-faint font-semibold">How</label>
         {fromStore ? (
-          <span className="text-10.5 text-dim">From the Main Store — it becomes your unit's, with you as its custodian.</span>
+          <span className="text-11 text-dim">From the Main Store — it becomes your unit's, with you as its custodian.</span>
         ) : (
           <div className="flex flex-col gap-4">
             {[
@@ -145,7 +145,7 @@ export function PullTransferModal({
                 <input type="radio" name="pull-kind" checked={permanent === o.value} onChange={() => setPermanent(o.value)} className="mt-2" />
                 <span>
                   <span className="font-medium">{o.title}</span>
-                  <span className="block text-10.5 text-faint">{o.help}</span>
+                  <span className="block text-11 text-faint">{o.help}</span>
                 </span>
               </label>
             ))}
@@ -154,7 +154,7 @@ export function PullTransferModal({
       </div>
 
       <div className="flex flex-col gap-6">
-        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Why (optional)</label>
+        <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Why (optional)</label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -165,7 +165,7 @@ export function PullTransferModal({
       </div>
 
       {targetId && (
-        <div className="text-10.5 border border-border2 rounded-2 px-8 py-6">
+        <div className="text-11 border border-border2 rounded-2 px-8 py-6">
           {previewError ? (
             <ErrorNote>{previewError}</ErrorNote>
           ) : !preview ? (

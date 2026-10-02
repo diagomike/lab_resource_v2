@@ -415,3 +415,33 @@ export function summaryFields(cat: Category | undefined) {
   const flagged = cat.fields.filter((f) => f.summary);
   return flagged.length ? flagged : cat.fields.slice(0, 3);
 }
+
+/** A column to sort by, and which way. */
+export interface RowSort {
+  key: string;
+  dir: "asc" | "desc";
+}
+
+/**
+ * Orders rows among their siblings by `valueOf` — the tree keeps its shape (a lab's
+ * contents stay under the lab), and headings keep the grouping's own order while what
+ * is under each one is sorted. Text compares the way people read numbers in names
+ * ("PC 2" before "PC 10"); blanks always go last, whichever way.
+ */
+export function sortRows(rows: RowNode[], valueOf: (r: RowNode) => string | number | null, dir: "asc" | "desc"): RowNode[] {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const sign = dir === "asc" ? 1 : -1;
+  const cmp = (a: RowNode, b: RowNode): number => {
+    const [x, y] = [valueOf(a), valueOf(b)];
+    const blankX = x === null || x === "";
+    const blankY = y === null || y === "";
+    if (blankX || blankY) return blankX === blankY ? 0 : blankX ? 1 : -1;
+    const c = typeof x === "number" && typeof y === "number" ? x - y : collator.compare(String(x), String(y));
+    return c * sign;
+  };
+  const walk = (list: RowNode[]): RowNode[] => {
+    const sorted = list.every((r) => r.kind === "group") ? [...list] : [...list].sort(cmp);
+    return sorted.map((r) => (r.children.length ? { ...r, children: walk(r.children) } : r));
+  };
+  return walk(rows);
+}

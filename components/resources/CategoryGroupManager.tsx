@@ -79,7 +79,7 @@ export function CategoryGroupManager({
 
   return (
     <Modal title="Category groups" onClose={onClose} width="480px">
-      <p className="text-10.5 text-dim">The shelves categories are filed under, shared by every picker in the app.</p>
+      <p className="text-11 text-dim">The shelves categories are filed under, shared by every picker in the app.</p>
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex flex-col gap-6">
         {groups.map((g) => {
@@ -112,7 +112,7 @@ export function CategoryGroupManager({
               ) : (
                 <>
                   <span className="flex-1 text-11.5 font-medium">{g.name}</span>
-                  <span className="text-10 text-faint font-mono">
+                  <span className="text-11 text-faint font-mono">
                     {used} categor{used === 1 ? "y" : "ies"}
                   </span>
                   <Button
@@ -150,7 +150,7 @@ export function CategoryGroupManager({
           Add group
         </Button>
       </div>
-      <p className="text-10 text-faint">Renaming a group moves every category filed under it. A group can only be deleted once it is empty.</p>
+      <p className="text-11 text-faint">Renaming a group moves every category filed under it. A group can only be deleted once it is empty.</p>
     </Modal>
   );
 }

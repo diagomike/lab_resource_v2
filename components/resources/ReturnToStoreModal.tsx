@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ChainStepDto, RequestTransferResultDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { Modal, Button, ErrorNote } from "@/components/ui";
+import { couldNotLoad } from "@/components/toast";
 
 type Store = { id: string; name: string; custodianName: string };
 type Preview = { outcome: "APPLIED" | "ROUTED" | "DENIED"; reason: string; steps?: ChainStepDto[] };
@@ -32,7 +33,7 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
         setStores(list);
         if (list.length === 1) setStoreId(list[0].id);
       })
-      .catch(() => setStores([]));
+      .catch(couldNotLoad("the stores", () => setStores([])));
   }, []);
 
   const input = () => ({
@@ -81,11 +82,11 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
   return (
     <Modal title={`Return ${label} to the store`} onClose={onClose} width="480px">
       <div className="flex flex-col gap-6">
-        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Into</label>
+        <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Into</label>
         {stores === null ? (
-          <span className="text-10.5 text-faint">Loading…</span>
+          <span className="text-11 text-faint">Loading…</span>
         ) : stores.length === 0 ? (
-          <span className="text-10.5 text-bad">There is no Main Store in the register yet.</span>
+          <span className="text-11 text-bad">There is no Main Store in the register yet.</span>
         ) : (
           <select
             value={storeId}
@@ -103,7 +104,7 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
       </div>
 
       <div className="flex flex-col gap-6">
-        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Why (optional)</label>
+        <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Why (optional)</label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -114,7 +115,7 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
       </div>
 
       {storeId && (
-        <div className="text-10.5 border border-border2 rounded-2 px-8 py-6">
+        <div className="text-11 border border-border2 rounded-2 px-8 py-6">
           {previewError ? (
             <ErrorNote>{previewError}</ErrorNote>
           ) : !preview ? (

@@ -8,7 +8,7 @@ import { computeClosureRows, wouldCreateCycle } from "./closure-algorithm";
 type Tx = Prisma.TransactionClient;
 
 /**
- * Every structural write (create, rename/re-kind, reparent, change-level, delete) and
+ * Every structural write (create, rename/re-kind, reparent, delete) and
  * the closure recompute that follows it now run inside one interactive transaction that
  * opens with an advisory lock, serialising all of them (F-003 of the 2026-09-15
  * campaign). Before this, `recomputeClosure` did `deleteMany({}) + createMany(all rows)`
@@ -86,11 +86,12 @@ export async function create(input: CreateOrgNodeInput): Promise<OrgNodeDto> {
   let nodeId: string;
   try {
     nodeId = await withOrgLock(async (tx) => {
-      await assertAdjacentParents(tx, input.level, input.parentIds);
-      await assertUniversityInvariant(tx, null, input.level, input.kind);
+      const level = await levelUnder(tx, input.parentIds);
+      await assertAdjacentParents(tx, level, input.parentIds);
+      await assertUniversityInvariant(tx, null, level, input.kind);
       await assertNameFree(tx, input.name, null);
       const node = await tx.orgNode.create({
-        data: { name: input.name, level: input.level, kind: input.kind, code: input.code || null },
+        data: { name: input.name, level, kind: input.kind, code: input.code || null },
       });
       for (const parentId of input.parentIds) {
         await addEdge(tx, parentId, node.id, { skipRecompute: true });
@@ -175,58 +176,46 @@ export async function reactivateNode(id: string): Promise<OrgNodeDto> {
   return (await list(false)).find((n) => n.id === id)!;
 }
 
-/** Replaces which parent(s) a node reports under. Cycles are structurally impossible
- *  here — assertAdjacentParents forces every edge from level N to N+1, so a node can
- *  never become its own ancestor. */
-export async function reassignParents(id: string, parentIds: string[]): Promise<OrgNodeDto> {
-  await withOrgLock(async (tx) => {
-    const node = await tx.orgNode.findUnique({ where: { id } });
-    if (!node) throw new HttpError(404, "Org node not found");
-    await assertAdjacentParents(tx, node.level, parentIds);
-
-    await tx.orgEdge.deleteMany({ where: { childId: id } });
-    await tx.orgEdge.createMany({ data: parentIds.map((parentId) => ({ parentId, childId: id })) });
-    await recomputeClosure(tx);
-  });
-  return (await list(false)).find((n) => n.id === id)!;
+/**
+ * A unit's level follows from where it sits: the university root is 0, anything else
+ * sits one below its parents — who must therefore all be at the same level (a
+ * department under two colleges, never under a college and a department).
+ */
+async function levelUnder(tx: Tx, parentIds: string[]): Promise<number> {
+  if (!parentIds.length) return 0;
+  const parents = await tx.orgNode.findMany({ where: { id: { in: parentIds } }, select: { name: true, level: true } });
+  if (parents.length !== parentIds.length) throw new HttpError(400, "One or more parent nodes do not exist");
+  const levels = new Set(parents.map((p) => p.level));
+  if (levels.size > 1) {
+    throw new HttpError(400, `A unit's parents must sit side by side — ${parents.map((p) => `"${p.name}"`).join(" and ")} are at different places in the structure.`);
+  }
+  return parents[0].level + 1;
 }
 
-/**
- * Moving a node to a different level invalidates every edge it holds in EITHER
- * direction — an edge only means something between two adjacent levels. Nothing is
- * auto-reconnected: the node (and any former children left with no other parent) sits
- * parentless/childless until reassignParents/addEdge redraws its edges. Owned content
- * (assets, requests, everything) is unaffected — it keys off the node's id, not its
- * level or edges.
- */
-export async function changeLevel(id: string, newLevel: number, parentIds: string[] = []): Promise<OrgNodeDto> {
+/** Replaces which parent(s) a node reports under; its level follows. A unit that has
+ *  sub-units of its own keeps its level (their edges assume it) — move those first.
+ *  Cycles are structurally impossible: every edge runs from level N to N+1, so a node
+ *  can never become its own ancestor. */
+export async function reassignParents(id: string, parentIds: string[]): Promise<OrgNodeDto> {
   await withOrgLock(async (tx) => {
     const node = await tx.orgNode.findUnique({ where: { id }, include: { outgoingEdges: true } });
     if (!node) throw new HttpError(404, "Org node not found");
-    if (node.level === newLevel) return;
-    await assertUniversityInvariant(tx, id, newLevel, node.kind);
-    // F-005 of the 2026-09-15 campaign: changing level used to strand the node (0
-    // parents, 0 children) and every former child (0 parents) with nothing reported —
-    // exactly the disconnected state assertAdjacentParents forbids at creation time. A
-    // level change invalidates every edge the node holds in either direction (an edge
-    // only means something between two adjacent levels), so its new parents are now
-    // required atomically in the same call, validated at the *new* level.
-    if (node.outgoingEdges.length > 0) {
-      // A node that still has children can't safely change level either way: its
-      // children's edges assume the *old* level, and re-deriving new parents for them
-      // isn't this operation's job. Refuse outright; the admin detaches or reassigns
-      // children first.
-      throw new HttpError(
-        400,
-        `"${node.name}" still has ${node.outgoingEdges.length} child node(s) — reassign or detach them before changing its level.`,
-      );
+    if (!parentIds.length && node.level > 0) throw new HttpError(400, "Every unit except the university itself sits under at least one other.");
+    const level = node.level === 0 ? 0 : await levelUnder(tx, parentIds);
+    if (level !== node.level) {
+      if (node.outgoingEdges.length > 0) {
+        throw new HttpError(
+          400,
+          `"${node.name}" has ${node.outgoingEdges.length} unit(s) under it, and this move would change where they sit — move them first, or choose parents alongside the current ones.`,
+        );
+      }
+      await assertUniversityInvariant(tx, id, level, node.kind);
+      await tx.orgNode.update({ where: { id }, data: { level } });
     }
-    await assertAdjacentParents(tx, newLevel, parentIds);
-    await tx.orgEdge.deleteMany({ where: { OR: [{ parentId: id }, { childId: id }] } });
-    await tx.orgNode.update({ where: { id }, data: { level: newLevel } });
-    for (const parentId of parentIds) {
-      await addEdge(tx, parentId, id, { skipRecompute: true });
-    }
+    await assertAdjacentParents(tx, level, parentIds);
+
+    await tx.orgEdge.deleteMany({ where: { childId: id } });
+    await tx.orgEdge.createMany({ data: parentIds.map((parentId) => ({ parentId, childId: id })) });
     await recomputeClosure(tx);
   });
   return (await list(false)).find((n) => n.id === id)!;

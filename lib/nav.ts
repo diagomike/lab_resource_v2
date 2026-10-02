@@ -17,10 +17,27 @@ export interface NavFacts {
   caps: CapabilitiesDto | null;
 }
 
+export type NavIconName =
+  | "House"
+  | "Boxes"
+  | "Building2"
+  | "CalendarDays"
+  | "CircleCheck"
+  | "ShoppingCart"
+  | "Globe"
+  | "Shapes"
+  | "ChartColumn"
+  | "History"
+  | "Users"
+  | "Network"
+  | "CircleHelp"
+  | "UserRound";
+
 export interface NavItem {
   key: string;
   label: string;
-  icon: string;
+  /** A lucide icon's name — components/shell/NavIcon.tsx draws it. */
+  icon: NavIconName;
   path: string;
   /** Who sees it. Omit for every university account. */
   when?: (f: Who) => boolean;
@@ -66,40 +83,40 @@ export const NAV: NavGroup[] = [
   {
     label: "Work",
     items: [
-      { key: "home", label: "Home", icon: "⌂", path: "/home" },
-      { key: "register", label: "Resources", icon: "▤", path: "/register" },
+      { key: "home", label: "Home", icon: "House", path: "/home" },
+      { key: "register", label: "Resources", icon: "Boxes", path: "/register" },
       // Heads, the ADAA and Property Administration manage labs and stores; a custodian
       // and the store keeper run theirs (lib/server/resources/places.ts).
-      { key: "places", label: "Labs & stores", icon: "⧉", path: "/places", when: (w) => w.admin || w.managesPlaces || w.propertyAdmin || w.custodian || w.storeKeeper },
+      { key: "places", label: "Labs & stores", icon: "Building2", path: "/places", when: (w) => w.admin || w.managesPlaces || w.propertyAdmin || w.custodian || w.storeKeeper },
       // The roles the booking service accepts (lib/server/scheduling/context.ts).
-      { key: "schedule", label: "Bookings", icon: "◴", path: "/schedule", when: (w) => w.admin || w.custodian || w.head },
-      { key: "approvals", label: "Approvals", icon: "✓", path: "/approvals" },
+      { key: "schedule", label: "Bookings", icon: "CalendarDays", path: "/schedule", when: (w) => w.admin || w.custodian || w.head },
+      { key: "approvals", label: "Approvals", icon: "CircleCheck", path: "/approvals" },
       {
         key: "purchasing",
         label: "Purchasing",
-        icon: "▣",
+        icon: "ShoppingCart",
         path: "/purchasing",
         when: (w) => w.admin || w.custodian || w.head || w.leader || w.propertyAdmin || w.procurement || w.storeKeeper,
       },
       // The service decides which requests each person sees (all for the AVP's office,
       // their unit's for deans, heads and assigned custodians).
-      { key: "external-requests", label: "Outside requests", icon: "⇲", path: "/external-requests", when: (w) => w.admin || w.head || w.leader || w.custodian },
-      { key: "categories", label: "Categories", icon: "◈", path: "/categories", when: (w) => w.admin || w.propertyAdmin || w.custodian || w.head || w.adaa },
+      { key: "external-requests", label: "Outside requests", icon: "Globe", path: "/external-requests", when: (w) => w.admin || w.head || w.leader || w.custodian },
+      { key: "categories", label: "Categories", icon: "Shapes", path: "/categories", when: (w) => w.admin || w.propertyAdmin || w.custodian || w.head || w.adaa },
     ],
   },
   {
     label: "Overview",
     items: [
-      { key: "dashboard", label: "Insights", icon: "▦", path: "/dashboard", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa || w.leader },
-      { key: "change-log", label: "History", icon: "◷", path: "/change-log", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa },
+      { key: "dashboard", label: "Insights", icon: "ChartColumn", path: "/dashboard", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa || w.leader },
+      { key: "change-log", label: "History", icon: "History", path: "/change-log", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa },
     ],
   },
   {
     label: "Administration",
     items: [
       // A head brings in and re-roles their own department's custodians (lib/server/people).
-      { key: "admin-people", label: "People & roles", icon: "◍", path: "/admin/people", when: (w) => w.admin || w.head },
-      { key: "admin-org-structure", label: "Organisation", icon: "⑃", path: "/admin/org-structure", when: (w) => w.admin },
+      { key: "admin-people", label: "People & roles", icon: "Users", path: "/admin/people", when: (w) => w.admin || w.head },
+      { key: "admin-org-structure", label: "Organisation", icon: "Network", path: "/admin/org-structure", when: (w) => w.admin },
     ],
   },
 ];
@@ -108,8 +125,8 @@ const YOU_GROUP: NavGroup = {
   label: "You",
   items: [
     // Everyone gets Help; which guides it shows follows the person (lib/help/audience.ts).
-    { key: "help", label: "Help & guides", icon: "?", path: "/help" },
-    { key: "profile", label: "Profile & password", icon: "◌", path: "/me/profile" },
+    { key: "help", label: "Help & guides", icon: "CircleHelp", path: "/help" },
+    { key: "profile", label: "Profile & password", icon: "UserRound", path: "/me/profile" },
   ],
 };
 

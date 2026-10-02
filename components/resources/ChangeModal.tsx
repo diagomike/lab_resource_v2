@@ -9,6 +9,7 @@ import { api, ApiError } from "@/lib/api";
 import { useEditOptions } from "@/lib/register/useEditOptions";
 import { useAuth } from "@/lib/auth-context";
 import { Modal, Button, ErrorNote } from "@/components/ui";
+import { toast } from "@/components/toast";
 
 type ChangeKind = "setStatus" | "setCustodian" | "setOwnerOrg" | "setCurrentOrg" | "moveInTree" | "deleteItem";
 
@@ -173,6 +174,11 @@ export function ChangeModal({
             ? { kind: "moveInTree" as const, itemIds: [item.id], value: value || null, note: note.trim() || undefined, expectedVersions }
             : { kind, itemIds: [item.id], value, note: note.trim() || undefined, expectedVersions };
       const result = await api.post<ItemChangeResultDto>("/resources/items/changes", input);
+      if (result?.staged) {
+        toast.success(`Added to ${result.staged.labName}'s changes — not sent to the head yet`, { href: `/places/${result.staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+      } else {
+        toast.success(kind === "deleteItem" ? `Removed ${item.name}` : `Saved ${item.name}`);
+      }
       onDone(result?.staged);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not apply this change");
@@ -182,7 +188,7 @@ export function ChangeModal({
   }
 
   return (
-    <Modal title={`Change "${item.name}"`} onClose={onClose} width="520px">
+    <Modal title={`Change "${item.name}"`} onClose={onClose} width="520px" dirty={!!note.trim() || value !== currentValueFor(kind, item)}>
       <div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
         {KINDS.map((k) => (
           <button
@@ -190,31 +196,31 @@ export function ChangeModal({
             type="button"
             onClick={() => setKind(k.kind)}
             style={{ background: kind === k.kind ? "var(--accent)" : "var(--panel2)", color: kind === k.kind ? "#fff" : "var(--dim)" }}
-            className="border-0 text-10.5 font-medium px-6 py-6 rounded-2"
+            className="border-0 text-11 font-medium px-6 py-6 rounded-2"
           >
             {k.label}
           </button>
         ))}
       </div>
 
-      <p className="text-10.5 text-faint leading-relaxed">{active.blurb}</p>
+      <p className="text-11 text-faint leading-relaxed">{active.blurb}</p>
 
       <div className="flex items-center gap-10 rounded-2 border border-border2 bg-panel2 px-10 py-8">
         <div className="min-w-0 flex-1">
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold">Current</div>
+          <div className="text-10.5 uppercase tracking-label text-faint font-semibold">Current</div>
           <div className="text-11 font-medium truncate">{currentLabel}</div>
         </div>
         <span className="text-faint">→</span>
         <div className="min-w-0 flex-1">
-          <div className="text-9.5 uppercase tracking-label text-faint font-semibold">New</div>
+          <div className="text-10.5 uppercase tracking-label text-faint font-semibold">New</div>
           <div className={`text-11 font-medium truncate ${kind !== "deleteItem" && !value ? "text-faint" : ""}`}>{kind === "deleteItem" || value ? newLabel : "not chosen yet"}</div>
         </div>
       </div>
 
       <label className="flex flex-col gap-4">
-        <span className="text-10.5 font-medium">New {active.label.toLowerCase()}</span>
+        <span className="text-11 font-medium">New {active.label.toLowerCase()}</span>
         {kind === "deleteItem" ? (
-          <div className="rounded-2 border border-bad bg-badbg px-10 py-8 text-10.5 text-bad">This removes every descendant of this resource as well. It cannot be undone.</div>
+          <div className="rounded-2 border border-bad bg-badbg px-10 py-8 text-11 text-bad">This removes every descendant of this resource as well. It cannot be undone.</div>
         ) : treeOptions ? (
           <TreePicker options={treeOptions} value={value} onChange={setValue} placeholder="Select…" />
         ) : (
@@ -230,7 +236,7 @@ export function ChangeModal({
       </label>
 
       <label className="flex flex-col gap-4">
-        <span className="text-10.5 font-medium">
+        <span className="text-11 font-medium">
           Reason <span className="text-faint">(optional)</span>
         </span>
         <input
@@ -244,7 +250,7 @@ export function ChangeModal({
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {stages && (
-        <div className="text-10.5 text-dim bg-soft border border-accent rounded-2 px-8 py-6">
+        <div className="text-11 text-dim bg-soft border border-accent rounded-2 px-8 py-6">
           This joins the lab&apos;s changes. Send them to the department head when you&apos;re done — the register changes once the head approves.
         </div>
       )}

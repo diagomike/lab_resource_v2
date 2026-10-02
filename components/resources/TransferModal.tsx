@@ -121,11 +121,11 @@ export function TransferModal({
 
   if (done) {
     return (
-      <Modal title="Hand over" onClose={onDone} width="440px">
+      <Modal title="Move" onClose={onDone} width="440px">
         <div className="text-11.5 text-dim">
           {done.outcome === "APPLIED"
             ? "Applied — the register is already updated."
-            : "Requested. It now waits for approval — see Approvals."}
+            : "Requested. It now waits for approval — you can follow it under Approvals → Sent by me."}
         </div>
         <Button variant="primary" onClick={onDone}>
           Done
@@ -135,9 +135,9 @@ export function TransferModal({
   }
 
   return (
-    <Modal title={`Hand over ${label}`} onClose={onClose} width="460px">
+    <Modal title={`Move ${label}`} onClose={onClose} width="460px">
       <div className="flex flex-col gap-8">
-        <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Destination</label>
+        <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Destination</label>
         <input
           value={selected ? selected.name : query}
           onChange={(e) => {
@@ -160,7 +160,7 @@ export function TransferModal({
                 className="w-full text-left px-8 py-6 text-11 hover:bg-panel2 border-b border-border last:border-0"
               >
                 <div>{o.name}</div>
-                <div className="text-9.5 text-faint">
+                <div className="text-10.5 text-faint">
                   {o.orgNodeName}
                   {o.path.length > 0 ? ` · in ${o.path.join(" › ")}` : ""}
                   {o.custodianName ? ` · held by ${o.custodianName}` : ""}
@@ -170,17 +170,17 @@ export function TransferModal({
           </div>
         )}
         {!selected && query.trim().length >= 2 && options.length === 0 && (
-          <div className="text-10.5 text-faint">No matching destination found.</div>
+          <div className="text-11 text-faint">No matching destination found.</div>
         )}
       </div>
 
-      <div className="text-10.5 text-dim">
+      <div className="text-11 text-dim">
         Custody and ownership move{selected ? ` to ${selected.custodianName} and ${selected.orgNodeName}` : " to the receiving lab"} once its head and Property
         Administration approve and its custodian accepts.
       </div>
 
       {selected && (
-        <div className="text-10.5 border border-border2 rounded-2 px-8 py-6">
+        <div className="text-11 border border-border2 rounded-2 px-8 py-6">
           {previewError ? (
             <ErrorNote>{previewError}</ErrorNote>
           ) : !preview ? (
@@ -199,14 +199,14 @@ export function TransferModal({
 
       {selected && preview?.naming && preview.outcome !== "DENIED" && (
         <div className="flex flex-col gap-6">
-          <label className="text-9.5 uppercase tracking-label text-faint font-semibold">Name them there as</label>
+          <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Name them there as</label>
           <input
             value={renameAs ?? ""}
             onChange={(e) => setRenameAs(e.target.value)}
             placeholder="Keep their store names"
             className="h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent"
           />
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             {renameAs?.trim() && preview.naming.planned.length
               ? `Arrive as ${preview.naming.planned.length > 4 ? `${preview.naming.planned.slice(0, 2).join(", ")} … ${preview.naming.planned.at(-1)}` : preview.naming.planned.join(", ")} — the next free numbers there.`
               : "They keep the names they have in the store."}

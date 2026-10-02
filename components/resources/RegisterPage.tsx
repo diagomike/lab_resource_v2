@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { CategoryFieldDto, ContainerOptionDto, ResourceCategoryDto } from "@/lib/shared";
 import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
-import { useRegisterState, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
+import { useRegisterState, EMPTY_FILTERS, MODE_LABEL, MODE_HELP, type RegisterMode } from "@/lib/register/useRegisterState";
 import { usePendingChange } from "@/lib/register/usePendingChange";
 import { useEditOptions } from "@/lib/register/useEditOptions";
 import { useAuth } from "@/lib/auth-context";
@@ -23,6 +23,8 @@ import { GroupByBar } from "./GroupByBar";
 import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 import { RegisterScopeSwitch, mayBrowseUniversity } from "./RegisterScopeSwitch";
 import { WholeUniversityRegister } from "./WholeUniversityRegister";
+import { couldNotLoad } from "@/components/toast";
+import { ExportViewButton } from "./ExportViewButton";
 
 const MODES: RegisterMode[] = ["grouped", "tree", "rollup", "flat"];
 
@@ -35,6 +37,7 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
   const [propField, setPropField] = useState<CategoryFieldDto | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [bulkMore, setBulkMore] = useState(false);
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
   const allExpanded = state.expanded === true;
   const options = useEditOptions();
@@ -58,7 +61,7 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
     api
       .get<ResourceCategoryDto[]>("/resources/categories")
       .then(setCategories)
-      .catch(() => setCategories([]));
+      .catch(couldNotLoad("the categories", () => setCategories([])));
   }, []);
 
   const { pending, busy, error: pendingError, request, confirm, cancel } = usePendingChange(() => {
@@ -172,19 +175,20 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
         actions={
           <div className="flex items-center gap-10">
             {canSwitch && <RegisterScopeSwitch scope="mine" />}
-            {state.refreshing && <span className="text-10 text-faint">Updating…</span>}
+            {state.refreshing && <span className="text-11 text-faint">Updating…</span>}
             {canEdit && (
               <Button variant="primary" onClick={() => setAddOpen(true)}>
                 + Add resources
               </Button>
             )}
+            <ExportViewButton rows={state.rowNodes} byId={state.byId} fileBase="Resources" paged={state.mode === "flat" && state.total > state.pageSize} />
             {state.mode !== "flat" && (
               <button
                 onClick={() => state.setExpanded(allExpanded ? {} : true)}
                 title={allExpanded ? "Collapse all" : "Expand all"}
-                className="border border-border2 bg-panel2 text-dim h-24 px-9 rounded-2 text-10.5 flex items-center gap-5 flex-none"
+                className="border border-border2 bg-panel2 text-dim h-24 px-9 rounded-2 text-11 flex items-center gap-5 flex-none"
               >
-                <span>{allExpanded ? "▾" : "▸"}</span>
+                <span aria-hidden="true">{allExpanded ? "▾" : "▸"}</span>
                 <span>{allExpanded ? "Collapse all" : "Expand all"}</span>
               </button>
             )}
@@ -198,7 +202,7 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
                     background: state.mode === m ? "var(--accent)" : "var(--panel2)",
                     color: state.mode === m ? "#fff" : "var(--dim)",
                   }}
-                  className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
+                  className="border-0 text-11 font-medium px-9 py-4 rounded-2"
                 >
                   {MODE_LABEL[m]}
                 </button>
@@ -211,15 +215,17 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
         {state.mode === "grouped" && <GroupByBar value={state.groupBy} onChange={state.setGroupBy} />}
 
         {selectedIds.length > 0 && (
-          <div className="flex flex-wrap items-center gap-8 px-14 py-9 border-b border-border bg-soft">
-            <span className="text-10.5 text-accent font-medium">{selectedIds.length} selected</span>
+          <div className="border-b border-border bg-soft">
+            {/* The common actions; the rest under More, so the bar reads at a glance. */}
+            <div className="flex flex-wrap items-center gap-8 px-14 py-9">
+              <span className="text-11 text-accent font-medium">{selectedIds.length} selected</span>
             <select
               defaultValue=""
               onChange={(e) => {
                 bulkRequestSelect("setStatus", e.target.value, "Status change", STATUS_LABEL[e.target.value as keyof typeof STATUS_LABEL] ?? e.target.value);
                 e.target.value = "";
               }}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
             >
               <option value="">Set status…</option>
               {(["WORKING", "BROKEN", "UNDER_MAINTENANCE", "LOST", "CONSUMED"] as const).map((s) => (
@@ -228,13 +234,47 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
                 </option>
               ))}
             </select>
+            {commonPropFields.length > 0 && (
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  setPropField(commonPropFields.find((f) => f.key === e.target.value) ?? null);
+                  e.target.value = "";
+                }}
+                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
+              >
+                <option value="">Edit details…</option>
+                {commonPropFields.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div className="w-[190px]">
+              <TreePicker
+                options={containerTreeOptions(moveTargets)}
+                value=""
+                onChange={(id) => id && bulkMove(id)}
+                placeholder="Put inside…"
+              />
+            </div>
+            {canHandOver && <Button onClick={() => setTransferOpen(true)}>Move to another place…</Button>}
+            {!canHandOver && <Button onClick={() => setReturnOpen(true)}>Return to store…</Button>}
+            <Button onClick={() => setBulkMore((v) => !v)}>{bulkMore ? "Fewer actions" : "More…"}</Button>
+            <button type="button" onClick={() => state.setSelection({})} className="text-11 text-dim ml-auto border-0 bg-transparent cursor-pointer">
+              Clear selection
+            </button>
+            </div>
+            {bulkMore && (
+              <div className="flex flex-wrap items-center gap-8 px-14 pb-9">
             <select
               defaultValue=""
               onChange={(e) => {
                 bulkRequestSelect("setCustodian", e.target.value, "Custody transfer", e.target.selectedOptions[0]?.text ?? e.target.value);
                 e.target.value = "";
               }}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
             >
               <option value="">Set custodian…</option>
               {options.custodian.map((o) => (
@@ -259,14 +299,6 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
                 placeholder="Set current unit…"
               />
             </div>
-            <div className="w-[190px]">
-              <TreePicker
-                options={containerTreeOptions(moveTargets)}
-                value=""
-                onChange={(id) => id && bulkMove(id)}
-                placeholder="Move to…"
-              />
-            </div>
             <input
               placeholder="Rename to…"
               onKeyDown={(e) => {
@@ -274,30 +306,13 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
                 bulkRename((e.target as HTMLInputElement).value);
                 (e.target as HTMLInputElement).value = "";
               }}
-              className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent w-[140px]"
+              className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent w-[140px]"
             />
-            {commonPropFields.length > 0 && (
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  setPropField(commonPropFields.find((f) => f.key === e.target.value) ?? null);
-                  e.target.value = "";
-                }}
-                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent"
-              >
-                <option value="">Set property…</option>
-                {commonPropFields.map((f) => (
-                  <option key={f.key} value={f.key}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            {canHandOver && <Button onClick={() => setTransferOpen(true)}>Hand over…</Button>}
-            {!canHandOver && <Button onClick={() => setReturnOpen(true)}>Return to store…</Button>}
-            <button onClick={bulkDelete} className="text-10.5 text-bad ml-auto">
+            <button onClick={bulkDelete} className="text-11 text-bad ml-auto">
               Delete selected
             </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -319,11 +334,12 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
               pendingTransfers={transferMarkers}
               matched={state.matched}
               matchedUnder={state.matchedUnder}
+              emptyText={JSON.stringify(state.filters) === JSON.stringify(EMPTY_FILTERS) ? "Nothing is in your care yet. When a head assigns you a lab or store, what is in it shows here." : undefined}
             />
 
             {state.mode === "flat" && state.total > state.pageSize && (
               <div className="flex items-center justify-between px-14 py-9 border-t border-border">
-                <span className="text-10.5 text-dim">
+                <span className="text-11 text-dim">
                   {(state.page - 1) * state.pageSize + 1}–{Math.min(state.page * state.pageSize, state.total)} of {state.total}
                 </span>
                 <div className="flex items-center gap-6">

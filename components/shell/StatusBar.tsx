@@ -15,16 +15,12 @@ export default function StatusBar({ scope, canSeeCost }: { scope: ScopeDto | nul
             ? `${scope.reachableNodeCount} unit${scope.reachableNodeCount === 1 ? "" : "s"} in view`
             : null;
   return (
-    <div className="bg-top text-topfg flex items-center gap-8 md:gap-12 px-10 text-10.5 flex-none min-w-0 overflow-hidden">
+    <div className="bg-top text-topfg flex items-center gap-8 md:gap-12 px-10 text-11 flex-none min-w-0 overflow-hidden">
       {scope && (
         <>
           <span className="opacity-85 whitespace-nowrap flex-none max-w-[45vw] md:max-w-none overflow-hidden text-ellipsis">
             {scope.name}
-            <span className="hidden sm:inline">
-              {scope.isGlobal
-                ? " · university-wide"
-                : ` · level ${scope.level}${scope.isLeaf ? " · leaf" : ""}`}
-            </span>
+            {scope.isGlobal && <span className="hidden sm:inline"> · the whole university</span>}
           </span>
           <span className="opacity-45 whitespace-nowrap flex-none">|</span>
           <span className="opacity-85 whitespace-nowrap flex-none hidden md:inline">

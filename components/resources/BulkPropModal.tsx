@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { CategoryFieldDto, ItemPropValue } from "@/lib/shared";
 import { Modal, Button, ErrorNote } from "@/components/ui";
 import { submitChange } from "@/lib/register/useItemChange";
+import { toast } from "@/components/toast";
 
 /**
  * Bulk spec correction — "all 23 of these are Desktops". Ported from
@@ -64,16 +65,19 @@ export function BulkPropModal({
       setError(r.message);
       return;
     }
+    const staged = r.result.staged;
+    if (staged) toast.success(`Added to ${staged.labName}'s changes — not sent to the head yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+    else toast.success(`${field!.label} set on ${itemIds.length} item${itemIds.length === 1 ? "" : "s"}`);
     onApplied();
     onClose();
   }
 
   return (
-    <Modal title={`Set ${field.label.toLowerCase()} on ${itemIds.length} items`} onClose={onClose} width="440px">
+    <Modal title={`Set ${field.label.toLowerCase()} on ${itemIds.length} items`} onClose={onClose} width="440px" dirty={!!value.trim() || !!note.trim()}>
       {error && <ErrorNote>{error}</ErrorNote>}
-      <p className="text-10.5 text-dim">One value, written to every selected row, as one grouped entry in the change log.</p>
+      <p className="text-11 text-dim">One value, written to every selected row, as one grouped entry in the change log.</p>
       <label className="block">
-        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">New {field.label.toLowerCase()}</div>
+        <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">New {field.label.toLowerCase()}</div>
         {options ? (
           <select
             autoFocus
@@ -100,7 +104,7 @@ export function BulkPropModal({
         )}
       </label>
       <label className="block">
-        <div className="text-9.5 uppercase tracking-label text-faint font-semibold mb-3">Note (optional)</div>
+        <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-3">Note (optional)</div>
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -108,7 +112,7 @@ export function BulkPropModal({
           className="w-full h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent"
         />
       </label>
-      <p className="text-10 text-faint">
+      <p className="text-11 text-faint">
         Values already set on a row are overwritten. Rows whose category does not define this property refuse the whole batch rather
         than being silently skipped.
       </p>

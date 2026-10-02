@@ -10,6 +10,7 @@ import { KeySearchInput, type SearchKey } from "./KeySearchInput";
 import { api } from "@/lib/api";
 import { Button, Tag } from "@/components/ui";
 import type { RegisterFilters } from "@/lib/register/useRegisterState";
+import { couldNotLoad } from "@/components/toast";
 
 /**
  * Core fields get their own dropdowns (status/category/owner/currentOrg/custodian) —
@@ -97,7 +98,7 @@ function MultiSelectPopover({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="h-24 min-w-[120px] px-8 rounded-2 border border-border2 bg-panel text-10.5 text-left outline-none focus:border-accent"
+        className="h-24 min-w-[120px] px-8 rounded-2 border border-border2 bg-panel text-11 text-left outline-none focus:border-accent"
       >
         {summary}
       </button>
@@ -110,13 +111,13 @@ function MultiSelectPopover({
                 value={needle}
                 onChange={(e) => setNeedle(e.target.value)}
                 placeholder="Type to filter…"
-                className="h-22 w-full rounded-2 border border-border2 bg-panel px-6 text-10.5 outline-none focus:border-accent"
+                className="h-22 w-full rounded-2 border border-border2 bg-panel px-6 text-11 outline-none focus:border-accent"
               />
             </div>
           )}
-          {shown.length === 0 && <div className="px-8 py-4 text-10.5 text-faint">Nothing matches.</div>}
+          {shown.length === 0 && <div className="px-8 py-4 text-11 text-faint">Nothing matches.</div>}
           {shown.map((o) => (
-            <label key={o.value} className="flex items-center gap-6 px-8 py-4 text-10.5 whitespace-nowrap cursor-pointer hover:bg-panel2">
+            <label key={o.value} className="flex items-center gap-6 px-8 py-4 text-11 whitespace-nowrap cursor-pointer hover:bg-panel2">
               <input type="checkbox" checked={selected.includes(o.value)} onChange={() => toggle(o.value)} />
               {o.label}
             </label>
@@ -201,7 +202,7 @@ function AddRuleForm({ fields, onAdd }: { fields: ItemFilterFieldDef[]; onAdd: (
               setOp(e.target.value as FilterOp);
               resetValue();
             }}
-            className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+            className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 text-dim outline-none focus:border-accent"
           >
             {ops.map((o) => (
               <option key={o} value={o}>
@@ -218,7 +219,7 @@ function AddRuleForm({ fields, onAdd }: { fields: ItemFilterFieldDef[]; onAdd: (
                 onChange={(e) => setText(e.target.value)}
                 placeholder={op === "inArray" || op === "notInArray" ? "value, value…" : "value"}
                 type={field.variant === "number" ? "number" : "text"}
-                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-10.5 outline-none focus:border-accent w-[120px]"
+                className="h-24 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent w-[120px]"
               />
             ))}
           <Button onClick={add}>Add</Button>
@@ -235,7 +236,7 @@ function BreakdownLine({ label, counts }: { label: string; counts: Map<string, n
   const sorted = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, { numeric: true }));
   const shown = all ? sorted : sorted.slice(0, 6);
   return (
-    <div className="text-10.5 text-dim leading-relaxed">
+    <div className="text-11 text-dim leading-relaxed">
       <span className="text-faint">{label}:</span>{" "}
       {shown.map(([k, n], i) => (
         <span key={k}>
@@ -287,8 +288,8 @@ export function FilterBar({
   const [categoryList, setCategoryList] = useState<ResourceCategoryDto[]>([]);
   const [orgNodes, setOrgNodes] = useState<OrgNodeDto[]>([]);
   useEffect(() => {
-    api.getShared<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(() => setCategoryList([]));
-    api.getShared<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(() => setOrgNodes([]));
+    api.getShared<ResourceCategoryDto[]>("/resources/categories").then(setCategoryList).catch(couldNotLoad("the categories", () => setCategoryList([])));
+    api.getShared<OrgNodeDto[]>("/org/nodes").then(setOrgNodes).catch(couldNotLoad("the units", () => setOrgNodes([])));
   }, []);
 
   useEffect(() => {
@@ -299,7 +300,7 @@ export function FilterBar({
     api
       .get<ItemFilterFieldDef[]>(`/resources/items/filter-fields${qs ? `?${qs}` : ""}`)
       .then(setFields)
-      .catch(() => setFields([]));
+      .catch(couldNotLoad("the details to filter by", () => setFields([])));
   }, [filters.categoryId, scope]);
 
   // A search keystroke updates the URL (via onChange), which re-fetches the register —
@@ -415,7 +416,7 @@ export function FilterBar({
       <div className="flex flex-wrap items-center gap-8">
         <KeySearchInput value={draft} onChange={setDraft} keys={searchKeys} />
         {unknownKeys.length > 0 && categoryList.length > 0 && (
-          <span className="text-10 text-warn">
+          <span className="text-11 text-warn">
             {unknownKeys.some(Boolean) ? `No field called ${unknownKeys.filter(Boolean).map((k) => `@${k}`).join(", ")}` : "Type a field name after @"}
           </span>
         )}
@@ -439,12 +440,12 @@ export function FilterBar({
       </div>
       {active && (
         <div className="flex flex-wrap items-center gap-6">
-          <span className="text-9.5 uppercase tracking-label text-faint font-semibold">Filtered by</span>
+          <span className="text-10.5 uppercase tracking-label text-faint font-semibold">Filtered by</span>
           {chips.length > 1 && (
             <button
               onClick={toggleJoin}
               title="Toggle whether a resource must match all of these filters, or any one of them"
-              className="h-20 px-8 rounded-2 border border-accent bg-soft text-accent text-9.5 font-mono font-medium"
+              className="h-20 px-8 rounded-2 border border-accent bg-soft text-accent text-10.5 font-mono font-medium"
             >
               {filters.join === "and" ? "ALL" : "ANY"}
             </button>
@@ -459,7 +460,7 @@ export function FilterBar({
               </span>
             </Tag>
           ))}
-          <button onClick={onClear} className="text-10.5 text-accent ml-auto hover:underline">
+          <button onClick={onClear} className="text-11 text-accent ml-auto hover:underline">
             Clear all
           </button>
         </div>
@@ -482,7 +483,7 @@ export function FilterBar({
             </>
           )}
           {!matches && (
-            <div className="text-10.5 text-faint">Switch to Hierarchy or Grouped to see them broken down by department, custodian, status and lab.</div>
+            <div className="text-11 text-faint">Switch to Hierarchy or Grouped to see them broken down by department, custodian, status and lab.</div>
           )}
         </div>
       )}

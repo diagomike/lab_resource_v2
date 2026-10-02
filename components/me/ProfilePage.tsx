@@ -70,7 +70,7 @@ export default function ProfilePage() {
       <Panel title="Change password">
         <form onSubmit={changePassword} className="px-14 py-12 flex flex-col gap-11 max-w-[380px]">
           <label className="block">
-            <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Current password</span>
+            <span className="text-11 uppercase tracking-wider text-dim font-semibold">Current password</span>
             <input
               type="password"
               autoComplete="current-password"
@@ -81,7 +81,7 @@ export default function ProfilePage() {
             />
           </label>
           <label className="block">
-            <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">New password</span>
+            <span className="text-11 uppercase tracking-wider text-dim font-semibold">New password</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -91,7 +91,7 @@ export default function ProfilePage() {
               minLength={8}
               className="mt-4 w-full bg-panel2 border border-border2 rounded-2 h-26 px-9 text-12 outline-none focus:border-accent"
             />
-            <span className="text-9.5 text-faint">At least 8 characters.</span>
+            <span className="text-10.5 text-faint">At least 8 characters.</span>
           </label>
 
           {msg &&
@@ -146,14 +146,14 @@ function EmailNotificationsPanel() {
           <input type="checkbox" className="mt-3" checked={on} disabled={busy} onChange={(e) => void set(e.target.checked)} aria-describedby="email-notifications-help" />
           <span>
             <span className="text-12 font-medium">Email me when something needs me or my request is decided</span>
-            <span id="email-notifications-help" className="block text-10.5 text-dim mt-2">
+            <span id="email-notifications-help" className="block text-11 text-dim mt-2">
               Approvals waiting for you (purchase requests, lab drafts and ideals, transfers, bookings) and the outcome of what you asked
               for. Invitations and password-reset emails always arrive. Whatever you choose, everything waiting for you is listed under{" "}
               <strong>Approvals</strong>.
             </span>
           </span>
         </label>
-        <div className="text-10.5">
+        <div className="text-11">
           {on ? <Tag tone="good">emails on</Tag> : <Tag tone="neutral">emails off</Tag>}
         </div>
         {error && <ErrorNote>{error}</ErrorNote>}
@@ -171,7 +171,7 @@ function DisplayPanel() {
     <Panel title="Display">
       <div className="px-14 py-12 flex flex-col gap-11 max-w-[420px]">
         <div>
-          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-6">Theme</div>
+          <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-6">Theme</div>
           <button
             type="button"
             onClick={toggle}
@@ -181,13 +181,13 @@ function DisplayPanel() {
           </button>
         </div>
         <div>
-          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-6">Text size</div>
+          <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-6">Text size</div>
           <SegmentedChoice options={FONT_SIZES} value={fontSize} onChange={setFontSize} />
         </div>
         <div>
-          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-6">Typeface</div>
+          <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-6">Typeface</div>
           <SegmentedChoice options={FONT_FAMILIES} value={fontFamily} onChange={setFontFamily} />
-          <div className="text-10.5 text-faint mt-4">
+          <div className="text-11 text-faint mt-4">
             Numbers, tags and dates always stay in IBM Plex Mono, whatever you pick here — that's what keeps them
             easy to compare at a glance.
           </div>

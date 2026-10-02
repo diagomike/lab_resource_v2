@@ -7,9 +7,10 @@ import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { api, ApiError } from "@/lib/api";
 import { Panel, ErrorNote, Button, Tag } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
+import { couldNotLoad } from "@/components/toast";
 
-const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5";
-const labelCls = "text-9.5 uppercase tracking-label text-faint";
+const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-11";
+const labelCls = "text-10.5 uppercase tracking-label text-faint";
 
 const STATUS_TONE: Record<ImportRecordDto["status"], "warn" | "good" | "neutral"> = { OPEN: "warn", LOADED: "good", CANCELLED: "neutral" };
 const STATUS_LABEL: Record<ImportRecordDto["status"], string> = { OPEN: "To load", LOADED: "Loaded", CANCELLED: "Cancelled" };
@@ -43,7 +44,7 @@ export function ImportsPanel({ categories, canRecord, canLoad }: { categories: R
     <>
       {canRecord && <RecordImport categories={categories} records={records ?? []} onCreated={load} />}
       {error && <ErrorNote>{error}</ErrorNote>}
-      <Panel title="Import records" actions={<span className="text-10.5 text-faint">{canLoad ? "Load what arrived into the store" : "What arrived, and whether it is in the store yet"}</span>}>
+      <Panel title="Import records" actions={<span className="text-11 text-faint">{canLoad ? "Load what arrived into the store" : "What arrived, and whether it is in the store yet"}</span>}>
         {records === null ? (
           <PanelLoading rows={3} />
         ) : records.length === 0 ? (
@@ -77,7 +78,7 @@ function RecordImport({ categories, records, onCreated }: { categories: Resource
     api
       .get<PurchaseRequestDto[]>("/resources/purchase-requests?box=receiving")
       .then(setArrived)
-      .catch(() => setArrived([]));
+      .catch(couldNotLoad("what has arrived", () => setArrived([])));
   }, [records.length]);
 
   /** Already recorded per purchase line, on records that aren't cancelled. */
@@ -142,7 +143,7 @@ function RecordImport({ categories, records, onCreated }: { categories: Resource
   }
 
   return (
-    <Panel title="Record an import" actions={<span className="text-10.5 text-faint">What a purchase actually delivered — the store loads from this</span>}>
+    <Panel title="Record an import" actions={<span className="text-11 text-faint">What a purchase actually delivered — the store loads from this</span>}>
       <div className="p-12 flex flex-col gap-10">
         <div className="flex items-center gap-4">
           {(["PURCHASE_REQUEST", "EGP"] as const).map((s) => (
@@ -155,7 +156,7 @@ function RecordImport({ categories, records, onCreated }: { categories: Resource
                 setLines([blankLine()]);
               }}
               style={{ background: source === s ? "var(--accent)" : "var(--panel2)", color: source === s ? "#fff" : "var(--dim)" }}
-              className="border-0 text-10.5 font-medium px-9 py-4 rounded-2"
+              className="border-0 text-11 font-medium px-9 py-4 rounded-2"
             >
               {s === "PURCHASE_REQUEST" ? "From a purchase request" : "Standalone EGP purchase"}
             </button>
@@ -223,14 +224,14 @@ function RecordImport({ categories, records, onCreated }: { categories: Resource
                   <span className={labelCls}>Model / serials (optional)</span>
                   <input value={l.spec} onChange={(e) => update(l.key, { spec: e.target.value })} className={`${inputCls} w-[220px]`} />
                 </label>
-                {l.purchaseLineId && <span className="text-9.5 text-faint pb-4">on the request</span>}
-                <button type="button" className="text-10.5 text-faint pb-4" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} disabled={lines.length === 1}>
+                {l.purchaseLineId && <span className="text-10.5 text-faint pb-4">on the request</span>}
+                <button type="button" className="text-11 text-faint pb-4" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} disabled={lines.length === 1}>
                   Remove
                 </button>
               </div>
             ))}
             <div>
-              <button type="button" className="text-10.5 text-accent" onClick={() => setLines((ls) => [...ls, blankLine()])}>
+              <button type="button" className="text-11 text-accent" onClick={() => setLines((ls) => [...ls, blankLine()])}>
                 + Add a line
               </button>
             </div>
@@ -318,20 +319,20 @@ function ImportCard({ record, canLoad, canRecord, onChanged }: { record: ImportR
             {record.source === "PURCHASE_REQUEST" ? `for ${record.purchaseReference ?? "a purchase request"}${record.purchaseOrgNodeName ? ` (${record.purchaseOrgNodeName})` : ""}` : `EGP ${record.egpReference}`}
             {record.supplier ? ` · ${record.supplier}` : ""}
           </div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             recorded by {record.createdByName} · {new Date(record.createdAt).toLocaleString()}
           </div>
         </div>
         <Tag tone={STATUS_TONE[record.status]}>{STATUS_LABEL[record.status]}</Tag>
       </div>
-      {record.note && <div className="text-10.5 text-dim italic whitespace-pre-line">"{record.note}"</div>}
+      {record.note && <div className="text-11 text-dim italic whitespace-pre-line">"{record.note}"</div>}
 
       <div className="flex flex-col gap-6">
         {record.lines.map((l) => {
           const left = l.qty - l.loadedQty;
           const f = fieldsFor(l.id, left);
           return (
-            <div key={l.id} className="flex flex-wrap items-end gap-8 text-10.5">
+            <div key={l.id} className="flex flex-wrap items-end gap-8 text-11">
               <div className="min-w-[200px]">
                 <div className="font-medium">{l.name}</div>
                 <div className="text-faint">
@@ -388,7 +389,7 @@ function ImportCard({ record, canLoad, canRecord, onChanged }: { record: ImportR
               </Button>
             </>
           ) : (
-            <button type="button" className="text-10.5 text-bad" onClick={() => setCancelling(true)}>
+            <button type="button" className="text-11 text-bad" onClick={() => setCancelling(true)}>
               Cancel this record…
             </button>
           )}

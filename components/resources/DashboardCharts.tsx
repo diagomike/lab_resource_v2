@@ -74,7 +74,7 @@ export function DashboardDonut({
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <div className="font-mono text-21 font-semibold">{centerValue}</div>
-          <div className="text-10 text-faint">{centerLabel}</div>
+          <div className="text-11 text-faint">{centerLabel}</div>
         </div>
       </div>
 
@@ -86,14 +86,14 @@ export function DashboardDonut({
             onClick={() => onSelect(segment.key)}
             onMouseEnter={() => setHovered(segment.key)}
             onMouseLeave={() => setHovered(null)}
-            className={`flex w-full items-center gap-7 rounded-2 px-7 py-5 text-left text-10.5 hover:bg-panel2 ${
+            className={`flex w-full items-center gap-7 rounded-2 px-7 py-5 text-left text-11 hover:bg-panel2 ${
               activeKeys.includes(segment.key) ? "bg-sel" : ""
             }`}
           >
             <span className="size-8 shrink-0 rounded-1" style={{ background: segment.color }} />
             <span className="min-w-0 flex-1 truncate">{segment.label}</span>
             <span className="font-mono font-medium">{segment.value}</span>
-            <span className="w-32 text-right font-mono text-9.5 text-faint">{Math.round((segment.value / total) * 100)}%</span>
+            <span className="w-32 text-right font-mono text-10.5 text-faint">{Math.round((segment.value / total) * 100)}%</span>
           </button>
         ))}
       </div>
@@ -134,7 +134,7 @@ export function DashboardRankedBars({
           }`}
         >
           <span className="min-w-0">
-            <span className="mb-5 block truncate text-10.5">{row.label}</span>
+            <span className="mb-5 block truncate text-11">{row.label}</span>
             <span className="block h-5 w-full overflow-hidden rounded-full bg-panel3">
               <span
                 className="block h-full rounded-full transition-all"

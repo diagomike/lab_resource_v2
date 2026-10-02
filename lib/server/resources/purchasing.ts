@@ -814,7 +814,7 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
     // store keeper loads the store from that record — never straight off the request.
     await notify(await usersWithRole("PROPERTY_ADMIN"), actorId, {
       subject: `${dto.reference} has arrived at the main store`,
-      paragraphs: [`${summary(dto)} has arrived. Record what came in as an import record under <strong>Purchasing → Imports</strong>, so the store keeper can load it into the store.`],
+      paragraphs: [`${summary(dto)} has arrived. Record what came in under <strong>Purchasing → Arrivals</strong>, so the store keeper can load it into the store.`],
       path: paths.arrivals(),
     });
   }
@@ -871,7 +871,7 @@ async function tellNextApprover(dto: PurchaseRequestDto, actorId: string): Promi
     paragraphs: [
       `A purchase request has reached your step (${esc(step.label)}): ${summary(dto)}, raised by ${esc(dto.raisedByName)}.`,
       ...(files.length ? [`It carries ${files.length} supporting document${files.length === 1 ? "" : "s"}: ${fileList(files)}.`] : []),
-      "Approve it, send it back for revision, or reject it under <strong>Approvals → Purchasing</strong>.",
+      "Approve it, send it back for revision, or reject it — the button below opens it.",
     ],
     path: paths.decide("purchase", dto.id),
     action: "Review the request",

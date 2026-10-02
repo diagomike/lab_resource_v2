@@ -12,9 +12,10 @@ import { useShellHeader } from "@/app/(workspace)/layout";
 import { CustodianPicker, DetailFields, draftFromProps, missingRequired, typedProps, type DetailDraft } from "./PlaceForms";
 import { DraftTag } from "./PlacesPage";
 import { LAB_TABS, LabView, type LabTab } from "./LabView";
+import { couldNotLoad, toast } from "@/components/toast";
 
 const inputCls = "h-28 w-full px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
-const labelCls = "text-10 uppercase tracking-label text-dim font-semibold";
+const labelCls = "text-11 uppercase tracking-label text-dim font-semibold";
 
 /**
  * One lab or store: its details and who runs it (changed here by whoever manages the
@@ -44,7 +45,7 @@ function PlaceInner({ id }: { id: string }) {
   }, [id]);
   useEffect(load, [load]);
   useEffect(() => {
-    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategories).catch(() => setCategories([]));
+    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategories).catch(couldNotLoad("the categories", () => setCategories([])));
   }, []);
   useShellHeader({ crumb: "Labs & stores ›", title: place?.name ?? "", subtitle: place ? `${place.categoryName} · ${place.ownerOrgNodeName}` : "" }, [place?.name, place?.categoryName, place?.ownerOrgNodeName]);
 
@@ -113,7 +114,7 @@ function PlaceInner({ id }: { id: string }) {
           <dl className="grid gap-x-16 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))]">
             {fields.map((f) => (
               <div key={f.key} className="flex flex-col">
-                <dt className="text-10 uppercase tracking-label text-dim">{f.label}</dt>
+                <dt className="text-11 uppercase tracking-label text-dim">{f.label}</dt>
                 <dd className="text-12">
                   {place.props[f.key] === null || place.props[f.key] === undefined || place.props[f.key] === "" ? <span className="text-faint">—</span> : String(place.props[f.key])}
                   {f.unit && place.props[f.key] ? ` ${f.unit}` : ""}
@@ -129,7 +130,7 @@ function PlaceInner({ id }: { id: string }) {
             <Button variant="danger" disabled={place.itemCount > 0} onClick={() => setEditing("remove")}>
               Remove
             </Button>
-            {place.itemCount > 0 && <span className="text-10.5 text-dim">A place can be removed once it is empty.</span>}
+            {place.itemCount > 0 && <span className="text-11 text-dim">A place can be removed once it is empty.</span>}
           </div>
         )}
       </section>
@@ -176,6 +177,7 @@ function EditDetailsModal({ place, fields, onClose, onSaved }: { place: PlaceDto
     setError(null);
     try {
       await api.patch(`/places/${place.id}`, { name: name.trim(), props: typedProps(fields, details) });
+      toast.success(`Saved ${name.trim()}`);
       onSaved();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save");
@@ -184,7 +186,7 @@ function EditDetailsModal({ place, fields, onClose, onSaved }: { place: PlaceDto
   }
 
   return (
-    <Modal title={`Edit ${place.name}`} onClose={onClose} width="520px">
+    <Modal title={`Edit ${place.name}`} onClose={onClose} width="520px" dirty={name !== place.name || JSON.stringify(details) !== JSON.stringify(draftFromProps(fields, place.props))}>
       <form
         className="flex flex-col gap-12"
         onSubmit={(e) => {
@@ -197,7 +199,7 @@ function EditDetailsModal({ place, fields, onClose, onSaved }: { place: PlaceDto
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
         </label>
         <DetailFields fields={fields} draft={details} onChange={setDetails} />
-        {missing.length > 0 && <div className="text-10.5 text-warn">Still needed: {missing.join(", ")}.</div>}
+        {missing.length > 0 && <div className="text-11 text-warn">Still needed: {missing.join(", ")}.</div>}
         {error && <ErrorNote>{error}</ErrorNote>}
         <div className="flex items-center gap-8">
           <Button type="submit" variant="primary" disabled={busy || !name.trim() || missing.length > 0}>
@@ -223,6 +225,7 @@ function ChangeCustodianModal({ place, onClose, onSaved }: { place: PlaceDto; on
     setError(null);
     try {
       const updated = await api.patch<PlaceDto>(`/places/${place.id}`, { custodianId, note: note.trim() || undefined });
+      toast.success(`${updated.custodianName} now runs ${place.name}. Both of you were told.`);
       onSaved(updated.custodianName);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not change the custodian");
@@ -278,6 +281,7 @@ function RemovePlaceDialog({ place, onClose, onRemoved }: { place: PlaceDto; onC
         setError(null);
         try {
           await api.delete(`/places/${place.id}`);
+          toast.success(`Removed ${place.name}`);
           onRemoved();
         } catch (e) {
           setError(e instanceof ApiError ? e.message : "Could not remove it");

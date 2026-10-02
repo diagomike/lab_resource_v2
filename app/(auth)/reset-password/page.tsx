@@ -59,7 +59,7 @@ function ResetPasswordForm() {
       ) : (
         <form onSubmit={onSubmit} className="px-14 py-12">
           <label className="block">
-            <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">New password</span>
+            <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">New password</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -72,7 +72,7 @@ function ResetPasswordForm() {
             />
           </label>
           <label className="block mt-10">
-            <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Confirm password</span>
+            <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Confirm password</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -99,7 +99,7 @@ function ResetPasswordForm() {
           >
             {busy ? "Saving…" : "Set new password"}
           </button>
-          <Link href="/login" className="block text-center text-10.5 text-dim mt-10">
+          <Link href="/login" className="block text-center text-11 text-dim mt-10">
             ← Back to sign in
           </Link>
         </form>

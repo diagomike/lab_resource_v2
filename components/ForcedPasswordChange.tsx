@@ -38,7 +38,7 @@ export default function ForcedPasswordChange() {
   }
 
   const field = "w-full border border-border2 bg-panel h-25 px-8 rounded-3 text-11.5 mt-3 outline-none focus:border-accent";
-  const label = "text-9.5 uppercase tracking-caps text-faint font-semibold";
+  const label = "text-10.5 uppercase tracking-caps text-faint font-semibold";
 
   return (
     <AuthChrome subtitle="Choose a new password">
@@ -73,7 +73,7 @@ export default function ForcedPasswordChange() {
         >
           {busy ? "Saving…" : "Set password and continue"}
         </button>
-        <button type="button" onClick={() => void logout()} className="text-10.5 text-dim">
+        <button type="button" onClick={() => void logout()} className="text-11 text-dim">
           Sign out instead
         </button>
       </form>

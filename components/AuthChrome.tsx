@@ -26,7 +26,7 @@ export default function AuthChrome({
     <div className="min-h-screen bg-bg flex flex-col">
       <div className="h-38 bg-top text-topfg flex items-center gap-12 px-10 flex-none">
         <div className="flex items-center gap-8">
-          <div className="w-18 h-18 bg-white text-top text-9.5 font-bold flex items-center justify-center tracking-tight rounded-2">
+          <div className="w-18 h-18 bg-white text-top text-10.5 font-bold flex items-center justify-center tracking-tight rounded-2">
             AS
           </div>
           <div className="text-12 font-semibold tracking-wide">
@@ -48,14 +48,14 @@ export default function AuthChrome({
         <div className="w-full max-w-[380px]">
           <div className="bg-panel border border-border rounded-3 overflow-hidden">
             <div className="px-14 py-12 border-b border-border">
-              <div className="text-10 uppercase tracking-caps text-faint font-semibold">
+              <div className="text-11 uppercase tracking-caps text-faint font-semibold">
                 Adama Science and Technology University
               </div>
               <div className="text-15 font-semibold mt-2">{subtitle}</div>
             </div>
             {children}
           </div>
-          {footer && <div className="text-10.5 text-faint leading-loose mt-12 px-2">{footer}</div>}
+          {footer && <div className="text-11 text-faint leading-loose mt-12 px-2">{footer}</div>}
         </div>
       </div>
     </div>

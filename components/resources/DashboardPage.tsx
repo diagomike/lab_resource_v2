@@ -231,7 +231,7 @@ function DashboardPageInner() {
                       key={entry.id}
                       type="button"
                       onClick={() => setDimension(entry.id)}
-                      className={`h-22 border-r border-border2 px-8 text-9.5 font-medium last:border-r-0 ${
+                      className={`h-22 border-r border-border2 px-8 text-10.5 font-medium last:border-r-0 ${
                         dimension === entry.id ? "bg-accent text-white" : "bg-panel2 text-dim hover:text-text"
                       }`}
                     >
@@ -263,7 +263,7 @@ function DashboardPageInner() {
               title="Where the problems are"
               actions={
                 summary.needsAttention > 0 ? (
-                  <span className="rounded-2 bg-badbg px-7 py-3 font-mono text-9.5 font-medium text-bad">
+                  <span className="rounded-2 bg-badbg px-7 py-3 font-mono text-10.5 font-medium text-bad">
                     {summary.needsAttention} items
                   </span>
                 ) : null
@@ -285,7 +285,7 @@ function DashboardPageInner() {
                 type="button"
                 onClick={() => state.setExpanded(allExpanded ? {} : true)}
                 title={allExpanded ? "Collapse every row" : "Expand every row"}
-                className="flex h-24 items-center gap-5 rounded-2 border border-border2 bg-panel2 px-9 text-10.5 text-dim"
+                className="flex h-24 items-center gap-5 rounded-2 border border-border2 bg-panel2 px-9 text-11 text-dim"
               >
                 <ChevronsDownUp className="size-13" />
                 {allExpanded ? "Collapse all" : "Expand all"}
@@ -331,9 +331,9 @@ function BreakdownTable({
   if (rows.length === 0) return <EmptyChart>Nothing matches the current filter.</EmptyChart>;
   return (
     <div className="overflow-x-auto p-14">
-      <table className="w-full min-w-[560px] text-10.5">
+      <table className="w-full min-w-[560px] text-11">
         <thead>
-          <tr className="text-9.5 uppercase tracking-label text-faint">
+          <tr className="text-10.5 uppercase tracking-label text-faint">
             <th className="pb-7 text-left font-semibold">{label}</th>
             <th className="pb-7 text-right font-semibold">Total</th>
             <th className="pb-7 text-right font-semibold">Working</th>
@@ -357,7 +357,7 @@ function BreakdownTable({
                 <td className="py-7 text-right font-mono font-medium">{row.total}</td>
                 <td className="py-7 text-right font-mono">
                   <span className={working === row.total ? "text-good" : ""}>{working}</span>
-                  <span className="ml-5 text-9.5 text-faint">({Math.round((working / row.total) * 100)}%)</span>
+                  <span className="ml-5 text-10.5 text-faint">({Math.round((working / row.total) * 100)}%)</span>
                 </td>
                 <td className="py-7 pl-12">
                   <div className="flex h-7 w-full overflow-hidden rounded-full bg-panel3">
@@ -413,9 +413,9 @@ function StatTile({
 }) {
   const content = (
     <>
-      <div className="text-9.5 font-semibold uppercase tracking-label text-faint">{label}</div>
+      <div className="text-10.5 font-semibold uppercase tracking-label text-faint">{label}</div>
       <div className={`mt-4 font-mono text-21 font-semibold ${tone ? STAT_TONE_CLASS[tone] : ""}`}>{value}</div>
-      <div className="mt-3 text-10 text-dim">{sub}</div>
+      <div className="mt-3 text-11 text-dim">{sub}</div>
     </>
   );
   const className = `rounded-3 border bg-panel px-14 py-12 text-left ${

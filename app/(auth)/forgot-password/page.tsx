@@ -48,7 +48,7 @@ export default function ForgotPasswordPage() {
       ) : (
         <form onSubmit={onSubmit} className="px-14 py-12">
           <label className="block">
-            <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Email</span>
+            <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Email</span>
             <input
               type="email"
               autoComplete="username"
@@ -75,7 +75,7 @@ export default function ForgotPasswordPage() {
           >
             {busy ? "Sending…" : "Send reset link"}
           </button>
-          <Link href="/login" className="block text-center text-10.5 text-dim mt-10">
+          <Link href="/login" className="block text-center text-11 text-dim mt-10">
             ← Back to sign in
           </Link>
         </form>

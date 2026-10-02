@@ -156,7 +156,7 @@ export function ItemImageGallery({
           {/* eslint-disable-next-line @next/next/no-img-element -- served from our own API route. */}
           <img src={url} alt={image?.caption ?? item.name} className="absolute inset-0 size-full object-contain" />
           {fallback && (
-            <span className="absolute bottom-6 left-6 rounded-2 bg-panel/85 px-6 py-3 text-9.5 text-dim">Category picture</span>
+            <span className="absolute bottom-6 left-6 rounded-2 bg-panel/85 px-6 py-3 text-10.5 text-dim">Category picture</span>
           )}
         </div>
       )}
@@ -190,8 +190,8 @@ export function ItemImageGallery({
         </div>
       )}
 
-      {image?.caption && <p className="text-10.5 text-dim">{image.caption}</p>}
-      {error && <p className="text-10.5 text-bad">{error}</p>}
+      {image?.caption && <p className="text-11 text-dim">{image.caption}</p>}
+      {error && <p className="text-11 text-bad">{error}</p>}
     </div>
   );
 }

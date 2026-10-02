@@ -8,7 +8,7 @@ import { Button, ErrorNote, Modal } from "@/components/ui";
 import { CategoryIcon } from "@/components/resources/IconPicker";
 
 const inputCls = "h-28 w-full px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
-const labelCls = "text-10 uppercase tracking-label text-dim font-semibold";
+const labelCls = "text-11 uppercase tracking-label text-dim font-semibold";
 
 /** A place's details, as text the form edits; typed again by `typedProps`. */
 export type DetailDraft = Record<string, string>;
@@ -138,7 +138,7 @@ export function AddPlaceModal({ options, categories, onClose }: { options: Place
   }
 
   return (
-    <Modal title="Add a lab or store" onClose={onClose} width="560px">
+    <Modal title="Add a lab or store" onClose={onClose} width="560px" dirty={!!name.trim() || Object.values(details).some((v) => String(v ?? "").trim())}>
       <form
         className="flex flex-col gap-14"
         onSubmit={(e) => {
@@ -178,10 +178,10 @@ export function AddPlaceModal({ options, categories, onClose }: { options: Place
         <label className="flex flex-col gap-4">
           <span className={labelCls}>Who runs it (its custodian)</span>
           <CustodianPicker unitId={unitId} value={custodianId} onChange={setCustodianId} />
-          <span className="text-10.5 text-dim">They are told, and they add and change what it holds; you approve their changes.</span>
+          <span className="text-11 text-dim">They are told, and they add and change what it holds; you approve their changes.</span>
         </label>
         {error && <ErrorNote>{error}</ErrorNote>}
-        {missing.length > 0 && name.trim() && <div className="text-10.5 text-warn">Still needed: {missing.join(", ")}.</div>}
+        {missing.length > 0 && name.trim() && <div className="text-11 text-warn">Still needed: {missing.join(", ")}.</div>}
         <div className="flex items-center gap-8">
           <Button type="submit" variant="primary" disabled={!ready || busy}>
             {busy ? "Creating…" : "Create"}

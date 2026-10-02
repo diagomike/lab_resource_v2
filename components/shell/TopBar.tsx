@@ -9,6 +9,7 @@ import { canAccessPath } from "../../lib/nav";
 import { helpChaptersFor, helpHrefFor } from "../../lib/help/audience";
 import { ROLE_LABEL } from "@/lib/shared";
 import Bell from "./Bell";
+import { CircleHelp, Menu, Moon, Search, Sun } from "lucide-react";
 
 function initials(name: string): string {
   const words = name
@@ -64,11 +65,11 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
         aria-label="Open menu"
         className="md:hidden border border-topline2 bg-topfill2 text-current w-30 h-26 rounded-3 text-13 flex items-center justify-center flex-none"
       >
-        ☰
+        <Menu size={16} aria-hidden="true" />
       </button>
 
       <div className="flex items-center gap-8 min-w-0 shrink overflow-hidden">
-        <div className="w-18 h-18 bg-white text-top text-9.5 font-bold flex items-center justify-center tracking-tight rounded-2 flex-none">
+        <div className="w-18 h-18 bg-white text-top text-10.5 font-bold flex items-center justify-center tracking-tight rounded-2 flex-none">
           AS
         </div>
         <div className="text-12 font-semibold tracking-wide whitespace-nowrap">
@@ -84,7 +85,7 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
           }}
           className={`w-full min-w-0 max-w-[380px] relative items-center bg-topfill border border-topline rounded-3 h-24 px-8 gap-6 ${canSearch ? "flex" : "hidden"}`}
         >
-          <span className="text-10 opacity-60">⌕</span>
+          <Search size={12} className="opacity-60 flex-none" aria-hidden="true" />
           <input
             ref={inputRef}
             value={query}
@@ -99,7 +100,7 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
             placeholder="Find an asset, tag, catalog item, lab…"
             className="flex-1 bg-transparent border-0 outline-none text-11.5 text-current min-w-0"
           />
-          <span className="text-9.5 opacity-45 font-mono border border-topline2 rounded-2 px-4 flex-none" title="Ctrl+K or ⌘K">⌘K</span>
+          <span className="text-10.5 opacity-45 font-mono border border-topline2 rounded-2 px-4 flex-none" title="Ctrl+K or ⌘K">⌘K</span>
         </form>
       </div>
 
@@ -114,7 +115,7 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
         style={{ textDecoration: "none" }}
         className={`border border-topline2 h-26 md:h-24 px-8 md:px-9 rounded-3 text-11 flex items-center gap-5 flex-none ${pathname === "/help" ? "bg-topsel text-top" : "bg-topfill2 text-current"}`}
       >
-        <span aria-hidden="true" className="font-semibold">?</span>
+        <CircleHelp size={13} aria-hidden="true" />
         <span className="opacity-70 hidden lg:inline">Help</span>
       </Link>
 
@@ -124,17 +125,17 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
         aria-label="Toggle theme"
         className="border border-topline2 bg-topfill2 text-current h-26 md:h-24 px-8 md:px-9 rounded-3 text-11 flex items-center gap-5 flex-none"
       >
-        {theme === "light" ? "◐" : "◑"}
+        {theme === "light" ? <Sun size={13} aria-hidden="true" /> : <Moon size={13} aria-hidden="true" />}
         <span className="opacity-70 hidden lg:inline">{theme === "light" ? "Light" : "Dark"}</span>
       </button>
 
       <div className="flex items-center gap-7 md:pl-8 md:border-l border-topline flex-none">
-        <div className="w-22 h-22 rounded-full bg-topline flex items-center justify-center text-10 font-semibold flex-none">
+        <div className="w-22 h-22 rounded-full bg-topline flex items-center justify-center text-11 font-semibold flex-none">
           {user ? initials(user.name) : "··"}
         </div>
         <div className="leading-tight pr-4 hidden lg:block">
           <div className="text-11 font-medium whitespace-nowrap">{user?.name ?? "…"}</div>
-          <div className="text-9.5 opacity-60 whitespace-nowrap">
+          <div className="text-10.5 opacity-60 whitespace-nowrap">
             {roles.map((r) => ROLE_LABEL[r]).join(" · ")}
           </div>
         </div>

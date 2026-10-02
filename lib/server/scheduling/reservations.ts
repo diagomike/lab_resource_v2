@@ -178,7 +178,7 @@ export async function createStaffBooking(userId: string, input: BookingInput): P
       subject: `Booking request for ${dto.labName} on ${dto.date}`,
       paragraphs: [
         `${esc(dto.requestedByName ?? "Someone")} asked to book ${when(dto)}: “${esc(dto.title)}”.${quoted(dto.note)}`,
-        "Approve or decline it under <strong>Approvals → Lab bookings</strong> (or Schedule → My labs).",
+        "Approve or decline it — the button below opens it (it is also on Bookings → My labs).",
       ],
       path: paths.decide("booking", dto.id),
       action: "Decide it",

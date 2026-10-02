@@ -43,7 +43,7 @@ function MyRequests() {
                 <Tag tone="neutral">{KIND_LABEL[r.kind]}</Tag>
                 <Tag tone={externalStatusTone(r.status)}>{EXTERNAL_STATUS_LABEL[r.status]}</Tag>
                 <span className="flex-1" />
-                <span className="text-10.5 text-faint">{r.firstWindow ? `from ${r.firstWindow.date}` : ""}</span>
+                <span className="text-11 text-faint">{r.firstWindow ? `from ${r.firstWindow.date}` : ""}</span>
               </div>
               <div className="text-11 text-dim truncate">{r.purpose}</div>
             </Link>

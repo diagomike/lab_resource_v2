@@ -11,7 +11,7 @@ import PortalChrome, { RequireRequester } from "@/components/portal/PortalChrome
 import { Panel, ErrorNote, Button } from "@/components/ui";
 
 const inputClass = "h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent w-full";
-const labelClass = "text-9.5 uppercase tracking-label text-faint font-semibold";
+const labelClass = "text-10.5 uppercase tracking-label text-faint font-semibold";
 const MAX_LETTER_BYTES = 4 * 1024 * 1024;
 
 type Kind = "FACILITY" | "SAMPLE_ANALYSIS";
@@ -126,7 +126,7 @@ function RequestForm() {
                 <input type="radio" name="kind" checked={kind === value} onChange={() => setKind(value)} className="mt-3" />
                 <span>
                   <span className="font-medium">{title}</span>
-                  <span className="block text-10.5 text-faint">{help}</span>
+                  <span className="block text-11 text-faint">{help}</span>
                 </span>
               </label>
             ))}
@@ -200,7 +200,7 @@ function RequestForm() {
                 <span className="text-dim text-11 pb-6">to</span>
                 <input type="time" required value={w.end} onChange={(e) => setWindows(windows.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))} className={`${inputClass} w-auto`} />
                 {windows.length > 1 && (
-                  <button type="button" onClick={() => setWindows(windows.filter((_, j) => j !== i))} className="text-10.5 text-bad pb-6">
+                  <button type="button" onClick={() => setWindows(windows.filter((_, j) => j !== i))} className="text-11 text-bad pb-6">
                     Remove
                   </button>
                 )}
@@ -235,7 +235,7 @@ function RequestForm() {
                   ))}
                 </select>
                 {lines.length > 1 ? (
-                  <button type="button" onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-10.5 text-bad">
+                  <button type="button" onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-11 text-bad">
                     Remove
                   </button>
                 ) : (
@@ -254,7 +254,7 @@ function RequestForm() {
         <Panel title="Official letter">
           <div className="px-14 py-12 flex flex-col gap-6">
             <input type="file" accept="application/pdf,.pdf" onChange={(e) => setLetter(e.target.files?.[0] ?? null)} className="text-11" />
-            <span className="text-10.5 text-faint">A signed letter from your institution, as a PDF of at most 4 MB.</span>
+            <span className="text-11 text-faint">A signed letter from your institution, as a PDF of at most 4 MB.</span>
           </div>
         </Panel>
 

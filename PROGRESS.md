@@ -4983,3 +4983,45 @@ its model that make porting it as-is the wrong move.
   - **Still waiting on the user:** the single dev reseed (`migrate reset` + seeds: ASTU org with ADAA offices, the
     catalogue, block/room on labs). Next: P5 (naming pass, toasts, InlineError, dialogs, contrast, lucide icons,
     table, export, Organisation).
+
+- **2026-10-02 (UX-flow round, P5: the sweep — words, feedback, errors, dialogs, readability, the table)**
+  - **Readable:** every text token now reads at ≥ 4.5:1 on every surface in both themes (light dim #425468, faint
+    #55677a, warn #8a5108; dark dim #adbccb, faint #8e9eae, bad #ec7f83 — checked against panel, rows, selected
+    and soft fills). Text floor: 11 px for running text, 10.5 px for tags and small-caps labels (the 8.5/9.5/10
+    sizes are gone from the Tailwind scale; 61 files codemodded); buttons 28 px. lucide icons replace the Unicode
+    glyphs in the sidebar and top bar (`components/shell/NavIcon.tsx`; `lib/nav.ts` names the icon).
+  - **Feedback:** toasts (`components/toast.tsx`: `toast.success/error`, with a "View" link where there is
+    something to see) after decisions on transfers, lab changes, purchases, bookings and category changes; after
+    adding, changing and bulk-editing resources (or "Added to <lab>'s changes — not sent yet" when the edit was
+    staged); place edits, custodian changes and removals; lab changes sent, taken back, discarded; bookings made;
+    needs withdrawn or declined; purchases advanced or cancelled. `ConfirmDialog`'s warn tone is now a warn button
+    (danger only for what destroys).
+  - **Errors:** the 25 silent `.catch(() => setX([]))` now say what failed (`couldNotLoad("the categories")`), and
+    My bookings shows an inline error with Try again. A failed inline save in the item panel keeps what was typed.
+    Workspace `error.tsx` (Try again, keeps the shell; Next 16's `retry`), `loading.tsx`, and a root `not-found.tsx`.
+  - **Dialogs:** `Modal` puts focus in its first field, keeps Tab inside, returns focus to what opened it, and with
+    `dirty` (Add resources, a place's details, a change, bulk edit) asks "Discard them?" before the backdrop,
+    Escape or × throws typed work away. Expand chevrons have names ("Expand Software Laboratory — B510-R13") and
+    `aria-expanded`.
+  - **Words:** Hand over → Move to another place; Set property → Edit details; the lab's "draft" → its changes
+    (not sent yet), "My changes" tab; no Version, "level 2 · leaf" or raw enums on screen; emails point at the
+    button ("the button below opens it") or Purchasing → Arrivals instead of retired screen names; stale
+    "ideal proposal" wording gone from server messages.
+  - **Links:** lab names on lab-change cards, bookings, needs and replacement suggestions open the lab.
+  - **Resources table:** sticky column headings (the table scrolls in its own area), click-to-sort columns (A→Z,
+    Z→A, back to the register's order; siblings sort, the tree keeps its shape — `lib/domain/tree.ts sortRows`,
+    spec), an honest empty message (nothing in your care yet vs. nothing matches the filters). The bulk bar keeps
+    status, edit details, put inside, move to another place; custodian, units, rename and delete sit under More.
+    **Export** (.xlsx via exceljs, loaded on click): what is shown — every item under the rows, one column per
+    detail the categories in view record (the paged search list exports the page).
+  - **Organisation:** nobody types a level. A new unit sits one below its parents; parents must sit side by side;
+    moving a unit with nothing under it re-levels it; a move that would change the level of a unit with units
+    under it is refused (F-005 holds). `change-level` route and `org.changeLevel` removed; Org Studio offers any
+    unit as a parent (not its own sub-units), headings read "Colleges", "Departments"…; "unit" not "node".
+  - **Checks:** `tsc` clean, 592/592 tests (new: `sortRows` 2; org level specs rewritten, 18/18), `next build`
+    clean. Browser on dev-nomail: lucide sidebar; sort + sticky header over 700 rows; export intercepted in the page
+    (a valid .xlsx of 614 items, nothing saved to disk) with its toast; Add resources: focus in the first field,
+    Escape with a typed name asks to discard and keeps it, Discard returns focus to the button; light theme;
+    Organisation as admin (no level input, plain headings).
+  - **Left for P6:** the e2e suites still post `level` / call `change-level` (O-org O-09) and use STAFF/STUDENT;
+    help guides; the dev reseed (still waiting on the user's go-ahead).

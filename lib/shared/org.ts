@@ -55,7 +55,9 @@ const orgNodeName = z.string().trim().min(2, "Name must be at least 2 characters
 
 export const CreateOrgNodeInput = z.object({
   name: orgNodeName,
-  level: z.number().int().min(0),
+  /** Ignored — a unit's level follows from its parents (0 for the university root,
+   *  else one below them). Accepted so older callers keep working. */
+  level: z.number().int().min(0).optional(),
   kind: OrgNodeKindSchema,
   parentIds: z.array(z.string()),
   code: orgNodeCode,

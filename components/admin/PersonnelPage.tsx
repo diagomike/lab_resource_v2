@@ -11,6 +11,7 @@ import { Panel, Screen, Tag, Button, ErrorNote, Modal } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { EntityPicker } from "@/components/EntityPicker";
 import { ROLE_LABEL } from "@/lib/shared";
+import { couldNotLoad } from "@/components/toast";
 
 /**
  * The personnel register that /register/people promised since Phase 0 and never had. One
@@ -89,7 +90,7 @@ export default function PersonnelPage() {
   }
   useEffect(reload, []);
   useEffect(() => {
-    if (isAdmin || isHead) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(() => setNodes([]));
+    if (isAdmin || isHead) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(couldNotLoad("the units", () => setNodes([])));
   }, [isAdmin, isHead]);
 
   /** F-018: the units a head may add people into — the nodes they occupy plus everything beneath them
@@ -211,7 +212,7 @@ export default function PersonnelPage() {
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 text-dim outline-none focus:border-accent"
               >
                 <option value="">Role: any</option>
                 {ALL_ROLE_KINDS.map((r) => (
@@ -223,7 +224,7 @@ export default function PersonnelPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+                className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 text-dim outline-none focus:border-accent"
               >
                 <option value="">Status: any</option>
                 <option value="ACTIVE">active</option>
@@ -237,7 +238,7 @@ export default function PersonnelPage() {
                     setRoleFilter("");
                     setStatusFilter("");
                   }}
-                  className="text-10.5 text-accent ml-auto"
+                  className="text-11 text-accent ml-auto"
                 >
                   Clear filters
                 </button>
@@ -309,7 +310,7 @@ function InviteLinkModal({ url, onClose }: { url: string; onClose: () => void })
           readOnly
           value={url}
           onFocus={(e) => e.target.select()}
-          className="flex-1 h-26 px-8 rounded-2 border border-border2 bg-panel text-10.5 font-mono outline-none"
+          className="flex-1 h-26 px-8 rounded-2 border border-border2 bg-panel text-11 font-mono outline-none"
         />
         <Button variant="primary" onClick={copy}>
           {copied ? "Copied" : "Copy"}
@@ -342,7 +343,7 @@ function RoleChip({
       disabled={disabled}
       onClick={onToggle}
       title={disabled ? "You cannot remove your own admin access" : undefined}
-      className={`inline-flex items-center gap-6 border rounded-2 pl-6 pr-10 py-5 text-10.5 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+      className={`inline-flex items-center gap-6 border rounded-2 pl-6 pr-10 py-5 text-11 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
         active ? "bg-accent border-accent text-white" : "bg-panel2 border-border2 text-dim hover:border-accent"
       }`}
     >
@@ -351,7 +352,7 @@ function RoleChip({
           active ? "bg-white border-white" : "border-border2"
         }`}
       >
-        {active && <span className="text-accent text-9.5 leading-none">✓</span>}
+        {active && <span className="text-accent text-10.5 leading-none">✓</span>}
       </span>
       {ROLE_LABEL[role]}
     </button>
@@ -411,7 +412,7 @@ function PersonManageModal({
     <Modal title={`Manage · ${person.name}`} onClose={onClose}>
       <div>
         <div className="text-11.5 font-medium">{person.name}</div>
-        <div className="text-10.5 font-mono text-faint">{person.email}</div>
+        <div className="text-11 font-mono text-faint">{person.email}</div>
         <div className="mt-6">
           <Tag tone={person.status === "ACTIVE" ? "good" : person.status === "INVITED" ? "warn" : "bad"}>
             {person.status.toLowerCase()}
@@ -420,7 +421,7 @@ function PersonManageModal({
       </div>
 
       <div>
-        <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Roles</div>
+        <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-8">Roles</div>
         <div className="flex flex-wrap gap-8">
           {editableRoles.map((r) => (
             <RoleChip
@@ -447,7 +448,7 @@ function PersonManageModal({
           manages their staff's roles and standing, never who holds a post. */}
       {isAdmin && (
         <div>
-          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Occupies node</div>
+          <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-8">Occupies node</div>
           <div className="mb-8 text-11 text-dim">
             {person.occupiesNodeName ? <span className="text-text">{person.occupiesNodeName}</span> : <span className="text-faint">headless — occupies nothing</span>}
           </div>
@@ -467,7 +468,7 @@ function PersonManageModal({
           they hold custody, an open need or an open staged draft. */}
       {isAdmin && (
         <div>
-          <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Home department</div>
+          <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-8">Home department</div>
           <div className="mb-8 text-11 text-dim">
             {person.homeNodeName ? <span className="text-text">{person.homeNodeName}</span> : <span className="text-faint">none</span>}
           </div>
@@ -484,12 +485,12 @@ function PersonManageModal({
       {/* Whether approval and outcome emails reach this person — the same switch they have
           on their own Profile. Invitations and password resets are unaffected. */}
       <div>
-        <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Email notifications</div>
+        <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-8">Email notifications</div>
         <label className="flex items-start gap-8 cursor-pointer text-11">
           <input type="checkbox" className="mt-2" checked={emailsOn} onChange={(e) => (setEmailsOn(e.target.checked), onSetEmailNotifications(e.target.checked))} />
           <span>
             Send this person notification emails
-            <span className="block text-10.5 text-faint">
+            <span className="block text-11 text-faint">
               Approvals waiting for them and decisions on what they asked for. Invitations and password resets always arrive.
             </span>
           </span>
@@ -582,7 +583,7 @@ function SignInHelp({ person, onError }: { person: PersonDto; onError: (m: strin
 
   return (
     <div>
-      <div className="text-10.5 uppercase tracking-wider text-dim font-semibold mb-8">Sign-in help</div>
+      <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-8">Sign-in help</div>
       {confirming ? (
         <div className="rounded-2 border border-border2 bg-panel2 p-10 flex flex-col gap-8">
           <div className="text-11">{QUESTION[confirming]}</div>
@@ -607,10 +608,10 @@ function SignInHelp({ person, onError }: { person: PersonDto; onError: (m: strin
           )}
         </div>
       )}
-      {notice && <div className="mt-8 text-10.5 text-good">{notice}</div>}
+      {notice && <div className="mt-8 text-11 text-good">{notice}</div>}
       {shown && (
         <div className="mt-8">
-          <div className="text-10.5 text-dim mb-4">
+          <div className="text-11 text-dim mb-4">
             {inviteUrl
               ? "Emailed to them as well. Send this link over any other channel if the email doesn't arrive."
               : "Shown only once. Give it to them directly; they'll choose their own password when they sign in."}
@@ -620,7 +621,7 @@ function SignInHelp({ person, onError }: { person: PersonDto; onError: (m: strin
               readOnly
               value={shown}
               onFocus={(e) => e.target.select()}
-              className="flex-1 h-26 px-8 rounded-2 border border-border2 bg-panel text-10.5 font-mono outline-none"
+              className="flex-1 h-26 px-8 rounded-2 border border-border2 bg-panel text-11 font-mono outline-none"
             />
             <Button variant="primary" onClick={() => copy(shown)}>
               {copied ? "Copied" : "Copy"}
@@ -682,20 +683,20 @@ function PersonForm({
     <div className="px-14 py-12 border-b border-border flex flex-col gap-10 bg-panel2">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
         <label className="block">
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Full name</span>
+          <span className="text-11 uppercase tracking-wider text-dim font-semibold">Full name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent" />
         </label>
         <label className="block">
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Email</span>
+          <span className="text-11 uppercase tracking-wider text-dim font-semibold">Email</span>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent" />
         </label>
         <label className="block">
-          <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Phone (optional)</span>
+          <span className="text-11 uppercase tracking-wider text-dim font-semibold">Phone (optional)</span>
           <input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent" />
         </label>
         {(isAdmin || nodes.length > 1) && (
           <label className="block">
-            <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Home department{isAdmin ? " (optional)" : ""}</span>
+            <span className="text-11 uppercase tracking-wider text-dim font-semibold">Home department{isAdmin ? " (optional)" : ""}</span>
             <select value={homeNodeId} onChange={(e) => setHomeNodeId(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-6 text-11.5 outline-none focus:border-accent">
               <option value="">—</option>
               {nodes.map((n) => (
@@ -708,7 +709,7 @@ function PersonForm({
         )}
       </div>
       <div>
-        <span className="text-10.5 uppercase tracking-wider text-dim font-semibold">Roles</span>
+        <span className="text-11 uppercase tracking-wider text-dim font-semibold">Roles</span>
         <div className="flex flex-wrap gap-8 mt-6">
           {selectableRoles.map((r) => (
             <RoleChip key={r} role={r} active={roles.includes(r)} onToggle={() => toggleRole(r)} />
@@ -719,7 +720,7 @@ function PersonForm({
         <Button variant="primary" disabled={busy} onClick={submit}>
           {busy ? "Sending invitation…" : "Send invitation"}
         </Button>
-        <span className="ml-10 text-10 text-faint">An email with a registration link goes out immediately.</span>
+        <span className="ml-10 text-11 text-faint">An email with a registration link goes out immediately.</span>
       </div>
     </div>
   );

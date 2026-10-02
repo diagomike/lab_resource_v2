@@ -18,7 +18,7 @@ export function StatusChip({ status, title }: { status: EffectiveStatus; title?:
   return (
     <span
       title={title}
-      className={`inline-block border rounded-2 px-6 py-1 text-9.5 font-mono whitespace-nowrap ${TONE_CLASS[STATUS_TONE[status]]}`}
+      className={`inline-block border rounded-2 px-6 py-1 text-10.5 font-mono whitespace-nowrap ${TONE_CLASS[STATUS_TONE[status]]}`}
     >
       {STATUS_LABEL[status]}
     </span>

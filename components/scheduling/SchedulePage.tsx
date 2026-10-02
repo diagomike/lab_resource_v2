@@ -1,12 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BookableDto, BookingPreviewDto, ClashDto, ReservationDto, ScheduleSeriesDto, SchedulingLabDto } from "@/lib/shared";
 import { addDays, instantToCivil, minutesOf, startOfWeek } from "@/lib/domain/civil-time";
 import { api, ApiError } from "@/lib/api";
 import { Panel, Screen, ErrorNote, Button, Tag, Modal, ConfirmDialog } from "@/components/ui";
-import { PanelLoading } from "@/components/states";
+import { InlineError, PanelLoading } from "@/components/states";
 import { CalendarLegend, SOURCE_LABEL, STATE_LABEL, WeekCalendar, WeekNav } from "./WeekCalendar";
+import { couldNotLoad, toast } from "@/components/toast";
 
 /**
  * Track 6 — the lab calendar
@@ -32,7 +34,7 @@ const WEEKDAYS: Array<[number, string]> = [
 ];
 
 const inputClass = "h-26 px-8 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent";
-const labelClass = "text-9.5 uppercase tracking-label text-faint font-semibold";
+const labelClass = "text-10.5 uppercase tracking-label text-faint font-semibold";
 
 function today(): string {
   return instantToCivil(new Date()).date;
@@ -61,7 +63,7 @@ export function ClashList({ clashes, heading }: { clashes: ClashDto[]; heading: 
     <div className="flex flex-col gap-4">
       <div className={labelClass}>{heading}</div>
       {clashes.map((c) => (
-        <div key={`${c.reservationId}-${c.itemName}-${c.date}`} className="text-10.5 text-dim">
+        <div key={`${c.reservationId}-${c.itemName}-${c.date}`} className="text-11 text-dim">
           <span className="font-mono">
             {c.date} {c.start}–{c.end}
           </span>{" "}
@@ -109,7 +111,7 @@ function ReservationModal({ reservation, onClose, onChanged }: { reservation: Re
           <span className="font-mono">
             {r.date} · {r.start}–{r.end}
           </span>{" "}
-          · {r.labName}
+          · <Link href={`/places/${r.labItemId}`}>{r.labName}</Link>
         </div>
         <div className="text-dim">{r.resources.map((x) => x.name).join(", ")}</div>
         {r.requestedByName && <div className="text-dim">Requested by {r.requestedByName}</div>}
@@ -117,7 +119,7 @@ function ReservationModal({ reservation, onClose, onChanged }: { reservation: Re
         {r.onBehalfOfNote && <div className="text-dim">Booked for: {r.onBehalfOfNote}</div>}
         {r.holdExpiresAt && <div className="text-dim">Hold lapses {new Date(r.holdExpiresAt).toLocaleString()}</div>}
         {r.note && <div className="text-dim italic">"{r.note}"</div>}
-        {r.decidedByName && <div className="text-faint text-10.5">Last decided by {r.decidedByName}</div>}
+        {r.decidedByName && <div className="text-faint text-11">Last decided by {r.decidedByName}</div>}
       </div>
 
       {(r.canDecide || r.canCancel) && (
@@ -224,6 +226,10 @@ function BookingForm({
     setError(null);
     try {
       const created = await api.post<ReservationDto>("/scheduling/bookings", { ...input, title: title.trim() });
+      toast.success(
+        created.state === "CONFIRMED" ? `Booked: ${created.labName}, ${created.date} ${created.start}–${created.end}` : `Requested: ${created.labName}, ${created.date}. Its custodian decides — you'll be told.`,
+        { href: `/approvals?box=mine&focus=booking:${created.id}`, linkLabel: "View" },
+      );
       setTitle("");
       setOnBehalfOf("");
       setParticipants("");
@@ -257,7 +263,7 @@ function BookingForm({
             {!wholeRoom && (
               <div className="flex flex-wrap gap-6 pl-18 max-h-[140px] overflow-y-auto">
                 {lab.equipment.map((m) => (
-                  <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-10.5 cursor-pointer ${itemIds.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
+                  <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-11 cursor-pointer ${itemIds.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
                     <input type="checkbox" checked={itemIds.includes(m.id)} onChange={() => toggleMachine(m.id)} />
                     {m.place ? `${m.place} › ` : ""}
                     {m.name}
@@ -299,7 +305,7 @@ function BookingForm({
         </label>
       </div>
 
-      <div className="text-10.5 border border-border2 rounded-2 px-8 py-6 flex flex-col gap-6">
+      <div className="text-11 border border-border2 rounded-2 px-8 py-6 flex flex-col gap-6">
         {previewError ? (
           <span className="text-bad">{previewError}</span>
         ) : !preview ? (
@@ -402,7 +408,7 @@ function SeriesModal({ lab, onClose, onSaved }: { lab: SchedulingLabDto; onClose
         <span className={labelClass}>Every</span>
         <div className="flex flex-wrap gap-4">
           {WEEKDAYS.map(([n, label]) => (
-            <label key={n} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-10.5 cursor-pointer ${weekdays.includes(n) ? "border-accent bg-soft" : "border-border2"}`}>
+            <label key={n} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-11 cursor-pointer ${weekdays.includes(n) ? "border-accent bg-soft" : "border-border2"}`}>
               <input type="checkbox" checked={weekdays.includes(n)} onChange={() => setWeekdays(weekdays.includes(n) ? weekdays.filter((w) => w !== n) : [...weekdays, n].sort())} />
               {label}
             </label>
@@ -432,7 +438,7 @@ function SeriesModal({ lab, onClose, onSaved }: { lab: SchedulingLabDto; onClose
           <span className={labelClass}>Also claims these machines (optional — the room already covers everything in it)</span>
           <div className="flex flex-wrap gap-4 max-h-[120px] overflow-y-auto">
             {lab.equipment.map((m) => (
-              <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-10.5 cursor-pointer ${equipment.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
+              <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-11 cursor-pointer ${equipment.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
                 <input type="checkbox" checked={equipment.includes(m.id)} onChange={() => setEquipment(equipment.includes(m.id) ? equipment.filter((x) => x !== m.id) : [...equipment, m.id])} />
                 {m.place ? `${m.place} › ` : ""}
                 {m.name}
@@ -485,16 +491,16 @@ function SeriesList({ series, onChanged }: { series: ScheduleSeriesDto[]; onChan
               {s.title}
               {s.section ? ` · ${s.section}` : ""}
             </div>
-            <div className="text-10.5 text-dim">
+            <div className="text-11 text-dim">
               {s.weekdays.map((w) => WEEKDAYS[w - 1][1]).join(", ")} · <span className="font-mono">{s.startTimeLocal}–{s.endTimeLocal}</span> · {s.startDate} → {s.endDate}
               {s.instructorName ? ` · ${s.instructorName}` : ""}
             </div>
-            <div className="text-10 text-faint">
+            <div className="text-11 text-faint">
               {s.upcomingCount} upcoming session{s.upcomingCount === 1 ? "" : "s"}
               {s.exceptions.length ? ` · cancelled: ${s.exceptions.map((e) => e.date).join(", ")}` : ""}
             </div>
           </div>
-          <button className="text-10.5 text-bad" onClick={() => setRemoving(s)}>
+          <button className="text-11 text-bad" onClick={() => setRemoving(s)}>
             Remove
           </button>
         </div>
@@ -548,11 +554,11 @@ function MyLabsTab({ labs, reloadLabs }: { labs: SchedulingLabDto[]; reloadLabs:
 
   const loadSide = useCallback(() => {
     if (!lab) return;
-    api.get<ScheduleSeriesDto[]>(`/scheduling/series?labItemId=${encodeURIComponent(lab.id)}`).then(setSeries).catch(() => setSeries([]));
+    api.get<ScheduleSeriesDto[]>(`/scheduling/series?labItemId=${encodeURIComponent(lab.id)}`).then(setSeries).catch(couldNotLoad("the weekly classes", () => setSeries([])));
     api
       .get<ReservationDto[]>("/scheduling/bookings?box=inbox")
       .then((rows) => setInbox(rows.filter((r) => r.labItemId === lab.id)))
-      .catch(() => setInbox([]));
+      .catch(couldNotLoad("the booking requests", () => setInbox([])));
   }, [lab]);
   useEffect(loadSide, [loadSide]);
 
@@ -601,7 +607,7 @@ function MyLabsTab({ labs, reloadLabs }: { labs: SchedulingLabDto[]; reloadLabs:
           inbox.map((r) => (
             <button key={r.id} onClick={() => setSelected(r)} className="w-full text-left px-14 py-8 border-b border-border last:border-0 hover:bg-panel2">
               <div className="text-11.5 font-medium">{r.title}</div>
-              <div className="text-10.5 text-dim">
+              <div className="text-11 text-dim">
                 <span className="font-mono">
                   {r.date} {r.start}–{r.end}
                 </span>{" "}
@@ -655,7 +661,7 @@ function BookTab() {
       api
         .get<BookableDto[]>(`/scheduling/bookables?q=${encodeURIComponent(query.trim())}`)
         .then(setResults)
-        .catch(() => setResults([]));
+        .catch(couldNotLoad("the search results", () => setResults([])));
     }, 250);
     return () => clearTimeout(timer);
   }, [query]);
@@ -663,7 +669,7 @@ function BookTab() {
   useEffect(() => {
     setLab(null);
     if (!picked) return;
-    api.get<SchedulingLabDto>(`/scheduling/labs/${picked.labItemId}`).then(setLab).catch(() => setLab(null));
+    api.get<SchedulingLabDto>(`/scheduling/labs/${picked.labItemId}`).then(setLab).catch(couldNotLoad("that lab", () => setLab(null)));
   }, [picked]);
 
   return (
@@ -685,14 +691,14 @@ function BookTab() {
                   <div className="text-11">
                     {b.name} <Tag>{b.bookingMode === "ROOM" ? "Room" : b.categoryName}</Tag>
                   </div>
-                  <div className="text-9.5 text-faint">
+                  <div className="text-10.5 text-faint">
                     {b.bookingMode === "ROOM" ? b.orgNodeName : `in ${b.labName} · ${b.orgNodeName}`} · custodian {b.custodianName}
                   </div>
                 </button>
               ))}
             </div>
           )}
-          {query.trim().length >= 2 && results.length === 0 && <div className="text-10.5 text-faint">Nothing bookable matches.</div>}
+          {query.trim().length >= 2 && results.length === 0 && <div className="text-11 text-faint">Nothing bookable matches.</div>}
         </div>
       </Panel>
 
@@ -744,15 +750,19 @@ function BookTab() {
 
 function MyBookingsTab() {
   const [rows, setRows] = useState<ReservationDto[] | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReservationDto | null>(null);
   const load = useCallback(() => {
-    api.get<ReservationDto[]>("/scheduling/bookings?box=mine").then(setRows).catch(() => setRows([]));
+    setFailed(null);
+    api.get<ReservationDto[]>("/scheduling/bookings?box=mine").then(setRows, (e) => setFailed(errorText(e, "Your bookings could not be loaded.")));
   }, []);
   useEffect(load, [load]);
 
   return (
     <Panel title="My bookings">
-      {rows === null ? (
+      {failed ? (
+        <InlineError message={failed} onRetry={load} />
+      ) : rows === null ? (
         <PanelLoading rows={3} />
       ) : !rows.length ? (
         <div className="px-14 py-10 text-11 text-dim">You haven't booked anything yet.</div>
@@ -761,7 +771,7 @@ function MyBookingsTab() {
           <button key={r.id} onClick={() => setSelected(r)} className="w-full text-left px-14 py-8 border-b border-border last:border-0 hover:bg-panel2 flex items-start gap-10">
             <div className="flex-1">
               <div className="text-11.5 font-medium">{r.title}</div>
-              <div className="text-10.5 text-dim">
+              <div className="text-11 text-dim">
                 <span className="font-mono">
                   {r.date} {r.start}–{r.end}
                 </span>{" "}

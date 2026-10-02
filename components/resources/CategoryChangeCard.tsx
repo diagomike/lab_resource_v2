@@ -6,6 +6,7 @@ import type { CategoryChangeDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { Button, ErrorNote, Tag } from "@/components/ui";
 import { CategoryIcon } from "./IconPicker";
+import { useToast } from "@/components/toast";
 
 const STATUS: Record<CategoryChangeDto["status"], { label: string; tone: "warn" | "good" | "bad" | "neutral" }> = {
   PENDING: { label: "Waiting", tone: "warn" },
@@ -23,6 +24,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
  * approved with an optional note.
  */
 export function CategoryChangeCard({ change, onChanged, showCategoryLink = true, highlight = false }: { change: CategoryChangeDto; onChanged: (c: CategoryChangeDto) => void; showCategoryLink?: boolean; highlight?: boolean }) {
+  const toast = useToast();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<"approve" | "reject" | "withdraw" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +38,15 @@ export function CategoryChangeCard({ change, onChanged, showCategoryLink = true,
         kind === "withdraw"
           ? await api.post<CategoryChangeDto>(`/resources/category-changes/${change.id}/withdraw`, {})
           : await api.post<CategoryChangeDto>(`/resources/category-changes/${change.id}/decide`, { approve: kind === "approve", note: note.trim() || undefined });
+      toast.success(
+        kind === "withdraw"
+          ? `Withdrawn: your change to ${change.categoryName}`
+          : kind === "reject"
+            ? `Rejected: the change to ${change.categoryName}`
+            : next.status === "APPROVED"
+              ? `Applied: the change to ${change.categoryName}`
+              : `Approved — it now goes to ${next.waitingOn}`,
+      );
       onChanged(next);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save your decision");
@@ -58,7 +69,7 @@ export function CategoryChangeCard({ change, onChanged, showCategoryLink = true,
               change.categoryName
             )}
           </div>
-          <div className="text-10.5 text-dim">
+          <div className="text-11 text-dim">
             {change.isMine ? "Your change" : `${change.proposedByName}${change.unitName ? ` · ${change.unitName}` : ""}`} · {when(change.createdAt)}
             {change.status === "PENDING" && <> · waiting for {change.waitingOn}</>}
           </div>
@@ -73,12 +84,12 @@ export function CategoryChangeCard({ change, onChanged, showCategoryLink = true,
       </ul>
       {change.note && <p className="text-11 text-dim italic">“{change.note}”</p>}
       {change.reaches.length > 0 && (
-        <p className="text-10.5 text-warn">
+        <p className="text-11 text-warn">
           Reaches items of {change.reaches.join(", ")} — so it also passes the admin and Property Administration.
         </p>
       )}
       {change.trail.length > 0 && (
-        <ol className="text-10.5 text-dim flex flex-col gap-2">
+        <ol className="text-11 text-dim flex flex-col gap-2">
           {change.trail.map((t, i) => (
             <li key={i}>
               {t.approved ? "Approved" : "Not approved"} by {t.byName}, {when(t.at)}
@@ -87,7 +98,7 @@ export function CategoryChangeCard({ change, onChanged, showCategoryLink = true,
           ))}
         </ol>
       )}
-      {change.status === "STALE" && change.isMine && <p className="text-10.5 text-bad">The category changed before this was approved, so it was not applied over it. Open the category and make your change again.</p>}
+      {change.status === "STALE" && change.isMine && <p className="text-11 text-bad">The category changed before this was approved, so it was not applied over it. Open the category and make your change again.</p>}
 
       {error && <ErrorNote>{error}</ErrorNote>}
       {change.canDecide && (

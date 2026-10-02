@@ -55,7 +55,7 @@ function NextStepBanner({ step }: { step: HomeDto["nextStep"] }) {
       <div className="flex gap-12 flex-1 min-w-0">
         <div className="w-3 bg-accent rounded-2 flex-none" />
         <div className="min-w-0">
-          <div className="text-9.5 uppercase tracking-label text-accent font-semibold">Next step</div>
+          <div className="text-10.5 uppercase tracking-label text-accent font-semibold">Next step</div>
           <div className="text-14 font-semibold text-text leading-snug mt-3">{step.title}</div>
           {step.body && <div className="text-11.5 text-dim leading-loose mt-2">{step.body}</div>}
         </div>
@@ -84,7 +84,7 @@ function RecentList({ items, onOpen }: { items: NotificationDto[]; onOpen: (n: N
           <span className={`w-6 h-6 rounded-full mt-5 flex-none ${n.read ? "bg-transparent" : "bg-accent"}`} aria-hidden="true" />
           <span className="min-w-0 flex-1">
             <span className={`block text-11.5 leading-snug ${n.read ? "text-dim" : "text-text font-medium"}`}>{n.title}</span>
-            <span className="block text-10 text-faint mt-2">
+            <span className="block text-11 text-faint mt-2">
               {n.actorName ? `${n.actorName} · ` : ""}
               {timeAgo(n.createdAt)}
             </span>
@@ -98,7 +98,7 @@ function RecentList({ items, onOpen }: { items: NotificationDto[]; onOpen: (n: N
 function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "warn" }) {
   return (
     <div className="flex-1 min-w-[110px] px-14 py-10 border-r border-border last:border-r-0">
-      <div className="text-9.5 uppercase tracking-label text-faint font-semibold">{label}</div>
+      <div className="text-10.5 uppercase tracking-label text-faint font-semibold">{label}</div>
       <div className={`text-19 font-semibold font-mono mt-3 ${tone === "good" ? "text-good" : tone === "warn" ? "text-warn" : "text-text"}`}>{value}</div>
     </div>
   );

@@ -91,7 +91,7 @@ export function EntityPicker({
               className="w-full text-left px-9 py-6 text-11.5 hover:bg-panel3 flex items-center justify-between gap-8"
             >
               <span>{o.label}</span>
-              {o.sublabel && <span className="text-9.5 text-faint font-mono">{o.sublabel}</span>}
+              {o.sublabel && <span className="text-10.5 text-faint font-mono">{o.sublabel}</span>}
             </button>
           ))}
         </div>

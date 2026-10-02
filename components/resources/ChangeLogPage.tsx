@@ -10,6 +10,7 @@ import { api, ApiError } from "@/lib/api";
 import { Panel, Screen, ErrorNote, Button } from "@/components/ui";
 import { PanelLoading, EmptyState } from "@/components/states";
 import { Inspector } from "./Inspector";
+import { couldNotLoad } from "@/components/toast";
 
 const PAGE_SIZE = 50;
 
@@ -83,7 +84,7 @@ function ChangeLogPageInner() {
   );
 
   useEffect(() => {
-    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategories).catch(() => setCategories([]));
+    api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategories).catch(couldNotLoad("the categories", () => setCategories([])));
   }, []);
 
   useEffect(() => {
@@ -136,7 +137,7 @@ function ChangeLogPageInner() {
             <select
               value={filters.kind}
               onChange={(e) => setParams({ kind: e.target.value })}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 text-dim outline-none focus:border-accent"
             >
               <option value="">Any change</option>
               {itemChangeKinds.map((k) => (
@@ -148,7 +149,7 @@ function ChangeLogPageInner() {
             <select
               value={filters.targetKind}
               onChange={(e) => setParams({ targetKind: e.target.value })}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 text-dim outline-none focus:border-accent"
             >
               <option value="">Item + category</option>
               <option value="ITEM">Items only</option>
@@ -157,7 +158,7 @@ function ChangeLogPageInner() {
             <select
               value={filters.categoryId}
               onChange={(e) => setParams({ categoryId: e.target.value })}
-              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-10.5 text-dim outline-none focus:border-accent"
+              className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 text-dim outline-none focus:border-accent"
             >
               <option value="">Any category</option>
               {categories.map((c) => (
@@ -167,7 +168,7 @@ function ChangeLogPageInner() {
               ))}
             </select>
             {(filters.q || filters.kind || filters.targetKind || filters.categoryId) && (
-              <button onClick={() => setParams(EMPTY)} className="text-10.5 text-accent">
+              <button onClick={() => setParams(EMPTY)} className="text-11 text-accent">
                 Clear filters
               </button>
             )}
@@ -188,7 +189,7 @@ function ChangeLogPageInner() {
                 <thead>
                   <tr className="border-b border-border">
                     {["When", "Item", "Change", "Field", "From", "To", "By", "Reason"].map((h) => (
-                      <th key={h} className="text-9.5 uppercase tracking-label text-faint font-semibold px-10 py-7 text-left">
+                      <th key={h} className="text-10.5 uppercase tracking-label text-faint font-semibold px-10 py-7 text-left">
                         {h}
                       </th>
                     ))}
@@ -214,7 +215,7 @@ function ChangeLogPageInner() {
             </div>
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-14 py-9 border-t border-border">
-                <span className="text-10.5 text-dim">
+                <span className="text-11 text-dim">
                   Page {page} of {totalPages}
                 </span>
                 <div className="flex items-center gap-6">
@@ -259,17 +260,17 @@ function ItemCell({ entry, onOpenItem }: { entry: ChangeLogEntryDto; onOpenItem:
 function EntryRow({ entry, onOpenItem }: { entry: ChangeLogEntryDto; onOpenItem: (id: string) => void }) {
   return (
     <tr className="border-b border-border">
-      <td className="px-10 py-7 text-10.5 text-dim whitespace-nowrap">{new Date(entry.at).toLocaleString()}</td>
+      <td className="px-10 py-7 text-11 text-dim whitespace-nowrap">{new Date(entry.at).toLocaleString()}</td>
       <td className="px-10 py-7">
         <ItemCell entry={entry} onOpenItem={onOpenItem} />
-        {entry.targetKind === "ITEM" && entry.categoryName && <div className="text-9.5 text-faint">{entry.categoryName}</div>}
+        {entry.targetKind === "ITEM" && entry.categoryName && <div className="text-10.5 text-faint">{entry.categoryName}</div>}
       </td>
       <td className="px-10 py-7 text-11 whitespace-nowrap">{CHANGE_LABEL[entry.kind as ItemChangeKind] ?? entry.kind}</td>
-      <td className="px-10 py-7 text-10.5 text-dim">{show(entry.field)}</td>
-      <td className="px-10 py-7 text-10.5 text-dim max-w-[160px] truncate">{changeValueLabel(entry.field, entry.before)}</td>
-      <td className="px-10 py-7 text-10.5 font-medium max-w-[160px] truncate">{changeValueLabel(entry.field, entry.after)}</td>
-      <td className="px-10 py-7 text-10.5 text-dim whitespace-nowrap">{entry.actorName}</td>
-      <td className="px-10 py-7 text-10.5 text-dim max-w-[180px] truncate">{show(entry.note)}</td>
+      <td className="px-10 py-7 text-11 text-dim">{show(entry.field)}</td>
+      <td className="px-10 py-7 text-11 text-dim max-w-[160px] truncate">{changeValueLabel(entry.field, entry.before)}</td>
+      <td className="px-10 py-7 text-11 font-medium max-w-[160px] truncate">{changeValueLabel(entry.field, entry.after)}</td>
+      <td className="px-10 py-7 text-11 text-dim whitespace-nowrap">{entry.actorName}</td>
+      <td className="px-10 py-7 text-11 text-dim max-w-[180px] truncate">{show(entry.note)}</td>
     </tr>
   );
 }
@@ -294,16 +295,16 @@ function BatchGroup({
   return (
     <>
       <tr className="border-b border-border bg-soft">
-        <td className="px-10 py-7 text-10.5 text-dim whitespace-nowrap">{new Date(first.at).toLocaleString()}</td>
+        <td className="px-10 py-7 text-11 text-dim whitespace-nowrap">{new Date(first.at).toLocaleString()}</td>
         <td className="px-10 py-7 text-11" colSpan={5}>
-          <button onClick={onToggle} className="flex items-center gap-6 text-left hover:text-accent">
-            <span className="text-9.5">{expanded ? "▾" : "▸"}</span>
+          <button onClick={onToggle} aria-expanded={expanded} className="flex items-center gap-6 text-left hover:text-accent">
+            <span className="text-10.5" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
             <span className="font-medium">{rows.length} resources</span>
             <span className="text-dim">· {CHANGE_LABEL[first.kind as ItemChangeKind] ?? first.kind}</span>
           </button>
         </td>
-        <td className="px-10 py-7 text-10.5 text-dim whitespace-nowrap">{first.actorName}</td>
-        <td className="px-10 py-7 text-10.5 text-dim max-w-[180px] truncate">{show(first.note)}</td>
+        <td className="px-10 py-7 text-11 text-dim whitespace-nowrap">{first.actorName}</td>
+        <td className="px-10 py-7 text-11 text-dim max-w-[180px] truncate">{show(first.note)}</td>
       </tr>
       {expanded && rows.map((entry) => <EntryRow key={entry.id} entry={entry} onOpenItem={onOpenItem} />)}
     </>

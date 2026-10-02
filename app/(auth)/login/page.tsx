@@ -41,7 +41,7 @@ export default function LoginPage() {
     >
       <form onSubmit={onSubmit} className="px-14 py-12">
         <label className="block">
-          <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Email</span>
+          <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Email</span>
           <input
             type="email"
             required
@@ -54,7 +54,7 @@ export default function LoginPage() {
         </label>
 
         <label className="block mt-10">
-          <span className="text-9.5 uppercase tracking-caps text-faint font-semibold">Password</span>
+          <span className="text-10.5 uppercase tracking-caps text-faint font-semibold">Password</span>
           <input
             type="password"
             required
@@ -63,7 +63,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             className="w-full border border-border2 bg-panel h-25 px-8 rounded-3 text-11.5 mt-3 outline-none focus:border-accent"
           />
-          <Link href="/forgot-password" className="block text-right text-10 text-dim mt-4">
+          <Link href="/forgot-password" className="block text-right text-11 text-dim mt-4">
             Forgot password?
           </Link>
         </label>

@@ -53,7 +53,7 @@ export function WeekNav({ weekStart, onChange }: { weekStart: string; onChange: 
       <Button onClick={() => onChange(addDays(weekStart, -7))}>‹</Button>
       <Button onClick={() => onChange(addDays(today, 1 - weekdayIndex(today)))}>This week</Button>
       <Button onClick={() => onChange(addDays(weekStart, 7))}>›</Button>
-      <span className="text-10.5 text-dim font-mono">
+      <span className="text-11 text-dim font-mono">
         {weekStart} – {addDays(weekStart, 6)}
       </span>
     </div>
@@ -93,7 +93,7 @@ export function WeekCalendar({
         <div className="grid border-b border-border" style={{ gridTemplateColumns: `44px repeat(7, 1fr)` }}>
           <div />
           {days.map((d, i) => (
-            <div key={d} className={`px-6 py-6 text-10 border-l border-border ${d === today ? "text-accent font-semibold" : "text-dim"}`}>
+            <div key={d} className={`px-6 py-6 text-11 border-l border-border ${d === today ? "text-accent font-semibold" : "text-dim"}`}>
               {DAY_LABEL[i]} <span className="font-mono">{d.slice(5)}</span>
             </div>
           ))}
@@ -101,7 +101,7 @@ export function WeekCalendar({
         <div className="grid" style={{ gridTemplateColumns: `44px repeat(7, 1fr)` }}>
           <div className="relative" style={{ height }}>
             {hours.map((h, i) => (
-              <div key={h} className="absolute right-4 text-9.5 text-faint font-mono" style={{ top: i * HOUR_PX - 5 }}>
+              <div key={h} className="absolute right-4 text-10.5 text-faint font-mono" style={{ top: i * HOUR_PX - 5 }}>
                 {String(h).padStart(2, "0")}:00
               </div>
             ))}
@@ -134,7 +134,7 @@ export function WeekCalendar({
                       type="button"
                       onClick={() => onSelect?.(r)}
                       title={`${r.title} · ${r.start}–${r.end} · ${STATE_LABEL[r.state]}`}
-                      className={`absolute border rounded-2 px-4 py-2 text-left overflow-hidden text-9.5 leading-tight ${blockClass(r)}`}
+                      className={`absolute border rounded-2 px-4 py-2 text-left overflow-hidden text-10.5 leading-tight ${blockClass(r)}`}
                       style={{ top, height: Math.max(16, bottom - top - 1), left: `calc(${(lane / count) * 100}% + 1px)`, width: `calc(${100 / count}% - 2px)` }}
                     >
                       <div className="font-semibold truncate">{r.title}</div>
@@ -161,7 +161,7 @@ export function CalendarLegend() {
     ["bg-panel2 border-border2 border-dashed", "Not settled yet"],
   ];
   return (
-    <div className="flex flex-wrap items-center gap-10 text-10 text-dim">
+    <div className="flex flex-wrap items-center gap-10 text-11 text-dim">
       {items.map(([cls, label]) => (
         <span key={label} className="flex items-center gap-4">
           <span className={`inline-block w-10 h-10 border rounded-1 ${cls}`} />

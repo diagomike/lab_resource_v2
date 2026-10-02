@@ -149,9 +149,9 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (icon
         createPortal(
           <div ref={panelRef} role="listbox" className="fixed z-[70] max-h-[300px] overflow-y-auto rounded-2 border border-border2 bg-panel p-3" style={pos}>
             {!all ? (
-              <div className="px-8 py-8 text-10.5 text-faint">Loading icons…</div>
+              <div className="px-8 py-8 text-11 text-faint">Loading icons…</div>
             ) : shown.length === 0 ? (
-              <div className="px-8 py-8 text-10.5 text-faint">No icon matches “{query}”.</div>
+              <div className="px-8 py-8 text-11 text-faint">No icon matches “{query}”.</div>
             ) : (
               <>
                 {shown.map((name, i) => {
@@ -174,7 +174,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (icon
                   );
                 })}
                 {matches.length > MAX_SHOWN && (
-                  <div className="px-8 py-6 text-10 text-faint">
+                  <div className="px-8 py-6 text-11 text-faint">
                     {matches.length - MAX_SHOWN} more — keep typing to narrow down.
                   </div>
                 )}
