@@ -97,6 +97,7 @@ export function toDomainCategory(
     defaultImage: row.defaultImageKey ? imageUrl(row.defaultImageKey) : undefined,
     version: row.version,
     isPlace: row.isPlace,
+    calibrationCycleMonths: row.calibrationCycleMonths ?? undefined,
   };
 }
 

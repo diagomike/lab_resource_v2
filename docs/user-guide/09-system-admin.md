@@ -83,7 +83,7 @@ Each category sets:
 - **What it is**: a **place** (a lab, workshop, studio or store, which sits at the top) or a **thing** (which goes inside a place, or inside a thing that *comes with* it);
 - **Icon**, **Name**, **Group**, and **What it is for**;
 - **Counted as**: one by one (a computer) or a quantity in a unit (a chemical in mL);
-- **Details to record**: each detail's name, its **Kind of value** (Text, Number, Choice, Yes / no, or Date; text can be long), an **Example** shown as a hint ("e.g. 64-17-5"), and whether it is required. **+ A common detail…** adds Manufacturer, Model, Serial no., Asset tag, Year acquired, Calibration due, Expiry or CAS no. in one pick;
+- **Details to record**: each detail's name, its **Kind of value** (Text, Number, Choice, Yes / no, or Date; text can be long), an **Example** shown as a hint ("e.g. 64-17-5"), and whether it is required. **+ A common detail…** adds Manufacturer, Model, Serial no., Asset tag, Year acquired, Expiry or CAS no. in one pick; **More options → Calibration** sets how often its items are calibrated (they then record **Last calibrated**, and Resources filters what is due);
 - **Comes with**: the parts a new one is created with (a Workstation Setup's computer, table and chair);
 - under **More options**: **If a needed part fails** (whether a failed part puts it out of order), **Booking** (not bookable, a bookable room, or bookable equipment) and **On the public portal**.
 

@@ -109,6 +109,8 @@ export interface CategorySpec {
   publicListed?: boolean;
   /// What it is for, in a sentence.
   description?: string;
+  /// Calibrated every this many months (it then records "Last calibrated").
+  calibrationCycleMonths?: number;
   /// The org code of the department that looks after it; absent: university-wide
   /// (Property Administration).
   steward?: string;
@@ -313,6 +315,7 @@ async function createCategories(): Promise<{ categories: Record<string, Category
         bookingMode: spec.bookingMode ?? "NOT_BOOKABLE",
         publicListed: spec.publicListed ?? false,
         description: spec.description ?? null,
+        calibrationCycleMonths: spec.calibrationCycleMonths ?? null,
         stewardNodeId: spec.steward ? (stewards.get(spec.steward) ?? null) : null,
         fields: spec.fields?.length
           ? {

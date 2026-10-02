@@ -78,6 +78,8 @@ export interface Category {
   /** A place (a lab, workshop, studio or store): top level only. Absent means a thing
    *  — every fixture that builds a Category without places in mind keeps compiling. */
   isPlace?: boolean;
+  /** Calibrated every this many months (lib/domain/calibration.ts); absent: not calibrated. */
+  calibrationCycleMonths?: number;
 }
 
 // ── Items ────────────────────────────────────────────────────────────────

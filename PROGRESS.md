@@ -5252,3 +5252,24 @@ its model that make porting it as-is the wrong move.
   - Approvals' `mayBook` follows the new booking roles. Guide: Getting started explains the two numbers.
   - **Checks:** `tsc` clean, 618/618, build clean; on :3200 the store keeper's pending store change shows a
     grey-blue 1 on Labs & stores, Approvals and "Sent by me", and Property Admin's counts show it waiting (1).
+- **2026-10-03 (feedback round, R6: calibration)**
+  - **Model** (migration `20261003010000_calibration_cycle`, applied to `lrms_v2`): `ResourceCategory.calibrationCycleMonths`.
+    *Deviation from the plan, on purpose:* "last calibrated" is not a new Item column but an ordinary DATE detail
+    with the fixed key `lastCalibrated`, so it is edited inline, staged in a lab's/store's Changes, bulk-edited,
+    exported and kept in History like any detail. Setting a cycle adds the detail automatically
+    (`categories.withCalibrationField`, create and update); the edit is additive, so it applies at once. No per-item
+    cycle override (not needed yet).
+  - **Pure `lib/domain/calibration.ts`** (spec): `calibrationOf(cycle, lastCalibrated, today)` → OK / DUE_SOON (≤ 30
+    days) / OVERDUE / NEVER, due date and days; `addMonths`; words.
+  - **Filters** (`lib/domain/filters.ts`): **Calibration** (enum) and **Calibration due in (days)** (number), offered
+    when any kind has a cycle; they work in the filter bar, facets and Insights (spec added).
+  - **Screens:** category editor → More options → "Needs calibrating every __ months"; read-only category tag; the item
+    panel shows "Calibration overdue: overdue by 12 days (was due …) · every 12 months". Home's **Due soon** shows
+    the next calibration (and no longer treats "Last calibrated" as a due date). "Calibration due" left the common
+    details.
+  - **Catalogue** (`prisma/catalogue-data.ts` `CALIBRATION_CYCLES`): 40 measuring/analytical instruments (balances and
+    pH meters every 6 months, the rest 12) carry the cycle and "Last calibrated"; "Calibration due" is gone.
+    `prisma/calibration-backfill.ts` (idempotent; report, then `--apply`) moved `lrms_v2`'s 91 categories over: 40
+    calibrated, 51 without (no item held a value). **Neon will need it too** after the migration.
+  - **Checks:** `tsc` clean, 624 tests, build clean; on :3200 the filter bar offers Calibration / Calibration due in
+    (days); Analytical balance has a 6-month cycle and "Last calibrated".

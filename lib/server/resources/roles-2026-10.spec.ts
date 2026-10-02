@@ -198,3 +198,12 @@ describe("posts, not the MANAGER label", () => {
     expect(await scope.defaultModeFor(keeperId)).toBe("MY_CUSTODY");
   });
 });
+
+describe("calibration (R6)", () => {
+  it("giving a kind a cycle adds its Last calibrated detail, and items are filtered by it", async () => {
+    const before = await prisma.resourceCategory.findUniqueOrThrow({ where: { id: thingCat } });
+    const updated = await categories.update(sysAdminId, thingCat, { expectedVersion: before.version, calibrationCycleMonths: 6, purgeKeys: [], fills: {}, optionMoves: {} });
+    expect(updated.calibrationCycleMonths).toBe(6);
+    expect(updated.fields.map((f) => [f.key, f.type])).toContainEqual(["lastCalibrated", "DATE"]);
+  });
+});

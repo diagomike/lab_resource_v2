@@ -1,4 +1,5 @@
 import "server-only";
+import { CALIBRATION_FIELD_KEY, CALIBRATION_FIELD_LABEL } from "@/lib/domain/calibration";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { CategoryFieldType, CategoryImpactDto, CreateCategoryInput, ItemPropValue, ResourceCategoryDto, UpdateCategoryInput } from "@/lib/shared";
 import { prisma } from "../prisma";
@@ -51,6 +52,7 @@ function toDto(row: CategoryRow): ResourceCategoryDto {
     bookingMode: row.bookingMode,
     publicListed: row.publicListed,
     description: row.description,
+    calibrationCycleMonths: row.calibrationCycleMonths,
     stewardNodeId: row.stewardNodeId,
     stewardName: row.steward?.name ?? UNIVERSITY_STEWARD,
     createdById: row.createdById,
@@ -213,7 +215,44 @@ const fieldRowData = (f: KeyedField, i: number) => ({
   hint: f.hint?.trim() || null,
 });
 
-export async function create(actorId: string, input: CreateCategoryInput, opts: { stewardNodeId?: string | null } = {}): Promise<ResourceCategoryDto> {
+/** The "Last calibrated" date detail, added for a calibrated category that lacks it. */
+const CALIBRATION_FIELD = {
+  key: CALIBRATION_FIELD_KEY,
+  label: CALIBRATION_FIELD_LABEL,
+  type: "DATE" as const,
+  options: [],
+  summary: true,
+  longText: false,
+  required: false,
+  sortOrder: 0,
+  hint: null,
+};
+
+/** A category with a calibration cycle always records when each item was last done. */
+async function withCalibrationField<T extends { calibrationCycleMonths?: number | null; fields?: CreateCategoryInput["fields"] }>(id: string | null, input: T): Promise<T> {
+  if (!input.calibrationCycleMonths) return input;
+  const current =
+    input.fields ??
+    (id
+      ? (await prisma.categoryField.findMany({ where: { categoryId: id }, orderBy: { sortOrder: "asc" } })).map((f) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type,
+          options: f.options,
+          unit: f.unit ?? undefined,
+          summary: f.summary,
+          longText: f.longText,
+          required: f.required,
+          sortOrder: f.sortOrder,
+          hint: f.hint,
+        }))
+      : []);
+  if (current.some((f) => f.key === CALIBRATION_FIELD_KEY)) return input;
+  return { ...input, fields: [...current, CALIBRATION_FIELD] };
+}
+
+export async function create(actorId: string, rawInput: CreateCategoryInput, opts: { stewardNodeId?: string | null } = {}): Promise<ResourceCategoryDto> {
+  const input = await withCalibrationField(null, rawInput);
   assertKnownIcon(input.iconKey);
   assertBookableCountingMode(input.bookingMode, input.countingMode);
   assertEnumFieldsHaveOptions(input.fields);
@@ -247,6 +286,7 @@ export async function create(actorId: string, input: CreateCategoryInput, opts: 
           isPlace: input.isPlace,
           bookingMode: input.bookingMode ?? "NOT_BOOKABLE",
           publicListed: input.publicListed ?? false,
+          calibrationCycleMonths: input.calibrationCycleMonths ?? null,
           description: input.description || null,
           stewardNodeId: opts.stewardNodeId ?? null,
           createdById: actorId,
@@ -363,8 +403,9 @@ function assertOptionMoves(ctx: EditContext, moves: NonNullable<UpdateArgs["opti
  * This is the write itself; who may make it, and whether it waits for approval, is
  * lib/server/resources/category-governance.ts.
  */
-export async function update(actorId: string, id: string, input: UpdateArgs): Promise<ResourceCategoryDto> {
-  assertKnownIcon(input.iconKey);
+export async function update(actorId: string, id: string, rawInput: UpdateArgs): Promise<ResourceCategoryDto> {
+  assertKnownIcon(rawInput.iconKey);
+  const input = await withCalibrationField(id, rawInput);
   await prisma.$transaction(
     async (tx) => {
       const lock = await tx.$queryRaw<{ id: string; version: number }[]>`
@@ -440,6 +481,9 @@ export async function update(actorId: string, id: string, input: UpdateArgs): Pr
       if (input.bookingMode !== undefined && input.bookingMode !== before.bookingMode) diff.push({ field: "booking mode", before: before.bookingMode, after: input.bookingMode });
       if (input.publicListed !== undefined && input.publicListed !== before.publicListed) diff.push({ field: "public portal", before: before.publicListed, after: input.publicListed });
       if (input.description !== undefined && (input.description || null) !== before.description) diff.push({ field: "description", before: before.description, after: input.description || null });
+      if (input.calibrationCycleMonths !== undefined && input.calibrationCycleMonths !== before.calibrationCycleMonths) {
+        diff.push({ field: "calibration cycle (months)", before: before.calibrationCycleMonths, after: input.calibrationCycleMonths });
+      }
 
       await tx.resourceCategory.update({
         where: { id },
@@ -457,6 +501,7 @@ export async function update(actorId: string, id: string, input: UpdateArgs): Pr
           ...(input.bookingMode !== undefined ? { bookingMode: input.bookingMode } : {}),
           ...(input.publicListed !== undefined ? { publicListed: input.publicListed } : {}),
           ...(input.description !== undefined ? { description: input.description || null } : {}),
+          ...(input.calibrationCycleMonths !== undefined ? { calibrationCycleMonths: input.calibrationCycleMonths } : {}),
         },
       });
 

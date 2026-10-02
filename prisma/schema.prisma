@@ -438,6 +438,10 @@ model ResourceCategory {
   /// Public portal (Track 7) — whether this category's university-wide working count
   /// appears on the unauthenticated catalog. Counts only, never the tree.
   publicListed Boolean     @default(false)
+  /// Calibrated every this many months (null: not calibrated). Each item records when it
+  /// was last done in its `lastCalibrated` date detail; whether it is due is computed
+  /// (lib/domain/calibration.ts).
+  calibrationCycleMonths Int?
 
   /// What it is for, in a sentence — shown when choosing a category.
   description   String?

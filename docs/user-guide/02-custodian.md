@@ -72,6 +72,8 @@ Click an item's **name** to open its details: its parts (**Contains**), its stat
 
 **Adding things.** **+ Add resources** in **Resources**: choose the **Category**, where it goes (**Into**), the **Name** and **How many**, then **Preview…** and **Apply**. A category that *comes with* parts (a Workstation Setup) creates them too. New names continue the lab's own numbering (*Chair 21, 22…*).
 
+**Calibration.** For machines that are calibrated on a cycle, set **Last calibrated** in the item's details after each calibration (in your lab's changes, like any detail). In **Resources**, **+ Add filter… → Calibration** shows what is **overdue**, **due soon** or **never calibrated**; **Calibration due in (days)** with "at most 30" lists what falls due this month. Home's **Due soon** lists them too.
+
 **Working in the lab itself.** You can also edit directly on **My changes**: set a status from the drop-down, **rename**, **+ add** inside something, or **✕** remove it.
 
 > **Good to know**
@@ -168,7 +170,8 @@ A hold blocks the calendar. It lapses on its own unless the request is paid by t
 
 You know your machines best, so you can add and adjust the **categories** your department uses. Open **Categories**.
 
-- **+ Add a category**: a name, an icon, what it is for, how it is **Counted as** (one by one, or a quantity in a unit), the **Details to record** (each with its kind: Text, Number, Choice, Yes / no, or Date), and what it **Comes with**. **+ A common detail…** adds the usual ones in one pick (Manufacturer, Model, Serial no., Calibration due…). A new category applies at once; your head is told.
+- **+ Add a category**: a name, an icon, what it is for, how it is **Counted as** (one by one, or a quantity in a unit), the **Details to record** (each with its kind: Text, Number, Choice, Yes / no, or Date), and what it **Comes with**. **+ A common detail…** adds the usual ones in one pick (Manufacturer, Model, Serial no., Expiry…). A new category applies at once; your head is told.
+- **Calibration** (under **More options**): "Needs calibrating every __ months". Each item of the kind then records **Last calibrated**, and its panel says whether it is calibrated, due soon (within 30 days), overdue or never calibrated.
 - **Changing one**: edit it, then **Review changes**. The review says what happens to the items it reaches before anything is saved:
   - adding a detail or an option applies at once;
   - changing a detail's kind **converts** the values; anything that can't convert is listed, and is kept on its item rather than lost;

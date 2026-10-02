@@ -20,6 +20,7 @@ import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 import { ChangeModal } from "./ChangeModal";
 import { CategoryIcon } from "./IconPicker";
 import { couldNotLoad } from "@/components/toast";
+import { CALIBRATION_FIELD_KEY, CALIBRATION_LABEL, calibrationOf, calibrationWords, todayIso } from "@/lib/domain/calibration";
 
 /**
  * The single-item edit surface — corrections (name, status-as-typed-fact... no,
@@ -427,6 +428,7 @@ export function Inspector({
             {category && category.fields.length > 0 && (
               <div>
                 <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
+                <CalibrationLine category={category} item={item} />
                 <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
                   {category.fields.map((f) => (
                     <EditField key={f.key} label={f.unit ? `${f.label} (${f.unit})` : f.label}>
@@ -702,6 +704,7 @@ function ReadOnlyBody({
       {category && category.fields.length > 0 && (
         <div>
           <div className="text-10.5 uppercase tracking-label text-faint font-semibold mb-6">Properties</div>
+                <CalibrationLine category={category} item={item} />
           <div className="grid grid-cols-2 gap-x-14 gap-y-10 text-11">
             {category.fields.map((f) => (
               <EditField key={f.key} label={f.unit ? `${f.label} (${f.unit})` : f.label}>
@@ -889,5 +892,19 @@ export function CustomPropInput({
       onKeyDown={onKeyDown}
       className={cls}
     />
+  );
+}
+
+/** "Calibration overdue: overdue by 12 days (was due 2026-09-21)": computed from the
+ *  kind's cycle and the item's Last calibrated detail (lib/domain/calibration.ts). */
+function CalibrationLine({ category, item }: { category: ResourceCategoryDto | null; item: ItemDetailDto }) {
+  const info = calibrationOf(category?.calibrationCycleMonths, item.props[CALIBRATION_FIELD_KEY], todayIso());
+  if (!info) return null;
+  const tone = info.state === "OK" ? "text-good" : info.state === "DUE_SOON" ? "text-warn" : "text-bad";
+  return (
+    <div className={`text-11 mb-8 ${tone}`}>
+      {CALIBRATION_LABEL[info.state]}: {calibrationWords(info)}
+      {info.dueOn ? ` (${info.days !== null && info.days < 0 ? "was due" : "due"} ${info.dueOn})` : ""} · every {category!.calibrationCycleMonths} months
+    </div>
   );
 }

@@ -2,6 +2,7 @@ import "server-only";
 import type { CapabilitiesDto, DueSoonDto, HomeCountsDto, HomeDto, MyRequestDto, UnfinishedDto, WaitingDto } from "@/lib/shared";
 import { daysUntil, nextStep, WAITING_LABEL, type WaitingKind } from "@/lib/domain/home-logic";
 import { STAGE_LABEL } from "@/lib/domain/purchasing";
+import { CALIBRATION_FIELD_KEY, calibrationOf, todayIso } from "@/lib/domain/calibration";
 import { paths } from "@/lib/paths";
 import { prisma } from "../prisma";
 import { capabilitiesOf } from "../auth/capabilities";
@@ -138,7 +139,7 @@ async function unfinishedFor(userId: string, caps: CapabilitiesDto): Promise<Unf
  *  on what this person keeps or heads. */
 async function dueSoonFor(userId: string, caps: CapabilitiesDto): Promise<DueSoonDto[]> {
   if (!caps.isCustodian && !caps.headOf.length) return [];
-  const fields = await prisma.categoryField.findMany({ where: { type: "DATE" }, select: { categoryId: true, key: true, label: true } });
+  const fields = await prisma.categoryField.findMany({ where: { type: "DATE" }, select: { categoryId: true, key: true, label: true, category: { select: { calibrationCycleMonths: true } } } });
   if (!fields.length) return [];
   const byCategory = new Map<string, Array<{ key: string; label: string }>>();
   for (const f of fields) byCategory.set(f.categoryId, [...(byCategory.get(f.categoryId) ?? []), f]);
@@ -152,11 +153,19 @@ async function dueSoonFor(userId: string, caps: CapabilitiesDto): Promise<DueSoo
     take: 5000,
   });
   const today = new Date();
+  const cycleOf = new Map(fields.map((f) => [f.categoryId, f.category.calibrationCycleMonths]));
   const out: DueSoonDto[] = [];
   for (const item of items) {
     const props = (item.props ?? {}) as Record<string, unknown>;
     for (const f of byCategory.get(item.categoryId) ?? []) {
       const value = props[f.key];
+      // "Last calibrated" is a past date: what falls due is the next calibration.
+      if (f.key === CALIBRATION_FIELD_KEY) {
+        const info = calibrationOf(cycleOf.get(item.categoryId), value, todayIso(today));
+        if (!info || info.days === null || info.days > 30 || info.days < -30) continue;
+        out.push({ itemId: item.id, itemName: item.name, what: "Calibration", date: info.dueOn!, days: info.days, path: `/register?item=${item.id}` });
+        continue;
+      }
       if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) continue;
       const days = daysUntil(value, today);
       if (days > 30 || days < -30) continue;

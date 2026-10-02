@@ -54,7 +54,6 @@ const COMMON_DETAILS: Array<Pick<FieldDraft, "label" | "type"> & Partial<FieldDr
   { label: "Serial no.", type: "TEXT" },
   { label: "Asset tag", type: "TEXT", hint: "e.g. ASTU-00123" },
   { label: "Year acquired", type: "NUMBER" },
-  { label: "Calibration due", type: "DATE" },
   { label: "Expiry", type: "DATE" },
   { label: "CAS no.", type: "TEXT", hint: "e.g. 64-17-5" },
   { label: "Notes", type: "TEXT", longText: true },
@@ -99,6 +98,8 @@ interface Draft {
   isPlace: boolean;
   bookingMode: BookingMode;
   publicListed: boolean;
+  /** Months between calibrations, as typed ("" = not calibrated). */
+  calibrationCycle: string;
   fields: FieldDraft[];
   templateChildren: ChildDraft[];
 }
@@ -121,6 +122,7 @@ function draftFrom(c: ResourceCategoryDto | null, defaultGroupId: string): Draft
       isPlace: false,
       bookingMode: "NOT_BOOKABLE",
       publicListed: false,
+      calibrationCycle: "",
       fields: [],
       templateChildren: [],
     };
@@ -137,6 +139,7 @@ function draftFrom(c: ResourceCategoryDto | null, defaultGroupId: string): Draft
     isPlace: c.isPlace,
     bookingMode: c.bookingMode,
     publicListed: c.publicListed,
+    calibrationCycle: c.calibrationCycleMonths ? String(c.calibrationCycleMonths) : "",
     fields: c.fields.map((f) => ({
       uid: uid(),
       key: f.key,
@@ -167,6 +170,7 @@ function toInput(draft: Draft): CreateCategoryInput {
     isPlace: draft.isPlace,
     bookingMode: draft.countingMode === "SERIALIZED" ? draft.bookingMode : "NOT_BOOKABLE",
     publicListed: draft.publicListed,
+    calibrationCycleMonths: Number(draft.calibrationCycle) > 0 ? Math.round(Number(draft.calibrationCycle)) : null,
     fields: draft.fields.map((f, i) => ({
       ...(f.key ? { key: f.key } : {}),
       label: f.label.trim(),
@@ -661,7 +665,7 @@ export function CategoryEditor({
           )}
 
           <details className="flex flex-col gap-10 rounded-2 border border-border px-12 py-8">
-            <summary className="cursor-pointer text-11 font-medium">More options: when it's out of order, booking, the public portal{isNew ? "" : ", in use or not"}</summary>
+            <summary className="cursor-pointer text-11 font-medium">More options: calibration, when it's out of order, booking, the public portal{isNew ? "" : ", in use or not"}</summary>
             <div className="flex flex-col gap-12 pt-10">
               {!draft.isPlace && draft.templateChildren.some((c) => c.critical) && (
                 <fieldset className="flex flex-col gap-4">
@@ -674,6 +678,27 @@ export function CategoryEditor({
                     ))}
                   </div>
                 </fieldset>
+              )}
+              {!draft.isPlace && (
+                <label className="flex flex-col gap-4 max-w-[420px]">
+                  <FieldLabel>Calibration</FieldLabel>
+                  <span className="flex items-center gap-6 text-11">
+                    Needs calibrating every
+                    <input
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={draft.calibrationCycle}
+                      onChange={(e) => patch({ calibrationCycle: e.target.value })}
+                      placeholder="–"
+                      className={`${inputCls} w-[70px]`}
+                    />
+                    months
+                  </span>
+                  <span className="text-11 text-dim">
+                    Leave empty if it is never calibrated. With a cycle, each one records <strong>Last calibrated</strong>, and Resources can filter what is due or overdue.
+                  </span>
+                </label>
               )}
               <fieldset className="flex flex-col gap-4">
                 <FieldLabel>Booking</FieldLabel>
@@ -826,6 +851,7 @@ function CategoryReadOnly({ category, usageCount, canEdit }: { category: Resourc
         {category.isPlace && <Tag>A place</Tag>}
         {category.bookingMode !== "NOT_BOOKABLE" && <Tag>{BOOKING_LABEL[category.bookingMode]}</Tag>}
         {category.publicListed && <Tag>On the public portal</Tag>}
+        {category.calibrationCycleMonths ? <Tag>Calibrated every {category.calibrationCycleMonths} months</Tag> : null}
         <Tag>
           {usageCount} item{usageCount === 1 ? "" : "s"}
         </Tag>

@@ -77,6 +77,8 @@ export const ResourceCategoryDto = z.object({
   publicListed: z.boolean(),
   /** What it is for, in a sentence. */
   description: z.string().nullable(),
+  /** Calibrated every this many months (null: not calibrated). */
+  calibrationCycleMonths: z.number().int().nullable(),
   /** The department that looks after it; null: university-wide (Property Administration). */
   stewardNodeId: z.string().nullable(),
   stewardName: z.string(),
@@ -95,6 +97,7 @@ export type ResourceCategoryDto = z.infer<typeof ResourceCategoryDto>;
 const categoryName = z.string().trim().min(1, "Name is required").max(160, "Name must be at most 160 characters");
 const categoryKey = z.string().trim().regex(/^[a-z][a-z0-9-]{1,40}$/, "Key: 2-41 chars, lowercase letters, digits and -, starting with a letter");
 const description = z.string().trim().max(400, "Keep the description under 400 characters");
+const calibrationCycle = z.number().int().min(1, "Calibrate at least every month").max(120, "Calibrate at least every ten years (120 months)");
 
 /** `key` is a detail's identity: an existing detail sends the key it has; a new one sends
  *  none and is given one from its label (categories.ts). People never see keys. */
@@ -132,6 +135,7 @@ export const CreateCategoryInput = z.object({
    *  name them — categories.ts applies NOT_BOOKABLE / false. */
   bookingMode: BookingModeSchema.optional(),
   publicListed: z.boolean().optional(),
+  calibrationCycleMonths: calibrationCycle.nullable().optional(),
   fields: z.array(CategoryFieldInput).default([]),
   templateChildren: z.array(CategoryTemplateChildInput).default([]),
 });
@@ -159,6 +163,7 @@ export const UpdateCategoryInput = z.object({
   isPlace: z.boolean().optional(),
   bookingMode: BookingModeSchema.optional(),
   publicListed: z.boolean().optional(),
+  calibrationCycleMonths: calibrationCycle.nullable().optional(),
   fields: z.array(CategoryFieldInput).optional(),
   templateChildren: z.array(CategoryTemplateChildInput).optional(),
   active: z.boolean().optional(),

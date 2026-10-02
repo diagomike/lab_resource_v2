@@ -8,7 +8,8 @@
  * (docs/cse_labs.md); the rest is standard equipment for those programmes.
  *
  * Every instrument records the same core details (Manufacturer, Model, Serial no., Asset
- * tag, Year acquired, Calibration due, Notes) plus its own. `bookable` makes it bookable
+ * tag, Year acquired, Notes) plus its own. Measuring and analytical instruments are
+ * calibrated on a cycle (`CALIBRATION_CYCLES`) and record "Last calibrated". `bookable` makes it bookable
  * equipment; `portal` lists its count on the public portal (instruments outsiders send
  * samples to).
  */
@@ -31,7 +32,6 @@ export const INSTRUMENT_FIELDS: FieldSpec[] = [
   { key: "serial", label: "Serial no.", type: "TEXT" },
   { key: "assetTag", label: "Asset tag", type: "TEXT", hint: "e.g. ASTU-00123" },
   { key: "yearAcquired", label: "Year acquired", type: "NUMBER" },
-  { key: "calibrationDue", label: "Calibration due", type: "DATE" },
   { key: "notes", label: "Notes", type: "TEXT", longText: true },
 ];
 
@@ -45,9 +45,26 @@ interface Opts {
   description?: string;
 }
 
+/** Months between calibrations, for the instruments that measure (2026-10-02: the
+ *  chemical/analytical ones and the mechanical testers above all). */
+export const CALIBRATION_CYCLES: Record<string, number> = {
+  ...Object.fromEntries(
+    [
+      "oscilloscope", "function-generator", "dc-power-supply", "multimeter", "spectrum-analyser", "logic-analyser", "hv-test-set", "power-analyser",
+      "engine-test-bed", "utm", "hardness-tester", "impact-tester", "fatigue-tester", "muffle-furnace", "xrd", "sem", "thermal-analyser", "ftir",
+      "compression-machine", "marshall-tester", "triaxial", "total-station", "gnss-receiver", "auto-level", "theodolite", "water-quality-meter",
+      "uv-vis", "aas", "hplc", "gc", "centrifuge", "drying-oven", "incubator", "autoclave", "biosafety-cabinet", "pcr", "dissolution-tester", "spectrometer",
+    ].map((k) => [k, 12]),
+  ),
+  "analytical-balance": 6,
+  "ph-meter": 6,
+};
+
 /** One instrument category: the shared details, then its own. */
 function inst(key: string, name: string, iconKey: string, group: string, o: Opts = {}): CategorySpec {
+  const cycle = CALIBRATION_CYCLES[key];
   return {
+    calibrationCycleMonths: cycle,
     key,
     name,
     iconKey,
@@ -58,7 +75,13 @@ function inst(key: string, name: string, iconKey: string, group: string, o: Opts
     bookingMode: o.bookable || o.portal ? "EQUIPMENT" : "NOT_BOOKABLE",
     publicListed: o.portal ?? false,
     // Manufacturer and Model first, then its own details, then the record-keeping ones.
-    fields: [...INSTRUMENT_FIELDS.slice(0, 2), ...(o.extra ?? []), ...INSTRUMENT_FIELDS.slice(2)],
+    fields: [
+      ...INSTRUMENT_FIELDS.slice(0, 2),
+      ...(o.extra ?? []),
+      ...INSTRUMENT_FIELDS.slice(2, -1),
+      ...(cycle ? [{ key: "lastCalibrated", label: "Last calibrated", type: "DATE" as const, summary: true }] : []),
+      ...INSTRUMENT_FIELDS.slice(-1),
+    ],
   };
 }
 

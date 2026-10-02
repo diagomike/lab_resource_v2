@@ -16,6 +16,7 @@
  * URL, but resolve to ordinary rules here (`newRule`) before `matchItems` ever runs.
  */
 import { newId } from "./instantiate";
+import { CALIBRATION_FIELD_KEY, CALIBRATION_LABEL, calibrationOf, calibrationStates, todayIso } from "./calibration";
 import { STATUS_LABEL, statusOf, type StatusInfo } from "./status";
 import type { TreeIndex } from "./tree";
 import type { Category, EffectiveStatus, Item, OrgNode, Person } from "./types";
@@ -55,6 +56,8 @@ export interface FilterCtx {
   categories: Record<string, Category>;
   /** Needed to reach an item's parts (descendant props) and its place (root). */
   index: TreeIndex;
+  /** "YYYY-MM-DD" for calibration's due dates; today when absent. */
+  today?: string;
 }
 
 /** Category ids reachable through a category's default subtree — its "parts". */
@@ -127,6 +130,19 @@ export function buildFilterFields(
     { id: "currentOrg", label: "Current holding unit", kind: "enum", group: "Core", options: orgOptions },
     { id: "custodian", label: "Custodian", kind: "enum", group: "Core", options: people.map((p) => ({ value: p.id, label: p.name })) },
     { id: "location", label: "Lab / location", kind: "enum", group: "Core", options: places.map((p) => ({ value: p.id, label: p.name })) },
+    // Calibration, computed from each kind's cycle and the item's last calibration.
+    ...(Object.values(categories).some((c) => c.calibrationCycleMonths)
+      ? [
+          {
+            id: "calibration",
+            label: "Calibration",
+            kind: "enum" as const,
+            group: "Calibration",
+            options: calibrationStates.map((s) => ({ value: s, label: CALIBRATION_LABEL[s] })),
+          },
+          { id: "calibrationDays", label: "Calibration due in (days)", kind: "number" as const, group: "Calibration", unit: "days" },
+        ]
+      : []),
     {
       id: "contains",
       label: "Contains (any depth)",
@@ -250,6 +266,12 @@ function valuesFor(item: Item, fieldId: string, ctx: FilterCtx): string[] {
   if (fieldId === "custodian") return item.custodianId ? [item.custodianId] : [];
   if (fieldId === "location") return [placeOf(ctx.index, item).id];
   if (fieldId === "contains") return [...(ctx.descCats.get(item.id) ?? [])];
+  if (fieldId === "calibration" || fieldId === "calibrationDays") {
+    const info = calibrationOf(ctx.categories[item.categoryId]?.calibrationCycleMonths, item.props[CALIBRATION_FIELD_KEY], ctx.today ?? todayIso());
+    if (!info) return [];
+    if (fieldId === "calibration") return [info.state];
+    return info.days === null ? [] : [String(info.days)];
+  }
   if (fieldId.startsWith("prop:")) {
     const [, catId, key] = fieldId.split(":");
     if (item.categoryId !== catId) return [];

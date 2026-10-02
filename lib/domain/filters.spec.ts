@@ -197,3 +197,25 @@ describe("search @key terms", () => {
     expect(search("@brand:dell 03")).toEqual(["pc-c"]);
   });
 });
+
+describe("calibration filters", () => {
+  it("finds what is overdue, due soon or never calibrated, and what is due within N days", () => {
+    const balance = { ...category("balance"), calibrationCycleMonths: 12 };
+    const chair = category("chair");
+    const categories = { balance, chair };
+    const items = [
+      item("b-ok", "balance", null, { props: { lastCalibrated: "2026-06-01" } }),
+      item("b-soon", "balance", null, { props: { lastCalibrated: "2025-10-20" } }),
+      item("b-late", "balance", null, { props: { lastCalibrated: "2025-01-01" } }),
+      item("b-never", "balance", null),
+      item("chair", "chair", null),
+    ];
+    const ctx = { ...contextFor(items, categories), today: "2026-10-03" };
+    const ids = (rules: FilterState["rules"]) => [...matchItems(items, query(rules), ctx)].sort();
+    expect(ids([{ id: "r", field: "calibration", op: "inArray", values: ["OVERDUE", "NEVER"] }])).toEqual(["b-late", "b-never"]);
+    expect(ids([{ id: "r", field: "calibration", op: "inArray", values: ["DUE_SOON"] }])).toEqual(["b-soon"]);
+    // A chair is never calibrated at all: it has no calibration state.
+    expect(ids([{ id: "r", field: "calibration", op: "isEmpty", values: [] }])).toEqual(["chair"]);
+    expect(ids([{ id: "r", field: "calibrationDays", op: "lte", values: ["30"] }])).toEqual(["b-late", "b-soon"]);
+  });
+});
