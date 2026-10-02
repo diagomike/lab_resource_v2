@@ -80,7 +80,7 @@ export async function remove(id: string): Promise<void> {
   const inUse = await prisma.resourceCategory.count({ where: { groupId: id } });
   if (inUse > 0) {
     throw new HttpError(409, "Cannot delete group", {
-      message: `Cannot delete "${existing.name}" — ${inUse} categor${inUse === 1 ? "y" : "ies"} still filed under it`,
+      message: `Cannot delete "${existing.name}": ${inUse} categor${inUse === 1 ? "y" : "ies"} still filed under it`,
       code: "DELETE_BLOCKED",
       itemCount: inUse,
     });

@@ -22,6 +22,8 @@ For each line:
 2. Choose **Into**: the ASTU Main Store, or a shelf or cabinet inside it.
 3. Click **Load into store**.
 
+![An import record to load](img/store-keeper/01-load.jpg)
+
 Each unit becomes its own resource in the store, numbered after what's already there (*Workstation Setup 01 … 151*). A category that *comes with* parts brings them too: every Workstation Setup arrives with its computer, monitor, keyboard, table and chair. Loading is never refused for a detail the category requires; it can be filled in afterwards.
 
 You can't load **more than the record says arrived** ("Only 1 pcs of … are left to load"). Once every line is loaded, the record shows **Loaded**; when everything a purchase request ordered is in, the request closes (**Registered and closed**) and its department head is told.
@@ -34,6 +36,8 @@ You can't load **more than the record says arrived** ("Only 1 pcs of … are lef
 2. Tick the items for one lab, then click **Move to another place…**
 3. Search for the **Destination** lab (or a place inside it, like its Switch Rack). The dialog shows who must agree: **the receiving department's head**, then **Property Administration**, then **the receiving custodian accepts**. If the items are all one kind and the lab numbers its own (*Workstation 01…*), **Name them there as** suggests the lab's naming.
 4. Confirm. The receiving custodian is told it's coming.
+
+![Move to another place](img/store-keeper/02-move.jpg)
 
 Nothing moves until all three have said yes. Meanwhile the items show **⇄** in the store (*⇄ 5 promised*), so they can't be promised to a second lab. When the custodian accepts, the items move into the lab, owned by that department and in the custodian's custody.
 

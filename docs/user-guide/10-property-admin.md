@@ -44,6 +44,10 @@ These come to you in **Approvals**, after the departments' own consent:
 | **Return to the store** | owning head → **you** → store keeper accepts | before it comes back in |
 | **Permanent transfer** between colleges | … both heads → College Managing Director → **you** → receipt | last, before receipt |
 
+Each card opens **What is moving, from where, to whom**: the place it leaves and the place it goes, who owns it now and whether ownership moves, who answers for it now and who will, and every resource with its kind, status, recorded details and the parts that travel with it.
+
+![A store handover waiting for Property Administration](img/property-admin/02-approve-movement.jpg)
+
 **Approve** moves it on; **Reject** ends it with your reason. A permanent transfer inside one college, and a loan, never come to you.
 
 ## 5. Categories

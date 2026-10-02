@@ -94,15 +94,15 @@ export async function receiveUpload(actorId: string, uploadSessionId: string, by
   }
   if (row.expiresAt.getTime() < Date.now()) {
     await prisma.imageUpload.delete({ where: { id: row.id } });
-    throw new HttpError(409, "Upload session expired", { message: "This upload session has expired — choose the file again.", code: "UPLOAD_SESSION_EXPIRED" });
+    throw new HttpError(409, "Upload session expired", { message: "This upload session has expired. Choose the file again.", code: "UPLOAD_SESSION_EXPIRED" });
   }
   if (bytes.length === 0) throw new HttpError(400, "That file is empty.");
-  if (bytes.length > MAX_UPLOAD_BYTES) throw new HttpError(400, `That file is too large — the limit is ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`);
+  if (bytes.length > MAX_UPLOAD_BYTES) throw new HttpError(400, `That file is too large: the limit is ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`);
 
   const sniffed = sniffImage(bytes);
-  if (!sniffed) throw new HttpError(400, "Choose a JPEG, PNG, or WebP image — that file is not a recognized image format.");
+  if (!sniffed) throw new HttpError(400, "Choose a JPEG, PNG, or WebP image. That file is not a recognized image format.");
   if (sniffed.width > MAX_DIMENSION || sniffed.height > MAX_DIMENSION) {
-    throw new HttpError(400, `That image is too large — ${sniffed.width}×${sniffed.height} exceeds the ${MAX_DIMENSION}px limit per side.`);
+    throw new HttpError(400, `That image is too large: ${sniffed.width}×${sniffed.height} exceeds the ${MAX_DIMENSION}px limit per side.`);
   }
 
   // What is stored is the server's re-encoding (image-normalize.ts), never the bytes as sent.

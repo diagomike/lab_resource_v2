@@ -8,7 +8,7 @@ export type FontFamily = "sans" | "system" | "serif";
 
 export const FONT_SIZES: { key: FontSize; label: string }[] = [
   { key: "small", label: "Small" },
-  { key: "medium", label: "Default" },
+  { key: "medium", label: "Medium" },
   { key: "large", label: "Large" },
   { key: "xlarge", label: "Extra large" },
 ];
@@ -27,6 +27,9 @@ interface ThemeState {
   fontFamily: FontFamily;
   setFontFamily: (family: FontFamily) => void;
 }
+
+/** Large is the default — globals.css sets its scale on :root, so it needs no attribute. */
+export const DEFAULT_FONT_SIZE: FontSize = "large";
 
 const ThemeContext = createContext<ThemeState | null>(null);
 const THEME_KEY = "sc-theme";
@@ -51,7 +54,7 @@ function readStored<T extends string>(_key: string, _valid: readonly T[], fallba
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readInitialTheme);
   const [fontSize, setFontSizeState] = useState<FontSize>(() =>
-    readStored(FONT_SIZE_KEY, FONT_SIZES.map((f) => f.key), "medium"),
+    readStored(FONT_SIZE_KEY, FONT_SIZES.map((f) => f.key), DEFAULT_FONT_SIZE),
   );
   const [fontFamily, setFontFamilyState] = useState<FontFamily>(() =>
     readStored(FONT_FAMILY_KEY, FONT_FAMILIES.map((f) => f.key), "sans"),
@@ -87,9 +90,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
-  // "medium" needs no attribute at all — :root's own --font-scale: 1 already covers it.
+  // The default (large) needs no attribute at all — :root's own --font-scale covers it.
   useEffect(() => {
-    if (fontSize === "medium") document.documentElement.removeAttribute("data-font-size");
+    if (fontSize === DEFAULT_FONT_SIZE) document.documentElement.removeAttribute("data-font-size");
     else document.documentElement.setAttribute("data-font-size", fontSize);
   }, [fontSize]);
 

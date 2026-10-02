@@ -70,7 +70,7 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
     return (
       <Modal title="Return requested" onClose={onDone} width="440px">
         <div className="text-11.5 text-dim">
-          {done.outcome === "APPLIED" ? "Returned — it is in the store now." : "Requested. Once it is approved, the store keeper accepts it into the store. Track it under Approvals → Raised by me."}
+          {done.outcome === "APPLIED" ? "Returned. It is in the store now." : "Requested. Once it is approved, the store keeper accepts it into the store. Track it under Approvals → Raised by me."}
         </div>
         <Button variant="primary" onClick={onDone}>
           Done
@@ -80,7 +80,7 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
   }
 
   return (
-    <Modal title={`Return ${label} to the store`} onClose={onClose} width="480px">
+    <Modal title={`Return ${label} to the store`} onClose={onClose} width="480px" dirty={!!note.trim()}>
       <div className="flex flex-col gap-6">
         <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Into</label>
         {stores === null ? (
@@ -96,7 +96,7 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
             <option value="">Choose a store…</option>
             {stores.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} — kept by {s.custodianName}
+                {s.name} · kept by {s.custodianName}
               </option>
             ))}
           </select>
@@ -123,7 +123,7 @@ export function ReturnToStoreModal({ itemIds, label, onClose, onDone }: { itemId
           ) : preview.outcome === "DENIED" ? (
             <span className="text-bad">{preview.reason}</span>
           ) : preview.outcome === "APPLIED" ? (
-            <span className="text-dim">Applies immediately — no approval needed.</span>
+            <span className="text-dim">Applies immediately. No approval needed.</span>
           ) : (
             <span className="text-dim">
               Needs: {preview.steps?.filter((s) => s.status !== "SKIPPED").map((s) => (s.approverName ? `${s.label} (${s.approverName})` : s.label)).join(" → ")}

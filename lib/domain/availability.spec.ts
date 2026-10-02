@@ -13,7 +13,7 @@ function claim(partial: Partial<ExistingClaim> & Pick<ExistingClaim, "itemId">):
   return { reservationId: `r-${partial.itemId}`, startsAt: at(5), endsAt: at(7), blocking: true, title: "Existing", ...partial };
 }
 
-describe("overlaps — half-open windows", () => {
+describe("overlaps: half-open windows", () => {
   it("back-to-back sessions do not overlap", () => {
     expect(overlaps(at(5), at(7), at(7), at(9))).toBe(false);
     expect(overlaps(at(5), at(7), at(6), at(9))).toBe(true);

@@ -53,7 +53,7 @@ function key(label: string): string {
   return `__test-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-describe("categories — validation", () => {
+describe("categories: validation", () => {
   it("rejects a duplicate field key on create, before it ever reaches the database", async () => {
     await expect(
       categories.create(sysAdminId, {
@@ -127,7 +127,7 @@ describe("categories — validation", () => {
   });
 });
 
-describe("categories — deleting a category used as another's default part", () => {
+describe("categories: deleting a category used as another's default part", () => {
   it("blocks by default, and only proceeds once the collateral change is explicitly confirmed", async () => {
     const part = await categories.create(sysAdminId, {
       key: key("blockable-part"),
@@ -167,7 +167,7 @@ describe("categories — deleting a category used as another's default part", ()
   });
 });
 
-describe("categories — atomic version-conflict handling", () => {
+describe("categories: atomic version-conflict handling", () => {
   it("refuses a stale whole-object write and leaves the category completely untouched", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("stale"),
@@ -210,8 +210,8 @@ describe("categories — atomic version-conflict handling", () => {
     });
 
     const [r1, r2] = await Promise.allSettled([
-      categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, name: "Race Test — writer 1", fields: [], purgeKeys: [] }),
-      categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, name: "Race Test — writer 2", fields: [], purgeKeys: [] }),
+      categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, name: "Race Test: writer 1", fields: [], purgeKeys: [] }),
+      categories.update(sysAdminId, cat.id, { expectedVersion: cat.version, name: "Race Test: writer 2", fields: [], purgeKeys: [] }),
     ]);
 
     const fulfilled = [r1, r2].filter((r) => r.status === "fulfilled");
@@ -223,11 +223,11 @@ describe("categories — atomic version-conflict handling", () => {
     const after = await categories.getOne(cat.id);
     // Exactly one increment — not zero (both refused) and not two (both silently applied).
     expect(after.version).toBe(cat.version + 1);
-    expect(["Race Test — writer 1", "Race Test — writer 2"]).toContain(after.name);
+    expect(["Race Test: writer 1", "Race Test: writer 2"]).toContain(after.name);
   });
 });
 
-describe("F-027 — BULK to SERIALIZED is refused (409), never a raw 500, while real stock exists", () => {
+describe("F-027: BULK to SERIALIZED is refused (409), never a raw 500, while real stock exists", () => {
   it("refuses the switch while an item holds a quantity other than 1, and leaves the category untouched", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("bulk-to-serialized"),
@@ -261,7 +261,7 @@ describe("F-027 — BULK to SERIALIZED is refused (409), never a raw 500, while 
   });
 });
 
-describe("F-051 — bookingMode cannot be removed while future reservations exist", () => {
+describe("F-051: bookingMode cannot be removed while future reservations exist", () => {
   it("refuses changing bookingMode away from ROOM while a future reservation depends on it", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("room-bookable"),
@@ -303,7 +303,7 @@ describe("F-051 — bookingMode cannot be removed while future reservations exis
   });
 });
 
-describe("F-027 — BULK to SERIALIZED, the safe case", () => {
+describe("F-027: BULK to SERIALIZED, the safe case", () => {
   it("allows the switch once every item already holds qty 1", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("bulk-to-serialized-ok"),
@@ -329,7 +329,7 @@ describe("F-027 — BULK to SERIALIZED, the safe case", () => {
   });
 });
 
-describe("F-030 — category name/key/icon hygiene", () => {
+describe("F-030: category name/key/icon hygiene", () => {
   it("the input schema trims names, caps their length and pins the key to a slug", async () => {
     const { CreateCategoryInput } = await import("../../shared/resources/category");
     const ok = { key: "good-key", name: "  Good  ", iconKey: "Box", groupId: "g", countingMode: "SERIALIZED" as const };
@@ -348,7 +348,7 @@ describe("F-030 — category name/key/icon hygiene", () => {
   });
 });
 
-describe("F-029 — required fields", () => {
+describe("F-029: required fields", () => {
   it("the impact preview counts existing items that lack a newly required field", async () => {
     const cat = await categories.create(sysAdminId, {
       key: key("req-preview"), name: "F029 Preview", iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER",
@@ -368,7 +368,7 @@ describe("F-029 — required fields", () => {
   });
 });
 
-describe("F-028 — changing a detail never loses what items hold", () => {
+describe("F-028: changing a detail never loses what items hold", () => {
   const field = (over: Record<string, unknown>) => ({ label: "Reading", type: "TEXT" as const, options: [], summary: false, longText: false, required: false, sortOrder: 0, ...over });
 
   async function withItems(name: string, fields: ReturnType<typeof field>[], props: Record<string, unknown>[]) {
@@ -387,7 +387,7 @@ describe("F-028 — changing a detail never loses what items hold", () => {
     return { cat, read, cleanup };
   }
 
-  it("gives new details and categories keys of their own — nobody types a key", async () => {
+  it("gives new details and categories keys of their own: nobody types a key", async () => {
     const cat = await categories.create(sysAdminId, { name: `Generated Keys ${Date.now()}`, iconKey: "Box", groupId, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: false, templateChildren: [], fields: [field({ label: "RAM" }), field({ label: "Ram size" })] });
     expect(cat.key).toMatch(/^generated-keys-/);
     expect(cat.fields.map((f) => f.key)).toEqual(["ram", "ram_size"]);

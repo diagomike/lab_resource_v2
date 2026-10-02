@@ -23,7 +23,7 @@ Your approval completes the chain. The request moves to **Order placed on EGP** 
 
 ## 2. Your pipeline
 
-**Purchasing → Requests → On order — where each one is** lists every approved order that hasn't reached the store yet.
+**Purchasing → Requests → On order: where each one is** lists every approved order that hasn't reached the store yet.
 
 ![Your pipeline: an order to move along](img/procurement/01-pipeline.jpg)
 

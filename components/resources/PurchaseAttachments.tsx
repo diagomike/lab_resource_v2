@@ -64,8 +64,8 @@ async function shrinkImage(file: File): Promise<Blob> {
 
 function tooBigMessage(file: File, size: number): string {
   const limit = formatBytes(ATTACHMENT_LIMITS.fileBytes);
-  if (isImage(file)) return `${file.name} is still ${formatBytes(size)} after shrinking — the limit is ${limit}. Save it as a JPEG and try again.`;
-  return `${file.name} is ${formatBytes(size)} — the limit is ${limit} a file. Scan at 150–200 dpi (grayscale for plain text), or split it into parts.`;
+  if (isImage(file)) return `${file.name} is still ${formatBytes(size)} after shrinking: the limit is ${limit}. Save it as a JPEG and try again.`;
+  return `${file.name} is ${formatBytes(size)}: the limit is ${limit} a file. Scan at 150–200 dpi (grayscale for plain text), or split it into parts.`;
 }
 
 type Uploading = { key: string; name: string; error?: string };
@@ -235,7 +235,7 @@ export function RequestDocuments({ history }: { history: PurchaseRequestDto["his
             <li key={f.id} className="flex flex-wrap items-center gap-6 text-11">
               <FileChip file={f} />
               <span className="text-faint">
-                — {e.byName}
+                – {e.byName}
                 {actionLabel(e) ? `, ${actionLabel(e)}` : ""} · {new Date(e.at).toLocaleDateString()}
               </span>
             </li>

@@ -108,7 +108,7 @@ export interface NewReservation {
  */
 export async function writeReservation(target: BookingTarget, window: Pick<BookingInput, "date" | "start" | "end">, data: NewReservation): Promise<string> {
   const { startsAt, endsAt } = windowOf(window);
-  if (startsAt.getTime() < Date.now()) throw new HttpError(400, "That time has already started — choose a time in the future.");
+  if (startsAt.getTime() < Date.now()) throw new HttpError(400, "That time has already started. Choose a time in the future.");
   const itemIds = target.items.map((i) => i.id);
   try {
     return await prisma.$transaction(async (tx) => {
@@ -178,7 +178,7 @@ export async function createStaffBooking(userId: string, input: BookingInput): P
       subject: `Booking request for ${dto.labName} on ${dto.date}`,
       paragraphs: [
         `${esc(dto.requestedByName ?? "Someone")} asked to book ${when(dto)}: “${esc(dto.title)}”.${quoted(dto.note)}`,
-        "Approve or decline it — the button below opens it (it is also on Bookings → My labs).",
+        "Approve or decline it. The button below opens it (it is also on Bookings → My labs).",
       ],
       path: paths.decide("booking", dto.id),
       action: "Decide it",
@@ -237,8 +237,8 @@ export async function decideBooking(userId: string, id: string, decision: "APPRO
       const { claims, meta } = await loadClaims(tx, treeIds, row.startsAt, row.endsAt);
       const blocking = findClashes({ itemIds: row.resources.map((r) => r.itemId), startsAt: row.startsAt, endsAt: row.endsAt }, claims, parentLookup(tree), [id]).filter((c) => c.blocking);
       if (blocking.length) {
-        throw new HttpError(409, "Something else now holds this slot — decline this request or ask for another time.", {
-          message: "Something else now holds this slot — decline this request or ask for another time.",
+        throw new HttpError(409, "Something else now holds this slot. Decline this request or ask for another time.", {
+          message: "Something else now holds this slot. Decline this request or ask for another time.",
           clashes: toClashDtos(blocking, new Map(tree.map((r) => [r.id, r.name])), meta),
         });
       }

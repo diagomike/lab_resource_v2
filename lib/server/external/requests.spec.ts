@@ -330,7 +330,7 @@ describe("down the line and back: AVP → dean → head → custodians → head 
     await requests.reviewAssignment(avpId, parts.collegeId, { decision: "APPROVE" });
     dto = await requests.sendQuote(avpId, r.id, { amountSantim: 300_000, paymentDeadline: dayAhead(10) });
     expect(dto.status).toBe("QUOTED");
-    expect((await requests.viewForRequester(r.requesterId, r.id)).bookings).toEqual([{ place: "XRD-1 — Ext Lab", date, start: "09:00", end: "12:00", confirmed: false }]);
+    expect((await requests.viewForRequester(r.requesterId, r.id)).bookings).toEqual([{ place: "XRD-1: Ext Lab", date, start: "09:00", end: "12:00", confirmed: false }]);
   });
 });
 

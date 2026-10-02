@@ -32,12 +32,12 @@ const RULE_LABEL: Record<ImpairRule, string> = {
 };
 const RULE_HELP: Record<ImpairRule, string> = {
   ANY_CRITICAL: "A computer: a dead motherboard or monitor stops the machine.",
-  ALL_CRITICAL: "Spares: two switches in a rack — either keeps the network up.",
+  ALL_CRITICAL: "Spares: two switches in a rack. Either keeps the network up.",
   NEVER: "A bench or a cabinet: what sits in it doesn't break it.",
 };
 const BOOKING_LABEL: Record<BookingMode, string> = { NOT_BOOKABLE: "Not bookable", ROOM: "A bookable room", EQUIPMENT: "Bookable equipment" };
 const BOOKING_HELP: Record<BookingMode, string> = {
-  NOT_BOOKABLE: "Never on a calendar — parts, furniture, stock.",
+  NOT_BOOKABLE: "Never on a calendar: parts, furniture, stock.",
   ROOM: "A space booked or timetabled; booking it claims what's inside.",
   EQUIPMENT: "A machine people book on its own.",
 };
@@ -442,7 +442,7 @@ export function CategoryEditor({
         const fresh = await api.get<ResourceCategoryDto>(`/resources/categories/${category.id}`).catch(() => null);
         if (fresh) setBaseVersion(fresh.version);
         setReviewing(false);
-        setNotice({ tone: "warn", text: "Someone else changed this category while you were editing. Your changes are kept — review them again against the category as it is now." });
+        setNotice({ tone: "warn", text: "Someone else changed this category while you were editing. Your changes are kept. Review them again against the category as it is now." });
         scrollTop();
       } else setError(e instanceof ApiError ? e.message : "Could not save this category");
     } finally {
@@ -547,7 +547,7 @@ export function CategoryEditor({
             <p className="text-11 text-dim">
               {isTop
                 ? "A university-wide category, looked after by Property Administration."
-                : "Your department looks after it: you and your head can change it, and your head is told it was added. It can be used straight away — inside labs and stores, and inside any thing that lists it under “Comes with”."}
+                : "Your department looks after it: you and your head can change it, and your head is told it was added. It can be used straight away: inside labs and stores, and inside any thing that lists it under “Comes with”."}
             </p>
           )}
 
@@ -600,10 +600,10 @@ export function CategoryEditor({
                 <FieldLabel>What it is</FieldLabel>
                 <div className="flex flex-wrap gap-6">
                   <Choice on={!draft.isPlace} onClick={() => patch({ isPlace: false })}>
-                    A thing — goes into labs and stores
+                    A thing: goes into labs and stores
                   </Choice>
                   <Choice on={draft.isPlace} onClick={() => patch({ isPlace: true, impairRule: "NEVER" })}>
-                    A place — a lab, workshop, studio or store
+                    A place: a lab, workshop, studio or store
                   </Choice>
                 </div>
               </fieldset>
@@ -612,7 +612,7 @@ export function CategoryEditor({
 
           <section className="flex flex-col gap-8">
             <SectionTitle>Details to record</SectionTitle>
-            <p className="text-11 text-dim -mt-4">What people fill in for each one — model, serial number, capacity. Details marked “in summary” show in the resources table.</p>
+            <p className="text-11 text-dim -mt-4">What people fill in for each one: model, serial number, capacity. Details marked “in summary” show in the resources table.</p>
             <FieldsEditor
               fields={draft.fields}
               usage={usage.counts}
@@ -648,7 +648,7 @@ export function CategoryEditor({
             <section className="flex flex-col gap-8">
               <SectionTitle>Comes with</SectionTitle>
               <p className="text-11 text-dim -mt-4">
-                Parts built in when one is added — a computer comes with a monitor, keyboard and mouse. Only these can go inside it later (RAM inside a motherboard). Items already recorded keep the parts they have.
+                Parts built in when one is added. A computer comes with a monitor, keyboard and mouse. Only these can go inside it later (RAM inside a motherboard). Items already recorded keep the parts they have.
               </p>
               <ChildrenEditor
                 parts={draft.templateChildren}
@@ -661,7 +661,7 @@ export function CategoryEditor({
           )}
 
           <details className="flex flex-col gap-10 rounded-2 border border-border px-12 py-8">
-            <summary className="cursor-pointer text-11 font-medium">More options — when it's out of order, booking, the public portal{isNew ? "" : ", in use or not"}</summary>
+            <summary className="cursor-pointer text-11 font-medium">More options: when it's out of order, booking, the public portal{isNew ? "" : ", in use or not"}</summary>
             <div className="flex flex-col gap-12 pt-10">
               {!draft.isPlace && draft.templateChildren.some((c) => c.critical) && (
                 <fieldset className="flex flex-col gap-4">
@@ -688,12 +688,12 @@ export function CategoryEditor({
               </fieldset>
               <label className="flex items-center gap-6 text-11">
                 <input type="checkbox" checked={draft.publicListed} onChange={(e) => patch({ publicListed: e.target.checked })} />
-                Show how many working ones the university has on the public portal (a count only — never where they are)
+                Show how many working ones the university has on the public portal (a count only, never where they are)
               </label>
               {!isNew && (
                 <label className="flex items-center gap-6 text-11">
                   <input type="checkbox" checked={!draft.active} onChange={(e) => patch({ active: !e.target.checked })} />
-                  Not in use — hidden when adding resources; what is already recorded stays
+                  Not in use: hidden when adding resources; what is already recorded stays
                 </label>
               )}
             </div>
@@ -745,7 +745,7 @@ export function CategoryEditor({
                   <Button variant="danger" disabled={busy || usageCount > 0} onClick={() => setConfirmingDelete(true)}>
                     Remove category
                   </Button>
-                  {usageCount > 0 && <span className="text-11 text-dim">It can be removed once nothing is filed under it — or mark it “Not in use” under More options.</span>}
+                  {usageCount > 0 && <span className="text-11 text-dim">It can be removed once nothing is filed under it, or mark it “Not in use” under More options.</span>}
                 </div>
               )}
             </div>
@@ -860,7 +860,7 @@ function CategoryReadOnly({ category, usageCount, canEdit }: { category: Resourc
       <p className="text-11 text-dim">
         Looked after by {category.stewardName}.{" "}
         {category.isPlace && canEdit
-          ? "Labs, workshops, studios and stores are kept by Property Administration — ask them for a change."
+          ? "Labs, workshops, studios and stores are kept by Property Administration. Ask them for a change."
           : "Custodians and department heads add and change categories; ask the custodian of your lab."}
       </p>
     </div>
@@ -886,7 +886,7 @@ function FieldsEditor({
   onConfirmRename: (uid: string) => void;
   onSplitRename: (uid: string) => void;
 }) {
-  if (!fields.length) return <p className="text-11 text-dim">No details yet — add the ones people should fill in.</p>;
+  if (!fields.length) return <p className="text-11 text-dim">No details yet. Add the ones people should fill in.</p>;
   return (
     <ol className="flex flex-col gap-6">
       {fields.map((f, i) => {
@@ -967,14 +967,14 @@ function FieldsEditor({
                   {used} item{used === 1 ? " has" : "s have"} a value for “{f.originalLabel}”. Is “{f.label.trim()}” the same detail with a new name?
                 </span>
                 <span className="flex flex-wrap gap-6">
-                  <Button onClick={() => onConfirmRename(f.uid)}>Yes — rename it, the values stay</Button>
-                  <Button onClick={() => onSplitRename(f.uid)}>No — add “{f.label.trim()}” as a new detail</Button>
+                  <Button onClick={() => onConfirmRename(f.uid)}>Yes, rename it. The values stay</Button>
+                  <Button onClick={() => onSplitRename(f.uid)}>No, add “{f.label.trim()}” as a new detail</Button>
                 </span>
               </div>
             )}
             {used > 0 && f.originalType && f.type !== f.originalType && (
               <p className="text-11 text-dim">
-                The {used} value{used === 1 ? "" : "s"} recorded {used === 1 ? "is" : "are"} converted to {TYPE_LABEL[f.type].toLowerCase()} where {used === 1 ? "it reads as one" : "they read as one"} (“16 GB” → 16). Anything that doesn&apos;t stays on its item as an extra detail — the review lists them.
+                The {used} value{used === 1 ? "" : "s"} recorded {used === 1 ? "is" : "are"} converted to {TYPE_LABEL[f.type].toLowerCase()} where {used === 1 ? "it reads as one" : "they read as one"} (“16 GB” → 16). Anything that doesn&apos;t stays on its item as an extra detail. The review lists them.
               </p>
             )}
           </li>
@@ -1054,7 +1054,7 @@ function ReviewPanel({
       <h3 className="text-13 font-semibold">Before you save</h3>
       <div className={`rounded-2 border px-12 py-10 text-11.5 flex flex-col gap-6 ${decision.applies ? "border-good bg-goodbg" : "border-warn bg-warnbg"}`}>
         {decision.applies ? (
-          <strong className="text-good">{decision.reasons.length ? "You can make this change yourself." : "This only adds to the category — it applies as soon as you save."}</strong>
+          <strong className="text-good">{decision.reasons.length ? "You can make this change yourself." : "This only adds to the category. It applies as soon as you save."}</strong>
         ) : (
           <strong className="text-warn">This changes what items already hold, so it waits for approval: {decision.approvers.join(" → ")}.</strong>
         )}
@@ -1071,7 +1071,7 @@ function ReviewPanel({
       {decision.reaches.length > 0 && (
         <div className="rounded-2 border border-border2 bg-panel2 px-12 py-10 text-11.5 flex flex-col gap-8">
           <span>
-            It changes items that <strong>{decision.reaches.join(", ")}</strong> also use. If only your department needs this, a separate category is usually better — copy this one and change the copy, and nobody else&apos;s records move.
+            It changes items that <strong>{decision.reaches.join(", ")}</strong> also use. If only your department needs this, a separate category is usually better. Copy this one and change the copy, and nobody else&apos;s records move.
           </span>
           <span>
             <Button onClick={onCopy} disabled={busy}>
@@ -1089,7 +1089,7 @@ function ReviewPanel({
         {impact.notes.map((n) => (
           <div key={n.id} className={`rounded-2 border px-10 py-8 text-11 flex flex-col gap-4 ${SEVERITY_CLASS[n.severity]}`}>
             <span>
-              <span className="font-semibold">{n.title}</span> — {n.detail}
+              <span className="font-semibold">{n.title}</span> – {n.detail}
             </span>
             {n.examples.length > 0 && <span className="text-11 opacity-90">For example: {n.examples.join("; ")}</span>}
             {n.optionMove && (
@@ -1132,7 +1132,7 @@ function ReviewPanel({
       )}
 
       <label className="block">
-        <FieldLabel>Why (optional — shown in the history{decision.applies ? "" : " and to the approver"})</FieldLabel>
+        <FieldLabel>Why (optional; shown in the history{decision.applies ? "" : " and to the approver"})</FieldLabel>
         <input value={note} onChange={(e) => onNote(e.target.value)} placeholder="e.g. Rooms are written like G16, so Room is text" className={inputCls} />
       </label>
     </div>
@@ -1144,7 +1144,7 @@ function FillInput({ type, options, value, onChange }: { type: CategoryFieldType
     const opts = type === "BOOLEAN" ? [{ v: "true", l: "Yes" }, { v: "false", l: "No" }] : options.map((o) => ({ v: o, l: o }));
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} className={`${inputCls} w-[200px]`}>
-        <option value="">—</option>
+        <option value="">–</option>
         {opts.map((o) => (
           <option key={o.v} value={o.v}>
             {o.l}

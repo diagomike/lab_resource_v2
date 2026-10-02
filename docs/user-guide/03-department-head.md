@@ -68,18 +68,18 @@ Your custodians ask for what their labs need (**Ask for something**). Needs aren
 - Tick the needs to buy, then **Build a request from N needs** (section 5).
 - **Decline**, with a reason (*not this budget year*). The custodian is told why.
 
-**Broken or lost — not asked for yet** shows what is broken or lost in your labs that nobody has asked to replace, so nothing gets forgotten.
+**Broken or lost, not asked for yet** shows what is broken or lost in your labs that nobody has asked to replace, so nothing gets forgotten.
 
 ## 5. Build a purchase request
 
 1. From the needs (section 4), or **Purchasing → Requests → Build a purchase request**.
-2. The request opens already filled: a **Title**, and one line per kind of item, with quantities added up across the needs you chose and a justification naming the labs (*Chair × 13 — Software Laboratory — B508-R13 (13): 13 Chair items: all broken*). Edit anything; **+ Add a line** for something else.
+2. The request opens already filled: a **Title**, and one line per kind of item, with quantities added up across the needs you chose and a justification naming the labs (*Chair × 13: Software Laboratory B508-R13 (13): 13 Chair items: all broken*). Edit anything; **+ Add a line** for something else.
 3. Under **Supporting documents**, attach the scanned approval minutes, letters of authority or quotations (PDF, a photo or scan, or .xlsx; up to 4 MB each).
 4. Click **Send for approval**. The request gets a reference (**PR-2026-…**) and starts its chain: **dean → College Managing Director → AVP → Procurement Office**. Your own step is done by sending it.
 
 ![The request, filled from the labs' needs](img/head/06-build.jpg)
 
-**Your requests** shows where each one is (*Awaiting approval — waiting on CoEEC Dean*), and the order stages after approval. The custodians whose needs you carried can follow it too.
+**Your requests** shows where each one is (*Awaiting approval · With CoEEC Dean, today*), and the order stages after approval. The custodians whose needs you carried can follow it too.
 
 > **Good to know**
 > - Items counted one by one (computers, chairs…) are ordered in whole units.
@@ -100,6 +100,8 @@ Moves into or out of your department come to you in **Approvals**:
 - **a custodian returns something to the store**: you approve, then Property Administration, then the store keeper accepts it.
 
 A **permanent transfer** goes on to the College Managing Director after the heads (and to Property Administration when it crosses colleges); a **loan** ends with you.
+
+Before you decide, open **What is moving, from where, to whom** on the card (it's open when it's your turn): where it is and where it goes, who owns it and answers for it now and after, and each resource with its kind, status, recorded details and the parts that travel with it ([what the card shows](06-dean-avp.md#2-permanent-transfers-cmd)).
 
 Bookings of your labs are decided by each lab's **custodian**, not by you.
 

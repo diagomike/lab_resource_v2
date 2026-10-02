@@ -104,7 +104,7 @@ export async function stage(actorId: string, rawFileName: string | null, bytes: 
   if (bytes.length > ATTACHMENT_LIMITS.fileBytes) {
     throw new HttpError(
       400,
-      `That file is ${formatBytes(bytes.length)} — the limit is ${formatBytes(ATTACHMENT_LIMITS.fileBytes)} a file. Scan at 150–200 dpi (grayscale for plain text), or split a long document into parts.`,
+      `That file is ${formatBytes(bytes.length)}: the limit is ${formatBytes(ATTACHMENT_LIMITS.fileBytes)} a file. Scan at 150–200 dpi (grayscale for plain text), or split a long document into parts.`,
     );
   }
 
@@ -119,7 +119,7 @@ export async function stage(actorId: string, rawFileName: string | null, bytes: 
   if (pending._count >= ATTACHMENT_LIMITS.stagedFiles || (pending._sum.byteSize ?? 0) + bytes.length > ATTACHMENT_LIMITS.stagedBytes) {
     throw new HttpError(
       409,
-      `You have ${pending._count} file${pending._count === 1 ? "" : "s"} (${formatBytes(pending._sum.byteSize ?? 0)}) uploaded but not yet sent. Send or remove them first — unsent files are cleared after 12 hours.`,
+      `You have ${pending._count} file${pending._count === 1 ? "" : "s"} (${formatBytes(pending._sum.byteSize ?? 0)}) uploaded but not yet sent. Send or remove them first. Unsent files are cleared after 12 hours.`,
     );
   }
 

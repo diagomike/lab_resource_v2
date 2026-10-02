@@ -38,12 +38,12 @@ describe("buildItemScopeWhere", () => {
     });
   });
 
-  it("owner-in-scope alone is enough — a lent-out item is still visible to its owning department", () => {
+  it("owner-in-scope alone is enough: a lent-out item is still visible to its owning department", () => {
     const where = buildItemScopeWhere({ mode: "ORG_SUBTREE", custodyItemIds: null, visibleNodeIds: ["se"] });
     expect(where).toMatchObject({ OR: expect.arrayContaining([{ ownerOrgNodeId: { in: ["se"] } }]) });
   });
 
-  it("current-in-scope alone is enough — a borrowed item is visible to the lab holding it", () => {
+  it("current-in-scope alone is enough: a borrowed item is visible to the lab holding it", () => {
     const where = buildItemScopeWhere({ mode: "ORG_SUBTREE", custodyItemIds: null, visibleNodeIds: ["chem"] });
     expect(where).toMatchObject({ OR: expect.arrayContaining([{ currentOrgNodeId: { in: ["chem"] } }]) });
   });
@@ -53,12 +53,12 @@ describe("buildItemScopeWhere", () => {
     expect(JSON.stringify(where)).not.toContain("chem");
   });
 
-  it("no reach at all — the unscoped-role case — matches nothing", () => {
+  it("no reach at all (the unscoped-role case) matches nothing", () => {
     const where = buildItemScopeWhere({ mode: "ORG_SUBTREE", custodyItemIds: null, visibleNodeIds: [] });
     expect(where).toEqual(NO_ITEMS_WHERE);
   });
 
-  it("extraGrantedIds is additive — an approval grant reaches an item outside the caller's own scope", () => {
+  it("extraGrantedIds is additive: an approval grant reaches an item outside the caller's own scope", () => {
     const where = buildItemScopeWhere({
       mode: "ORG_SUBTREE",
       custodyItemIds: null,

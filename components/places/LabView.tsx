@@ -59,7 +59,7 @@ export function LabView({ states, tab, onTab, focusItem, onChanged }: { states: 
       </div>
 
       {tab === "current" && (
-        <Panel title="In the lab — the live register">
+        <Panel title="In the lab: the live register">
           <TreeView nodes={states.current} markers={markersFromDiff(states.draft?.diff ?? [])} focusItem={focusItem} />
         </Panel>
       )}
@@ -86,8 +86,8 @@ function DraftTab({ states, focusItem, onChanged }: { states: LabStatesDto; focu
   const commit = states.commits.find((c) => c.targetKind === "VISIBLE" && c.status === "PENDING");
   return (
     <VersionPanel
-      title="Changes — the lab with what you've changed"
-      explain="Mark what broke, went for maintenance or was used up; rename, add or remove things. Nothing changes in the register until you send these and the department head approves — then it all applies at once."
+      title="Changes: the lab with what you've changed"
+      explain="Mark what broke, went for maintenance or was used up; rename, add or remove things. Nothing changes in the register until you send these and the department head approves. Then it all applies at once."
       states={states}
       version={draft}
       kind="draft"
@@ -142,7 +142,7 @@ function VersionPanel({
       setConfirm(null);
       const said: Partial<Record<typeof a, string>> = {
         submit: "Sent to the head for approval. You'll be told when they decide.",
-        withdraw: "Taken back — you can keep editing.",
+        withdraw: "Taken back. You can keep editing.",
         discard: "Your unsent changes were discarded.",
         refresh: "Started again from what is in the lab now.",
       };
@@ -252,7 +252,7 @@ function ChangesList({ diff, label }: { diff: DiffEntryDto[]; label: string }) {
       </button>
       {open && (
         <div className="px-14 pb-10 flex flex-col gap-3 max-h-[240px] overflow-y-auto">
-          {diff.length === 0 && <div className="text-11 text-faint">Nothing yet — it matches.</div>}
+          {diff.length === 0 && <div className="text-11 text-faint">Nothing yet. It matches.</div>}
           {diff.map((d, i) => (
             <div key={i} className="text-11 flex gap-8">
               <span className={`w-60 flex-none font-semibold ${tone[d.kind]}`}>{word[d.kind]}</span>
@@ -695,7 +695,7 @@ function ApprovalsTab({ states, onChanged }: { states: LabStatesDto; onChanged: 
   const others = (inbox ?? []).filter((r) => r.labItemId !== states.lab.id);
   return (
     <div className="flex flex-col gap-10">
-      <Panel title={`${states.lab.name} — requests`}>
+      <Panel title={`${states.lab.name}: requests`}>
         {states.commits.length === 0 ? (
           <div className="px-14 py-12 text-11 text-dim">No changes have been sent for this lab yet.</div>
         ) : (

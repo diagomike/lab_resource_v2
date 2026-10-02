@@ -20,8 +20,8 @@ export const MODE_LABEL: Record<RegisterMode, string> = {
 };
 
 export const MODE_HELP: Record<RegisterMode, string> = {
-  grouped: "Resources gathered under headings — by unit, custodian, category… — each keeping its own contents",
-  tree: "Physical containment — what is inside what",
+  grouped: "Resources gathered under headings (by unit, custodian, category…) each keeping its own contents",
+  tree: "Physical containment: what is inside what",
   rollup: "Each place's whole subtree grouped by category",
   flat: "Every matching item as a flat list with its location",
 };

@@ -149,7 +149,7 @@ describe("Home", () => {
     expect(rows.length).toBe(1);
   });
 
-  it("a need the custodian asks for waits for the head — Home's next step and the Purchasing badge", async () => {
+  it("a need the custodian asks for waits for the head: Home's next step and the Purchasing badge", async () => {
     await purchasing.raiseNeed(custodianId, { labItemId: labId, name: "Oscilloscope", qty: 2, reason: "Two broke this term" });
     const counts = await home.homeCounts(headId);
     expect(counts.purchasing).toBe(1);
@@ -162,7 +162,7 @@ describe("Home", () => {
     expect(mine.mine.map((r) => r.label)).toContain(`Oscilloscope × 2 · ${testKey} Lab`);
   });
 
-  it("changes made in a lab and not sent are unfinished work — on Home and the Labs & stores badge", async () => {
+  it("changes made in a lab and not sent are unfinished work: on Home and the Labs & stores badge", async () => {
     const staged = await mutate.applyChange(custodianId, {
       kind: "createItem",
       parentId: labId,

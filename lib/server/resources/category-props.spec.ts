@@ -51,7 +51,7 @@ describe("validatePropWrite", () => {
 });
 
 describe("buildCategoryPropsSchema", () => {
-  it("makes every field optional — a fresh item's all-null props object still parses", () => {
+  it("makes every field optional: a fresh item's all-null props object still parses", () => {
     const schema = buildCategoryPropsSchema([numberField, boolField, enumField]);
     expect(schema.safeParse({ ramGb: null, hasGpu: null, brand: null }).success).toBe(true);
     expect(schema.safeParse({}).success).toBe(true);

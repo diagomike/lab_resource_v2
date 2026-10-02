@@ -78,11 +78,11 @@ async function loadForPayment(requestId: string) {
 export async function submitPayment(requestId: string, input: SubmitPaymentInput): Promise<SubmitPaymentResultDto> {
   const row = await loadForPayment(requestId);
   if (!PAYABLE.includes(row.status) || row.quoteAmountSantim === null || !row.quoteSentAt) throw new HttpError(409, "This request is not awaiting payment.");
-  if (row.paymentDeadline && row.paymentDeadline.getTime() < Date.now()) throw new HttpError(409, "The payment deadline has passed — please contact the university.");
+  if (row.paymentDeadline && row.paymentDeadline.getTime() < Date.now()) throw new HttpError(409, "The payment deadline has passed. Please contact the university.");
   if (!enabledProviders().includes(input.provider)) throw new HttpError(400, `Payments through ${PROVIDER_INPUT[input.provider].label} are not accepted here.`);
 
   const extra = PROVIDER_INPUT[input.provider].extra;
-  if (extra?.kind === "SUFFIX" && !(input.accountSuffix && input.accountSuffix.length === extra.digits)) throw new HttpError(400, `${extra.label} — exactly ${extra.digits} digits.`);
+  if (extra?.kind === "SUFFIX" && !(input.accountSuffix && input.accountSuffix.length === extra.digits)) throw new HttpError(400, `${extra.label}: exactly ${extra.digits} digits.`);
   if (extra?.kind === "PHONE" && !input.phoneNumber) throw new HttpError(400, extra.label);
 
   const reference = normaliseReference(input.reference);
@@ -182,7 +182,7 @@ async function submitForReview(requestId: string, requestRef: string, claimKey: 
       await tx.paymentVerification.create({
         data: { requestId, provider: input.provider, reference, claimKey, status: "PENDING_REVIEW", amountSantim: input.amountSantim, requesterNote: input.note || null },
       });
-      await event(tx, requestId, { id: null, label: "Requester" }, "PAYMENT_SUBMITTED", `${etb(input.amountSantim!)} via ${PROVIDER_INPUT[input.provider].label} (${reference}) — for manual review`);
+      await event(tx, requestId, { id: null, label: "Requester" }, "PAYMENT_SUBMITTED", `${etb(input.amountSantim!)} via ${PROVIDER_INPUT[input.provider].label} (${reference}): for manual review`);
       await settle(tx, requestId);
     }, TX);
   } catch (err) {
@@ -203,7 +203,7 @@ export async function reviewPayment(userId: string, paymentId: string, input: Re
   if (!(await isAvp(userId))) throw new HttpError(403, "Only the Academic Vice President's office reviews payments.");
   const payment = await prisma.paymentVerification.findUnique({ where: { id: paymentId }, include: { request: { select: { id: true, reference: true, contactEmail: true, contactName: true, requesterId: true } } } });
   if (!payment) throw new HttpError(404, "Payment not found");
-  if (input.decision === "REJECT" && !input.note) throw new HttpError(400, "Say why the payment could not be accepted — the requester sees it.");
+  if (input.decision === "REJECT" && !input.note) throw new HttpError(400, "Say why the payment could not be accepted. The requester sees it.");
   const amountSantim = input.amountSantim ?? payment.amountSantim;
   if (input.decision === "APPROVE" && !amountSantim) throw new HttpError(400, "Give the amount actually received.");
 
@@ -225,7 +225,7 @@ export async function reviewPayment(userId: string, paymentId: string, input: Re
         reviewedAt: new Date(),
       },
     });
-    await event(tx, payment.requestId, actor, approve ? "PAYMENT_VERIFIED" : "PAYMENT_REJECTED", approve ? `${etb(amountSantim!)} via ${PROVIDER_INPUT[payment.provider].label} (${payment.reference}) — checked by hand` : `${payment.reference}: ${input.note}`);
+    await event(tx, payment.requestId, actor, approve ? "PAYMENT_VERIFIED" : "PAYMENT_REJECTED", approve ? `${etb(amountSantim!)} via ${PROVIDER_INPUT[payment.provider].label} (${payment.reference}): checked by hand` : `${payment.reference}: ${input.note}`);
     return settle(tx, payment.requestId);
   }, TX);
 
@@ -267,7 +267,7 @@ async function afterPayment(requestId: string, status: ExternalRequestStatus, am
     ], { href: portalUrl(requestId), label: "View your request" });
     const avp = await avpUserId();
     const to = avp ? await prisma.user.findUnique({ where: { id: avp }, select: { email: true } }) : null;
-    await mailStaff(to?.email, `${row.reference} is paid — confirm the payment`, [`${esc(row.organizationName)} has paid ${esc(etb(paid))}. Check the receipt, then confirm the payment: that books the held slots and gives them their contact persons.`], paths.outside(row.id));
+    await mailStaff(to?.email, `${row.reference} is paid: confirm the payment`, [`${esc(row.organizationName)} has paid ${esc(etb(paid))}. Check the receipt, then confirm the payment: that books the held slots and gives them their contact persons.`], paths.outside(row.id));
     return;
   }
   await mailRequester(await requesterEmail(row), `Payment received for ${row.reference}`, [
@@ -334,7 +334,7 @@ export async function confirmPaidRequest(requestId: string, actor: { id: string 
     for (const lapsed of holds.filter((h) => h.state === "EXPIRED")) {
       const when = whenOf(lapsed.startsAt, lapsed.endsAt);
       if (lapsed.startsAt <= now) {
-        conflicts.push(`${lapsed.lab.name} ${when} — the hold lapsed and the time has passed`);
+        conflicts.push(`${lapsed.lab.name} ${when}: the hold lapsed and the time has passed`);
         await tx.reservation.update({ where: { id: lapsed.id }, data: { state: "CANCELLED", note: "Hold lapsed before payment was confirmed." } });
         continue;
       }
@@ -352,7 +352,7 @@ export async function confirmPaidRequest(requestId: string, actor: { id: string 
         // Superseded by a replacement hold for this same request — nothing to do.
       } else {
         const takenBy = [...new Set(clashes.filter((c) => !ownIds.has(c.reservationId)).map((c) => c.title))].join(", ");
-        conflicts.push(`${lapsed.lab.name} ${when} — now taken by ${takenBy}`);
+        conflicts.push(`${lapsed.lab.name} ${when}: now taken by ${takenBy}`);
         await tx.reservation.update({ where: { id: lapsed.id }, data: { state: "CANCELLED", note: "Slot was taken before payment was confirmed." } });
       }
     }
@@ -385,20 +385,20 @@ async function mailConfirmation(requestId: string, outcome: Confirmation, lineag
         (c) => `${esc(a.orgNode.name)}: ${esc(c.name)}${c.role ? ` (${esc(c.role)})` : ""} · ${esc(c.phone)}${c.email ? ` · ${esc(c.email)}` : ""}`,
       ),
     );
-    await mailRequester(requesterTo, `Booking confirmed — ${row.reference}`, [
+    await mailRequester(requesterTo, `Booking confirmed: ${row.reference}`, [
       `Dear ${esc(row.contactName)},`,
       `Your payment is confirmed and ${esc(row.organizationName)}'s booking is confirmed.`,
       slots.length ? `Booked: ${slots.join("<br>")}` : "",
       contacts.length ? `For arrival and everything on the day, contact:<br>${contacts.join("<br>")}` : "The departments concerned will be in touch with any arrangements for the day.",
     ].filter(Boolean), { href: portalUrl(requestId), label: "View your bookings" });
   } else {
-    await mailRequester(requesterTo, `Payment complete — ${row.reference}`, [
+    await mailRequester(requesterTo, `Payment complete: ${row.reference}`, [
       `Dear ${esc(row.contactName)},`,
       "Your payment is complete. One or more of the requested slots needs to be re-arranged; the university's office will contact you shortly.",
     ]);
     const avp = await avpUserId();
     const to = avp ? await prisma.user.findUnique({ where: { id: avp }, select: { email: true } }) : null;
-    await mailStaff(to?.email, `${row.reference} is paid but a slot was lost`, [outcome.conflicts.map(esc).join("<br>"), "Have a custodian hold a replacement slot, then confirm the booking again — or decline and arrange a refund."], paths.outside(row.id));
+    await mailStaff(to?.email, `${row.reference} is paid but a slot was lost`, [outcome.conflicts.map(esc).join("<br>"), "Have a custodian hold a replacement slot, then confirm the booking again, or decline and arrange a refund."], paths.outside(row.id));
   }
 
   // Each lab's custodian (the nearest one up the tree), once, with that lab's slots.
@@ -423,7 +423,7 @@ async function mailConfirmation(requestId: string, outcome: Confirmation, lineag
   }
   for (const [custodianId, { labItemId, lines }] of byCustodian) {
     const user = await prisma.user.findUnique({ where: { id: custodianId }, select: { email: true } });
-    await mailStaff(user?.email, `Booking confirmed on your calendar — ${row.reference}`, [`${esc(row.organizationName)} has paid. These slots are now confirmed bookings:`, lines.join("<br>")], paths.calendar(labItemId));
+    await mailStaff(user?.email, `Booking confirmed on your calendar: ${row.reference}`, [`${esc(row.organizationName)} has paid. These slots are now confirmed bookings:`, lines.join("<br>")], paths.calendar(labItemId));
   }
   if (outcome.scheduled) {
     for (const a of row.assignments) {

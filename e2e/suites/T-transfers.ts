@@ -14,8 +14,8 @@ async function main() {
   const se = await nodeId("Software Engineering");
   const chem = await nodeId("Chemical Engineering");
   const whiteboard = await catId("whiteboard");
-  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
-  const chemStore = await db.item.findFirstOrThrow({ where: { name: "Chemistry Store — Room C-12" } });
+  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
+  const chemStore = await db.item.findFirstOrThrow({ where: { name: "Chemistry Store Room C-12" } });
   const matLab = await db.item.findFirstOrThrow({ where: { name: { startsWith: "E2E Materials Lab" } }, orderBy: { createdAt: "desc" } });
   const mainStore = await db.item.findFirstOrThrow({ where: { name: "ASTU Main Store" } });
 
@@ -41,6 +41,26 @@ async function main() {
     const outsiderDecide = await decide("custMat", reqId, "APPROVE");
     const outsiderRead = await get("custMat", `/resources/transfers/${reqId}`);
     return { ok: early.status === 403 && outsiderDecide.status === 403 && outsiderRead.status === 404, evidence: { receiverEarly: early.status, outsiderDecide: outsiderDecide.status, outsiderRead: outsiderRead.status } };
+  });
+
+  await check(T, "T-02b", "details: the approver reads each resource (kind, status, place, custodian) and where it goes; outsiders 404", async () => {
+    const d = await get("custSe", `/resources/transfers/${reqId}/details`);
+    const outsider = await get("custMat", `/resources/transfers/${reqId}/details`);
+    const it = d.body?.items?.[0];
+    return {
+      ok:
+        d.status === 200 &&
+        outsider.status === 404 &&
+        it?.id === boards[0] &&
+        it?.categoryName === "Whiteboard" &&
+        it?.status === "Working" &&
+        it?.from?.[0] === girmaLab.name &&
+        it?.ownerUnitName === "Software Engineering" &&
+        d.body?.to?.place?.[0] === chemStore.name &&
+        d.body?.to?.unitName === "Chemical Engineering" &&
+        d.body?.to?.ownershipMoves === false,
+      evidence: { status: d.status, outsider: outsider.status, item: it && { name: it.name, kind: it.categoryName, status: it.status, from: it.from, owner: it.ownerUnitName, custodian: it.custodianName }, to: d.body?.to, movement: d.body?.movementTitle },
+    };
   });
 
   await check(T, "T-03", "full chain: lender custodian → SE head → ChemE head → receipt applies; borrow keeps owner & custodian", async () => {

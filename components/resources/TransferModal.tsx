@@ -124,8 +124,8 @@ export function TransferModal({
       <Modal title="Move" onClose={onDone} width="440px">
         <div className="text-11.5 text-dim">
           {done.outcome === "APPLIED"
-            ? "Applied — the register is already updated."
-            : "Requested. It now waits for approval — you can follow it under Approvals → Sent by me."}
+            ? "Applied. The register is already updated."
+            : "Requested. It now waits for approval. You can follow it under Approvals → Sent by me."}
         </div>
         <Button variant="primary" onClick={onDone}>
           Done
@@ -135,7 +135,7 @@ export function TransferModal({
   }
 
   return (
-    <Modal title={`Move ${label}`} onClose={onClose} width="460px">
+    <Modal title={`Move ${label}`} onClose={onClose} width="460px" dirty={!!query.trim() || !!selected}>
       <div className="flex flex-col gap-8">
         <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Destination</label>
         <input
@@ -188,7 +188,7 @@ export function TransferModal({
           ) : preview.outcome === "DENIED" ? (
             <span className="text-bad">{preview.reason}</span>
           ) : preview.outcome === "APPLIED" ? (
-            <span className="text-dim">Applies immediately — no approval needed.</span>
+            <span className="text-dim">Applies immediately. No approval needed.</span>
           ) : (
             <span className="text-dim">
               Needs approval: {preview.steps?.filter((s) => s.status !== "SKIPPED").map((s) => s.label).join(" → ")}
@@ -208,7 +208,7 @@ export function TransferModal({
           />
           <div className="text-11 text-dim">
             {renameAs?.trim() && preview.naming.planned.length
-              ? `Arrive as ${preview.naming.planned.length > 4 ? `${preview.naming.planned.slice(0, 2).join(", ")} … ${preview.naming.planned.at(-1)}` : preview.naming.planned.join(", ")} — the next free numbers there.`
+              ? `Arrive as ${preview.naming.planned.length > 4 ? `${preview.naming.planned.slice(0, 2).join(", ")} … ${preview.naming.planned.at(-1)}` : preview.naming.planned.join(", ")}, the next free numbers there.`
               : "They keep the names they have in the store."}
             {preview.naming.suggested && renameAs !== preview.naming.suggested && (
               <button type="button" onClick={() => setRenameAs(preview.naming!.suggested)} className="ml-6 text-accent hover:underline">

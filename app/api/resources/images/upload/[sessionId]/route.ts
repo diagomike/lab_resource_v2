@@ -18,7 +18,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
     const declaredLength = Number(request.headers.get("content-length") ?? "");
     if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
-      throw new HttpError(400, `That file is too large — the limit is ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`);
+      throw new HttpError(400, `That file is too large: the limit is ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`);
     }
 
     const buffer = Buffer.from(await request.arrayBuffer());

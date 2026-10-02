@@ -112,12 +112,12 @@ export async function createImport(actorId: string, input: CreateImportInput): P
   if (categories.length !== categoryIds.length) throw new HttpError(400, "Choose an existing category for every line.");
   const serialized = new Set(categories.filter((c) => c.countingMode === "SERIALIZED").map((c) => c.id));
   const fractional = input.lines.find((l) => serialized.has(l.categoryId) && !Number.isInteger(l.qty));
-  if (fractional) throw new HttpError(400, `"${fractional.name}" is a serialized category — record whole units, not ${fractional.qty}.`);
+  if (fractional) throw new HttpError(400, `"${fractional.name}" is a serialized category: record whole units, not ${fractional.qty}.`);
 
   if (input.source === "PURCHASE_REQUEST") {
     const request = await prisma.purchaseRequest.findUnique({ where: { id: input.purchaseRequestId! }, include: { lines: true } });
     if (!request) throw new HttpError(404, "Purchase request not found");
-    if (request.stage !== "IN_STORE") throw new HttpError(409, `${request.reference} hasn't arrived at the main store yet — procurement marks it "Arrived" first.`);
+    if (request.stage !== "IN_STORE") throw new HttpError(409, `${request.reference} hasn't arrived at the main store yet: procurement marks it "Arrived" first.`);
     const byId = new Map(request.lines.map((l) => [l.id, l]));
     // Already recorded on another (not cancelled) import, per purchase line.
     const earlier = await prisma.importLine.groupBy({
@@ -134,7 +134,7 @@ export async function createImport(actorId: string, input: CreateImportInput): P
       const next = (recorded.get(ordered.id) ?? 0) + line.qty;
       if (next > dec(ordered.qty)!) {
         const left = dec(ordered.qty)! - (recorded.get(ordered.id) ?? 0);
-        throw new HttpError(409, `Only ${left} of "${ordered.name}" are left to record on ${request.reference} — refusing ${line.qty}.`);
+        throw new HttpError(409, `Only ${left} of "${ordered.name}" are left to record on ${request.reference}: refusing ${line.qty}.`);
       }
       recorded.set(ordered.id, next);
     }
@@ -196,7 +196,7 @@ export async function cancelImport(actorId: string, id: string, input: CancelImp
   const row = await prisma.importRecord.findUnique({ where: { id }, include: { lines: true } });
   if (!row) throw new HttpError(404, "Import record not found");
   if (row.status !== "OPEN") throw new HttpError(409, "This import record is already closed.");
-  if (row.lines.some((l) => (dec(l.loadedQty) ?? 0) > 0)) throw new HttpError(409, "Some of it is already loaded into the store — it can't be cancelled now.");
+  if (row.lines.some((l) => (dec(l.loadedQty) ?? 0) > 0)) throw new HttpError(409, "Some of it is already loaded into the store. It can't be cancelled now.");
   await prisma.importRecord.update({ where: { id }, data: { status: "CANCELLED", note: [row.note, `Cancelled: ${input.note}`].filter(Boolean).join("\n") } });
   return load(id);
 }
@@ -229,15 +229,15 @@ export async function loadImportLine(actorId: string, recordId: string, input: L
   const arrived = dec(line.qty)!;
   const threshold = arrived - input.qty;
   const remaining = async () => arrived - (dec((await prisma.importLine.findUniqueOrThrow({ where: { id: line.id } })).loadedQty) ?? 0);
-  if (threshold < 0) throw new HttpError(409, `Only ${await remaining()} ${line.unit ?? "unit(s)"} of "${line.name}" are left to load — refusing ${input.qty}.`);
+  if (threshold < 0) throw new HttpError(409, `Only ${await remaining()} ${line.unit ?? "unit(s)"} of "${line.name}" are left to load: refusing ${input.qty}.`);
   const now = new Date();
   const fromZero = await prisma.importLine.updateMany({ where: { id: line.id, loadedQty: null }, data: { loadedQty: input.qty, loadedAt: now, loadedById: actorId } });
   if (fromZero.count === 0) {
     const claimed = await prisma.importLine.updateMany({ where: { id: line.id, loadedQty: { lte: threshold } }, data: { loadedQty: { increment: input.qty }, loadedAt: now, loadedById: actorId } });
-    if (claimed.count === 0) throw new HttpError(409, `Only ${await remaining()} ${line.unit ?? "unit(s)"} of "${line.name}" are left to load — refusing ${input.qty}.`);
+    if (claimed.count === 0) throw new HttpError(409, `Only ${await remaining()} ${line.unit ?? "unit(s)"} of "${line.name}" are left to load: refusing ${input.qty}.`);
   }
 
-  const note = `Loaded from import ${record.reference}${line.spec ? ` — ${line.spec}` : ""}`;
+  const note = `Loaded from import ${record.reference}${line.spec ? `: ${line.spec}` : ""}`;
   try {
     const result = await applyChange(actorId, { kind: "createItem", parentId: input.storeParentId, categoryId: line.categoryId, count: isSerialized ? input.qty : 1, name: line.name, note }, { systemCreate: true });
     if (!isSerialized && result.itemIds[0]) await applyChange(actorId, { kind: "setQuantity", itemIds: [result.itemIds[0]], value: input.qty });

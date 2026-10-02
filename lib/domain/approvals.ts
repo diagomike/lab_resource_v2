@@ -163,7 +163,7 @@ export function buildChain(selectors: StepSelector[], ctx: ChainContext): ChainS
       return;
     }
     if (approverId && approverId === ctx.requesterId) {
-      steps.push(step(order, selector, label, nodeId, approverId, false, "The requester holds this post — skipped"));
+      steps.push(step(order, selector, label, nodeId, approverId, false, "The requester holds this post: skipped"));
       return;
     }
     steps.push(step(order, selector, label, nodeId, approverId));
@@ -186,7 +186,7 @@ export function buildChain(selectors: StepSelector[], ctx: ChainContext): ChainS
           // at that level is on the route — a department under two colleges needs
           // both deans, which stopping at the first college found silently dropped.
           if (stopLevel !== undefined && node.level < stopLevel) break;
-          push("HIERARCHY", `${KIND_LABEL[node.kind]} — ${node.name}`, node.id, node.occupantId);
+          push("HIERARCHY", `${KIND_LABEL[node.kind]}: ${node.name}`, node.id, node.occupantId);
         }
         break;
       }
@@ -199,18 +199,18 @@ export function buildChain(selectors: StepSelector[], ctx: ChainContext): ChainS
         if (!ctx.ownerNodeId) break;
         const found = ancestorsOfChain(ctx.ownerNodeId, ctx.orgIndex).find((a) => a.node.kind === selector.kind);
         if (found) {
-          push("OWNER_ANCESTOR", `${KIND_LABEL[found.node.kind]} — ${found.node.name}`, found.node.id, found.node.occupantId);
+          push("OWNER_ANCESTOR", `${KIND_LABEL[found.node.kind]}: ${found.node.name}`, found.node.id, found.node.occupantId);
         }
         break;
       }
       case "OWNER_HEAD": {
         const { node, occupant } = headOf(ctx.ownerNodeId);
-        if (node) push("OWNER_HEAD", `Head — ${node.name}`, node.id, occupant);
+        if (node) push("OWNER_HEAD", `Head: ${node.name}`, node.id, occupant);
         break;
       }
       case "TARGET_HEAD": {
         const { node, occupant } = headOf(ctx.targetNodeId);
-        if (node) push("TARGET_HEAD", `Receiving head — ${node.name}`, node.id, occupant);
+        if (node) push("TARGET_HEAD", `Receiving head: ${node.name}`, node.id, occupant);
         break;
       }
       case "ITEM_CUSTODIAN": {
@@ -436,8 +436,8 @@ export function isBlocked(step: ChainStep, ctx: ResolveContext): boolean {
  *  for it to draw a POLICY, see `describeSelectors`. */
 export function describeChain(steps: ChainStep[], ctx?: ResolveContext): string {
   const live = steps.filter((s) => s.status !== "SKIPPED");
-  if (!live.length) return "nobody — applies immediately";
-  return live.map((s) => (ctx && isBlocked(s, ctx) ? `${s.label} — currently vacant` : s.label)).join(" → ");
+  if (!live.length) return "nobody: applies immediately";
+  return live.map((s) => (ctx && isBlocked(s, ctx) ? `${s.label}: currently vacant` : s.label)).join(" → ");
 }
 
 /** What each kind of step is, said without reference to any particular unit. */
@@ -464,7 +464,7 @@ export const SELECTOR_LABEL: Record<StepSelector["type"], string> = {
  * for NODE_OCCUPANT, which genuinely names a fixed office.
  */
 export function describeSelectors(selectors: StepSelector[], nodes: OrgNode[]): string {
-  if (!selectors.length) return "nobody — applies immediately";
+  if (!selectors.length) return "nobody: applies immediately";
   return selectors.map((s) => selectorLabel(s, nodes)).join(" → ");
 }
 

@@ -64,7 +64,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("F-013 — resend-invite revokes the previous token", () => {
+describe("F-013: resend-invite revokes the previous token", () => {
   it("leaves exactly one usable invitation after a resend", async () => {
     const adminId = await makeUser("resend-admin", ["SYS_ADMIN"]);
     const deptId = await makeNode("resend-dept", 2);
@@ -84,7 +84,7 @@ describe("F-013 — resend-invite revokes the previous token", () => {
   });
 });
 
-describe("F-015 — moving a person's home department", () => {
+describe("F-015: moving a person's home department", () => {
   it("moves the person and records history", async () => {
     const adminId = await makeUser("move-admin", ["SYS_ADMIN"]);
     const fromNode = await makeNode("move-from", 2);
@@ -117,7 +117,7 @@ describe("F-015 — moving a person's home department", () => {
   });
 });
 
-describe("F-016 — the last active SYS_ADMIN cannot be demoted, deactivated, or deactivate themselves", () => {
+describe("F-016: the last active SYS_ADMIN cannot be demoted, deactivated, or deactivate themselves", () => {
   it("refuses removing SYS_ADMIN from the only administrator", async () => {
     // Isolate from every other ACTIVE SYS_ADMIN in the DB (the seeded one included) by
     // temporarily deactivating them, restored in `finally`.
@@ -147,7 +147,7 @@ describe("F-016 — the last active SYS_ADMIN cannot be demoted, deactivated, or
   });
 });
 
-describe("F-019 — a double-submitted invite is a 400 for the loser, never a 500", () => {
+describe("F-019: a double-submitted invite is a 400 for the loser, never a 500", () => {
   it("5 parallel identical invites: exactly one succeeds, the rest are 400", async () => {
     const adminId = await makeUser("dup-admin", ["SYS_ADMIN"]);
     const email = `${testKey}-dup-invitee@astu.edu.et`;
@@ -163,7 +163,7 @@ describe("F-019 — a double-submitted invite is a 400 for the loser, never a 50
   });
 });
 
-describe("F-018 — a dean's invite and resend reach the whole subtree they can see", () => {
+describe("F-018: a dean's invite and resend reach the whole subtree they can see", () => {
   async function tree() {
     const org = await import("../org/org");
     const college = await makeNode("f18-college", 1);
@@ -224,7 +224,7 @@ describe("an office that reads the whole university still acts only for itself",
   });
 });
 
-describe("email notifications — a per-person switch", () => {
+describe("email notifications: a per-person switch", () => {
   it("an admin switches anyone; a head only their own department's staff; others are refused", async () => {
     const org = await import("../org/org");
     const college = await makeNode("notif-college", 1);

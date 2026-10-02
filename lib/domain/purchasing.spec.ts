@@ -37,7 +37,7 @@ describe("who may do what", () => {
   });
 });
 
-describe("nextStage — the reporting pipeline", () => {
+describe("nextStage: the reporting pipeline", () => {
   it("walks the four reporting stages in order", () => {
     expect(nextStage("ORDER_PLACED")).toBe("BUYER_FOUND");
     expect(nextStage("BUYER_FOUND")).toBe("ON_DELIVERY");
@@ -139,7 +139,7 @@ describe("emptyLine", () => {
   });
 });
 
-describe("linesFromNeeds — from the labs' needs to a request's lines", () => {
+describe("linesFromNeeds: from the labs' needs to a request's lines", () => {
   const need = (over: Partial<NeedForLines>): NeedForLines => ({ id: "n", name: "Oscilloscope", qty: 1, unit: "pcs", categoryId: "osc", labName: "Lab A", priority: "IMPORTANT", reason: "Signals course", spec: null, ...over });
 
   it("merges the same thing asked for by several labs into one line, summing quantities", () => {
@@ -156,6 +156,6 @@ describe("linesFromNeeds — from the labs' needs to a request's lines", () => {
       need({ id: "c", unit: "Set" }),
     ]);
     expect(lines.map((l) => l.fromNeedIds)).toEqual([["b"], ["c"], ["a"]]);
-    expect(lines[0].justification).toBe("Lab A (1): Signals course — 100 MHz, 2 channels");
+    expect(lines[0].justification).toBe("Lab A (1): Signals course: 100 MHz, 2 channels");
   });
 });

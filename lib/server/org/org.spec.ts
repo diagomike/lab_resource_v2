@@ -73,7 +73,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("F-003 — concurrent structural edits leave complete closure rows", () => {
+describe("F-003: concurrent structural edits leave complete closure rows", () => {
   it("8 parallel node creations under the same parent all succeed with complete closure", async () => {
     const collegeId = await makeNode("f3-college", "COLLEGE", 1);
 
@@ -111,7 +111,7 @@ describe("F-003 — concurrent structural edits leave complete closure rows", ()
   });
 });
 
-describe("F-004 — delete names purchasing/external blockers instead of a raw 500", () => {
+describe("F-004: delete names purchasing/external blockers instead of a raw 500", () => {
   it("refuses deleting a node with an open purchasing need", async () => {
     const deptId = await makeNode("f4-need", "DEPARTMENT", 2);
     const userId = await makeUser("f4-need");
@@ -154,7 +154,7 @@ describe("F-004 — delete names purchasing/external blockers instead of a raw 5
   });
 });
 
-describe("levels follow parents — nobody types a level", () => {
+describe("levels follow parents: nobody types a level", () => {
   it("a new unit sits one below its parents, whatever level was sent", async () => {
     const collegeId = await makeNode("lv-college", "COLLEGE", 1);
     const dept = await org.create({ name: `${testKey}-lv-dept`, level: 7, kind: "DEPARTMENT", parentIds: [collegeId] });
@@ -196,7 +196,7 @@ describe("levels follow parents — nobody types a level", () => {
   });
 });
 
-describe("F-002 — single university root (regression, Phase 1)", () => {
+describe("F-002: single university root (regression, Phase 1)", () => {
   it("refuses a second level-0 node", async () => {
     await expect(org.create({ name: `${testKey}-second-root`, level: 0, kind: "UNIVERSITY", parentIds: [] })).rejects.toMatchObject({ status: 400 });
   });
@@ -207,7 +207,7 @@ describe("F-002 — single university root (regression, Phase 1)", () => {
   });
 });
 
-describe("F-001 — deactivating a node vacates the post only (regression, Phase 1)", () => {
+describe("F-001: deactivating a node vacates the post only (regression, Phase 1)", () => {
   it("ends occupancy and clears userId without touching the user's account", async () => {
     const userId = await makeUser("f1-occupant");
     const nodeId = await makeNode("f1-node", "DEPARTMENT", 2);
@@ -227,7 +227,7 @@ describe("F-001 — deactivating a node vacates the post only (regression, Phase
   });
 });
 
-describe("F-006 — the org node's code survives a rename (regression, via update())", () => {
+describe("F-006: the org node's code survives a rename (regression, via update())", () => {
   it("keeps its code through a name change", async () => {
     const nodeId = await makeNode("f6-office", "OFFICE", 1);
     await org.update(nodeId, { code: "TESTPROC" });
@@ -244,7 +244,7 @@ describe("F-006 — the org node's code survives a rename (regression, via updat
   });
 });
 
-describe("F-008 — org node names are trimmed, bounded and unique among active nodes", () => {
+describe("F-008: org node names are trimmed, bounded and unique among active nodes", () => {
   it("the input schemas trim and bound the name", async () => {
     const { CreateOrgNodeInput, UpdateOrgNodeInput } = await import("../../shared/org");
     const base = { level: 1, kind: "COLLEGE" as const, parentIds: [] };
@@ -276,7 +276,7 @@ describe("F-008 — org node names are trimmed, bounded and unique among active 
   });
 });
 
-describe("F-011 — occupant emails are withheld unless the caller may see them", () => {
+describe("F-011: occupant emails are withheld unless the caller may see them", () => {
   it("list() with includeEmail:false returns the occupant's name but a null email", async () => {
     const nodeId = await makeNode("f11-office", "OFFICE", 1);
     const userId = await makeUser("f11-occupant");

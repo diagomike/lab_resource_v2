@@ -22,7 +22,7 @@ function selectDriver(namespace: "images" | "attachments"): StorageDriver {
     case "vercel-blob":
       return namespace === "images" ? vercelBlobDriver : vercelBlobAttachmentDriver;
     default:
-      throw new Error(`Unknown IMAGE_STORAGE_DRIVER "${kind}" — no driver registered for it. Use "local" or "vercel-blob", or add one to lib/server/resources/storage/.`);
+      throw new Error(`Unknown IMAGE_STORAGE_DRIVER "${kind}". No driver registered for it. Use "local" or "vercel-blob", or add one to lib/server/resources/storage/.`);
   }
 }
 

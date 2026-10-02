@@ -58,16 +58,17 @@
     /* Personal display preferences, driven by ThemeProvider's data-font-size /
        data-font-family attributes on <html> — see theme-context.tsx. Every
        tailwind.config.js fontSize value multiplies by --font-scale, so this one
-       variable reaches every text-* utility in the app. */
-    --font-scale: 1;
+       variable reaches every text-* utility in the app. Large (1.15) is the default:
+       it applies before any script runs, so nobody sees the page jump size. */
+    --font-scale: 1.15;
     --font-family-sans: "IBM Plex Sans", system-ui, sans-serif;
   }
 
   :root[data-font-size="small"] {
     --font-scale: 0.9;
   }
-  :root[data-font-size="large"] {
-    --font-scale: 1.15;
+  :root[data-font-size="medium"] {
+    --font-scale: 1;
   }
   :root[data-font-size="xlarge"] {
     --font-scale: 1.3;

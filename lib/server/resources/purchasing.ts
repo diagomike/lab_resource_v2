@@ -8,6 +8,7 @@ import type {
   NeedLineDto,
   PurchaseLineDto,
   PurchaseRequestDto,
+  PurchaseDetailsDto,
   RaiseNeedFields,
   ReplacementSuggestionDto,
 } from "@/lib/shared";
@@ -134,7 +135,7 @@ async function assertSerializedQtyIsInteger(lines: CompilePurchaseInput["lines"]
   const categories = await prisma.resourceCategory.findMany({ where: { id: { in: categoryIds } }, select: { id: true, countingMode: true } });
   const serializedIds = new Set(categories.filter((c) => c.countingMode === "SERIALIZED").map((c) => c.id));
   const bad = lines.find((l) => l.categoryId && serializedIds.has(l.categoryId) && !Number.isInteger(l.qty));
-  if (bad) throw new HttpError(400, `"${bad.name}" is a serialized category — order whole units, not ${bad.qty}.`);
+  if (bad) throw new HttpError(400, `"${bad.name}" is a serialized category: order whole units, not ${bad.qty}.`);
 }
 
 /** Every referenced need must be an OPEN need already belonging to this unit — a
@@ -252,7 +253,7 @@ export async function raiseNeed(actorId: string, fields: RaiseNeedFields): Promi
     const inside = await idsInsideLab(lab.id);
     if (ids.some((id) => !inside.has(id))) throw new HttpError(400, `Something chosen isn't in ${lab.name}.`);
     const replaced = await prisma.item.findMany({ where: { id: { in: ids } }, select: { id: true, status: true, categoryId: true } });
-    if (replaced.some((r) => r.status !== "BROKEN" && r.status !== "LOST")) throw new HttpError(400, "Only something broken or lost is replaced — mark it so first.");
+    if (replaced.some((r) => r.status !== "BROKEN" && r.status !== "LOST")) throw new HttpError(400, "Only something broken or lost is replaced. Mark it so first.");
     if (new Set(replaced.map((r) => r.categoryId)).size > 1) throw new HttpError(400, "Replace one kind of thing at a time.");
     if ((await alreadyReplaced(ids)).size) throw new HttpError(409, "A replacement has already been asked for some of these.");
     replacesItemIds = ids;
@@ -280,7 +281,7 @@ export async function raiseNeed(actorId: string, fields: RaiseNeedFields): Promi
   await notify(head?.userId, actorId, {
     subject: `${lab.name} needs ${input.name}`,
     paragraphs: [
-      `${esc(row.raisedBy.name)} asked for <strong>${esc(input.name)}</strong> (× ${esc(String(input.qty))}) for ${esc(lab.name)} — ${esc(PRIORITY_WORD[input.priority])}.`,
+      `${esc(row.raisedBy.name)} asked for <strong>${esc(input.name)}</strong> (× ${esc(String(input.qty))}) for ${esc(lab.name)}: ${esc(PRIORITY_WORD[input.priority])}.`,
       `“${esc(input.reason)}”`,
       "Carry it into a purchase request, or decline it with a reason.",
     ],
@@ -690,7 +691,7 @@ export async function decideStep(
     // that went round several send-backs would show nothing of who sent it back or why.
     // The event's own stage already says what happened ("Sent back for revision",
     // "Rejected") — the note carries WHO decided at which step, and why.
-    const eventNote = (verb?: string) => `${verb ? `${verb} — ` : ""}${step!.label}${note ? `: ${note}` : ""}`;
+    const eventNote = (verb?: string) => `${verb ? `${verb}: ` : ""}${step!.label}${note ? `: ${note}` : ""}`;
 
     if (decision === "REJECT") {
       await tx.purchaseStep.update({ where: { id: step!.id }, data: { status: "REJECTED", decidedById: actorId, decidedAt: at, note: note ?? null } });
@@ -721,7 +722,7 @@ export async function decideStep(
 
     if (chainSettled(advanced)) {
       await tx.purchaseRequest.update({ where: { id: requestId }, data: { stage: FIRST_PIPELINE_STAGE } });
-      await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: FIRST_PIPELINE_STAGE, note: "Every approval step settled — handed to procurement." } });
+      await tx.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: FIRST_PIPELINE_STAGE, note: "Every approval step settled: handed to procurement." } });
     }
   });
 
@@ -757,7 +758,7 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string, 
   const isRaiser = request.raisedById === actorId;
   if (isRaiser) {
     if (!isEditable(request.stage) && request.stage !== "APPROVING") {
-      throw new HttpError(409, "This request has already been sent to procurement — ask procurement to cancel it.");
+      throw new HttpError(409, "This request has already been sent to procurement. Ask procurement to cancel it.");
     }
   } else {
     const person = await loadPerson(actorId);
@@ -871,7 +872,7 @@ async function tellNextApprover(dto: PurchaseRequestDto, actorId: string): Promi
     paragraphs: [
       `A purchase request has reached your step (${esc(step.label)}): ${summary(dto)}, raised by ${esc(dto.raisedByName)}.`,
       ...(files.length ? [`It carries ${files.length} supporting document${files.length === 1 ? "" : "s"}: ${fileList(files)}.`] : []),
-      "Approve it, send it back for revision, or reject it — the button below opens it.",
+      "Approve it, send it back for revision, or reject it. The button below opens it.",
     ],
     path: paths.decide("purchase", dto.id),
     action: "Review the request",
@@ -1001,4 +1002,20 @@ export async function listForActor(actorId: string, box: "inbox" | "mine" | "pip
   const rows = await prisma.purchaseRequest.findMany({ where: { stage: "APPROVING" }, include: requestInclude, orderBy: { createdAt: "asc" } });
   const dtos = await toRequestDtos(rows, actorId);
   return dtos.filter((d) => d.steps.some((s) => s.status === "PENDING" && s.approverId === actorId));
+}
+
+/** What an approver reads before deciding: every line's kind and the lab needs it
+ *  answers — who raised each, for which lab, how urgent, what it replaces and why.
+ *  Same read gate as the request itself. */
+export async function getRequestDetails(actorId: string, requestId: string): Promise<PurchaseDetailsDto> {
+  await assertCanReadRequest(actorId, requestId);
+  const lines = await prisma.purchaseLine.findMany({
+    where: { purchaseId: requestId },
+    select: { id: true, category: { select: { name: true } }, answeredNeeds: { include: needInclude, orderBy: { createdAt: "asc" } } },
+  });
+  const needs = await toNeedDtos(lines.flatMap((l) => l.answeredNeeds));
+  const needById = new Map(needs.map((n) => [n.id, n]));
+  return {
+    lines: lines.map((l) => ({ lineId: l.id, categoryName: l.category?.name ?? null, needs: l.answeredNeeds.map((n) => needById.get(n.id)!) })),
+  };
 }

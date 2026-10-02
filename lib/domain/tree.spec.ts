@@ -35,7 +35,7 @@ const item = (id: string, categoryId: string, parentId: string | null, overrides
   ...overrides,
 });
 
-describe("tree/rollup/search — three materially distinct row shapes", () => {
+describe("tree/rollup/search: three materially distinct row shapes", () => {
   const categories = {
     lab: category("lab", "Places", "NEVER"),
     setup: category("setup"),
@@ -75,7 +75,7 @@ describe("tree/rollup/search — three materially distinct row shapes", () => {
   });
 });
 
-describe("groupRows — the grouped register", () => {
+describe("groupRows: the grouped register", () => {
   const labA = item("labA", "lab", null, { name: "Lab 10", ownerOrgNodeId: "cse" });
   const labB = item("labB", "lab", null, { name: "Lab 2", ownerOrgNodeId: "cse" });
   const labC = item("labC", "lab", null, { name: "Chem Lab", ownerOrgNodeId: "chem" });

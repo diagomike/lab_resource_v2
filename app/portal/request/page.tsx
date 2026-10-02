@@ -118,7 +118,7 @@ function RequestForm() {
           <div className="px-14 py-12 flex flex-col gap-6">
             {(
               [
-                ["FACILITY", "Rooms or labs", "For a workshop, training or exam — you come and use the university's labs and equipment."],
+                ["FACILITY", "Rooms or labs", "For a workshop, training or exam. You come and use the university's labs and equipment."],
                 ["SAMPLE_ANALYSIS", "Sample analysis", "You send samples; the university runs them on one of its machines and gives you the results."],
               ] as const
             ).map(([value, title, help]) => (
@@ -174,7 +174,7 @@ function RequestForm() {
                 <label className="flex flex-col gap-4">
                   <span className={labelClass}>Machine</span>
                   <select value={machineCategoryId} onChange={(e) => setMachineCategoryId(e.target.value)} className={inputClass}>
-                    <option value="">Not sure — the university will choose</option>
+                    <option value="">Not sure: the university will choose</option>
                     {machines.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}

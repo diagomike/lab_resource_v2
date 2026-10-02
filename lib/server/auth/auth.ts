@@ -55,7 +55,7 @@ export async function login(
   const since = new Date(Date.now() - LOGIN_LOCKOUT_WINDOW_MS);
   const recentFailures = await prisma.loginAttempt.count({ where: { emailLower, succeeded: false, createdAt: { gte: since } } });
   if (recentFailures >= MAX_LOGIN_FAILURES_PER_WINDOW) {
-    throw new HttpError(401, "Too many failed attempts on this account — wait 15 minutes and try again.");
+    throw new HttpError(401, "Too many failed attempts on this account. Wait 15 minutes and try again.");
   }
 
   const user = await prisma.user.findUnique({
@@ -79,7 +79,7 @@ export async function login(
   }
   // An outside requester who signed up but hasn't followed the email link yet
   // (lib/server/auth/external-account.ts). Said only after the password matched.
-  if (user.status === "INVITED") throw new HttpError(401, "Confirm your email address first — follow the link we sent you.");
+  if (user.status === "INVITED") throw new HttpError(401, "Confirm your email address first. Follow the link we sent you.");
   await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: true } });
 
   const raw = generateToken();
@@ -122,7 +122,7 @@ export async function register(input: RegisterInput): Promise<{ email: string }>
   // invitation's own consumedAt check above in the normal case, but a person could
   // in principle be re-invited without a status change — status ACTIVE/INVITED are
   // both fine to proceed from, only DISABLED is not).
-  if (user.status === "DISABLED") throw new HttpError(400, "This account has been disabled — contact an administrator.");
+  if (user.status === "DISABLED") throw new HttpError(400, "This account has been disabled. Contact an administrator.");
 
   const passwordHash = await argon2.hash(input.password);
   await prisma.$transaction([
@@ -189,7 +189,7 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<void> 
     html: `<p>Hello ${escapeHtml(user.name)},</p>
            <p>Someone requested a password reset for this account. This link expires in ${PASSWORD_RESET_TTL_HOURS} hours.</p>
            <p><a href="${APP_ORIGIN}/reset-password?token=${raw}">Reset your password</a></p>
-           <p>If you did not request this, you can ignore this email — your password will not change.</p>`,
+           <p>If you did not request this, you can ignore this email. Your password will not change.</p>`,
   });
 }
 

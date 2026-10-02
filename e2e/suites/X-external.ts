@@ -57,7 +57,7 @@ async function main() {
   const se = await nodeId("Software Engineering");
   const labCat = await db.resourceCategory.findUniqueOrThrow({ where: { key: "lab" } });
   const chemLab = await db.item.findFirstOrThrow({ where: { name: "Mechanical Unit Operations Laboratory" } });
-  const seLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
+  const seLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
 
   // Public listing so the portal and catalog lines work.
   const labVer = (await get("admin", "/resources/categories")).body.find((c: any) => c.key === "lab").version;

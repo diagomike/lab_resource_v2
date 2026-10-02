@@ -23,12 +23,12 @@ Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.
 
 **Labs & stores** lists the college's own stores: each one's keeper, block and room, how many items it holds, and how many need attention.
 
-![Labs & stores — the college's stores](img/adaa/02-labs.jpg)
+![Labs & stores: the college's stores](img/adaa/02-labs.jpg)
 
 **Add a store.**
 
 1. Click **+ Add a store**.
-2. Give its **Name** (e.g. "CoEEC College Store — B508-R2") and details: its **Level** (**College store**), **Block** and **Room**.
+2. Give its **Name** (e.g. "CoEEC College Store B508-R2") and details: its **Level** (**College store**), **Block** and **Room**.
 3. Choose **Its store keeper**. The list offers everyone who works in the college or its departments. Someone marked **becomes a custodian** isn't one yet: choosing them makes them one, so they can hold what the store keeps. You don't need People & roles for this.
 4. Save. The keeper is told ("You now keep …"), and records what the store holds. Changes in a store apply at once; they don't wait for a head.
 

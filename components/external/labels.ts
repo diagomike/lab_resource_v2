@@ -8,7 +8,7 @@ export function assignmentStatusLabel(level: "COLLEGE" | "DEPARTMENT", status: E
     case "FORWARDED":
       return level === "COLLEGE" ? "Sent to departments" : "Custodians asked";
     case "SUBMITTED":
-      return level === "COLLEGE" ? "Answered — AVP to review" : "Answered — dean to review";
+      return level === "COLLEGE" ? "Answered: AVP to review" : "Answered: dean to review";
     case "APPROVED":
       return "Approved";
     case "RETURNED":
@@ -34,9 +34,9 @@ export const KIND_LABEL: Record<ExternalRequestKind, string> = { FACILITY: "Room
 export const EXTERNAL_STATUS_LABEL: Record<ExternalRequestStatus, string> = {
   SUBMITTED: "Received",
   UNDER_REVIEW: "Under review",
-  QUOTED: "Quoted — awaiting payment",
+  QUOTED: "Quoted: awaiting payment",
   PAYMENT_SUBMITTED: "Payment being checked",
-  PAID: "Paid — awaiting confirmation",
+  PAID: "Paid: awaiting confirmation",
   SCHEDULED: "Confirmed",
   DECLINED: "Declined",
   CANCELLED: "Cancelled",

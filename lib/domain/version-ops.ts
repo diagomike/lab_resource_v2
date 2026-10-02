@@ -130,7 +130,7 @@ export function applyVersionOp(
       const siblings = childrenOf(items, parent.id).map((i) => i.name);
       let names: string[];
       if (op.count === 1 && /\s\d+$/.test(base)) {
-        if (findNameClash([base], siblings)) throw new VersionOpError(`"${base}" already exists here — choose another name.`);
+        if (findNameClash([base], siblings)) throw new VersionOpError(`"${base}" already exists here. Choose another name.`);
         names = [base];
       } else names = allocateNames(base, siblings, op.count);
       const built = instantiateMany(
@@ -170,7 +170,7 @@ export function applyVersionOp(
         const ids = new Set(group.map((g) => g.id));
         const siblings = childrenOf(items, group[0].parentId).filter((i) => !ids.has(i.id)).map((i) => i.name);
         if (group.length === 1) {
-          if (findNameClash([value], siblings)) throw new VersionOpError(`"${value}" already exists here — choose another name.`);
+          if (findNameClash([value], siblings)) throw new VersionOpError(`"${value}" already exists here. Choose another name.`);
           newName.set(group[0].id, value);
         } else allocateNames(value, siblings, group.length).forEach((n, k) => newName.set(group[k].id, n));
       }
@@ -268,7 +268,7 @@ export interface DiffEntry {
 }
 
 function fmt(v: unknown): string {
-  if (v === null || v === undefined || v === "") return "—";
+  if (v === null || v === undefined || v === "") return "–";
   if (typeof v === "boolean") return v ? "Yes" : "No";
   return String(v);
 }
@@ -309,7 +309,7 @@ export function diffVersion(
       names.unshift(cur.name);
       cur = cur.parentId ? byId.get(cur.parentId) : undefined;
     }
-    return names.join(" › ") || "—";
+    return names.join(" › ") || "–";
   };
   const countBelow = (rootId: string, rows: Array<{ id: string; parentId: string | null }>): number => {
     let n = 0;

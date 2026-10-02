@@ -115,7 +115,7 @@ export default function PersonnelPage() {
     if (!confirm(`Deactivate ${p.name}? They will no longer be able to sign in.`)) return;
     try {
       const res = await api.post<{ vacatedNodeName: string | null }>(`/people/${p.id}/deactivate`);
-      if (res.vacatedNodeName) alert(`${p.name} occupied "${res.vacatedNodeName}" — that node is now unassigned.`);
+      if (res.vacatedNodeName) alert(`${p.name} occupied "${res.vacatedNodeName}". That node is now unassigned.`);
       reload();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not deactivate this person");
@@ -303,7 +303,7 @@ function InviteLinkModal({ url, onClose }: { url: string; onClose: () => void })
   return (
     <Modal title="Invitation link" onClose={onClose} width="480px">
       <p className="text-11 text-dim">
-        The invitation email was sent. If it does not arrive, copy this link and send it to them directly — it works exactly the same way.
+        The invitation email was sent. If it does not arrive, copy this link and send it to them directly. It works exactly the same way.
       </p>
       <div className="flex items-center gap-6">
         <input
@@ -450,7 +450,7 @@ function PersonManageModal({
         <div>
           <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-8">Occupies node</div>
           <div className="mb-8 text-11 text-dim">
-            {person.occupiesNodeName ? <span className="text-text">{person.occupiesNodeName}</span> : <span className="text-faint">headless — occupies nothing</span>}
+            {person.occupiesNodeName ? <span className="text-text">{person.occupiesNodeName}</span> : <span className="text-faint">headless: occupies nothing</span>}
           </div>
           <EntityPicker
             options={nodes.filter((n) => n.active).map((n) => ({ id: n.id, label: n.name, sublabel: n.kind }))}
@@ -558,7 +558,7 @@ function SignInHelp({ person, onError }: { person: PersonDto; onError: (m: strin
       }
       setConfirming(null);
     } catch (e) {
-      onError(e instanceof ApiError ? e.message : "That didn't work — try again");
+      onError(e instanceof ApiError ? e.message : "That didn't work: try again");
     } finally {
       setBusy(false);
     }
@@ -698,7 +698,7 @@ function PersonForm({
           <label className="block">
             <span className="text-11 uppercase tracking-wider text-dim font-semibold">Home department{isAdmin ? " (optional)" : ""}</span>
             <select value={homeNodeId} onChange={(e) => setHomeNodeId(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-6 text-11.5 outline-none focus:border-accent">
-              <option value="">—</option>
+              <option value="">–</option>
               {nodes.map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.name} ({n.kind})

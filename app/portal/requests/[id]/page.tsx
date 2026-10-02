@@ -111,7 +111,7 @@ function RequestView({ id }: { id: string }) {
             <Panel title="Quote">
               <div className="px-14 py-12 flex flex-col gap-8 text-12">
                 <div className="text-21 font-semibold font-mono">{formatEtb(data.quote.amountSantim)}</div>
-                {data.quote.paymentDeadline && <div>Payable by {new Date(data.quote.paymentDeadline).toLocaleDateString()} — what is held for you stays held until then.</div>}
+                {data.quote.paymentDeadline && <div>Payable by {new Date(data.quote.paymentDeadline).toLocaleDateString()}. What is held for you stays held until then.</div>}
                 {data.quote.bank ? (
                   <div>
                     Pay into <strong>{data.quote.bank.bankName}</strong>, account <span className="font-mono">{data.quote.bank.accountNumber}</span> ({data.quote.bank.accountName}). Use{" "}
@@ -145,7 +145,7 @@ function RequestView({ id }: { id: string }) {
           )}
 
           {data.quote && data.payment && <PaymentPanel data={data} onUpdated={setData} />}
-          {data.status === "PAID" && <div className="text-11.5 text-dim">Paid in full — the Academic Vice President&apos;s office is confirming your payment. Your bookings and contacts appear here once it has.</div>}
+          {data.status === "PAID" && <div className="text-11.5 text-dim">Paid in full. The Academic Vice President&apos;s office is confirming your payment. Your bookings and contacts appear here once it has.</div>}
 
           {data.closingNote && <ErrorNote>{data.closingNote}</ErrorNote>}
 
@@ -154,7 +154,7 @@ function RequestView({ id }: { id: string }) {
               {data.timeline.map((t, i) => (
                 <div key={i} className="text-11.5">
                   <span className="font-mono text-dim">{new Date(t.at).toLocaleString()}</span> · {t.label}
-                  {t.note ? <span className="text-dim"> — {t.note}</span> : null}
+                  {t.note ? <span className="text-dim"> – {t.note}</span> : null}
                 </div>
               ))}
             </div>
@@ -191,7 +191,7 @@ function RequestView({ id }: { id: string }) {
             </div>
           )}
           {confirmCancel && (
-            <ConfirmDialog title="Cancel this request" message="Anything held for you is released. This cannot be undone — you would need to send a new request." confirmLabel="Cancel request" busy={busy} onConfirm={cancel} onCancel={() => setConfirmCancel(false)} />
+            <ConfirmDialog title="Cancel this request" message="Anything held for you is released. This cannot be undone. You would need to send a new request." confirmLabel="Cancel request" busy={busy} onConfirm={cancel} onCancel={() => setConfirmCancel(false)} />
           )}
         </>
       )}

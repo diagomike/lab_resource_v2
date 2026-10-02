@@ -49,7 +49,7 @@ export function couldNotLoad(what: string, fallback?: () => void): (e: unknown) 
   return (e) => {
     fallback?.();
     const why = e instanceof Error && e.message ? ` (${e.message})` : "";
-    toast.error(`Couldn't load ${what}${why}. Some choices may be missing — reload the page to try again.`);
+    toast.error(`Couldn't load ${what}${why}. Some choices may be missing. Reload the page to try again.`);
   };
 }
 

@@ -174,7 +174,7 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
 
   return (
     <div id="record-import" aria-current={focused ? "true" : undefined} className={focused && requestId === focusRequestId ? `${FOCUS_ROW} rounded-3 p-4` : undefined}>
-      <Panel title="Record an import" actions={<span className="text-11 text-faint">What a purchase actually delivered — the store loads from this</span>}>
+      <Panel title="Record an import" actions={<span className="text-11 text-faint">What a purchase actually delivered: the store loads from this</span>}>
       <div className="p-12 flex flex-col gap-10">
         <div className="flex items-center gap-4">
           {(["PURCHASE_REQUEST", "EGP"] as const).map((s) => (

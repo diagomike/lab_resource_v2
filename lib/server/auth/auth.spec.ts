@@ -60,7 +60,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("F-009 — forgot-password never resets an account that never set a password", () => {
+describe("F-009: forgot-password never resets an account that never set a password", () => {
   it("re-sends the invitation (not a reset) to an INVITED account with no passwordHash", async () => {
     const { email, emailLower } = await makeUser("invited", { status: "INVITED", withPassword: false });
     const before = sent.length;
@@ -131,7 +131,7 @@ describe("administrator sign-in help (temporary password, emailed reset)", () =>
   });
 });
 
-describe("F-010 — throttles on forgot-password and login", () => {
+describe("F-010: throttles on forgot-password and login", () => {
   it("the 4th reset request within an hour sends nothing but still answers 201 (resolves)", async () => {
     const { id, email } = await makeUser("reset-throttle");
     for (let i = 0; i < 3; i++) await expect(auth.forgotPassword({ email })).resolves.toBeUndefined();
@@ -151,7 +151,7 @@ describe("F-010 — throttles on forgot-password and login", () => {
   });
 });
 
-describe("F-012 — a DISABLED account cannot re-register via a leftover invitation (regression, Phase 1)", () => {
+describe("F-012: a DISABLED account cannot re-register via a leftover invitation (regression, Phase 1)", () => {
   it("refuses register() for a DISABLED account and leaves it DISABLED", async () => {
     const { id, emailLower } = await makeUser("disabled-register", { status: "DISABLED" });
     const { generateToken, hashToken } = await import("./token");

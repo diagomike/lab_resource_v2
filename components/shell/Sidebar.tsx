@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut } from "lucide-react";
 import NavIcon from "./NavIcon";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { navFor, screenKeyForPath } from "../../lib/nav";
 import { useAuth, useNavFacts } from "../../lib/auth-context";
 import { useHomeCounts } from "../../lib/home-counts";
@@ -27,8 +26,7 @@ export default function Sidebar({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { me, logout } = useAuth();
+  const { me } = useAuth();
   const facts = useNavFacts();
   const { counts } = useHomeCounts();
   const isAdmin = facts.roles.includes("SYS_ADMIN");
@@ -61,7 +59,7 @@ export default function Sidebar({
           // accountable for a unit's register — they keep, use or borrow individual
           // items — and saying so plainly beats an empty panel.
           <div className="text-11 text-faint mt-4 leading-normal">
-            No unit scope — you work with the individual resources assigned to you.
+            No unit scope. You work with the individual resources assigned to you.
           </div>
         )}
 
@@ -114,16 +112,6 @@ export default function Sidebar({
             })}
           </div>
         ))}
-      </div>
-
-      <div className="border-t border-border py-6 flex-none">
-        <button
-          onClick={() => void logout().then(() => router.replace("/login"))}
-          className="w-full text-left border-0 bg-transparent text-dim text-11.5 px-12 py-6 md:py-4 flex items-center gap-7 hover:bg-panel3 hover:text-text"
-        >
-          <LogOut size={14} strokeWidth={1.75} aria-hidden="true" />
-          Sign out
-        </button>
       </div>
     </div>
   );

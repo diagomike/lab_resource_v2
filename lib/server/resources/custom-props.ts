@@ -64,7 +64,7 @@ export function assertNoCollision(key: string, categoryFieldKeys: string[], exis
   const norm = normalizeKey(key);
   const categoryHit = categoryFieldKeys.find((k) => normalizeKey(k) === norm);
   if (categoryHit) {
-    throw new HttpError(400, `"${key}" collides with this category's own "${categoryHit}" field — use a different name, or edit that field's value instead.`);
+    throw new HttpError(400, `"${key}" collides with this category's own "${categoryHit}" field. Use a different name, or edit that field's value instead.`);
   }
   const dupHit = existingCustomKeys.find((k) => normalizeKey(k) === norm);
   if (dupHit) {

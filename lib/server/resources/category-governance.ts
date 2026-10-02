@@ -65,7 +65,7 @@ function assertCanEdit(editor: Editor): void {
 /** Labs, workshops, studios and stores are the university's own kinds of place: kept by
  *  the admin and Property Administration, whatever a department adds inside them. */
 function assertMayTouchPlaces(editor: Editor, isPlace: boolean): void {
-  if (isPlace && !editor.isTop) throw new HttpError(403, "Labs, workshops, studios and stores are kept by Property Administration — ask them for a change to what a place records.");
+  if (isPlace && !editor.isTop) throw new HttpError(403, "Labs, workshops, studios and stores are kept by Property Administration. Ask them for a change to what a place records.");
 }
 
 /** May this person add or change categories at all — what the page shows them. */
@@ -265,7 +265,7 @@ export async function saveCategory(actorId: string, id: string, input: categorie
     status: "PENDING",
     category: await categories.getOne(id),
     change: dto,
-    notice: `Sent to ${dto.waitingOn} for approval. It applies once approved — until then, the category stays as it was.`,
+    notice: `Sent to ${dto.waitingOn} for approval. It applies once approved. Until then, the category stays as it was.`,
   };
 }
 
@@ -306,7 +306,7 @@ export async function decideChange(actorId: string, changeId: string, input: Dec
     await prisma.categoryChange.update({ where: { id: changeId }, data: { status: "REJECTED", ...done } });
     await notify(c.proposedById, actorId, {
       subject: `Your change to ${c.category.name} was not approved`,
-      paragraphs: [`${esc(me.name)} did not approve your change to <strong>${esc(c.category.name)}</strong>.${quoted(note)}`, "The category stays as it was. A category of your own department's may fit better — open it and choose “Make a copy for my department”."],
+      paragraphs: [`${esc(me.name)} did not approve your change to <strong>${esc(c.category.name)}</strong>.${quoted(note)}`, "The category stays as it was. A category of your own department's may fit better. Open it and choose “Make a copy for my department”."],
       path: categoryPath(c.categoryId),
       action: "Open the category",
     });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addDays, civilToInstant, expandSeries, instantToCivil, startOfWeek, validateSeriesRule, weekdayOf } from "./civil-time";
 
 describe("civilToInstant / instantToCivil", () => {
-  it("08:00 in Addis Ababa is 05:00 UTC — the sandbox's `${local}Z` bug stamped it 08:00 UTC, three hours late", () => {
+  it("08:00 in Addis Ababa is 05:00 UTC: the sandbox's `${local}Z` bug stamped it 08:00 UTC, three hours late", () => {
     const instant = civilToInstant("2026-09-14", "08:00", "Africa/Addis_Ababa");
     expect(instant.toISOString()).toBe("2026-09-14T05:00:00.000Z");
     expect(instant.toISOString()).not.toBe(new Date("2026-09-14T08:00:00Z").toISOString());

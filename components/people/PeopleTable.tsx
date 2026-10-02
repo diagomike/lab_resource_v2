@@ -93,7 +93,7 @@ export function PeopleTable({
           const p = row.original;
           return (
             <div className="text-11">
-              {p.occupiesNodeName ? <span className="text-text">Heads {p.occupiesNodeName}</span> : (p.homeNodeName ?? <span className="text-faint">—</span>)}
+              {p.occupiesNodeName ? <span className="text-text">Heads {p.occupiesNodeName}</span> : (p.homeNodeName ?? <span className="text-faint">–</span>)}
             </div>
           );
         },
@@ -102,7 +102,7 @@ export function PeopleTable({
       helper.display({
         id: "invitedBy",
         header: "Invited by",
-        cell: ({ row }) => row.original.invitedByName ?? <span className="text-faint">—</span>,
+        cell: ({ row }) => row.original.invitedByName ?? <span className="text-faint">–</span>,
       }),
 
       helper.accessor((p) => p.createdAt, {

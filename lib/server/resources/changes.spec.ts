@@ -108,7 +108,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("changes.browse — scope, per role", () => {
+describe("changes.browse: scope, per role", () => {
   // itemName snapshots the item's name AT THE MOMENT of each row's own change — for a
   // setName change specifically that is the PRE-rename name (the row's own `field`/
   // `before`/`after` carry the rename itself), so these fixtures are found by their
@@ -171,7 +171,7 @@ describe("changes.browse — scope, per role", () => {
   });
 });
 
-describe("changes.browse — a deleted item's history stays authorized for the right people", () => {
+describe("changes.browse: a deleted item's history stays authorized for the right people", () => {
   it("keeps a deleted item's earlier entries visible to whoever could see it, marks the row as itemExists: false, and never leaks it to the other department", async () => {
     const before = await prisma.item.findUniqueOrThrow({ where: { id: seItem2Id } });
     await applyChange(seCustodianId, { kind: "deleteItem", itemIds: [seItem2Id], expectedVersions: { [seItem2Id]: before.version } });
@@ -189,7 +189,7 @@ describe("changes.browse — a deleted item's history stays authorized for the r
   });
 });
 
-describe("changes.browse — bulk grouping, search, and pagination", () => {
+describe("changes.browse: bulk grouping, search, and pagination", () => {
   it("gives every row of one bulk operation the same batchId and the same timestamp, contiguous under the server's own ordering", async () => {
     const page = await changes.browse(sysAdminId, { kind: "setStatus", q: "Changelog Item Alpha" });
     const bulkRow = page.entries.find((e) => e.kind === "setStatus" && e.itemId === seItemId);

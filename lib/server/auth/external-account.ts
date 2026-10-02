@@ -34,7 +34,7 @@ async function sendVerification(user: { email: string; emailLower: string; name:
   });
   await mail.send({
     to: user.email,
-    subject: "Confirm your email — ASTU resources for workshops & training",
+    subject: "Confirm your email: ASTU resources for workshops & training",
     html: `<p>Hello ${escapeHtml(user.name)},</p>
            <p>Confirm your email address to finish creating your account. This link expires in ${VERIFY_TTL_HOURS} hours.</p>
            <p><a href="${APP_ORIGIN}/portal/verify?token=${raw}">Confirm my email</a></p>
@@ -61,7 +61,7 @@ export async function signUp(input: ExternalSignupInput, ipHash: string | null):
     if (!unverifiedRequester) throw new HttpError(409, "An account with this email already exists. Sign in, or reset your password.");
     // Signing up again before verifying: take the new details and send a fresh link.
     const recent = await prisma.invitation.count({ where: { emailLower, intendedRole: "EXTERNAL", createdAt: { gte: new Date(Date.now() - 3_600_000) } } });
-    if (recent >= VERIFY_MAILS_PER_HOUR) throw new HttpError(429, "We've sent several links already — check your inbox (and spam), or try again in an hour.");
+    if (recent >= VERIFY_MAILS_PER_HOUR) throw new HttpError(429, "We've sent several links already. Check your inbox (and spam), or try again in an hour.");
     const user = await prisma.user.update({ where: { id: existing.id }, data: { name: input.name, phone: input.phone, organisation: input.organisation, passwordHash } });
     await sendVerification(user);
     return;
@@ -87,10 +87,10 @@ export async function signUp(input: ExternalSignupInput, ipHash: string | null):
 export async function verifyEmail(token: string): Promise<{ email: string }> {
   const invitation = await prisma.invitation.findUnique({ where: { tokenHash: hashToken(token) } });
   if (!invitation || invitation.intendedRole !== "EXTERNAL") throw new HttpError(400, "This link is not valid.");
-  if (invitation.consumedAt) throw new HttpError(400, "This link has already been used — sign in.");
-  if (invitation.expiresAt < new Date()) throw new HttpError(400, "This link has expired — sign up again to get a new one.");
+  if (invitation.consumedAt) throw new HttpError(400, "This link has already been used. Sign in.");
+  if (invitation.expiresAt < new Date()) throw new HttpError(400, "This link has expired. Sign up again to get a new one.");
   const user = await prisma.user.findUnique({ where: { emailLower: invitation.emailLower } });
-  if (!user || user.status === "DISABLED") throw new HttpError(400, "This account can't be activated — contact the university.");
+  if (!user || user.status === "DISABLED") throw new HttpError(400, "This account can't be activated. Contact the university.");
 
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { status: "ACTIVE" } }),

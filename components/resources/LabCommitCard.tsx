@@ -115,7 +115,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
               <span>
                 {confirming === "APPROVE"
                   ? "Applies these changes to the live register, credited to the custodian. If anything was changed in the register since they started, nothing is applied and it goes back to them."
-                  : "The changes stay as they are — the custodian sees your reason, revises and sends them again."}
+                  : "The changes stay as they are. The custodian sees your reason, revises and sends them again."}
               </span>
               <input
                 value={note}

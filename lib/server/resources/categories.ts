@@ -130,7 +130,7 @@ function assertNoDuplicateLabels(fields: { label: string }[]): void {
   const seen = new Set<string>();
   for (const f of fields) {
     const k = f.label.trim().toLowerCase();
-    if (seen.has(k)) throw new HttpError(400, `Two details are called “${f.label.trim()}” — give each its own name`);
+    if (seen.has(k)) throw new HttpError(400, `Two details are called “${f.label.trim()}”: give each its own name`);
     seen.add(k);
   }
 }
@@ -158,7 +158,7 @@ async function assertTemplateChildrenValid(client: Tx, parentId: string | null, 
   if (parentId) {
     const edges = await client.categoryTemplateChild.findMany({ select: { parentCategoryId: true, childCategoryId: true } });
     if (wouldCreateTemplateCycle(edges, parentId, childCategoryIds)) {
-      throw new HttpError(400, "That default subtree would contain itself — choose parts that do not lead back to this category");
+      throw new HttpError(400, "That default subtree would contain itself: choose parts that do not lead back to this category");
     }
   }
 }
@@ -167,7 +167,7 @@ async function assertTemplateChildrenValid(client: Tx, parentId: string | null, 
  *  way (see prisma/schema.prisma's BookingMode note). */
 function assertBookableCountingMode(bookingMode: string | undefined, countingMode: string): void {
   if (bookingMode && bookingMode !== "NOT_BOOKABLE" && countingMode !== "SERIALIZED") {
-    throw new HttpError(400, "Only a category of individual units can be booked — bulk stock is never reserved by time.");
+    throw new HttpError(400, "Only a category of individual units can be booked: bulk stock is never reserved by time.");
   }
 }
 
@@ -176,7 +176,7 @@ function assertKnownIcon(iconKey: string | undefined): void {
   // The curated set (lib/domain/icons.ts) includes lucide aliases — Layers3, Waves —
   // that lucide's own `icons` map lists only under their newer names.
   if (iconKey !== undefined && !Object.prototype.hasOwnProperty.call(LUCIDE_ICONS, iconKey) && !Object.prototype.hasOwnProperty.call(CATEGORY_ICONS, iconKey)) {
-    throw new HttpError(400, "Unknown icon \"" + iconKey + "\" — pick one from the icon list.");
+    throw new HttpError(400, "Unknown icon \"" + iconKey + "\". Pick one from the icon list.");
   }
 }
 
@@ -190,7 +190,7 @@ type KeyedField = FieldInput & { key: string };
  */
 function withKeys(fields: FieldInput[], taken: string[]): KeyedField[] {
   const given = fields.map((f) => f.key).filter((k): k is string => !!k);
-  if (new Set(given).size !== given.length) throw new HttpError(400, "Two details share one identity — reload the category and try again");
+  if (new Set(given).size !== given.length) throw new HttpError(400, "Two details share one identity: reload the category and try again");
   const used = new Set([...taken, ...given]);
   return fields.map((f) => {
     if (f.key) return { ...f, key: f.key };
@@ -222,7 +222,7 @@ export async function create(actorId: string, input: CreateCategoryInput, opts: 
   const group = await prisma.categoryGroup.findUnique({ where: { id: input.groupId } });
   if (!group) throw new HttpError(400, "Choose an existing group");
   const takenNames = await prisma.resourceCategory.findFirst({ where: { name: { equals: input.name.trim(), mode: "insensitive" } }, select: { id: true } });
-  if (takenNames) throw new HttpError(400, `A category called “${input.name.trim()}” already exists — open it, or give this one a more specific name`);
+  if (takenNames) throw new HttpError(400, `A category called “${input.name.trim()}” already exists: open it, or give this one a more specific name`);
   let key = input.key;
   if (key) {
     if (await prisma.resourceCategory.findUnique({ where: { key } })) throw new HttpError(400, `A category with key "${key}" already exists`);
@@ -393,7 +393,7 @@ export async function update(actorId: string, id: string, input: UpdateArgs): Pr
           where: { state: { in: LIVE_STATES }, endsAt: { gt: new Date() }, OR: [{ lab: { categoryId: id } }, { resources: { some: { item: { categoryId: id } } } }] },
         });
         if (futureReservations > 0) {
-          throw new HttpError(409, `Cannot change booking mode — ${futureReservations} future reservation(s) still depend on it.`);
+          throw new HttpError(409, `Cannot change booking mode: ${futureReservations} future reservation(s) still depend on it.`);
         }
       }
 
@@ -426,7 +426,7 @@ export async function update(actorId: string, id: string, input: UpdateArgs): Pr
         const rows = await tx.item.findMany({ where: { categoryId: id, deletedAt: null, NOT: { qty: 1 } }, select: { id: true, name: true, qty: true } });
         if (rows.length) {
           throw new HttpError(409, "Cannot switch to serialized counting", {
-            message: `${rows.length} item(s) of this category hold a quantity other than 1 (e.g. "${rows[0].name}" at ${Number(rows[0].qty)}) — switching to serialized counting would silently reset them to 1. Split them into individual units first.`,
+            message: `${rows.length} item(s) of this category hold a quantity other than 1 (e.g. "${rows[0].name}" at ${Number(rows[0].qty)}): switching to serialized counting would silently reset them to 1. Split them into individual units first.`,
             itemIds: rows.map((i) => i.id),
           });
         }
@@ -540,7 +540,7 @@ export async function remove(actorId: string, id: string, opts?: { confirmTempla
   const itemCount = await prisma.item.count({ where: { categoryId: id } });
   if (itemCount > 0) {
     throw new HttpError(409, "Cannot delete category", {
-      message: `Cannot delete "${row.name}" — ${itemCount} item(s) are still filed under it`,
+      message: `Cannot delete "${row.name}": ${itemCount} item(s) are still filed under it`,
       code: "DELETE_BLOCKED",
       itemCount,
     });

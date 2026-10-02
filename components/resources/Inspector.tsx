@@ -339,20 +339,20 @@ export function Inspector({
               </span>
               {item.effectiveStatus !== item.status && (
                 <span className="flex-none self-start">
-                  <StatusChip status={item.effectiveStatus} title="Derived from this resource's parts — not directly settable" />
+                  <StatusChip status={item.effectiveStatus} title="Derived from this resource's parts, not directly settable" />
                 </span>
               )}
             </div>
 
             {item.readOnlyContext && (
               <div className="text-11 text-warn bg-warnbg border border-warn rounded-2 px-8 py-6">
-                You are seeing this as the container of something you can act on — not something you hold yourself. Editing here will be
+                You are seeing this as the container of something you can act on, not something you hold yourself. Editing here will be
                 refused.
               </div>
             )}
             {stagedIn && (
               <div className="text-11 bg-soft border border-accent rounded-2 px-8 py-6">
-                Added to <strong>{stagedIn.labName}</strong>&apos;s changes (not sent yet) — the register changes once the department head approves.{" "}
+                Added to <strong>{stagedIn.labName}</strong>&apos;s changes (not sent yet). The register changes once the department head approves.{" "}
                 <Link href={`/places/${stagedIn.labItemId}?tab=draft&item=${item.id}`} className="text-accent hover:underline">
                   Review and send →
                 </Link>
@@ -373,7 +373,7 @@ export function Inspector({
             )}
             {item.parentId === null && (
               <Link href={`/places/${item.id}`} className="self-start text-11 text-accent border border-accent rounded-2 px-8 py-4">
-                Lab states — current · draft · ideal →
+                Lab states: current · draft · ideal →
               </Link>
             )}
             {inlineError && <ErrorNote>{inlineError}</ErrorNote>}
@@ -431,7 +431,7 @@ export function Inspector({
             <div>
               <div className="flex items-center gap-8 mb-6">
                 <div className="text-10.5 uppercase tracking-label text-faint font-semibold">Custom properties</div>
-                <span className="text-10.5 text-faint" title="Item-specific facts this resource carries beyond its category's own fields — visible only here, not shared with other items of this category.">
+                <span className="text-10.5 text-faint" title="Item-specific facts this resource carries beyond its category's own fields: visible only here, not shared with other items of this category.">
                   (this item only)
                 </span>
               </div>
@@ -776,7 +776,7 @@ function ContainsSection({ children, onNavigate }: { children: ItemDetailDto["ch
 }
 
 function formatPropValue(v: ItemPropValue): string {
-  if (v === null || v === undefined || v === "") return "—";
+  if (v === null || v === undefined || v === "") return "–";
   if (typeof v === "boolean") return v ? "Yes" : "No";
   return String(v);
 }
@@ -809,7 +809,7 @@ export function PropInput({
   if (field.type === "ENUM") {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} className={cls}>
-        <option value="">—</option>
+        <option value="">–</option>
         {field.options.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -821,7 +821,7 @@ export function PropInput({
   if (field.type === "BOOLEAN") {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} className={cls}>
-        <option value="">—</option>
+        <option value="">–</option>
         <option value="true">Yes</option>
         <option value="false">No</option>
       </select>
@@ -859,7 +859,7 @@ export function CustomPropInput({
   if (type === "BOOLEAN") {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} className={cls}>
-        <option value="">—</option>
+        <option value="">–</option>
         <option value="true">Yes</option>
         <option value="false">No</option>
       </select>

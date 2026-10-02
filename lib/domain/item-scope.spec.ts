@@ -35,7 +35,7 @@ describe("unitsOf", () => {
     expect(unitsOf(item("a", null))).toEqual(["se"]);
   });
 
-  it("answers to BOTH ends when on loan — that is what a loan is", () => {
+  it("answers to BOTH ends when on loan: that is what a loan is", () => {
     const loaned = item("a", null, { ownerOrgNodeId: "se", currentOrgNodeId: "chem" });
     expect(unitsOf(loaned)).toEqual(["se", "chem"]);
   });

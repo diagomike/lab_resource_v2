@@ -18,7 +18,7 @@ function VerifyInner() {
     if (started.current) return;
     started.current = true;
     if (!token) {
-      setState({ done: false, error: "This link is incomplete — open it straight from the email." });
+      setState({ done: false, error: "This link is incomplete. Open it straight from the email." });
       return;
     }
     api

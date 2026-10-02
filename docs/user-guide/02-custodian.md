@@ -36,7 +36,7 @@ Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.
 
 **Labs & stores** lists **You run**: every lab and store you are the custodian of, with its block and room, how many items it holds and how many need attention. A lab with changes you haven't sent shows **Changes not sent yet**.
 
-![Labs & stores — the labs you run](img/custodian/02-my-labs.jpg)
+![Labs & stores: the labs you run](img/custodian/02-my-labs.jpg)
 
 Click a lab to open it. Its page has the lab's details (block, room, seats, what it's for) and three tabs:
 
@@ -52,7 +52,7 @@ Click a lab to open it. Its page has the lab's details (block, room, seats, what
 
 **Resources** shows everything you look after (**Mine**), as a tree, or the whole university's (**Whole university**, read-only) when you're looking for something.
 
-![Resources — Mine](img/custodian/04-resources.jpg)
+![Resources: Mine](img/custodian/04-resources.jpg)
 
 - The **view** buttons: **Grouped** (by unit, category or custodian), **Hierarchy** (the tree), **Inventory summary** (counts per category) and **Search list** (a flat list).
 - **Filters**: pick values in **Category**, **Status**, **Owning unit**, **Current holding unit** or **Custodian**; search inside details with `@field:value` (see [Search](00-getting-started.md#8-search-from-anywhere)).
@@ -68,7 +68,7 @@ Click an item's **name** to open its details: its parts (**Contains**), its stat
 
 ![Change → Status](img/custodian/05-change.jpg)
 
-3. A note confirms it went into the lab's changes: **Added to Software Laboratory — B510-R8's changes (not sent yet)**. The item still shows its old status, because the register changes only once your head approves. In **Resources**, the item now shows a `*`; hover over it to see what's waiting.
+3. A note confirms it went into the lab's changes: **Added to Software Laboratory B510-R8's changes (not sent yet)**. The item still shows its old status, because the register changes only once your head approves. In **Resources**, the item now shows a `*`; hover over it to see what's waiting.
 
 **Adding things.** **+ Add resources** in **Resources**: choose the **Category**, where it goes (**Into**), the **Name** and **How many**, then **Preview…** and **Apply**. A category that *comes with* parts (a Workstation Setup) creates them too. New names continue the lab's own numbering (*Chair 21, 22…*).
 
@@ -83,7 +83,7 @@ Click an item's **name** to open its details: its parts (**Contains**), its stat
 1. Open the lab (**Labs & stores** → your lab), or click **Send your changes for …** on **Home**.
 2. On **My changes**, check **What it changes**: every entry says what, where, and from what to what, e.g. *Monitor in Workstation 03 › Computer · Status: Working → Broken*.
 
-![My changes — what it changes](img/custodian/06-my-changes.jpg)
+![My changes: what it changes](img/custodian/06-my-changes.jpg)
 
 3. Click **Send to the head**. The lab now shows **Waiting for the head**, and your head is told.
 
@@ -111,7 +111,7 @@ Your head buys for the department; you tell them what your labs need.
 
 ![Ask for something](img/custodian/07-ask.jpg)
 
-**Replacing what broke.** **Broken or lost — not asked for yet** lists things in your labs that are broken or lost and nobody has asked to replace, grouped by kind (*8 × Monitor · Software Laboratory — B508-R13*). **Ask for 8 replacements** fills the form for you.
+**Replacing what broke.** **Broken or lost, not asked for yet** lists things in your labs that are broken or lost and nobody has asked to replace, grouped by kind (*8 × Monitor · Software Laboratory B508-R13*). **Ask for 8 replacements** fills the form for you.
 
 **What you've asked for** shows each need and where it stands: waiting for the head, carried into a purchase request (and that request's stage), or declined with the head's reason. **Withdraw** takes one back while it waits.
 

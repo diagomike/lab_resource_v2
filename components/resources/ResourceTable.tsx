@@ -199,9 +199,9 @@ export function ResourceTable({ rows: unsorted, byId, expanded, onExpandedChange
                   else row.toggleExpanded();
                 }}
                 className={`truncate text-left text-11.5 hover:text-accent hover:underline ${isContext(r) ? "text-faint" : ""}`}
-                title={isContext(r) ? "Shown for context — the matches are inside it or around it" : undefined}
+                title={isContext(r) ? "Shown for context: the matches are inside it or around it" : undefined}
               >
-                {isCluster(r) ? (first?.categoryName ?? "—") : r.item.name}
+                {isCluster(r) ? (first?.categoryName ?? "–") : r.item.name}
               </button>
               {!isCluster(r) && pending?.[r.item.id] && (
                 <Link
@@ -229,7 +229,7 @@ export function ResourceTable({ rows: unsorted, byId, expanded, onExpandedChange
               {isCluster(r) && pendingTransfers && (() => {
                 const promised = idsOf(r).filter((id) => pendingTransfers[id]).length;
                 return promised ? (
-                  <span className="flex-none text-10.5 text-warn" title={`${promised} of these are in a pending transfer or handover — the rest are free to hand over.`}>
+                  <span className="flex-none text-10.5 text-warn" title={`${promised} of these are in a pending transfer or handover. The rest are free to hand over.`}>
                     ⇄ {promised} promised
                   </span>
                 ) : null;
@@ -249,7 +249,7 @@ export function ResourceTable({ rows: unsorted, byId, expanded, onExpandedChange
             const r = row.original;
             if (r.kind !== "item") return null;
             const path = rowOf(r.item.id)?.path ?? [];
-            return <span className="text-11 text-dim">{path.length ? path.join(" › ") : "—"}</span>;
+            return <span className="text-11 text-dim">{path.length ? path.join(" › ") : "–"}</span>;
           },
         }),
       );
@@ -264,7 +264,7 @@ export function ResourceTable({ rows: unsorted, byId, expanded, onExpandedChange
             const agg = nameAgg(aggRowsOf(row.original).map((m) => m.categoryName));
             return <span className="text-11 text-faint">{describeAgg(agg)}</span>;
           }
-          return <span className="text-11 text-dim">{rowOf(idsOf(row.original)[0])?.categoryName ?? "—"}</span>;
+          return <span className="text-11 text-dim">{rowOf(idsOf(row.original)[0])?.categoryName ?? "–"}</span>;
         },
       }),
 
@@ -302,7 +302,7 @@ export function ResourceTable({ rows: unsorted, byId, expanded, onExpandedChange
           const first = rowOf(idsOf(r)[0]);
           if (filtering && (isGroup(r) || isCluster(r) || isContext(r))) {
             const hits = aggRowsOf(r);
-            if (!hits.length) return <span className="text-11 font-mono text-faint">—</span>;
+            if (!hits.length) return <span className="text-11 font-mono text-faint">–</span>;
             const count = hits.length; // matching items — bulk amounts in mixed units don't add up
             const kinds = new Set(hits.map((h) => h.categoryName));
             const label = kinds.size === 1 ? [...kinds][0] : "matches";

@@ -81,6 +81,13 @@ function who({ roles, caps }: NavFacts): Who {
 
 export const NAV: NavGroup[] = [
   {
+    label: "Overview",
+    items: [
+      { key: "dashboard", label: "Insights", icon: "ChartColumn", path: "/dashboard", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa || w.leader },
+      { key: "change-log", label: "History", icon: "History", path: "/change-log", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa },
+    ],
+  },
+  {
     label: "Work",
     items: [
       { key: "home", label: "Home", icon: "House", path: "/home" },
@@ -105,13 +112,6 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    label: "Overview",
-    items: [
-      { key: "dashboard", label: "Insights", icon: "ChartColumn", path: "/dashboard", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa || w.leader },
-      { key: "change-log", label: "History", icon: "History", path: "/change-log", when: (w) => w.admin || w.propertyAdmin || w.head || w.adaa },
-    ],
-  },
-  {
     label: "Administration",
     items: [
       // A head brings in and re-roles their own department's custodians (lib/server/people).
@@ -121,7 +121,9 @@ export const NAV: NavGroup[] = [
   },
 ];
 
-const YOU_GROUP: NavGroup = {
+/** The person's own corner — it lives behind the avatar in the top bar (with Sign out),
+ *  not in the sidebar, which keeps to the work. */
+export const YOU_GROUP: NavGroup = {
   label: "You",
   items: [
     // Everyone gets Help; which guides it shows follows the person (lib/help/audience.ts).
@@ -132,9 +134,9 @@ const YOU_GROUP: NavGroup = {
 
 export const META: Record<string, [string, string, string]> = {
   home: ["", "Home", "What is waiting for you, what you left unfinished, and what is new"],
-  register: ["", "Resources", "Your resources — or the whole university's, to find what you need and request it"],
-  places: ["", "Labs & stores", "The labs and stores you run or manage — what is in them, and their changes"],
-  schedule: ["", "Bookings", "Lab calendars — weekly classes, and booking a room or machine"],
+  register: ["", "Resources", "Your resources, or the whole university's, to find what you need and request it"],
+  places: ["", "Labs & stores", "The labs and stores you run or manage: what is in them, and their changes"],
+  schedule: ["", "Bookings", "Lab calendars: weekly classes, and booking a room or machine"],
   approvals: ["", "Approvals", "What is waiting for your decision, and what you have asked for"],
   purchasing: ["", "Purchasing", "Needs from the labs, purchase requests, and what has arrived"],
   "external-requests": ["", "Outside requests", "Analyses, workshops and trainings outside institutions have asked the university for"],
@@ -143,10 +145,10 @@ export const META: Record<string, [string, string, string]> = {
   "change-log": ["", "History", "Every applied change, who made it, and when"],
 
   "admin-people": ["Administration ›", "People & roles", "Invite someone, change what they may do, or retire their account"],
-  "admin-org-structure": ["Administration ›", "Organisation", "Colleges, departments and offices — who heads each, and what sits under what"],
+  "admin-org-structure": ["Administration ›", "Organisation", "Colleges, departments and offices: who heads each, and what sits under what"],
 
   profile: ["Me ›", "Profile & password", "Your details, your unit, and your sign-in password"],
-  help: ["Me ›", "Help & guides", "How to do things in LRMS — the general guides, and the ones for your role"],
+  help: ["Me ›", "Help & guides", "How to do things in LRMS: the general guides, and the ones for your role"],
 };
 
 /** An EXTERNAL account and nothing else — an outside institution's requester. */
@@ -159,11 +161,10 @@ function shows(item: NavItem, facts: NavFacts): boolean {
   return item.when ? item.when(who(facts)) : true;
 }
 
-/** Nav groups for this person, with what they don't use removed and empty groups
- *  dropped — the "You" section is appended so profile is always one click away. */
+/** Sidebar groups for this person, with what they don't use removed and empty groups
+ *  dropped. The "You" items are not here — they sit behind the avatar for everyone. */
 export function navFor(facts: NavFacts): NavGroup[] {
-  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((i) => shows(i, facts)) })).filter((g) => g.items.length > 0);
-  return [...groups, YOU_GROUP];
+  return NAV.map((g) => ({ ...g, items: g.items.filter((i) => shows(i, facts)) })).filter((g) => g.items.length > 0);
 }
 
 function allItems(): NavItem[] {

@@ -87,7 +87,7 @@ export function WholeUniversityRegister() {
     <Screen>
       {state.error && <ErrorNote>{state.error}</ErrorNote>}
       <Panel
-        title="Register — whole university"
+        title="Register: whole university"
         actions={
           <div className="flex items-center gap-10">
             <RegisterScopeSwitch scope="university" />

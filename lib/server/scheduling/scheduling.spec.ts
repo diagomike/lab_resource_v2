@@ -106,7 +106,7 @@ function booking(itemIds: string[], date: string, start: string, end: string, ti
   return { itemIds, date, start, end, title, onBehalfOfNote: "SE401 group 3" };
 }
 
-describe("the exclusion constraint — the database, not a scan", () => {
+describe("the exclusion constraint: the database, not a scan", () => {
   it("refuses two overlapping BLOCKING claims on the same item, but not a non-blocking one or a back-to-back one", async () => {
     const startsAt = new Date(Date.UTC(2031, 0, 6, 5));
     const endsAt = new Date(Date.UTC(2031, 0, 6, 7));
@@ -311,7 +311,7 @@ describe("weekly class series", () => {
   });
 });
 
-describe("F-053 — a booking's private details go only to the requester, the room's custodian and the owning head", () => {
+describe("F-053: a booking's private details go only to the requester, the room's custodian and the owning head", () => {
   it("other staff see the slot but not the on-behalf-of note, head-count or decision note", async () => {
     const date = dayAhead(30);
     const made = await reservations.createStaffBooking(staffId, { ...booking([pc1], date, "10:00", "11:00", "Thesis defence"), onBehalfOfNote: "Sara T. (UGR/1234/13)", participantCount: 3 });
@@ -334,7 +334,7 @@ describe("F-053 — a booking's private details go only to the requester, the ro
   });
 });
 
-describe("F-052 — sane bounds on horizon, series length and exceptions", () => {
+describe("F-052: sane bounds on horizon, series length and exceptions", () => {
   it("refuses a booking more than a year ahead", async () => {
     await expect(reservations.createStaffBooking(custodianId, booking([pc1], dayAhead(400), "10:00", "11:00"))).rejects.toMatchObject({ status: 400 });
     await expect(reservations.createStaffBooking(custodianId, booking([pc1], dayAhead(300), "10:00", "11:00"))).resolves.toMatchObject({ state: "CONFIRMED" });

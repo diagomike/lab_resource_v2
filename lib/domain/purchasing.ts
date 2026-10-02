@@ -264,7 +264,7 @@ export function linesFromNeeds(needs: NeedForLines[]): LineFromNeeds[] {
   for (const n of ordered) groups.set(keyOf(n), [...(groups.get(keyOf(n)) ?? []), n]);
   return [...groups.values()].map((group) => {
     const first = group[0];
-    const parts = group.map((n) => `${n.labName ?? "A lab"} (${n.qty}): ${n.reason.trim()}${n.spec ? ` — ${n.spec.trim()}` : ""}`);
+    const parts = group.map((n) => `${n.labName ?? "A lab"} (${n.qty}): ${n.reason.trim()}${n.spec ? `: ${n.spec.trim()}` : ""}`);
     return {
       name: first.name.trim(),
       qty: group.reduce((sum, n) => sum + n.qty, 0),

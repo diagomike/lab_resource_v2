@@ -174,7 +174,7 @@ describe("automatic verification", () => {
     // Paid, but not confirmed: still held, and nobody to call yet.
     expect(result.tracking.contacts).toEqual([]);
     expect(result.tracking.bookings.map((b) => b.confirmed)).toEqual([false]);
-    expect(sent.map((m) => m.subject)).toEqual([`Payment received for ${r.reference}`, `${r.reference} is paid — confirm the payment`]);
+    expect(sent.map((m) => m.subject)).toEqual([`Payment received for ${r.reference}`, `${r.reference} is paid: confirm the payment`]);
 
     // Only the AVP's office confirms.
     await expect(verify.confirmPayment(headId, r.id)).rejects.toMatchObject({ status: 403 });
@@ -183,7 +183,7 @@ describe("automatic verification", () => {
     expect([dto.status, dto.contactsRevealedAt !== null]).toEqual(["SCHEDULED", true]);
     const holds = await prisma.reservation.findMany({ where: { externalRequestId: r.id }, include: { resources: true } });
     expect(holds.map((h) => [h.state, h.holdExpiresAt, h.resources.every((x) => x.blocking)])).toEqual([["CONFIRMED", null, true]]);
-    expect(sent.map((m) => m.subject)).toEqual([`Booking confirmed — ${r.reference}`, `Booking confirmed on your calendar — ${r.reference}`, `${r.reference} is paid and booked`]);
+    expect(sent.map((m) => m.subject)).toEqual([`Booking confirmed: ${r.reference}`, `Booking confirmed on your calendar: ${r.reference}`, `${r.reference} is paid and booked`]);
     expect(sent[1].to).toBe(`${testKey}-custodian@astu.edu.et`);
 
     // The requester now sees their bookings confirmed and who to call.
@@ -191,7 +191,7 @@ describe("automatic verification", () => {
     expect(mine.status).toBe("SCHEDULED");
     expect(mine.bookings.map((b) => [b.place, b.confirmed])).toEqual([["Pay Lab", true]]);
     expect(mine.contacts).toEqual([{ departmentName: `${testKey}-dept`, people: [CONTACT] }]);
-    expect(mine.timeline.map((t) => t.label)).toContain("Payment confirmed — booking confirmed");
+    expect(mine.timeline.map((t) => t.label)).toContain("Payment confirmed: booking confirmed");
 
     // One receipt pays once — here or anywhere else.
     const other = await quoted([{ day: 41, start: "09:00", end: "12:00" }]);
@@ -201,7 +201,7 @@ describe("automatic verification", () => {
     await expect(verify.confirmPayment(avpId, r.id)).rejects.toMatchObject({ status: 409 });
   });
 
-  it("refuses receipts that paid someone else, too early, not at all — and a refused reference can be tried again", async () => {
+  it("refuses receipts that paid someone else, too early, not at all, and a refused reference can be tried again", async () => {
     const r = await quoted([{ day: 42, start: "09:00", end: "12:00" }]);
 
     const wrong = ref("WRONG");
@@ -339,7 +339,7 @@ describe("confirmation", () => {
     expect(holds.map((h) => h.state)).toEqual(["CANCELLED", "CONFIRMED"]);
     const conflict = await prisma.externalRequestEvent.findFirstOrThrow({ where: { requestId: r.id, kind: "CONFIRMATION_CONFLICT" } });
     expect(conflict.note).toContain("now taken by Took the slot");
-    expect(sent.map((m) => m.subject)).toEqual(expect.arrayContaining([`Payment complete — ${r.reference}`, `${r.reference} is paid but a slot was lost`, `Booking confirmed on your calendar — ${r.reference}`]));
+    expect(sent.map((m) => m.subject)).toEqual(expect.arrayContaining([`Payment complete: ${r.reference}`, `${r.reference} is paid but a slot was lost`, `Booking confirmed on your calendar: ${r.reference}`]));
 
     // The custodian holds a replacement; the AVP confirms again.
     dto = await requests.getForActor(avpId, r.id);

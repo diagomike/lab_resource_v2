@@ -84,7 +84,7 @@ async function main() {
 
   await check(C, "C-07", "BULK → SERIALIZED on a category with qty>1 stock: impact preview warns, and units are not silently destroyed", async () => {
     const c = await post("admin", "/resources/categories", { key: uniq("reagent"), name: uniq("E2E Reagent"), iconKey: "Box", groupId, countingMode: "BULK", unit: "L" });
-    const store = await db.item.findFirstOrThrow({ where: { name: "Chemistry Store — Room C-12" } });
+    const store = await db.item.findFirstOrThrow({ where: { name: "Chemistry Store Room C-12" } });
     const create = await post("admin", "/resources/items/changes", { kind: "createItem", parentId: store.id, categoryId: c.body.id, count: 1, name: "E2E Ethanol" });
     const itemId = create.body?.itemIds?.[0];
     const qty = await post("admin", "/resources/items/changes", { kind: "setQuantity", itemIds: [itemId], value: 25 });
@@ -101,7 +101,7 @@ async function main() {
 
   await check(C, "C-08", "changing a field's type (TEXT→NUMBER) with existing text values: preview warns and data stays valid", async () => {
     const c = await post("admin", "/resources/categories", { key: uniq("meter"), name: uniq("E2E Meter"), iconKey: "Box", groupId, countingMode: "SERIALIZED", fields: [{ key: "reading", label: "Reading", type: "TEXT" }] });
-    const lab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
+    const lab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
     const create = await post("admin", "/resources/items/changes", { kind: "createItem", parentId: lab.id, categoryId: c.body.id, count: 1, name: "E2E Meter A", props: { reading: "about five" } });
     const impact = await post("admin", `/resources/categories/${c.body.id}/impact`, { fields: [{ key: "reading", label: "Reading", type: "NUMBER" }] });
     const flip = await patch("admin", `/resources/categories/${c.body.id}`, { expectedVersion: c.body.version, fields: [{ key: "reading", label: "Reading", type: "NUMBER" }] });
@@ -124,7 +124,7 @@ async function main() {
 
   await check(C, "C-10", "deactivated category: new items refused; delete of an in-use category 409", async () => {
     const c = await post("admin", "/resources/categories", { key: uniq("retire"), name: uniq("E2E Retire"), iconKey: "Box", groupId, countingMode: "SERIALIZED" });
-    const lab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
+    const lab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
     const made = await post("admin", "/resources/items/changes", { kind: "createItem", parentId: lab.id, categoryId: c.body.id, count: 1 });
     const off = await patch("admin", `/resources/categories/${c.body.id}`, { expectedVersion: c.body.version, active: false });
     const refused = await post("admin", "/resources/items/changes", { kind: "createItem", parentId: lab.id, categoryId: c.body.id, count: 1 });

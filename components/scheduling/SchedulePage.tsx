@@ -227,7 +227,7 @@ function BookingForm({
     try {
       const created = await api.post<ReservationDto>("/scheduling/bookings", { ...input, title: title.trim() });
       toast.success(
-        created.state === "CONFIRMED" ? `Booked: ${created.labName}, ${created.date} ${created.start}–${created.end}` : `Requested: ${created.labName}, ${created.date}. Its custodian decides — you'll be told.`,
+        created.state === "CONFIRMED" ? `Booked: ${created.labName}, ${created.date} ${created.start}–${created.end}` : `Requested: ${created.labName}, ${created.date}. Its custodian decides. You'll be told.`,
         { href: `/approvals?box=mine&focus=booking:${created.id}`, linkLabel: "View" },
       );
       setTitle("");
@@ -252,7 +252,7 @@ function BookingForm({
         <div className={labelClass}>What</div>
         <label className="flex items-center gap-6 text-11">
           <input type="radio" checked={wholeRoom} onChange={() => setItemIds([lab.id])} />
-          The whole room — {lab.name}
+          The whole room: {lab.name}
         </label>
         {lab.equipment.length > 0 && (
           <>
@@ -297,7 +297,7 @@ function BookingForm({
       <div className="flex flex-wrap gap-8">
         <label className="flex flex-col gap-4 flex-1 min-w-[200px]">
           <span className={labelClass}>Booked for{preview?.autoConfirm ? "" : " (optional)"}</span>
-          <input value={onBehalfOf} onChange={(e) => setOnBehalfOf(e.target.value)} placeholder="A name, a class or a group — e.g. Dr Abebe, SE401 group 3" className={inputClass} />
+          <input value={onBehalfOf} onChange={(e) => setOnBehalfOf(e.target.value)} placeholder="A name, a class or a group: e.g. Dr Abebe, SE401 group 3" className={inputClass} />
         </label>
         <label className="flex flex-col gap-4 w-[120px]">
           <span className={labelClass}>People</span>
@@ -315,7 +315,7 @@ function BookingForm({
         ) : (
           <>
             <span className="text-good">
-              Free. {preview.autoConfirm ? "Confirmed at once — this is your room." : `Waits for ${preview.custodianName || "the custodian"} to approve.`}
+              Free. {preview.autoConfirm ? "Confirmed at once. This is your room." : `Waits for ${preview.custodianName || "the custodian"} to approve.`}
             </span>
             <ClashList clashes={preview.contending} heading="Others have also asked for this time" />
           </>
@@ -383,7 +383,7 @@ function SeriesModal({ lab, onClose, onSaved }: { lab: SchedulingLabDto; onClose
   }
 
   return (
-    <Modal title={`Weekly class — ${lab.name}`} onClose={onClose} width="520px">
+    <Modal title={`Weekly class: ${lab.name}`} onClose={onClose} width="520px">
       <div className="flex flex-wrap gap-8">
         <label className="flex flex-col gap-4 flex-1 min-w-[200px]">
           <span className={labelClass}>Course</span>
@@ -435,7 +435,7 @@ function SeriesModal({ lab, onClose, onSaved }: { lab: SchedulingLabDto; onClose
       </div>
       {lab.equipment.length > 0 && (
         <div className="flex flex-col gap-4">
-          <span className={labelClass}>Also claims these machines (optional — the room already covers everything in it)</span>
+          <span className={labelClass}>Also claims these machines (optional; the room already covers everything in it)</span>
           <div className="flex flex-wrap gap-4 max-h-[120px] overflow-y-auto">
             {lab.equipment.map((m) => (
               <label key={m.id} className={`flex items-center gap-4 rounded-2 border px-6 py-3 text-11 cursor-pointer ${equipment.includes(m.id) ? "border-accent bg-soft" : "border-border2"}`}>
@@ -624,7 +624,7 @@ function MyLabsTab({ labs, reloadLabs }: { labs: SchedulingLabDto[]; reloadLabs:
       {selected && <ReservationModal reservation={selected} onClose={() => setSelected(null)} onChanged={refresh} />}
       {addingClass && <SeriesModal lab={lab} onClose={() => setAddingClass(false)} onSaved={refresh} />}
       {booking && (
-        <Modal title={`Book — ${lab.name}`} onClose={() => setBooking(null)} width="560px">
+        <Modal title={`Book: ${lab.name}`} onClose={() => setBooking(null)} width="560px">
           <BookingForm
             lab={lab}
             initialItemIds={[lab.id]}
@@ -676,7 +676,7 @@ function BookTab() {
     <>
       <Panel title="Find a room or machine">
         <div className="px-14 py-10 flex flex-col gap-8">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name — a lab, an oscilloscope, a workstation…" className={inputClass} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name: a lab, an oscilloscope, a workstation…" className={inputClass} />
           {results.length > 0 && (
             <div className="border border-border2 rounded-2 max-h-[220px] overflow-y-auto">
               {results.map((b) => (
@@ -705,7 +705,7 @@ function BookTab() {
       {picked && lab && (
         <>
           <Panel
-            title={`${lab.name} — ${weekStart === startOfWeek(today()) ? "this week" : `week of ${weekStart}`}`}
+            title={`${lab.name}: ${weekStart === startOfWeek(today()) ? "this week" : `week of ${weekStart}`}`}
             actions={<WeekNav weekStart={weekStart} onChange={setWeekStart} />}
           >
             <div className="px-14 py-8 border-b border-border">
@@ -719,7 +719,7 @@ function BookTab() {
               {booked ? (
                 <div className="flex flex-col gap-8 text-11">
                   <span>
-                    {booked.state === "CONFIRMED" ? "Booked." : `Requested — ${lab.custodianName} decides.`} {booked.title}, <span className="font-mono">{booked.date} {booked.start}–{booked.end}</span>.
+                    {booked.state === "CONFIRMED" ? "Booked." : `Requested: ${lab.custodianName} decides.`} {booked.title}, <span className="font-mono">{booked.date} {booked.start}–{booked.end}</span>.
                   </span>
                   <div>
                     <Button onClick={() => setBooked(null)}>Book another time</Button>

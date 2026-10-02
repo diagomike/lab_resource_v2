@@ -27,7 +27,7 @@ function readFilters(sp: URLSearchParams): Filters {
 }
 
 function show(v: unknown): string {
-  if (v === null || v === undefined || v === "") return "—";
+  if (v === null || v === undefined || v === "") return "–";
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }
@@ -180,7 +180,7 @@ function ChangeLogPageInner() {
         ) : entries.length === 0 ? (
           <EmptyState
             title="Nothing here yet"
-            body="Every applied change lands here — corrections immediately, and (once approvals exist) an approved request the moment it executes."
+            body="Every applied change lands here: corrections immediately, and (once approvals exist) an approved request the moment it executes."
           />
         ) : (
           <>

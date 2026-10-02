@@ -3,7 +3,7 @@ import { daysUntil, nextStep } from "./home-logic";
 
 const none = { waiting: [], unfinished: [], dueSoon: [] };
 
-describe("nextStep — the one thing to do now", () => {
+describe("nextStep: the one thing to do now", () => {
   it("is nothing when nothing waits", () => {
     expect(nextStep(none)).toBeNull();
   });

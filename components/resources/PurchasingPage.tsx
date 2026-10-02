@@ -170,7 +170,7 @@ function AskForSomething({ categories, labs, replacing, onCancelReplacing, onRai
   }
 
   return (
-    <Panel title={replacing ? `Ask for ${replacing.items.length === 1 ? "a replacement" : `${replacing.items.length} replacements`} — ${replacing.categoryName}, ${replacing.labName}` : "Ask for something"}>
+    <Panel title={replacing ? `Ask for ${replacing.items.length === 1 ? "a replacement" : `${replacing.items.length} replacements`}: ${replacing.categoryName}, ${replacing.labName}` : "Ask for something"}>
       <form
         id="ask-for-something"
         className="p-14 flex flex-col gap-12 scroll-mt-14"
@@ -271,7 +271,7 @@ function ReplacementsPanel({ rows, onAsk }: { rows: ReplacementSuggestionDto[]; 
   if (!rows.length) return null;
   const total = rows.reduce((n, r) => n + r.items.length, 0);
   return (
-    <Panel title={`Broken or lost — not asked for yet (${total})`}>
+    <Panel title={`Broken or lost, not asked for yet (${total})`}>
       <ul className="divide-y divide-border">
         {rows.map((r) => (
           <li key={`${r.labItemId}:${r.categoryId}`} className="px-14 py-8 flex flex-wrap items-center gap-8">
@@ -514,7 +514,7 @@ function LabNeedsReview({
               <span>
                 {declining.raisedByName} sees your reason. It stays in their list as declined.
               </span>
-              <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why — e.g. not this budget year" aria-label="Reason for declining" className={inputCls} />
+              <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why: e.g. not this budget year" aria-label="Reason for declining" className={inputCls} />
             </div>
           }
           onConfirm={decline}
@@ -581,7 +581,7 @@ function LinesEditor({ lines, onChange, categories }: { lines: EditableLine[]; o
             <label className="flex flex-col gap-4">
               <span className={labelCls}>Unit</span>
               <select value={l.unit} onChange={(e) => update(l.key, { unit: e.target.value })} className={inputCls}>
-                <option value="">—</option>
+                <option value="">–</option>
                 {PURCHASE_UNITS.map((u) => (
                   <option key={u} value={u}>
                     {u}
@@ -672,7 +672,7 @@ function BuildRequest({
     if (!prefill?.length) return;
     setOpen(true);
     setLines(linesFor(prefill));
-    if (!title) setTitle(`${unitName} — lab needs, ${new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}`);
+    if (!title) setTitle(`${unitName}: lab needs, ${new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}`);
     onClosePrefill();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill]);
@@ -754,7 +754,7 @@ function BuildRequest({
                   <Tag tone={PRIORITY_TONE[n.priority]}>{PRIORITY_TEXT[n.priority]}</Tag>
                   <span className="font-medium">{n.name}</span>
                   <span className="font-mono text-dim">× {n.qty}</span>
-                  <span className="text-dim">· {n.labItemId ? <Link href={`/places/${n.labItemId}`} className="text-dim hover:text-accent">{n.labName}</Link> : (n.labName ?? "—")}</span>
+                  <span className="text-dim">· {n.labItemId ? <Link href={`/places/${n.labItemId}`} className="text-dim hover:text-accent">{n.labName}</Link> : (n.labName ?? "–")}</span>
                   <span className="flex-1" />
                   <Button onClick={() => addNeeds([n])}>Add</Button>
                 </li>
@@ -837,7 +837,7 @@ export function HistoryTimeline({ history }: { history: PurchaseRequestDto["hist
       {shown.map((e, i) => (
         <div key={`${e.at}-${i}`} className="text-11 text-dim">
           <span className="text-faint">{new Date(e.at).toLocaleString()}</span> · <span className="font-medium">{e.byName}</span> · {STAGE_LABEL[e.stage]}
-          {e.note ? <span> — {e.note}</span> : null}
+          {e.note ? <span> – {e.note}</span> : null}
           {e.attachments.length ? (
             <span className="text-faint">
               {" "}
@@ -995,14 +995,14 @@ function RequestCard({
       </div>
       {ordered > 0 && received > 0 && (
         <div className="text-10.5 text-faint">
-          {received}/{ordered} received{received >= ordered ? " — complete" : ""}
+          {received}/{ordered} received{received >= ordered ? ": complete" : ""}
         </div>
       )}
 
       {canDecide && !revising && (
         <div className="flex flex-col gap-6 pt-4">
           <div className="flex flex-wrap items-center gap-8">
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (why — shown to everyone following this request)" className={`${inputCls} min-w-[260px] flex-1`} />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (why: shown to everyone following this request)" className={`${inputCls} min-w-[260px] flex-1`} />
             <Button variant="primary" onClick={() => decide("APPROVE")} disabled={busy || uploading}>
               Approve
             </Button>
@@ -1019,13 +1019,13 @@ function RequestCard({
             onBusyChange={setUploading}
             disabled={busy}
             label="Attach a letter or minutes"
-            hint="Goes with your decision — e.g. the letter or constraint you're citing"
+            hint="Goes with your decision: e.g. the letter or constraint you're citing"
           />
         </div>
       )}
       {request.stage === "APPROVING" && !canDecide && currentStep && (
         <div className="text-11 text-faint">
-          {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting — ${currentStep.label} is currently vacant.`}
+          {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting: ${currentStep.label} is currently vacant.`}
         </div>
       )}
 
@@ -1049,7 +1049,7 @@ function RequestCard({
             onBusyChange={setUploading}
             disabled={busy}
             label="Attach documents"
-            hint="Add what was asked for — earlier documents stay on the request"
+            hint="Add what was asked for: earlier documents stay on the request"
           />
           <div className="flex items-center gap-8">
             <Button variant="primary" onClick={resubmit} disabled={busy || uploading || !title.trim() || !toInputLines(lines).length}>
@@ -1139,7 +1139,7 @@ function ProcurementCancel({ busy, onCancel }: { busy: boolean; onCancel: (note:
   return (
     <div className="flex flex-col gap-6 pt-4 border-t border-border">
       <label className="flex flex-col gap-3">
-        <span className="text-11 uppercase tracking-wider text-dim font-semibold">Reason (required — visible to everyone tracking this order)</span>
+        <span className="text-11 uppercase tracking-wider text-dim font-semibold">Reason (required: visible to everyone tracking this order)</span>
         <input value={note} onChange={(e) => setNote(e.target.value)} className="border border-border2 bg-panel h-26 px-8 rounded-2 text-11.5 outline-none focus:border-accent" />
       </label>
       <AttachmentPicker value={files} onChange={setFiles} onBusyChange={setUploading} disabled={busy} label="Attach a letter" hint="e.g. the supplier's withdrawal" />
@@ -1391,7 +1391,7 @@ function PurchasingInner() {
             <RequestListPanel key={`mine-${refreshKey}`} title="Your requests" box="mine" viewerId={user.id} categories={categories} emptyLabel="You haven't sent a purchase request yet." canRunPipeline={canRunPipeline} />
           )}
           {canRunPipeline && (
-            <RequestListPanel key={`pipeline-${refreshKey}`} title="On order — where each one is" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is on order right now." showAdvance canRunPipeline />
+            <RequestListPanel key={`pipeline-${refreshKey}`} title="On order: where each one is" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is on order right now." showAdvance canRunPipeline />
           )}
           <RequestListPanel
             key={`tracking-${refreshKey}`}

@@ -45,7 +45,7 @@ export function CategoryChangeCard({ change, onChanged, showCategoryLink = true,
             ? `Rejected: the change to ${change.categoryName}`
             : next.status === "APPROVED"
               ? `Applied: the change to ${change.categoryName}`
-              : `Approved — it now goes to ${next.waitingOn}`,
+              : `Approved: it now goes to ${next.waitingOn}`,
       );
       onChanged(next);
     } catch (e) {
@@ -85,7 +85,7 @@ export function CategoryChangeCard({ change, onChanged, showCategoryLink = true,
       {change.note && <p className="text-11 text-dim italic">“{change.note}”</p>}
       {change.reaches.length > 0 && (
         <p className="text-11 text-warn">
-          Reaches items of {change.reaches.join(", ")} — so it also passes the admin and Property Administration.
+          Reaches items of {change.reaches.join(", ")}, so it also passes the admin and Property Administration.
         </p>
       )}
       {change.trail.length > 0 && (
@@ -93,7 +93,7 @@ export function CategoryChangeCard({ change, onChanged, showCategoryLink = true,
           {change.trail.map((t, i) => (
             <li key={i}>
               {t.approved ? "Approved" : "Not approved"} by {t.byName}, {when(t.at)}
-              {t.note ? ` — “${t.note}”` : ""}
+              {t.note ? `: “${t.note}”` : ""}
             </li>
           ))}
         </ol>

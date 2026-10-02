@@ -13,7 +13,7 @@ async function descendants(rootId: string): Promise<string[]> {
 
 async function main() {
   const se = await nodeId("Software Engineering");
-  const room = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
+  const room = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
   const inRoom = await descendants(room.id);
   const computers = await db.item.findMany({ where: { id: { in: inRoom }, category: { key: "computer" }, status: "WORKING" }, orderBy: { name: "asc" } });
   const [pcA, pcB] = computers;

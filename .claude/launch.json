@@ -83,6 +83,27 @@
         "PAYMENT_CBE_RECEIVER_ACCOUNT": "1000000000000",
         "PAYMENT_TELEBIRR_RECEIVER_NAME": "Adama Science and Technology University"
       }
+    },
+    {
+      "name": "e2e-mail",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "e2e/mail-sink.mjs"
+      ],
+      "port": 2527
+    },
+    {
+      "name": "e2e-build",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "e2e/with-env.mjs",
+        "npx",
+        "next",
+        "start",
+        "-p",
+        "3100"
+      ],
+      "port": 3100
     }
   ]
 }

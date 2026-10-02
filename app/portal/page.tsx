@@ -27,7 +27,7 @@ export default function PortalHome() {
       <div className="flex flex-col gap-6">
         <h1 className="text-21 font-semibold">Hosting a workshop, or need samples analysed?</h1>
         <p className="text-12 text-dim leading-relaxed max-w-[640px]">
-          Adama Science and Technology University makes its laboratories, workstations and machines available to institutions and companies — to use for a
+          Adama Science and Technology University makes its laboratories, workstations and machines available to institutions and companies: to use for a
           workshop or training, or to run your samples and give you the results. Below is what we have across campus. Create an account, tell us what you
           need and when, attach your official letter, and we will reply with a quote.
         </p>

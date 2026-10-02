@@ -45,11 +45,11 @@ export function DetailFields({ fields, draft, onChange }: { fields: CategoryFiel
           <span className={labelCls}>
             {f.label}
             {f.unit ? ` (${f.unit})` : ""}
-            {f.required ? "" : " — optional"}
+            {f.required ? "" : " (optional)"}
           </span>
           {f.type === "ENUM" ? (
             <select value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={inputCls}>
-              <option value="">—</option>
+              <option value="">–</option>
               {f.options.map((o) => (
                 <option key={o} value={o}>
                   {o}
@@ -58,7 +58,7 @@ export function DetailFields({ fields, draft, onChange }: { fields: CategoryFiel
             </select>
           ) : f.type === "BOOLEAN" ? (
             <select value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={inputCls}>
-              <option value="">—</option>
+              <option value="">–</option>
               <option value="true">Yes</option>
               <option value="false">No</option>
             </select>
@@ -106,7 +106,7 @@ export function CustodianPicker({ unitId, value, onChange, store = false }: { un
       {people.map((p) => (
         <option key={p.id} value={p.id}>
           {p.name}
-          {p.title ? ` — ${p.title}` : ""}
+          {p.title ? `: ${p.title}` : ""}
           {p.runs ? ` · runs ${p.runs} already` : ""}
           {p.becomesCustodian ? " · becomes a custodian" : ""}
         </option>
@@ -190,7 +190,7 @@ export function AddPlaceModal({ options, categories, onClose }: { options: Place
         )}
         <label className="flex flex-col gap-4">
           <span className={labelCls}>Name</span>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={isStore ? "e.g. CoEEC College Store — B508-R2" : "e.g. Software Laboratory — B510-R8"} className={inputCls} />
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={isStore ? "e.g. CoEEC College Store B508-R2" : "e.g. Software Laboratory B510-R8"} className={inputCls} />
         </label>
         <DetailFields fields={fields} draft={details} onChange={setDetails} />
         <label className="flex flex-col gap-4">

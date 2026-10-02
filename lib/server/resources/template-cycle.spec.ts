@@ -35,7 +35,7 @@ describe("wouldCreateTemplateCycle", () => {
     expect(wouldCreateTemplateCycle(edges, "c", ["a"])).toBe(true);
   });
 
-  it("a category's own existing outgoing edges are replaced, not doubled — editing it to drop a cycle is allowed", () => {
+  it("a category's own existing outgoing edges are replaced, not doubled: editing it to drop a cycle is allowed", () => {
     const edges: TemplateEdge[] = [
       { parentCategoryId: "a", childCategoryId: "b" }, // a's own old edge — must not count against a's new proposal
       { parentCategoryId: "b", childCategoryId: "c" },

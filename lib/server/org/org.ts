@@ -187,7 +187,7 @@ async function levelUnder(tx: Tx, parentIds: string[]): Promise<number> {
   if (parents.length !== parentIds.length) throw new HttpError(400, "One or more parent nodes do not exist");
   const levels = new Set(parents.map((p) => p.level));
   if (levels.size > 1) {
-    throw new HttpError(400, `A unit's parents must sit side by side — ${parents.map((p) => `"${p.name}"`).join(" and ")} are at different places in the structure.`);
+    throw new HttpError(400, `A unit's parents must sit side by side: ${parents.map((p) => `"${p.name}"`).join(" and ")} are at different places in the structure.`);
   }
   return parents[0].level + 1;
 }
@@ -206,7 +206,7 @@ export async function reassignParents(id: string, parentIds: string[]): Promise<
       if (node.outgoingEdges.length > 0) {
         throw new HttpError(
           400,
-          `"${node.name}" has ${node.outgoingEdges.length} unit(s) under it, and this move would change where they sit — move them first, or choose parents alongside the current ones.`,
+          `"${node.name}" has ${node.outgoingEdges.length} unit(s) under it, and this move would change where they sit. Move them first, or choose parents alongside the current ones.`,
         );
       }
       await assertUniversityInvariant(tx, id, level, node.kind);
@@ -238,13 +238,13 @@ async function assertUniversityInvariant(tx: Tx, excludeId: string | null, level
   if ((level === 0) !== (kind === "UNIVERSITY")) {
     throw new HttpError(
       400,
-      'Level 0 is reserved for the single "University" root — a node at level 0 must be kind University, and a University-kind node must be at level 0.',
+      'Level 0 is reserved for the single "University" root. A node at level 0 must be kind University, and a University-kind node must be at level 0.',
     );
   }
   if (level === 0) {
     const existing = await tx.orgNode.findFirst({ where: { level: 0, ...(excludeId ? { id: { not: excludeId } } : {}) } });
     if (existing) {
-      throw new HttpError(400, `"${existing.name}" is already the university root — there can be only one level-0 node.`);
+      throw new HttpError(400, `"${existing.name}" is already the university root. There can be only one level-0 node.`);
     }
   }
 }
@@ -262,7 +262,7 @@ export async function deleteNode(id: string): Promise<void> {
     if (!node) throw new HttpError(404, "Org node not found");
 
     const blockers: string[] = [];
-    if (node.userId) blockers.push("has an occupant — deactivate it first");
+    if (node.userId) blockers.push("has an occupant: deactivate it first");
     if (node.outgoingEdges.length > 0) blockers.push(`has ${node.outgoingEdges.length} child node(s)`);
 
     const residents = await tx.user.count({ where: { homeNodeId: id } });
@@ -292,7 +292,7 @@ export async function deleteNode(id: string): Promise<void> {
     if (externalAssignments > 0) blockers.push(`has ${externalAssignments} external-request assignment(s)`);
 
     if (blockers.length > 0) {
-      throw new HttpError(400, `Cannot delete "${node.name}" — it ${blockers.join("; ")}`);
+      throw new HttpError(400, `Cannot delete "${node.name}": it ${blockers.join("; ")}`);
     }
 
     await tx.orgEdge.deleteMany({ where: { OR: [{ parentId: id }, { childId: id }] } });
@@ -321,13 +321,13 @@ async function addEdge(tx: Tx, parentId: string, childId: string, opts?: { skipR
   if (child.level !== parent.level + 1) {
     throw new HttpError(
       400,
-      `Edges only connect adjacent levels — "${parent.name}" is level ${parent.level}, "${child.name}" is level ${child.level}`,
+      `Edges only connect adjacent levels: "${parent.name}" is level ${parent.level}, "${child.name}" is level ${child.level}`,
     );
   }
 
   const edges = await tx.orgEdge.findMany();
   if (wouldCreateCycle(edges, parentId, childId)) {
-    throw new HttpError(400, `"${parent.name}" is already below "${child.name}" — that edge would create a loop`);
+    throw new HttpError(400, `"${parent.name}" is already below "${child.name}": that edge would create a loop`);
   }
 
   await tx.orgEdge.upsert({
@@ -357,7 +357,7 @@ async function assertAdjacentParents(tx: Tx, level: number, parentIds: string[])
   if (wrongLevel) {
     throw new HttpError(
       400,
-      `Edges only connect adjacent levels — "${wrongLevel.name}" is level ${wrongLevel.level}, not ${level - 1}`,
+      `Edges only connect adjacent levels: "${wrongLevel.name}" is level ${wrongLevel.level}, not ${level - 1}`,
     );
   }
 }

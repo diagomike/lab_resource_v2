@@ -132,7 +132,7 @@ export function validateSeriesRule(rule: SeriesRule): string | null {
   if (minutesOf(rule.endTimeLocal) <= minutesOf(rule.startTimeLocal)) return "A session must end after it starts, on the same day.";
   if (!isCivilDate(rule.startDate) || !isCivilDate(rule.endDate)) return "Dates must look like 2026-09-14.";
   if (rule.endDate < rule.startDate) return "The last date must not be before the first.";
-  if (addDays(rule.startDate, MAX_SERIES_SPAN_DAYS) < rule.endDate) return `A class slot can span at most ${MAX_SERIES_SPAN_DAYS} days — split a longer run into terms.`;
+  if (addDays(rule.startDate, MAX_SERIES_SPAN_DAYS) < rule.endDate) return `A class slot can span at most ${MAX_SERIES_SPAN_DAYS} days. Split a longer run into terms.`;
   return null;
 }
 

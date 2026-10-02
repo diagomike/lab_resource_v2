@@ -117,20 +117,20 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("applyCreateItem — name and props at creation", () => {
+describe("applyCreateItem: name and props at creation", () => {
   it("uses a given name instead of the category's own auto-generated default", async () => {
     const result = await applyChange(sysAdminId, {
       kind: "createItem",
       parentId: null,
       categoryId: labLikeCategoryId,
       count: 1,
-      name: "Given-Name Test Laboratory — Bx-Ry",
+      name: "Given-Name Test Laboratory: Bx-Ry",
       ownerOrgNodeId: seNodeId,
       custodianId: seCustodianId,
     });
     createdItemIds.push(...result.itemIds);
     const item = await prisma.item.findUniqueOrThrow({ where: { id: result.itemIds[0] } });
-    expect(item.name).toBe("Given-Name Test Laboratory — Bx-Ry");
+    expect(item.name).toBe("Given-Name Test Laboratory: Bx-Ry");
   });
 
   it("applies given props, validated against each field's own type", async () => {
@@ -226,7 +226,7 @@ describe("applyCreateItem — name and props at creation", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("rejects a NUMBER field given a raw string — the server validates the type, it does not coerce it", async () => {
+  it("rejects a NUMBER field given a raw string: the server validates the type, it does not coerce it", async () => {
     await expect(
       applyChange(sysAdminId, {
         kind: "createItem",
@@ -286,7 +286,7 @@ describe("applyCreateItem — name and props at creation", () => {
     expect(items.map((i) => i.name)).toEqual(["Named Batch 01", "Named Batch 02"]);
   });
 
-  it("refuses a MANAGER creating a root even in their own department — heads approve, custodians edit (2026-09-22)", async () => {
+  it("refuses a MANAGER creating a root even in their own department: heads approve, custodians edit (2026-09-22)", async () => {
     await expect(
       applyChange(seHeadId, {
         kind: "createItem",
@@ -342,7 +342,7 @@ describe("applyCreateItem — name and props at creation", () => {
   });
 });
 
-describe("sibling names — continued numbering, gap filling, uniqueness (2026-09-22)", () => {
+describe("sibling names: continued numbering, gap filling, uniqueness (2026-09-22)", () => {
   const namesUnder = async () =>
     (await prisma.item.findMany({ where: { parentId: seParentItemId, deletedAt: null, categoryId: partCategoryId }, select: { name: true } })).map((i) => i.name).sort();
   const add = async (count: number, dryRun = false) => {

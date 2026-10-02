@@ -82,8 +82,8 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("applyChange — item version-conflict atomicity", () => {
-  it("refuses the whole bulk edit when any one item's version is stale, and writes nothing — not even to the items whose version matched", async () => {
+describe("applyChange: item version-conflict atomicity", () => {
+  it("refuses the whole bulk edit when any one item's version is stale, and writes nothing, not even to the items whose version matched", async () => {
     const beforeA = await prisma.item.findUniqueOrThrow({ where: { id: itemAId } });
     const beforeB = await prisma.item.findUniqueOrThrow({ where: { id: itemBId } });
     const changesBefore = await prisma.itemChange.count({ where: { itemId: { in: [itemAId, itemBId] } } });
@@ -126,12 +126,12 @@ describe("applyChange — item version-conflict atomicity", () => {
     expect(after.status).toBe("BROKEN");
   });
 
-  it("under two real concurrent writers racing the same expected version, exactly one succeeds and the other gets a version conflict — proving the check and the write are atomic, not just sequential", async () => {
+  it("under two real concurrent writers racing the same expected version, exactly one succeeds and the other gets a version conflict: proving the check and the write are atomic, not just sequential", async () => {
     const before = await prisma.item.findUniqueOrThrow({ where: { id: itemCId } });
 
     const [r1, r2] = await Promise.allSettled([
-      applyChange(sysAdminId, { kind: "setName", itemIds: [itemCId], value: "Version Conflict Item C — writer 1", expectedVersions: { [itemCId]: before.version } }),
-      applyChange(sysAdminId, { kind: "setName", itemIds: [itemCId], value: "Version Conflict Item C — writer 2", expectedVersions: { [itemCId]: before.version } }),
+      applyChange(sysAdminId, { kind: "setName", itemIds: [itemCId], value: "Version Conflict Item C: writer 1", expectedVersions: { [itemCId]: before.version } }),
+      applyChange(sysAdminId, { kind: "setName", itemIds: [itemCId], value: "Version Conflict Item C: writer 2", expectedVersions: { [itemCId]: before.version } }),
     ]);
 
     const fulfilled = [r1, r2].filter((r) => r.status === "fulfilled");
@@ -148,11 +148,11 @@ describe("applyChange — item version-conflict atomicity", () => {
     const after = await prisma.item.findUniqueOrThrow({ where: { id: itemCId } });
     // Exactly one increment — not zero (both refused) and not two (both applied).
     expect(after.version).toBe(before.version + 1);
-    expect(["Version Conflict Item C — writer 1", "Version Conflict Item C — writer 2"]).toContain(after.name);
+    expect(["Version Conflict Item C: writer 1", "Version Conflict Item C: writer 2"]).toContain(after.name);
   });
 });
 
-describe("F-025 — deleteItem is a soft delete", () => {
+describe("F-025: deleteItem is a soft delete", () => {
   it("keeps the row (deletedAt set), excludes it from reads, and refuses re-deleting it", async () => {
     const parent = await prisma.item.create({
       data: { categoryId, name: "F025 Parent", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
@@ -187,7 +187,7 @@ describe("F-025 — deleteItem is a soft delete", () => {
   });
 });
 
-describe("F-024 — custody may not land on an ineligible account", () => {
+describe("F-024: custody may not land on an ineligible account", () => {
   it("refuses setCustodian to an outside account, and to a disabled CUSTODIAN", async () => {
     const studentId = (
       await prisma.user.create({ data: { email: `f024-student-${Date.now()}@astu.edu.et`, emailLower: `f024-student-${Date.now()}@astu.edu.et`, name: "F024 Outsider", status: "ACTIVE", roles: { create: { kind: "EXTERNAL" } } } })
@@ -217,7 +217,7 @@ describe("F-024 — custody may not land on an ineligible account", () => {
   });
 });
 
-describe("F-041 — an item named in a pending transfer request cannot be moved out from under it", () => {
+describe("F-041: an item named in a pending transfer request cannot be moved out from under it", () => {
   it("refuses moveInTree while a PENDING ChangeRequest names the item", async () => {
     const item = await prisma.item.create({
       data: { categoryId, name: "F041 Move Blocker Item", countingMode: "SERIALIZED", status: "WORKING", ownerOrgNodeId: orgNodeId, currentOrgNodeId: orgNodeId, custodianId: sysAdminId },
@@ -245,7 +245,7 @@ describe("F-041 — an item named in a pending transfer request cannot be moved 
   });
 });
 
-describe("F-029 — a category's required fields are enforced when creating an item", () => {
+describe("F-029: a category's required fields are enforced when creating an item", () => {
   it("refuses a create that leaves a required field empty, and accepts it once filled", async () => {
     const cat = await prisma.resourceCategory.create({
       data: {

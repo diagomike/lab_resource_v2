@@ -114,7 +114,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("applyChange — placement enforcement", () => {
+describe("applyChange: placement enforcement", () => {
   it("refuses to create a thing at the top level", async () => {
     await expect(
       applyChange(sysAdminId, {

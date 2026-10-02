@@ -27,7 +27,7 @@ const BOOKING_ROLES: RoleKind[] = ["SYS_ADMIN", "MANAGER", "CUSTODIAN"];
 
 export async function assertMayBook(userId: string): Promise<void> {
   const roles = await scope.rolesOf(userId);
-  if (!roles.some((r) => BOOKING_ROLES.includes(r))) throw new HttpError(403, "Bookings are made by custodians and heads — ask the room’s custodian.");
+  if (!roles.some((r) => BOOKING_ROLES.includes(r))) throw new HttpError(403, "Bookings are made by custodians and heads. Ask the room’s custodian.");
 }
 
 export interface TreeRow {
@@ -120,7 +120,7 @@ export async function resolveBookingTarget(client: Client, rawItemIds: string[])
   }
   const labs = new Set(items.map((i) => roomOf(rows, i.id)?.id ?? null));
   if (labs.has(null)) throw new HttpError(400, "Equipment can only be booked through the room it sits in, and this one is not inside a bookable room.");
-  if (labs.size > 1) throw new HttpError(400, "Book one room at a time — these resources sit in different rooms.");
+  if (labs.size > 1) throw new HttpError(400, "Book one room at a time. These resources sit in different rooms.");
   const lab = roomOf(rows, items[0].id)!;
   return { rootId: rootOf(rows, lab.id), lab, items };
 }
@@ -233,7 +233,7 @@ export function isOverlapViolation(err: unknown): boolean {
 }
 
 export function overlapConflict(): HttpError {
-  return new HttpError(409, "Someone booked this slot a moment ago — refresh the calendar and pick another time.");
+  return new HttpError(409, "Someone booked this slot a moment ago. Refresh the calendar and pick another time.");
 }
 
 export const RESERVATION_INCLUDE = {

@@ -587,7 +587,7 @@ export async function transferDestinations(userId: string, itemIds: string[], q:
   // place to SEND something is only the store keeper's handover.
   const roles = await scope.rolesOf(userId);
   if (!roles.includes("STORE_KEEPER") && !roles.includes("SYS_ADMIN")) {
-    throw new HttpError(403, "Only the store keeper hands resources over to another unit — request what you need from University resources instead.");
+    throw new HttpError(403, "Only the store keeper hands resources over to another unit: request what you need from University resources instead.");
   }
   await scope.assertCanMutate(userId, itemIds);
 

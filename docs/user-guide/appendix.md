@@ -139,4 +139,4 @@ flowchart LR
 | **"Only N pcs of … are left to load"** | You tried to load more than the import record says arrived | Enter the remaining quantity, or ask Property Administration to correct the record |
 | **"The item you followed isn't waiting for you any more"** | A link to something already decided, withdrawn or moved on | Nothing to do; **Sent by me** shows your own requests |
 | **"That area isn't part of your role"** | The screen belongs to another role | Ask your head or the administrator if you need access |
-| **"This person hasn't registered yet — send their invite link instead"** | Sign-in help for someone who never set a password | Use **Copy invite link** |
+| **"This person hasn't registered yet. Send their invite link instead"** | Sign-in help for someone who never set a password | Use **Copy invite link** |

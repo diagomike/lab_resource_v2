@@ -79,8 +79,9 @@ function layoutNodes(nodes: OrgNodeDto[]): Map<string, { x: number; y: number }>
   return positions;
 }
 
-/** Graph/Cards, switched like tabs — a plain toggle rather than a dropdown since there
- *  are only ever these two and the admin should see both options at a glance. */
+/** Cards/Graph, switched like tabs — a plain toggle rather than a dropdown since there
+ *  are only ever these two and the admin should see both options at a glance. Cards
+ *  come first: they are the default, the graph the second view. */
 function ViewModeTabs({
   value,
   onChange,
@@ -89,8 +90,8 @@ function ViewModeTabs({
   onChange: (v: "graph" | "cards") => void;
 }) {
   const options: { key: "graph" | "cards"; label: string }[] = [
-    { key: "graph", label: "Graph" },
     { key: "cards", label: "Cards" },
+    { key: "graph", label: "Graph" },
   ];
   return (
     <div className="flex items-center border border-border2 rounded-2 overflow-hidden shrink-0 self-start">
@@ -147,7 +148,7 @@ function ParentChoices({ candidates, chosen, onToggle }: { candidates: OrgNodeDt
       {sorted.map((n) => {
         const off = tier !== undefined && n.level !== tier;
         return (
-          <label key={n.id} className={`flex items-center gap-5 text-11 border border-border2 rounded-2 px-8 py-4 ${off ? "text-faint opacity-60" : "text-dim"}`} title={off ? "Parents sit side by side — untick the current choice to pick from elsewhere" : undefined}>
+          <label key={n.id} className={`flex items-center gap-5 text-11 border border-border2 rounded-2 px-8 py-4 ${off ? "text-faint opacity-60" : "text-dim"}`} title={off ? "Parents sit side by side: untick the current choice to pick from elsewhere" : undefined}>
             <input type="checkbox" checked={chosen.includes(n.id)} disabled={off} onChange={() => onToggle(n.id)} />
             {n.name}
           </label>
@@ -174,7 +175,7 @@ function NodeCardList({
   }, [nodes]);
 
   if (nodes.length === 0) {
-    return <div className="px-14 py-20 text-11.5 text-faint">Nothing here yet — add the university first.</div>;
+    return <div className="px-14 py-20 text-11.5 text-faint">Nothing here yet. Add the university first.</div>;
   }
 
   return (
@@ -231,19 +232,13 @@ type PendingAction =
   | { kind: "deactivate" }
   | { kind: "delete" };
 
-/** Defaults to the card list on a narrow screen — the ReactFlow/dagre canvas is a lot of
- *  moving, pinch-zoomable furniture for a phone. Desktop still opens on the graph. Either
- *  way it's a tab the admin can flip anytime; this only picks which one loads first. */
-function defaultViewMode(): "graph" | "cards" {
-  return typeof window !== "undefined" && window.innerWidth < 768 ? "cards" : "graph";
-}
 
 export default function OrgStudioPage() {
   const [nodes, setNodes] = useState<OrgNodeDto[] | null>(null);
   const [people, setPeople] = useState<PersonDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"graph" | "cards">(defaultViewMode);
+  const [viewMode, setViewMode] = useState<"graph" | "cards">("cards"); // the graph is one click away
   const [showNewForm, setShowNewForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -530,12 +525,12 @@ export default function OrgStudioPage() {
                 Change <b className="text-text">"{selected.name}"</b> from a{" "}
                 <b className="text-text">{selected.kind.toLowerCase()}</b> to a{" "}
                 <b className="text-text">{pending.newKind.toLowerCase()}</b>? This changes how it's labeled and
-                treated throughout the org structure — its parent/child links and occupant are unaffected.
+                treated throughout the org structure. Its parent/child links and occupant are unaffected.
               </>
             ) : pending.kind === "deactivate" ? (
               <>
                 Deactivate <b className="text-text">"{selected.name}"</b>? Its occupant, if any, will be vacated from
-                this post — their account itself is unaffected. You can reactivate it again later.
+                this post. Their account itself is unaffected. You can reactivate it again later.
               </>
             ) : (
               <>
@@ -700,7 +695,7 @@ function NodeHeaderEditor({
         <input
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          placeholder="e.g. PROC — a stable key some lookups use instead of the name"
+          placeholder="e.g. PROC: a stable key some lookups use instead of the name"
           className="flex-1 border border-border2 bg-panel h-24 px-8 rounded-2 text-11 outline-none focus:border-accent"
         />
         {codeDirty && (
@@ -850,7 +845,7 @@ function NewNodeForm({
       return;
     }
     if (!isRoot && parentIds.length === 0) {
-      onError("Choose what it sits under — only the university itself sits under nothing");
+      onError("Choose what it sits under: only the university itself sits under nothing");
       return;
     }
     setBusy(true);
@@ -895,13 +890,13 @@ function NewNodeForm({
           <input
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            placeholder='e.g. "PROC" — a stable key some lookups use instead of the name'
+            placeholder='e.g. "PROC": a stable key some lookups use instead of the name'
             className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent"
           />
         </label>
       </div>
       {isRoot ? (
-        <div className="text-11 text-faint">The university is the top of the structure — it sits under nothing.</div>
+        <div className="text-11 text-faint">The university is the top of the structure. It sits under nothing.</div>
       ) : (
         <div>
           <span className="text-11 uppercase tracking-wider text-dim font-semibold">Sits under</span>

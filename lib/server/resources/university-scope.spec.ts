@@ -139,7 +139,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("F-031 — an outside account cannot browse the register at all", () => {
+describe("F-031: an outside account cannot browse the register at all", () => {
   it("refuses search, tree and getOne", async () => {
     await expect(items.search(studentId, {}, 1, 50)).rejects.toMatchObject({ status: 403 });
     await expect(items.tree(studentId, {})).rejects.toMatchObject({ status: 403 });
@@ -151,8 +151,8 @@ describe("F-031 — an outside account cannot browse the register at all", () =>
   });
 });
 
-describe("assertCanBrowseUniversity — the gate itself", () => {
-  it("allows every university account — transparency across ASTU", async () => {
+describe("assertCanBrowseUniversity: the gate itself", () => {
+  it("allows every university account: transparency across ASTU", async () => {
     await expect(scope.assertCanBrowseUniversity(sysAdminId)).resolves.toBeUndefined();
     await expect(scope.assertCanBrowseUniversity(seHeadId)).resolves.toBeUndefined();
     await expect(scope.assertCanBrowseUniversity(storeKeeperId)).resolves.toBeUndefined();
@@ -165,7 +165,7 @@ describe("assertCanBrowseUniversity — the gate itself", () => {
   });
 });
 
-describe("university scope override — raw response body, cross-department", () => {
+describe("university scope override: raw response body, cross-department", () => {
   it("a MANAGER's ordinary search (ORG_SUBTREE) never includes another department's item", async () => {
     const result = await items.search(seHeadId, { q: "University-Scope Item" });
     const names = result.items.map((i) => i.name);

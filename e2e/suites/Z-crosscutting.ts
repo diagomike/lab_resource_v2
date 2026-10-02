@@ -5,7 +5,7 @@ const Z = "Z";
 
 async function main() {
   const se = await nodeId("Software Engineering");
-  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
+  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
 
   await check(Z, "Z-01", "offboarding: a custodian with custody cannot be deactivated; after bulk custody handoff, they can", async () => {
     // Give a throwaway custodian one item, then try to deactivate.
@@ -55,7 +55,7 @@ async function main() {
     const r = await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: evil });
     const row = await db.item.findUniqueOrThrow({ where: { id: girmaLab.id } });
     const tableStillThere = await db.item.count();
-    await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: "SE Lab X — Software Lab 3" });
+    await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: "SE Lab X Software Lab 3" });
     return { ok: r.status === 200 && row.name === evil && tableStillThere > 0, evidence: { stored: row.name === evil, itemsTableRowCount: tableStillThere } };
   });
 
@@ -63,7 +63,7 @@ async function main() {
     const name = "実験室 🔬 مختبر ‮EVIL‬";
     const r = await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name });
     const row = await db.item.findUniqueOrThrow({ where: { id: girmaLab.id } });
-    await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: "SE Lab X — Software Lab 3" });
+    await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: "SE Lab X Software Lab 3" });
     return { ok: r.status === 200 && row.name === name, evidence: { roundTripped: row.name === name } };
   });
 

@@ -25,6 +25,7 @@ import { AttachmentPicker, RequestDocuments, discardAttachments } from "./Purcha
 import { STAGE_LABEL } from "@/lib/domain/purchasing";
 import { LabCommitCard } from "./LabCommitCard";
 import { CategoryChangeCard } from "./CategoryChangeCard";
+import { PurchaseLines, TransferDetails } from "./ApprovalDetails";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
 import { useToast } from "@/components/toast";
@@ -113,6 +114,8 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
       </div>
 
       <ChainTrail steps={request.steps} />
+      {request.note && <div className="text-11 text-dim">Their reason: “{request.note}”</div>}
+      <TransferDetails requestId={request.id} defaultOpen={canDecide} />
 
       {request.resolution && <div className="text-11 text-dim italic">"{request.resolution}"</div>}
       {error && <ErrorNote>{error}</ErrorNote>}
@@ -129,7 +132,7 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
       )}
       {request.status === "PENDING" && !canDecide && currentStep && (
         <div className="text-11 text-faint">
-          {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting — ${currentStep.label} is currently vacant.`}
+          {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting: ${currentStep.label} is currently vacant.`}
         </div>
       )}
 
@@ -145,11 +148,11 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
               <span>
                 {confirming === "APPROVE"
                   ? isReceipt
-                    ? "Confirms the resource has physically arrived — this is what applies the transfer to the register."
+                    ? "Confirms the resource has physically arrived. This is what applies the transfer to the register."
                     : isAcceptance
-                      ? "Confirms it has arrived and you now answer for it — this is what applies it to the register."
+                      ? "Confirms it has arrived and you now answer for it. This is what applies it to the register."
                       : "Advances this request to its next step."
-                  : "Ends this request outright — the requester can raise a new one if circumstances change."}
+                  : "Ends this request outright. The requester can raise a new one if circumstances change."}
               </span>
               <input
                 value={note}
@@ -287,16 +290,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
 
       <ChainTrail steps={request.steps} />
 
-      <div className="flex flex-col gap-3">
-        {request.lines.map((l) => (
-          <div key={l.id} className="text-11 text-dim">
-            {l.name} · {l.qty}
-            {l.unit ? ` ${l.unit}` : ""}
-            {l.estimatedUnitCost !== null ? ` · ~${l.estimatedUnitCost}/unit` : ""}
-            {l.justification ? <Justification text={l.justification} /> : null}
-          </div>
-        ))}
-      </div>
+      <PurchaseLines request={request} defaultOpen={canDecide} />
 
       {request.feedback && <div className="text-11 text-dim italic">"{request.feedback}"</div>}
       <RequestDocuments history={request.history} />
@@ -318,7 +312,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
       )}
       {request.stage === "APPROVING" && !canDecide && currentStep && (
         <div className="text-11 text-faint">
-          {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting — ${currentStep.label} is currently vacant.`}
+          {currentStep.approverId ? `Waiting on ${currentStep.approverName ?? currentStep.label}.` : `Waiting: ${currentStep.label} is currently vacant.`}
         </div>
       )}
 
@@ -335,8 +329,8 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
                 {confirming === "APPROVE"
                   ? "Advances this request to its next step."
                   : confirming === "REJECT"
-                    ? "Ends this request outright — the requester can raise a new one if circumstances change."
-                    : "Sends this back to the requester to edit and resubmit — the approval chain restarts once they do."}
+                    ? "Ends this request outright. The requester can raise a new one if circumstances change."
+                    : "Sends this back to the requester to edit and resubmit. The approval chain restarts once they do."}
               </span>
               <input
                 value={note}
@@ -350,7 +344,7 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
                 onBusyChange={setUploading}
                 disabled={busy}
                 label={confirming === "APPROVE" ? "Attach minutes or a letter" : "Attach the letter you're citing"}
-                hint="Optional — kept with your decision on the request"
+                hint="Optional: kept with your decision on the request"
               />
             </div>
           }
@@ -572,7 +566,7 @@ function Inbox() {
       {missingFocus && (
         <div className="flex gap-10 border border-border2 bg-panel2 rounded-3 px-12 py-9 text-11.5 text-dim">
           <span className="w-3 bg-warn rounded-2 flex-none" />
-          <span className="flex-1">The item you followed isn&apos;t waiting for you any more — it was decided, withdrawn, or moved on to someone else.</span>
+          <span className="flex-1">The item you followed isn&apos;t waiting for you any more. It was decided, withdrawn, or moved on to someone else.</span>
           <button type="button" onClick={() => setQuery({ focus: null })} className="border-0 bg-transparent text-accent cursor-pointer text-11.5 p-0">
             Dismiss
           </button>
@@ -617,23 +611,5 @@ export default function ApprovalsPage() {
     <Suspense fallback={<Screen><Panel><PanelLoading rows={4} /></Panel></Screen>}>
       <Inbox />
     </Suspense>
-  );
-}
-
-/** A request line's justification. Short ones read inline; long ones (a line compiled
- *  from thirty labs' ideals) show their first sentence-worth and open on demand, so an
- *  approver can scan the lines without wading through every lab's breakdown. */
-function Justification({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const LIMIT = 140;
-  if (text.length <= LIMIT) return <span className="text-faint"> — {text}</span>;
-  return (
-    <span className="text-faint">
-      {" "}
-      — {open ? text : `${text.slice(0, LIMIT).trimEnd()}…`}{" "}
-      <button type="button" className="text-accent hover:underline" onClick={() => setOpen(!open)}>
-        {open ? "less" : "more"}
-      </button>
-    </span>
   );
 }

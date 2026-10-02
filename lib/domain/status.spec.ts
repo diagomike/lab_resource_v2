@@ -50,7 +50,7 @@ describe("derived status", () => {
     expect(computeStatuses(optional, categories).get("parent")?.effective).toBe("WORKING");
   });
 
-  it("travels more than one level — a broken part impairs its parent's parent", () => {
+  it("travels more than one level: a broken part impairs its parent's parent", () => {
     const deep = [item("pc", "parent", null), item("board", "parent", "pc", { critical: true }), item("ram", "child", "board", { critical: true, status: "BROKEN" })];
     const statuses = computeStatuses(deep, categories);
     expect(statuses.get("board")?.effective).toBe("IMPAIRED");
@@ -65,7 +65,7 @@ describe("derived status", () => {
     expect(computeStatuses(lab, categories).get("lab")?.effective).toBe("WORKING");
   });
 
-  it("ignores every child unconditionally under NEVER, even a critical one — there is no critical-child exception", () => {
+  it("ignores every child unconditionally under NEVER, even a critical one: there is no critical-child exception", () => {
     // The missing case temp_works' own suite never exercised: its test fixture built
     // NEVER's lab differently from the shape its seed actually used (a switch rack
     // marked critical). See ~/.claude/plans/wait-i-want-gentle-haven.md §5's note on
@@ -96,6 +96,6 @@ describe("changeValueLabel", () => {
     expect(changeValueLabel("public portal", true)).toBe("Listed on the portal");
     expect(changeValueLabel("counting mode", "serialized")).toBe("Individual units");
     expect(changeValueLabel("name", "ROOM")).toBe("ROOM"); // only coded fields are translated
-    expect(changeValueLabel("booking mode", null)).toBe("—");
+    expect(changeValueLabel("booking mode", null)).toBe("–");
   });
 });

@@ -163,9 +163,9 @@ function AssignModal({ request, assignment, onClose, onDone }: { request: Extern
     .filter(([, want]) => want.trim().length >= 2)
     .map(([custodianId, want]) => ({ custodianId, want: want.trim() }));
   return (
-    <Modal title={`Ask custodians — ${assignment.orgNodeName}`} onClose={onClose} width="520px">
+    <Modal title={`Ask custodians: ${assignment.orgNodeName}`} onClose={onClose} width="520px">
       <div className="text-11 text-dim">
-        Ask as many custodians as it takes. Say what each should hold on the requested dates{request.kind === "SAMPLE_ANALYSIS" ? " — which machine" : " — which labs, how many"}. They hold the slots and report back to you.
+        Ask as many custodians as it takes. Say what each should hold on the requested dates{request.kind === "SAMPLE_ANALYSIS" ? ": which machine" : ": which labs, how many"}. They hold the slots and report back to you.
       </div>
       {people.length === 0 ? (
         <div className="text-11 text-dim">Every custodian of the department has been asked already.</div>
@@ -209,9 +209,9 @@ function SubmitDepartmentModal({ assignment, onClose, onDone }: { assignment: Ex
     .filter((c) => c.name && c.phone);
   const update = (i: number, patch: Partial<ExternalContactDto>) => setContacts(contacts.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   return (
-    <Modal title={`Send the answer to the dean — ${assignment.orgNodeName}`} onClose={onClose} width="560px">
+    <Modal title={`Send the answer to the dean: ${assignment.orgNodeName}`} onClose={onClose} width="560px">
       <div className="text-11 text-dim">
-        {assignment.holdCount} slot{assignment.holdCount === 1 ? "" : "s"} held by your custodians. Add the cost breakdown, and who the requester should call once they have paid — they see these people only after the AVP confirms the payment.
+        {assignment.holdCount} slot{assignment.holdCount === 1 ? "" : "s"} held by your custodians. Add the cost breakdown, and who the requester should call once they have paid. They see these people only after the AVP confirms the payment.
       </div>
       <input value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/… (cost breakdown)" className={inputClass} />
       <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Your department's amount, ETB" className={inputClass} />
@@ -264,7 +264,7 @@ function QuoteModal({ request, onClose, onDone }: { request: ExternalRequestDto;
   });
   const santim = parseEtb(amount);
   return (
-    <Modal title={`Send quote — ${request.reference}`} onClose={onClose} width="460px">
+    <Modal title={`Send quote: ${request.reference}`} onClose={onClose} width="460px">
       <div className="text-11 text-dim">Approved departments total {formatEtb(sum)}. The requester sees this amount, each department's cost breakdown and the university's bank account; holds last until the deadline.</div>
       <div className="flex flex-wrap gap-8">
         <label className="flex flex-col gap-4">
@@ -335,7 +335,7 @@ function HoldModal({ request, onClose, onDone }: { request: ExternalRequestDto; 
 
   const itemIds = machines.length ? machines : roomId ? [roomId] : [];
   return (
-    <Modal title={`Hold a slot — ${request.reference}`} onClose={onClose} width="520px">
+    <Modal title={`Hold a slot: ${request.reference}`} onClose={onClose} width="520px">
       <div className="text-11 text-dim">A hold blocks the calendar for this request. It lapses on its own unless the request is quoted and paid.</div>
       <label className="flex flex-col gap-4">
         <span className={labelClass}>Room</span>
@@ -439,7 +439,7 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
   const decline = () =>
     onAct({
       kind: "note",
-      title: `Decline — ${a.orgNodeName}`,
+      title: `Decline: ${a.orgNodeName}`,
       intro: college ? "The college's part ends, its departments' too, and anything they held is released." : "Your department's part ends and anything held for it is released.",
       confirmLabel: "Decline",
       tone: "danger",
@@ -450,7 +450,7 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
   const review = (decision: "APPROVE" | "RETURN") =>
     onAct({
       kind: "note",
-      title: `${decision === "APPROVE" ? "Approve" : "Send back"} — ${a.orgNodeName}`,
+      title: `${decision === "APPROVE" ? "Approve" : "Send back"}: ${a.orgNodeName}`,
       intro: decision === "APPROVE" ? "Their answer goes into the next step up." : `It goes back to the ${college ? "dean" : "head"} to answer again.`,
       confirmLabel: decision === "APPROVE" ? "Approve" : "Send back",
       tone: decision === "APPROVE" ? "primary" : "danger",
@@ -463,7 +463,7 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
       <div className="flex flex-wrap items-center gap-8">
         <div className="flex-1 min-w-[220px]">
           <div className="text-11.5 font-medium">
-            {college ? "College" : "Department"} — {a.orgNodeName}
+            {college ? "College" : "Department"} – {a.orgNodeName}
           </div>
           <div className="text-11 text-dim">
             {who}: {a.headName ?? "vacant"} · {a.holdCount} slot{a.holdCount === 1 ? "" : "s"} held
@@ -494,7 +494,7 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
           <Button
             variant="primary"
             onClick={() =>
-              onAct({ kind: "note", title: `Send to the AVP — ${a.orgNodeName}`, intro: "The college's answer — every approved department's rooms, costs and contacts — goes to the AVP's office.", confirmLabel: "Send to the AVP", path: `/external-requests/assignments/${a.id}/submit`, body: {} })
+              onAct({ kind: "note", title: `Send to the AVP: ${a.orgNodeName}`, intro: "The college's answer (every approved department's rooms, costs and contacts) goes to the AVP's office.", confirmLabel: "Send to the AVP", path: `/external-requests/assignments/${a.id}/submit`, body: {} })
             }
           >
             Send to the AVP…
@@ -600,7 +600,7 @@ function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: 
       {open && (
         <div className="flex flex-col gap-6 border border-border2 rounded-2 p-8">
           {open === "APPROVE" ? (
-            <div className="text-11 text-dim">Check the bank statement for this reference. Accept the amount actually received — it counts towards the quote; once the total is reached, you confirm the payment.</div>
+            <div className="text-11 text-dim">Check the bank statement for this reference. Accept the amount actually received. It counts towards the quote; once the total is reached, you confirm the payment.</div>
           ) : (
             <div className="text-11 text-dim">The requester is emailed this reason and may submit another reference.</div>
           )}
@@ -712,7 +712,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
           )}
           <div className="flex flex-col gap-4 md:col-span-2">
             <div className={labelClass}>Asked for</div>
-            {r.lines.length === 0 && <div className="text-dim">—</div>}
+            {r.lines.length === 0 && <div className="text-dim">–</div>}
             {r.lines.map((l, i) => (
               <div key={i}>
                 <span className="font-mono">{l.quantity} ×</span> {l.description}
@@ -737,7 +737,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
       {r.status === "PAID" && r.can.confirm && (
         <div className="border border-accent rounded-2 px-12 py-8 text-11">
           Paid in full. Check the receipts under Payments (open the bank receipt where there is one), then <strong>Confirm payment</strong>: that books the held slots and shows the
-          requester the contact persons. If a slot was lost meanwhile (see History), have a custodian hold a replacement and confirm again — or decline and arrange a refund.
+          requester the contact persons. If a slot was lost meanwhile (see History), have a custodian hold a replacement and confirm again, or decline and arrange a refund.
         </div>
       )}
 
@@ -777,7 +777,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
           {r.events.map((e, i) => (
             <div key={i} className="text-11">
               <span className="font-mono text-dim">{new Date(e.at).toLocaleString()}</span> · {e.actorLabel} · {e.kind.replace(/_/g, " ").toLowerCase()}
-              {e.note ? <span className="text-dim"> — {e.note}</span> : null}
+              {e.note ? <span className="text-dim"> – {e.note}</span> : null}
             </div>
           ))}
         </div>
@@ -788,7 +788,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
       )}
       {pending?.kind === "forward" && (
         <ForwardModal
-          title={`Forward to departments — ${pending.assignment.orgNodeName}`}
+          title={`Forward to departments: ${pending.assignment.orgNodeName}`}
           path={`/external-requests/assignments/${pending.assignment.id}/forward`}
           targets={r.forwardTargets.filter((t) => t.parentAssignmentId === pending.assignment.id)}
           onClose={() => setPending(null)}

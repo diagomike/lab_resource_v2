@@ -8,9 +8,9 @@ const entriesOf = (r: any) => r.body?.entries ?? r.body?.rows ?? r.body?.items ?
 
 async function main() {
   const se = await nodeId("Software Engineering");
-  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
+  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
   const seComputer = await db.item.findFirstOrThrow({ where: { parentId: { not: null }, ownerOrgNodeId: se, category: { key: "computer" }, custodianId: S.custSe.id } });
-  const chemStore = await db.item.findFirstOrThrow({ where: { name: "Chemistry Store — Room C-12" } });
+  const chemStore = await db.item.findFirstOrThrow({ where: { name: "Chemistry Store Room C-12" } });
 
   // A custodian's edit is staged and lands when the head approves — logged as the custodian's.
   await check(L, "L-01", "an approved edit writes an ItemChange with the custodian as actor, before/after and a scope snapshot", async () => {

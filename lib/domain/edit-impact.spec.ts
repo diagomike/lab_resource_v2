@@ -80,7 +80,7 @@ describe("categoryImpact", () => {
     item("c", { props: { brand: null, type: "Desktop" } }),
   ];
 
-  it("counts the items holding a value for a removed field — kept as an extra detail, not lost", () => {
+  it("counts the items holding a value for a removed field: kept as an extra detail, not lost", () => {
     const after = category({ fields: [category().fields[1]] }); // drop `brand`
     const note = categoryImpact(category(), after, items).find((n) => n.id === "cat-field-removed-brand")!;
     expect(note.severity).toBe("warning");

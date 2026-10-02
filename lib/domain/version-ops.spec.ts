@@ -115,7 +115,7 @@ describe("diffVersion", () => {
     expect(diffVersion(added, current, baseIds, labels)[0].lines[0]).toBe("Added in Workstation 01 › Computer");
   });
 
-  it("counts only top-most missing items as what to order — parts come inside them", () => {
+  it("counts only top-most missing items as what to order: parts come inside them", () => {
     const { items } = applyVersionOp(base, { kind: "createItem", parentId: "lab", categoryId: "ws", count: 2 }, ctx);
     const stats = idealStats(items, current, "lab");
     const ws = stats.find((s) => s.categoryId === "ws")!;
@@ -151,7 +151,7 @@ describe("rebaseUntouched", () => {
     expect(diff.map((d) => [d.name, d.lines[0]])).toEqual([["Computer", "Status: Working → Broken"]]);
   });
 
-  it("leaves a row the custodian touched as it is — a conflict there stays a conflict", () => {
+  it("leaves a row the custodian touched as it is: a conflict there stays a conflict", () => {
     const edited = applyVersionOp(base, { kind: "setName", itemIds: ["ch2"], value: "Chair (mine)" }, ctx);
     const rows = edited.items.map((r) => ({ ...r, touched: edited.touched.includes(r.id) }));
     const now = current.map((l) => (l.id === "ch2" ? { ...l, name: "Chair (theirs)", version: 2 } : { ...l, version: 1 }));

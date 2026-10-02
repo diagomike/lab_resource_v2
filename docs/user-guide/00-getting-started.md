@@ -67,7 +67,7 @@ If you are locked out, an administrator (or your department head) can set a **te
 
 ![Home](img/getting-started/07-home.jpg)
 
-1. **Next step**: the single most useful thing you can do now, with one button that takes you there. For example *"A lab's changes are waiting for your approval"* or *"Send your changes for Software Laboratory — B510-R8"*. When nothing needs you, it says **You're all caught up**.
+1. **Next step**: the single most useful thing you can do now, with one button that takes you there. For example *"A lab's changes are waiting for your approval"* or *"Send your changes for Software Laboratory B510-R8"*. When nothing needs you, it says **You're all caught up**.
 2. **Waiting for you**: everything others are waiting on you for, counted by kind (transfers, lab changes, purchase requests, bookings, category changes, needs to build into a request, arrivals to record or load, outside requests). Each line opens exactly that list.
 3. **Unfinished**: changes you made in a lab and haven't sent yet.
 4. **Your requests**: everything you asked for that is still open, and where it is now (*"With CoEEC Dean, 2 days"*).
@@ -93,7 +93,7 @@ Every screen has the same frame:
 2. **The menu**: only the screens you use. A custodian, a head and the store keeper each see a different menu.
 3. **Search** the register from any page (see below).
 4. The **bell**, **Help** and the **theme** (light or dark).
-5. **You**: your name and roles.
+5. **You** (your initials, top right): your name and roles. Click it for **Help & guides**, **Profile & password** and **Sign out**.
 
 **Help is one click away.** The **Help** button in the top bar opens the guide at the part that explains the screen you're on, for your role.
 
@@ -101,6 +101,8 @@ The menu items you may see:
 
 | Menu item | What it is for |
 |---|---|
+| **Insights** | The condition of everything in your scope, in charts |
+| **History** | Every applied change: who, what and when |
 | **Home** | What waits for you, what you left unfinished, what is new |
 | **Resources** | Everything recorded: your own (**Mine**) or the whole university's, to find something and ask for it |
 | **Labs & stores** | The labs and stores you run or manage: what is in them, and their changes |
@@ -109,8 +111,6 @@ The menu items you may see:
 | **Purchasing** | The labs' needs, purchase requests, and what has arrived |
 | **Outside requests** | Analyses, workshops and trainings outside institutions asked for |
 | **Categories** | The kinds of things we record, and the details each one keeps |
-| **Insights** | The condition of everything in your scope, in charts |
-| **History** | Every applied change: who, what and when |
 
 Opening a link in a new tab works anywhere in the menu.
 
@@ -132,14 +132,16 @@ Search can also look inside a resource's details. Put `@` before a detail's name
 
 ## 9. Your profile
 
-Open **Profile & password** at the bottom of the menu.
+Click your initials at the top right, then **Profile & password**.
 
-- **Display**: the **theme** (light or dark), the **text size** (Small to Extra large; go larger if the screens feel small) and the **typeface**. These are saved on this computer.
+![Your initials open Help & guides, Profile & password and Sign out](img/getting-started/09-account-menu.jpg)
+
+- **Display**: the **theme** (light or dark), the **text size** (Small to Extra large; **Large** is the default, go up or down to suit you) and the **typeface**. These are saved on this computer.
 - **Your account**: your name, email, roles and unit. An administrator changes these for you.
 - **Email notifications**: tick or untick **Email me when something needs me or my request is decided**. See [10. Emails and updates](#10-emails-and-updates).
 - **Change password**: enter your current password, then the new one (at least 8 characters).
 
-Sign out with **Sign out** at the bottom of the menu, especially on a shared computer.
+Sign out from the same place (your initials, then **Sign out**), especially on a shared computer.
 
 ## 10. Emails and updates
 

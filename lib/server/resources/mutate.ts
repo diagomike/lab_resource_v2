@@ -201,7 +201,7 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viaAppr
     // custodying both ends skip the chain engine entirely, making it optional —
     // the same shape of gap Track 2 found and fixed for its own draft-workflow
     // toggle, caught here during Track 3's own planning instead of after shipping.
-    throw new HttpError(403, "Transfers must be requested through the approvals flow — see Approvals.");
+    throw new HttpError(403, "Transfers must be requested through the approvals flow: see Approvals.");
   }
 
   if (input.kind === "transferItem" && input.transfer.movement === "TO_STORE") {
@@ -239,7 +239,7 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viaAppr
     // exists to decide (`pol-owner-any`/`pol-current-any` already say so; nothing
     // read them before this fix). SYS_ADMIN already returned above; everyone else
     // uses `requestTransfer`, never this direct door.
-    throw new HttpError(403, "Moving a resource between units goes through Transfer, not a direct edit — see Approvals.");
+    throw new HttpError(403, "Moving a resource between units goes through Transfer, not a direct edit: see Approvals.");
   }
 
   if (input.kind === "setCustodian") {
@@ -254,7 +254,7 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viaAppr
     const ownerNodeIds = [...new Set(items.map((i) => i.ownerOrgNodeId))];
     const targetReach = new Set(await orgScope.visibleNodeIds(input.value));
     if (ownerNodeIds.some((id) => !targetReach.has(id))) {
-      throw new HttpError(403, "Handing custody to another unit goes through Transfer, not a direct edit — see Approvals.");
+      throw new HttpError(403, "Handing custody to another unit goes through Transfer, not a direct edit: see Approvals.");
     }
     return;
   }
@@ -543,7 +543,7 @@ async function applyCreateItem(
   if (input.count === 1 && /\s\d+$/.test(base)) {
     // An explicitly numbered name ("Workstation 10") is taken as given — never
     // renumbered into "Workstation 10 01" — but it may not repeat a sibling.
-    if (findNameClash([base], siblings)) throw new HttpError(409, `"${base}" already exists here — choose another name.`);
+    if (findNameClash([base], siblings)) throw new HttpError(409, `"${base}" already exists here. Choose another name.`);
     rootNames = [base];
   } else {
     rootNames = allocateNames(base, siblings, input.count);
@@ -762,7 +762,7 @@ async function applyDeleteItem(
     const blockers = await foreignAccountabilityBlockers(actorId, doomed);
     if (!blockers.length) throw err; // the actor has no standing at all — the original 404 stands
     throw new HttpError(409, "Cannot delete", {
-      message: `Cannot delete — it contains ${blockers.length} resource(s) this account does not answer for: ${blockers.map((b) => `"${b.name}"`).join(", ")}.`,
+      message: `Cannot delete: it contains ${blockers.length} resource(s) this account does not answer for: ${blockers.map((b) => `"${b.name}"`).join(", ")}.`,
       code: "CONTAINS_FOREIGN_ITEMS",
     });
   }
@@ -770,7 +770,7 @@ async function applyDeleteItem(
   const liveBlockers = await liveDependentBlockers(tx, doomed.map((d) => d.id));
   if (liveBlockers.length) {
     throw new HttpError(409, "Cannot delete", {
-      message: `Cannot delete — it still has ${liveBlockers.join("; ")}. Cancel or resolve these first.`,
+      message: `Cannot delete: it still has ${liveBlockers.join("; ")}. Cancel or resolve these first.`,
       code: "HAS_LIVE_DEPENDENTS",
     });
   }
@@ -854,7 +854,7 @@ async function applyTransferItem(
   const newNames = new Map<string, string>();
   if (input.transfer.renameAs) {
     if (!isStoreHandover(input)) throw new HttpError(400, "Only a store handover can rename what it hands over.");
-    if (new Set(roots.map((r) => r.categoryId)).size > 1) throw new HttpError(400, "Name one kind of resource at a time — this selection mixes categories.");
+    if (new Set(roots.map((r) => r.categoryId)).size > 1) throw new HttpError(400, "Name one kind of resource at a time. This selection mixes categories.");
     const siblings = await lockAndLoadSiblingNames(tx, targetParentId, targetOrgNodeId, roots.map((r) => r.id));
     const ordered = [...roots].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     const names = allocateNames(input.transfer.renameAs, siblings, ordered.length);
@@ -963,7 +963,7 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
       SELECT summary FROM "ChangeRequest" WHERE status = 'PENDING' AND payload -> 'itemIds' ?| ${roots.map((r) => r.id)}::text[] LIMIT 1
     `;
     if (pending.length) {
-      throw new HttpError(409, `Cannot move — it is named in a pending transfer request ("${pending[0].summary}"). Cancel or resolve that first.`);
+      throw new HttpError(409, `Cannot move: it is named in a pending transfer request ("${pending[0].summary}"). Cancel or resolve that first.`);
     }
   }
   const applied: string[] = [];
@@ -980,7 +980,7 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
       const group = target ? arriving : arriving.filter((r) => r.ownerOrgNodeId === owner);
       const siblings = await lockAndLoadSiblingNames(tx, target?.id ?? null, owner, group.map((r) => r.id));
       const clash = findNameClash(group.map((r) => r.name), siblings);
-      if (clash) throw new HttpError(409, `Something named "${clash}" is already there — rename one of them first.`);
+      if (clash) throw new HttpError(409, `Something named "${clash}" is already there. Rename one of them first.`);
     }
   }
 
@@ -1001,7 +1001,7 @@ async function applyMoveInTree(tx: Tx, actorId: string, at: Date, input: Extract
     if (!isAdmin) {
       const destinationUnit = targetUnit ?? root.ownerOrgNodeId; // moving to top-level returns it to its own owner
       if (destinationUnit !== root.currentOrgNodeId) {
-        throw new HttpError(400, `"${root.name}" is not currently in that unit — use Transfer to move a resource between units.`);
+        throw new HttpError(400, `"${root.name}" is not currently in that unit. Use Transfer to move a resource between units.`);
       }
     }
 
@@ -1215,7 +1215,7 @@ async function applyAddImage(tx: Tx, actorId: string, at: Date, input: Extract<I
   if (upload.requestedById !== actorId) throw new HttpError(400, "That upload session belongs to someone else.");
   if (upload.status === "FINALIZED") throw new HttpError(409, "That photo has already been added.", { message: "That photo has already been added.", code: "UPLOAD_ALREADY_FINALIZED" });
   if (upload.status !== "UPLOADED") throw new HttpError(400, "Upload the photo before adding it.");
-  if (upload.expiresAt < at) throw new HttpError(409, "This upload session has expired — choose the file again.", { message: "This upload session has expired — choose the file again.", code: "UPLOAD_SESSION_EXPIRED" });
+  if (upload.expiresAt < at) throw new HttpError(409, "This upload session has expired. Choose the file again.", { message: "This upload session has expired. Choose the file again.", code: "UPLOAD_SESSION_EXPIRED" });
 
   const image = await tx.itemImage.create({
     data: {
@@ -1386,7 +1386,7 @@ async function planRenames(tx: Tx, items: PrismaItem[], value: string): Promise<
     const first = group[0];
     const siblings = await lockAndLoadSiblingNames(tx, first.parentId, first.ownerOrgNodeId, group.map((i) => i.id));
     if (group.length === 1) {
-      if (findNameClash([trimmed], siblings)) throw new HttpError(409, `"${trimmed}" already exists here — choose another name.`);
+      if (findNameClash([trimmed], siblings)) throw new HttpError(409, `"${trimmed}" already exists here. Choose another name.`);
       out.set(first.id, trimmed);
     } else {
       const names = allocateNames(trimmed, siblings, group.length);

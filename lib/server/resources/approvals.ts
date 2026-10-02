@@ -185,7 +185,7 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
       orgIndex,
     });
     if (steps.every((s) => s.status === "SKIPPED")) {
-      return { outcome: "APPLIED", reason: "Returned directly — nobody else to ask." };
+      return { outcome: "APPLIED", reason: "Returned directly. Nobody else to ask." };
     }
     return { outcome: "ROUTED", reason: "Returning it to its own owning unit", steps };
   }
@@ -242,7 +242,7 @@ async function resolveTransfer(actorId: string, input: TransferInput, ctx: Trans
   // directly here is what keeps "I already head both units" instant, exactly as
   // today, while everyone else goes through the real chain (§6.2).
   if (steps.every((s) => s.status === "SKIPPED")) {
-    return { outcome: "APPLIED", reason: "No eligible approver — applied directly." };
+    return { outcome: "APPLIED", reason: "No eligible approver: applied directly." };
   }
 
   return { outcome: "ROUTED", reason: MOVEMENT_REASON[movement], steps };
@@ -281,7 +281,7 @@ export function movementOf(payload: { transfer?: { movement?: MovementShape; tra
   return payload?.transfer?.movement ?? (payload?.transfer?.transferOwnership ? "STORE_OUT" : "LOAN");
 }
 
-const MOVEMENT_TITLE: Record<MovementShape, string> = {
+export const MOVEMENT_TITLE: Record<MovementShape, string> = {
   LOAN: "Loan between units",
   PERMANENT: "Permanent transfer",
   STORE_OUT: "Store handover",
@@ -305,7 +305,7 @@ function summarize(ctx: TransferContext, input: TransferInput, destination: stri
   return `${MOVEMENT_TITLE[movementOf(input)]}: ${subject} → ${destination}`;
 }
 
-/** "Switch Rack in Software Laboratory — B510-R11": a destination inside a lab is named
+/** "Switch Rack in Software Laboratory B510-R11": a destination inside a lab is named
  *  together with the lab (R2-4 of the 2026-09-23 run), because with 31 labs "→ Switch
  *  Rack" alone can't be told apart. */
 async function destinationLabel(db: Tx, destinationId: string): Promise<string> {
@@ -564,7 +564,7 @@ async function assertTransferParties(actorId: string, input: TransferInput): Pro
 
   const held = new Set(await scope.custodyItemIdsOf(actorId));
   if (input.itemIds.some((id) => held.has(id))) {
-    throw new HttpError(400, "You already hold this resource — use Move to place it elsewhere in your own lab.");
+    throw new HttpError(400, "You already hold this resource. Use Move to place it elsewhere in your own lab.");
   }
 
   if (await allInCentralStore(input.itemIds)) return onto("FROM_STORE", destination.custodianId, true);
@@ -714,7 +714,7 @@ async function tellNextApprover(request: ChangeRequestDto, actorId: string): Pro
     subject: `A transfer is waiting for you: ${request.summary}`,
     paragraphs: [
       `${esc(request.requesterName)}'s request has reached your step (${esc(step.label)}): <strong>${esc(request.summary)}</strong>.${quoted(request.note)}`,
-      step.receipt ? "Confirm it under <strong>Approvals</strong> once it's with you — the button below opens it." : "Approve or reject it — the button below opens it.",
+      step.receipt ? "Confirm it under <strong>Approvals</strong> once it's with you. The button below opens it." : "Approve or reject it. The button below opens it.",
     ],
     path: paths.decide("transfer", request.id),
     action: "Open the request",

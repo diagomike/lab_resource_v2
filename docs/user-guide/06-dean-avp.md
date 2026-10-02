@@ -12,6 +12,14 @@ Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.
 
 ---
 
+## The AVP's Home
+
+The AVP's **Home** is **Insights** for the whole university: the filters, the condition of every resource, where the problems are, and the register below. Click any figure or bar to narrow everything to it; each filter shows as a chip with ×, and **Clear all** brings everything back.
+
+Anything waiting for you sits above it as small cards (*2 Outside requests*, *1 Purchase request to approve*). Each opens the exact list. When nothing waits, there are no cards.
+
+![The AVP's Home: Insights, with what waits for you above](img/approvers/00-avp-home.jpg)
+
 ## 1. Purchase requests
 
 A department head compiles a request, and it climbs the chain: **head → dean → College Managing Director → AVP → Procurement Office**. When it reaches your step, you get an email ("PR-2026-… is waiting for your approval"), and it appears in **Approvals → Waiting for me**. The CMD decides after the dean and before the AVP; the AVP's approval is the last before the order goes to Procurement.
@@ -21,7 +29,8 @@ A department head compiles a request, and it climbs the chain: **head → dean �
 The card shows:
 - the reference and title, the department and who raised it;
 - the **chain**, with your step highlighted;
-- every **line**, with its quantity and justification. Long justifications open with **more**; ones compiled from many labs name the labs contributing most;
+- every **line** in a table: what, how many, the estimated unit cost and the line total, with the head's justification under it, and the request's **estimated total**;
+- **Why each line is asked for: the lab needs behind it** (open when it's your turn): for each line, the labs that asked for it, how many each needs, how urgent (**Essential**, **Important**, **Nice to have**), what it replaces, the specification, their reason, and who raised it. A line the head added without a lab need says so;
 - **Documents**: the minutes, letters of authority or quotations the head attached, and any letter an earlier approver cited. Click one to open it;
 - the history so far.
 
@@ -46,7 +55,17 @@ Each answer's dialog also has **Attach** (minutes or a letter). Use it to send t
 
 ## 2. Permanent transfers (CMD)
 
-A custodian who asks for another unit's resource chooses **Loan** (it stays the other unit's) or **Permanent transfer** (it becomes their unit's, in their custody). A permanent transfer always comes to you after both department heads; when it leaves its college, **Property Administration** approves after you. It appears in **Approvals**, titled *Permanent transfer: …*, with the whole chain on the card. **Approve** moves it on; **Reject** ends it with your reason. Loans never come to you.
+A custodian who asks for another unit's resource chooses **Loan** (it stays the other unit's) or **Permanent transfer** (it becomes their unit's, in their custody). A permanent transfer always comes to you after both department heads; when it leaves its college, **Property Administration** approves after you. It appears in **Approvals**, titled *Permanent transfer: …*, with the whole chain on the card and the requester's reason.
+
+Under **What is moving, from where, to whom** (open when it's your turn) you see exactly what you're agreeing to:
+
+- **From**: the place it is in now, the unit that owns it, and who answers for it today;
+- **To**: the place it's going, the receiving unit, whether **ownership moves** for good, and who will answer for it;
+- each **resource**: its name, kind and status, its recorded details (serial number, model…), and what travels inside it (*Travels with 13 parts: Computer ×1, Monitor ×1, …*). Anything edited in the register since it was asked for is marked **Changed since it was asked for**: look again before you approve.
+
+![A permanent transfer: what is moving, from where, to whom](img/approvers/03-transfer-details.jpg)
+
+**Approve** moves it on; **Reject** ends it with your reason. Loans never come to you.
 
 ## 3. Outside requests
 
@@ -61,12 +80,12 @@ Outside institutions sign up on the portal and ask for **rooms or labs** (a work
 
 ### The dean: send it to the departments
 
-The request reaches you by email. On the college's line, click **Forward to departments…** and tick your departments that could host it — or **Decline…** the college's part, with a reason (its departments' parts end too, and anything they held is released).
+The request reaches you by email. On the college's line, click **Forward to departments…** and tick your departments that could host it, or **Decline…** the college's part, with a reason (its departments' parts end too, and anything they held is released).
 
 Each department's head then asks their custodians to hold rooms or machines, and answers you with the **cost breakdown** (a sheet link and an amount) and the **contact persons** the requester should call once they have paid. For each department's answer:
 
-- **Approve…** — it goes into the college's answer;
-- **Send back…** — it goes back to the head with your note, to answer again.
+- **Approve…**: it goes into the college's answer;
+- **Send back…**: it goes back to the head with your note, to answer again.
 
 When every department has been decided (at least one approved), click **Send to the AVP…** on the college's line.
 
@@ -80,10 +99,10 @@ The requester is emailed and sees, signed in: the total, each department's part 
 
 ### The AVP: confirm the payment
 
-The requester enters their payment reference; it is checked with the bank or telebirr. When the whole amount is in, the request is **Paid — awaiting confirmation** and you are emailed. Check the receipts under **Payments** (open **Bank receipt** where the check returned one), then click **Confirm payment**. That:
+The requester enters their payment reference; it is checked with the bank or telebirr. When the whole amount is in, the request is **Paid: awaiting confirmation** and you are emailed. Check the receipts under **Payments** (open **Bank receipt** where the check returned one), then click **Confirm payment**. That:
 
 - turns every held slot into a booking;
-- shows the requester the departments' **contact persons** — from then on, arrival, samples and everything on the day are arranged with them directly;
+- shows the requester the departments' **contact persons**. From then on, arrival, samples and everything on the day are arranged with them directly;
 - emails the requester, the custodians and the heads.
 
 > **Good to know**

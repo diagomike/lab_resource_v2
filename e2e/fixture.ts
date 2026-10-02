@@ -4,7 +4,7 @@
  *
  * Rebuilt 2026-10-02 for the UX-flow seed (five colleges, ADAA offices, CMD/PROC/PROP/ICT,
  * CSE's real labs): it adds only what the suites need and the seed lacks —
- *  - Software Engineering run by two custodians, with "SE Lab X — Software Lab 3"
+ *  - Software Engineering run by two custodians, with "SE Lab X Software Lab 3"
  *    (a bookable room holding computers, chairs and a whiteboard);
  *  - Materials Science and Engineering sitting under BOTH CoEEC and CoMCME (a
  *    multi-parent department), with its head and a custodian;
@@ -68,11 +68,11 @@ async function main() {
   await prisma.resourceCategory.update({ where: { key: "computer" }, data: { bookingMode: "EQUIPMENT", publicListed: true } });
   await prisma.resourceCategory.update({ where: { key: "lab" }, data: { bookingMode: "ROOM", publicListed: true } });
 
-  // SE Lab X — Software Lab 3, run by Girma.
+  // SE Lab X Software Lab 3, run by Girma.
   const [lab, computer, chair, whiteboard] = await Promise.all([category("lab"), category("computer"), category("chair"), category("whiteboard")]);
   const at = { ownerOrgNodeId: se.id, currentOrgNodeId: se.id, custodianId: girma.id };
   const room = await prisma.item.create({
-    data: { ...at, categoryId: lab.id, name: "SE Lab X — Software Lab 3", countingMode: lab.countingMode, qty: 1, status: "WORKING", props: { block: "509", room: "3", seats: 20, purpose: "Software Engineering computer laboratory" } },
+    data: { ...at, categoryId: lab.id, name: "SE Lab X Software Lab 3", countingMode: lab.countingMode, qty: 1, status: "WORKING", props: { block: "509", room: "3", seats: 20, purpose: "Software Engineering computer laboratory" } },
   });
   const inside = (categoryId: string, name: string, countingMode: typeof lab.countingMode, status: "WORKING" | "BROKEN" = "WORKING") =>
     prisma.item.create({ data: { ...at, parentId: room.id, categoryId, name, countingMode, qty: 1, status, props: {} } });

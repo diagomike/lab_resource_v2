@@ -116,7 +116,7 @@ function PlaceInner({ id }: { id: string }) {
               <div key={f.key} className="flex flex-col">
                 <dt className="text-11 uppercase tracking-label text-dim">{f.label}</dt>
                 <dd className="text-12">
-                  {place.props[f.key] === null || place.props[f.key] === undefined || place.props[f.key] === "" ? <span className="text-faint">—</span> : String(place.props[f.key])}
+                  {place.props[f.key] === null || place.props[f.key] === undefined || place.props[f.key] === "" ? <span className="text-faint">–</span> : String(place.props[f.key])}
                   {f.unit && place.props[f.key] ? ` ${f.unit}` : ""}
                 </dd>
               </div>
@@ -248,7 +248,7 @@ function ChangeCustodianModal({ place, onClose, onSaved }: { place: PlaceDto; on
         </p>
         <CustodianPicker unitId={place.ownerOrgNodeId} value={custodianId} onChange={setCustodianId} store={place.isStore} />
         <label className="flex flex-col gap-4">
-          <span className={labelCls}>Why (optional — both people see it)</span>
+          <span className={labelCls}>Why (optional; both people see it)</span>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Covering during study leave" className={inputCls} />
         </label>
         {error && <ErrorNote>{error}</ErrorNote>}

@@ -58,7 +58,7 @@ describe("sniffImage", () => {
     expect(sniffImage(webpBytes(5, 4))).toEqual({ format: "WEBP", mimeType: "image/webp", width: 5, height: 4 });
   });
 
-  it("rejects an SVG outright — its bytes never match any accepted binary signature", () => {
+  it("rejects an SVG outright: its bytes never match any accepted binary signature", () => {
     const svg = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "utf8");
     expect(sniffImage(svg)).toBeNull();
   });
@@ -81,7 +81,7 @@ describe("sniffImage", () => {
     expect(sniffImage(b)).toBeNull();
   });
 
-  it("does not trust a claimed Content-Type — a PNG's dimensions come from its own bytes regardless of what a caller declares", () => {
+  it("does not trust a claimed Content-Type: a PNG's dimensions come from its own bytes regardless of what a caller declares", () => {
     // (documented via the return shape itself: format/mimeType are DERIVED from the
     // bytes, never accepted as a parameter — this test just pins the contract.)
     const png = pngBytes(1, 1);

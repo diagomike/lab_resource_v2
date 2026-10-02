@@ -189,6 +189,13 @@ export const PurchaseRequestDto = z.object({
 });
 export type PurchaseRequestDto = z.infer<typeof PurchaseRequestDto>;
 
+/** What an approver reads before deciding a purchase: for every line, its kind and
+ *  the lab needs it answers — who raised them, for which lab, how urgent, and why. */
+export const PurchaseDetailsDto = z.object({
+  lines: z.array(z.object({ lineId: z.string(), categoryName: z.string().nullable(), needs: z.array(NeedLineDto) })),
+});
+export type PurchaseDetailsDto = z.infer<typeof PurchaseDetailsDto>;
+
 const PurchaseLineInput = z.object({
   name: z.string().min(1),
   qty: z.number().min(0.0001),

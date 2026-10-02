@@ -24,7 +24,7 @@ const categories = {
   chair: category("chair"),
 };
 
-describe("canPlace — places are top level, things go inside", () => {
+describe("canPlace: places are top level, things go inside", () => {
   it("a place is top level only, never inside anything", () => {
     expect(canPlace(categories, "lab", null)).toBe(true);
     expect(canPlace(categories, "lab", "store")).toBe(false);

@@ -47,7 +47,7 @@ const STAT_TONE_CLASS = { good: "text-good", warn: "text-warn", bad: "text-bad" 
 /** Management view over the caller's own scope. The filter bar, stat tiles, every
  * chart mark, and the Register hierarchy all write/read one URL-backed filter state,
  * preserving temp_works' useful "ask another question without leaving" behavior. */
-function DashboardPageInner() {
+export function DashboardBody({ lead }: { lead?: ReactNode } = {}) {
   const state = useRegisterState({ fixedMode: "tree" });
   const [summary, setSummary] = useState<ItemSummaryDto | null>(null);
   const [dimension, setDimension] = useState<SummaryDimension>("owner");
@@ -173,6 +173,7 @@ function DashboardPageInner() {
 
   return (
     <Screen>
+      {lead}
       {(error || state.error) && <ErrorNote>{error ?? state.error}</ErrorNote>}
       <Panel title="Filter dashboard">
         <FilterBar filters={state.filters} onChange={state.setFilters} onClear={state.clearFilters} />
@@ -391,7 +392,7 @@ function BreakdownTable({
 export default function DashboardPage() {
   return (
     <Suspense>
-      <DashboardPageInner />
+      <DashboardBody />
     </Suspense>
   );
 }

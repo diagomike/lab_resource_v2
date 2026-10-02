@@ -307,7 +307,7 @@ export function buildRealDataItems(categories: Record<string, Category>, ids: Re
 
   // ── Expired Chemical Store — the department's own disposal-pending inventory ────
   const storeCtx = ctxFor("amsaluaddisu@gmail.com", "chem");
-  const store = add("store", null, "Chemical Engineering — Expired Chemical Store", storeCtx);
+  const store = add("store", null, "Chemical Engineering Expired Chemical Store", storeCtx);
   store.props.level = "Department store";
   for (const [name, physicalState, expiry, containers] of EXPIRED_CHEMICALS) {
     const it = add("expired-chemical-container", store.id, name, storeCtx);

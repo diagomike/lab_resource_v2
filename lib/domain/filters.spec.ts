@@ -136,7 +136,7 @@ describe("customPropFilterFields", () => {
     expect(field.options).toEqual([{ value: "true", label: "Yes" }, { value: "false", label: "No" }]);
   });
 
-  it("has no scope logic of its own — it discovers keys ONLY from what it is given, which is exactly why the caller (items.ts's domainFilterFields) must pass an already scope-filtered item list, never the whole table", () => {
+  it("has no scope logic of its own: it discovers keys ONLY from what it is given, which is exactly why the caller (items.ts's domainFilterFields) must pass an already scope-filtered item list, never the whole table", () => {
     const anItem = item("x", "computer", null, { customProps: { secret: { type: "TEXT", value: "x" } } });
     expect(customPropFilterFields([])).toEqual([]);
     expect(customPropFilterFields([anItem]).map((f) => f.id)).toEqual(["custom:secret"]);

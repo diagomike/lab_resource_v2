@@ -436,7 +436,7 @@ function buildItems(categories: Record<string, Category>, ids: SeedIds, idByKey:
   add("table", chemLab.id, "Table", chemCtx);
   add("chair", chemLab.id, "Chair", chemCtx);
 
-  const store = add("store", null, "Chemistry Store — Room C-12", chemCtx);
+  const store = add("store", null, "Chemistry Store Room C-12", chemCtx);
   store.props.level = "Department store";
   store.props.block = "C";
   store.props.room = "12";

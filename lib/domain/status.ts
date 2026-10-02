@@ -122,7 +122,7 @@ const CODE_LABELS: Record<string, Record<string, string>> = {
  *  (UNDER_MAINTENANCE), which is shown by its label (Maintenance), and so do the coded
  *  category fields above (NOT_BOOKABLE → "Not bookable"); anything else as is. */
 export function changeValueLabel(field: string | null | undefined, value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "–";
   if (field === "status" && typeof value === "string" && value in STATUS_LABEL) return STATUS_LABEL[value as EffectiveStatus];
   const coded = field ? CODE_LABELS[field]?.[String(value).toUpperCase()] : undefined;
   if (coded) return coded;

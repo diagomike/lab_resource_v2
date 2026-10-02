@@ -34,7 +34,7 @@ export async function normalizeImage(input: Buffer, maxInputPixels: number): Pro
       .toBuffer({ resolveWithObject: true });
     return { bytes: data, contentType: "image/webp", width: info.width, height: info.height };
   } catch {
-    throw new HttpError(400, "That image could not be read — it may be damaged. Try saving it again as a JPEG or PNG.");
+    throw new HttpError(400, "That image could not be read. It may be damaged. Try saving it again as a JPEG or PNG.");
   }
 }
 
@@ -59,6 +59,6 @@ export async function normalizeDocumentImage(input: Buffer, maxInputPixels: numb
       .toBuffer({ resolveWithObject: true });
     return { bytes: data, contentType: "image/jpeg", width: info.width, height: info.height };
   } catch {
-    throw new HttpError(400, "That image could not be read — it may be damaged. Try saving it again as a JPEG or PNG.");
+    throw new HttpError(400, "That image could not be read. It may be damaged. Try saving it again as a JPEG or PNG.");
   }
 }

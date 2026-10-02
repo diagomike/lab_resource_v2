@@ -50,7 +50,7 @@ Every password is **astu1234**.
 |---|---|
 | System administrator | `admin@astu.edu.et` |
 | CSE department head | `cse.head@astu.edu.et` |
-| CSE lab custodian | **Ali Kibret Muhamed** (runs Software Laboratory — B510-R8); his email is in People & roles |
+| CSE lab custodian | **Ali Kibret Muhamed** (runs Software Laboratory B510-R8); his email is in People & roles |
 | Another CSE custodian | **Kebede Tegene Alemu** (runs B508-R13 and B510-R13), same |
 | CoEEC dean | `coeec.dean@astu.edu.et` |
 | CoEEC ADAA | `adaa.coeec@astu.edu.et` |
@@ -107,32 +107,36 @@ Stop the dev server before `migrate reset`, because Windows locks Prisma's engin
    - **Waiting for you**: counts by kind, each linking straight to the filtered list.
    - **Your requests**: where each of your open requests is now ("with the CoEEC Dean, 2 days").
    - **Unfinished**, **Due soon**, **Recent updates**, **At a glance** (your department's labs, items, % working).
-3. Look at the **sidebar**. A head sees Home, Resources, Labs & stores, Bookings, Approvals,
-   Purchasing, Outside requests, Categories, Insights, History, People & roles. The badges
-   count what is waiting.
+3. Look at the **sidebar**. A head sees **Overview** first (Insights, History), then **Work**
+   (Home, Resources, Labs & stores, Bookings, Approvals, Purchasing, Outside requests,
+   Categories), then People & roles. The badges count what is waiting. There is no "You"
+   section and no Sign out at the bottom any more; they are behind your initials.
 4. Click the **bell** (top bar). Your latest updates appear; click one, and it opens
    **exactly that item**, marked. **Mark all read** clears the count.
 5. Click **Help** on any screen. It opens the guide at the section for *this screen and
    your role*.
-6. Switch **Light/Dark** (top bar). Then open **Profile & password**: change the text size,
-   and find **Email me when something needs me or my request is decided**.
+6. Switch **Light/Dark** (top bar). Click **your initials** (top right): a menu opens with
+   **Help & guides**, **Profile & password** and **Sign out**. Open **Profile & password**: the
+   text size is **Large** unless you changed it; try the others. Find **Email me when
+   something needs me or my request is decided**.
 7. **A link survives sign-in.** Copy the address of any screen, for example an Approvals item
-   (`/approvals?focus=…`). Sign out, paste the address, and sign in. You come back to that
+   (`/approvals?focus=…`). Sign out (your initials → **Sign out**), paste the address, and sign in. You come back to that
    exact item, not to Home. Signing out on purpose goes to a plain sign-in page.
 
 - [ ] Home shows a next step, and its button goes to the right screen
 - [ ] Sidebar badges match Home's counts
 - [ ] The bell opens the exact item, and reading it lowers the count
 - [ ] Help opens the section for this screen and role
+- [ ] Your initials open Help & guides, Profile & password and Sign out; text starts at Large
 - [ ] Signing in from a pasted link returns to that link
 
-## Act 2: The administrator — organisation, people, categories
+## Act 2: The administrator: organisation, people, categories
 
 Sign in as `admin@astu.edu.et`.
 
 1. **Home** shows the admin's **Loose ends**: vacant posts, places without a custodian,
    people with no role, invitations still pending.
-2. **Organisation.** Click **+ New unit**. There is **no level box**: a unit sits one below
+2. **Organisation.** It opens on **Cards** (one list per level); **Graph** is the second view. Click **+ New unit**. There is **no level box**: a unit sits one below
    what it sits under. Try making a department under CoEEC; the headings read "Colleges",
    "Departments", not "Level 2". Delete it again (an empty unit can be deleted).
 3. **People & roles → Invite.** Invite yourself a test custodian: any `@example.org` address,
@@ -144,6 +148,7 @@ Sign in as `admin@astu.edu.et`.
    and look at **Start from a template** and **+ A common detail…** (Manufacturer, Model,
    Serial no., Calibration due, CAS no.…). Close without saving: an unsaved-changes prompt asks first.
 
+- [ ] Organisation opens on Cards; Graph is one click away
 - [ ] Unit levels follow from their parent; no level input
 - [ ] The invitation arrives in Mailpit, and its link registers the person
 - [ ] The category editor shows no storage keys, and warns before discarding changes
@@ -154,10 +159,10 @@ Sign in as the **CSE head**.
 
 1. **Labs & stores** lists the department's labs and stores: custodian, block and room,
    seats, bookable, items, needs-attention.
-2. **+ Add a lab or store.** Kind **Lab**; name it "Walkthrough Lab — B510-R40"; Block 510,
+2. **+ Add a lab or store.** Kind **Lab**; name it "Walkthrough Lab B510-R40"; Block 510,
    Room 40, Seats 20; **Who runs it**: the custodian you invited in act 2. **Create**.
 3. The lab's page opens with "Created. Its custodian has been told." The **bell** of that
-   custodian, and **Mailpit**, have "You now run Walkthrough Lab — B510-R40". Its button
+   custodian, and **Mailpit**, have "You now run Walkthrough Lab B510-R40". Its button
    opens the lab.
 4. On the lab's page: **Change who runs it** → Ali Kibret Muhamed, with a reason. Both people
    are told (two emails in Mailpit).
@@ -169,7 +174,7 @@ Sign in as the **CSE head**.
 - [ ] Changing the custodian tells both people
 - [ ] A custodian can't add a lab
 
-## Act 4: The ADAA — the college's stores, and their keepers
+## Act 4: The ADAA: the college's stores, and their keepers
 
 Sign in as `adaa.coeec@astu.edu.et`.
 
@@ -183,7 +188,7 @@ Sign in as `adaa.coeec@astu.edu.et`.
 5. **Its store keeper**: the list offers everyone who works in the college and its
    departments. Some are marked **becomes a custodian** (e.g. a head or the dean): they hold
    no custodian role yet, and choosing one makes them a custodian. Pick someone, and **Create**.
-6. The keeper is told: "You now keep CoEEC College Store — B508-R3" (Mailpit). If you picked
+6. The keeper is told: "You now keep CoEEC College Store B508-R3" (Mailpit). If you picked
    someone marked *becomes a custodian*, check **People & roles** as the admin: they now hold
    **Lab custodian**.
 7. On the store's page, **Change its store keeper** works the same way.
@@ -200,7 +205,7 @@ Sign in as `adaa.coeec@astu.edu.et`.
 Sign in as **Ali Kibret Muhamed**.
 
 1. **Home** names Ali's next step, and **Labs & stores** lists the labs he runs.
-2. Open **Software Laboratory — B510-R8**. It has three tabs: **In the lab**,
+2. Open **Software Laboratory B510-R8**. It has three tabs: **In the lab**,
    **My changes**, **Approvals**.
 3. **Resources.** Sort by **Name** (click the column heading; again for Z→A). The heading
    stays put while you scroll. Filter to a status; the empty message says why it's empty.
@@ -258,8 +263,8 @@ Sign in as **Ali**.
    head** ("Pending change" on the category).
 4. As the head, open the notice: **Categories** opens that category and its waiting change.
    **Approve**. The meter's reading is now the number 16, converted, not erased.
-5. Rename a detail that holds values. It asks: **Yes — rename it, the values stay**, or
-   **No — add it as a new detail**.
+5. Rename a detail that holds values. It asks: **Yes, rename it. The values stay**, or
+   **No, add it as a new detail**.
 6. Make a detail **required** on a category that already has items. It offers to **fill the
    existing items** with a value, or leave them blank.
 7. Open a category another department looks after (e.g. a ChemE one). You can still add to
@@ -277,12 +282,12 @@ Sign in as **Ali**.
 1. **Purchasing → Lab needs → Ask for something**: for B510-R8, "Soldering station" × 3,
    **Essential**, a reason and a specification. Ask for a second thing too ("Projector
    screen", Nice to have).
-2. If something in his lab is broken or lost, **Broken or lost — not asked for yet** lists
+2. If something in his lab is broken or lost, **Broken or lost, not asked for yet** lists
    it; **Ask for a replacement** raises the need in one click.
 
 **As the CSE head:**
 
-3. Mailpit has "Software Laboratory — B510-R8 needs Soldering station". Click its button. It
+3. Mailpit has "Software Laboratory B510-R8 needs Soldering station". Click its button. It
    opens **Purchasing → Lab needs** with **that need marked** (accent edge) and scrolled into view.
 4. **Decline** the projector screen with a reason. Ali is told.
 5. Tick the soldering stations → **Build a request from 1 need**. Give a title and an
@@ -291,6 +296,10 @@ Sign in as **Ali**.
    each in turn (`coeec.dean`, `cmd`, `avp`, `procurement`), each time from the email's
    button. As the dean, try **Send back** for revision once; the head edits and resubmits,
    and the ladder starts again.
+   Each approver sees the request **in full**, not only its title: every line with its
+   estimated unit cost, line total and the request's **estimated total**, and (open from the
+   start for the person deciding) **Why each line is asked for**: the lab need behind each
+   line, with the lab, who asked, how urgent, what it replaces, the specification and the reason.
 7. **As procurement:** approve (Order placed), then **advance** it: buyer found, on
    delivery, **Arrived at the main store**.
 
@@ -298,6 +307,7 @@ Sign in as **Ali**.
 - [ ] Declining tells the custodian; carrying marks the need Carried
 - [ ] The ladder runs dean → CMD → AVP → procurement, each opened from its email
 - [ ] Every step is in the request's history, across the send-back
+- [ ] Each approver sees every line's cost, the total, and the lab need behind each line
 
 ## Act 9: Arrivals: recording and loading
 
@@ -336,10 +346,17 @@ Sign in as **Ali**.
    ChemE head → Hanna confirms. The owner stays CSE.
 5. **A permanent transfer** between colleges goes through the **College Managing Director**
    and **Property Administration** too.
+6. **What each approver reads.** Every transfer in **Approvals** has **What is moving, from
+   where, to whom** (open from the start for the person deciding): **From** (place, owner,
+   who answers for it now) and **To** (place, unit, whether ownership moves, who will answer
+   for it), then each resource with its kind, status, recorded details (serial number,
+   model…) and what travels inside it ("Monitor ×1, Keyboard ×1…"). Anything edited since it
+   was asked for is marked **Changed since it was asked for**.
 
 - [ ] Each chain shows its steps in order, and only the current approver can decide
 - [ ] Each step's email opens the exact request
 - [ ] Ownership, custody and place end up as each chain promises
+- [ ] Each approver sees what moves (kind, status, details, parts), from where and to whom
 
 ## Act 11: Bookings
 
@@ -363,7 +380,9 @@ Sign in as **Ali**.
    confirming.
 3. **New request:** a facility request for a date at least a day ahead, with a PDF letter.
    The requester and the AVP are told.
-4. **AVP:** the email opens **Outside requests** with **that request open** (not the newest).
+4. **AVP:** sign in. **Home** is **Insights** for the whole university (filters, condition,
+   problems, the register), with a small **Outside requests** card above it because one is
+   waiting. Then the email opens **Outside requests** with **that request open** (not the newest).
    **Forward** to CoEEC.
 5. **CoEEC dean:** forward to CSE. **CSE head:** ask Ali to hold his lab.
 6. **Ali:** **Hold** the room on the requested date, then mark the task done.
@@ -375,6 +394,7 @@ Sign in as **Ali**.
 9. **AVP:** **Confirm the payment**. The booking is confirmed on Ali's calendar (his email's
    link opens **Bookings** at that lab), and the requester now sees who to call.
 
+- [ ] The AVP's Home is Insights, with a card only for what waits
 - [ ] Sign-in is refused until the email is confirmed
 - [ ] Each staff email opens that request, not the newest one
 - [ ] A wrong receiver is rejected; a correct receipt makes it Paid; the AVP's confirmation schedules it
@@ -403,7 +423,8 @@ Sign in as **Ali**.
    reached a real inbox.
 
 - [ ] Readable in both themes and at phone width
-- [ ] Dialogs are keyboard-friendly
+- [ ] Dialogs are keyboard-friendly (Move, Request to my lab and Return to store also ask before discarding what you typed)
+- [ ] No em-dashes in the app's own wording (lab names keep theirs)
 - [ ] Failures say so, with Try again
 - [ ] Every email is in Mailpit
 

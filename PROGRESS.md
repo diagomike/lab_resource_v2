@@ -5128,3 +5128,51 @@ its model that make porting it as-is the wrong move.
   - **Still open:** deans still manage their college's labs and stores (`managesPlacesIn` from `deanOf`) —
     the plan never asked for it; say if the dean should lose it too. The CSE custodians' email
     notifications stay off in the seed (their real addresses); the walkthrough says how to switch them on.
+- **2026-10-02 (approver detail, the account menu, the guide's images, no em-dashes)**
+  - **The account menu** (`components/shell/TopBar.tsx` `UserMenu`, as in `sc_feedback_v2`): the avatar opens
+    Help & guides, Profile & password and Sign out (fixed panel, like the bell, because the top bar clips its
+    overflow). The sidebar lost its "You" group and Sign out; `navFor` returns the workspace only and
+    `YOU_GROUP` is exported for the menu. **Overview** (Insights, History) now sits above **Work**.
+  - **Text size defaults to Large** (`--font-scale: 1.15` on `:root`, so no jump on load; Medium is the opt-in
+    `data-font-size="medium"`). **Organisation opens on Cards**; Graph is the second tab.
+  - **Approvers see what they decide, not a summary.** New `GET /api/resources/transfers/:id/details`
+    (`lib/server/resources/transfer-details.ts`): each resource's kind, status, recorded details, parts by
+    kind, where it is, owner, custodian, and "changed since it was asked for"; the destination, receiving
+    unit, whether ownership moves, who will answer for it. New `GET /api/resources/purchase-requests/:id/details`
+    (`getRequestDetails`): each line's category and the lab needs behind it. Both behind the request's own
+    read gate (404 otherwise). UI in `components/resources/ApprovalDetails.tsx`: a cost table with line totals
+    and the estimated total, and disclosures open by default for the person whose step it is.
+  - **Dialogs**: Move, Request to my lab and Return to store now ask before Escape discards what was typed.
+  - **The guide's images**: the appendix diagrams were broken (Mermaid's bare `<br>` isn't XML, so `<img>`
+    refused them) and, once fixed, squeezed unreadable (`width="100%"`). Closed the tags and gave each SVG its
+    viewBox size; `build-help.mjs` now refuses either fault. All 35 screenshots retaken (they showed the old
+    sidebar) and 5 added (account menu, the CMD's transfer details, Property Admin approving a movement, the
+    store keeper's load and move): `e2e/stage-guide.ts` stages a waiting item for every role on the clone,
+    `e2e/guide-shots.mjs` (the sister app's Playwright, installed Chrome, light theme, personal emails
+    masked) takes them. Help: 13 chapters, 40 screenshots.
+  - **No em-dashes in the app's wording** (the user: they read as unprofessional, machine-written). 337
+    user-visible strings in 73 files rewritten by rule through the TypeScript AST (comments untouched): an
+    aside → parentheses, a new sentence → full stop, a title/label → colon, "— or/never/not" → comma, an
+    empty value "—" → "–"; six JSX fragments and the guide by hand. Tests and e2e expectations follow.
+    Left as they are: the seeded **lab and store names** ("Software Laboratory — B510-R8"), which are data,
+    and the two form examples that mirror them; existing rows in the dev DB (chain labels, notices) keep
+    the old wording until reseeded. Asked the user whether to rename the places too.
+  - **Checks:** `tsc` clean; 600/600 unit tests; validator **124/124** (new: every approver at every
+    transfer step and on the purchase ladder reads the details); campaign 180/183 with new T-02b and B-02b
+    (the 3 ✘ the long-standing O-11, S-14, S-18); `help:build` and `next build` clean. New launch configs
+    `e2e-mail` and `e2e-build` (a local `next start` build on :3100 against the clone with the mail sink, since a second `next dev` in this folder is refused; the real deployment's mail is untouched).
+- **2026-10-02 (places without dashes, the reseed, and the AVP's Home)**
+  - **Place names**: `labName` (`prisma/cse-lab-data.ts`) is now "Software Laboratory B510-R8"; "Chemistry Store
+    Room C-12" and "Chemical Engineering Expired Chemical Store" likewise; e2e fixture, suites, validator, guide,
+    walkthrough and the place-form examples follow. No code parses names on the dash.
+  - **Dev DB reseeded** (the user's explicit consent; backup first:
+    `backups/lrms_v2-before-dashless-reseed-2026-10-02.dump`): `migrate reset --skip-generate` (the dev
+    server locks the engine), `seed.ts`, `resource-seed.ts`. 9,685 items, none with a dash; 31 CSE labs.
+  - **The AVP's Home is Insights** (`HomePage` → `DashboardBody` from `DashboardPage.tsx`, which now takes a
+    `lead` slot): filters, tiles, charts and register, the URL-backed filters on /home; above it,
+    `PendingCards`, one small card per kind of thing waiting (waiting, unfinished, own open requests, dates
+    due), and nothing when nothing waits. Header subtitle set via `useShellHeader` once Home loads (the shell
+    clears overrides after a screen's first effects). Overview stays above Work. Guide: "The AVP's Home"
+    with a screenshot (41 now).
+  - **Checks:** `tsc` clean; 600/600 unit; validator 124/124 and campaign 180/183 (3 known) with the renamed
+    places; 41 screenshots retaken. Merge to master held at the user's request.

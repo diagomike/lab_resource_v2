@@ -20,7 +20,7 @@ async function main() {
   const chem = await nodeId("Chemical Engineering");
   const mat = await nodeId("Materials Science and Engineering");
   const [lab, computer, chair, whiteboard] = await Promise.all([catId("lab"), catId("computer"), catId("chair"), catId("whiteboard")]);
-  const girmaLab = await item("SE Lab X — Software Lab 3");
+  const girmaLab = await item("SE Lab X Software Lab 3");
 
   const store = await catId("store");
   let newLab = "";

@@ -99,7 +99,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("items.containers — in scope, write-eligible, placement-legal", () => {
+describe("items.containers: in scope, write-eligible, placement-legal", () => {
   it("offers every place the custodian holds as a destination for a thing, and never a foreign department's", async () => {
     const options = await containers(seCustodianId, openCategoryId);
     const ids = options.map((o) => o.id);
@@ -108,12 +108,12 @@ describe("items.containers — in scope, write-eligible, placement-legal", () =>
     expect(ids).not.toContain(chemContainerItemId);
   });
 
-  it("offers a place no destination at all — places are top level only", async () => {
+  it("offers a place no destination at all: places are top level only", async () => {
     const options = await containers(seCustodianId, restrictedCategoryId);
     expect(options).toEqual([]);
   });
 
-  it("excludes an item the caller can see (org subtree reach) but does not custody — visibility alone is not write-eligibility", async () => {
+  it("excludes an item the caller can see (org subtree reach) but does not custody: visibility alone is not write-eligibility", async () => {
     // seHead is SE's MANAGER: broad read reach over the whole SE subtree, but never
     // custodies these items directly — assertCanMutate's own policy this endpoint
     // must mirror, so the picker never offers a destination the write path would 404.

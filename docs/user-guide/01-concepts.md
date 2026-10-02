@@ -12,7 +12,7 @@ Everything recorded is either a **place** or a **thing**.
 Things nest. A **lab** holds **workstations**. A workstation holds a **computer**, a **table** and a **chair**. The computer holds a **motherboard** (with **RAM** and **storage**), a **monitor**, a **keyboard** and so on.
 
 ```
-Software Laboratory — B510-R8          (Lab: block 510, room 8, 20 seats)
+Software Laboratory B510-R8          (Lab: block 510, room 8, 20 seats)
 ├── Workstation 01                     (Workstation Setup)
 │   ├── Computer
 │   │   ├── Motherboard ─ RAM, Storage
@@ -72,7 +72,7 @@ Changing a detail's kind **converts** the values ("16 GB" becomes 16). Values th
 - **You can see the whole university.** Every member of staff can look at any unit's resources (**Resources → Whole university**), to find something and ask for it. **Mine** shows what you look after or manage.
 - **Who changes what:**
   - custodians record what is in their labs (through the lab's changes);
-  - heads manage their department's places, the ADAA the college's stores, and Property Administration the Main Store — each choosing who runs them;
+  - heads manage their department's places, the ADAA the college's stores, and Property Administration the Main Store, each choosing who runs them;
   - heads, deans, the AVP, the College Managing Director and Property Administration approve;
   - the store keeper loads and moves stock;
   - the system administrator sets things up and makes corrections.

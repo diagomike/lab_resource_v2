@@ -53,7 +53,7 @@ export default function ProfilePage() {
             ))}
           </dd>
           <dt className="text-dim">Unit</dt>
-          <dd>{me?.scope?.name ?? <span className="text-faint">— no unit scope</span>}</dd>
+          <dd>{me?.scope?.name ?? <span className="text-faint">No unit scope</span>}</dd>
           <dt className="text-dim">Cost visibility</dt>
           <dd>
             {me?.canSeeCost ? (
@@ -177,7 +177,7 @@ function DisplayPanel() {
             onClick={toggle}
             className="border border-border2 bg-panel h-28 px-9 rounded-3 text-12.5"
           >
-            {theme === "dark" ? "◑ Dark" : "◐ Light"} — switch to {theme === "dark" ? "light" : "dark"}
+            {theme === "dark" ? "◑ Dark" : "◐ Light"} · switch to {theme === "dark" ? "light" : "dark"}
           </button>
         </div>
         <div>
@@ -188,7 +188,7 @@ function DisplayPanel() {
           <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-6">Typeface</div>
           <SegmentedChoice options={FONT_FAMILIES} value={fontFamily} onChange={setFontFamily} />
           <div className="text-11 text-faint mt-4">
-            Numbers, tags and dates always stay in IBM Plex Mono, whatever you pick here — that's what keeps them
+            Numbers, tags and dates always stay in IBM Plex Mono, whatever you pick here. That's what keeps them
             easy to compare at a glance.
           </div>
         </div>

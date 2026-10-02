@@ -106,7 +106,7 @@ export type RequestTransferResultDto = z.infer<typeof RequestTransferResultDto>;
 
 /** Register markers for pending transfers: the top-most items a pending transfer or
  *  handover will move → which request, and a readable line ("In a pending handover to
- *  Switch Rack in Software Laboratory — B510-R11"). */
+ *  Switch Rack in Software Laboratory B510-R11"). */
 export const PendingTransferMarkersDto = z.record(z.string(), z.object({ requestId: z.string(), line: z.string() }));
 export type PendingTransferMarkersDto = z.infer<typeof PendingTransferMarkersDto>;
 
@@ -114,3 +114,45 @@ export type PendingTransferMarkersDto = z.infer<typeof PendingTransferMarkersDto
  *  uses for this category, if any, and the names the items would take. */
 export const TransferNamingDto = z.object({ suggested: z.string().nullable(), planned: z.array(z.string()) });
 export type TransferNamingDto = z.infer<typeof TransferNamingDto>;
+
+// ── What an approver reads before deciding a transfer ───────────────────
+
+/** One resource a transfer moves, as it stands in the register now. `from` and the
+ *  place paths are names from the top (the lab or store) down. */
+export const TransferDetailItemDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryName: z.string(),
+  status: z.string(),
+  /** BULK stock: how much, and in what. Null for a single counted item. */
+  qty: z.number().nullable(),
+  unit: z.string().nullable(),
+  from: z.array(z.string()),
+  ownerUnitName: z.string(),
+  holderUnitName: z.string(),
+  custodianName: z.string(),
+  /** The category's recorded details and the item's own, as label → readable value. */
+  details: z.array(z.object({ label: z.string(), value: z.string() })),
+  /** What travels inside it, by kind ("Monitor ×1"), and how many in all. */
+  parts: z.array(z.object({ name: z.string(), count: z.number() })),
+  partsTotal: z.number(),
+  /** Edited in the register since the request was raised — the approver should look again. */
+  changedSinceAsked: z.boolean(),
+  /** No longer in the register at all. */
+  removed: z.boolean(),
+});
+export type TransferDetailItemDto = z.infer<typeof TransferDetailItemDto>;
+
+export const TransferDetailsDto = z.object({
+  movementTitle: z.string(),
+  items: z.array(TransferDetailItemDto),
+  to: z.object({
+    place: z.array(z.string()),
+    unitName: z.string(),
+    /** Who will answer for it once it lands — null when custody stays as it is. */
+    custodianName: z.string().nullable(),
+    /** Whether the receiving unit becomes its owner (a permanent move) or only holds it. */
+    ownershipMoves: z.boolean(),
+  }),
+});
+export type TransferDetailsDto = z.infer<typeof TransferDetailsDto>;

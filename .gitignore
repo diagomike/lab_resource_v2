@@ -23,6 +23,7 @@ prisma/.e2e-fixture-state.json
 
 # E2E campaign (e2e/, docs/e2e-findings-2026-09-15.md)
 e2e/.sessions.json
+e2e/.guide-state.json
 e2e/results.json
 e2e/mail/
 e2e/.state.json

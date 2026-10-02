@@ -98,13 +98,13 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
                 <span className="text-dim">{payment.providers.find((p) => p.id === a.provider)?.label ?? a.provider}</span>
                 {a.amountSantim !== null && <span className="font-mono">{formatEtb(a.amountSantim)}</span>}
                 <Tag tone={paymentTone(a.status)}>{PAYMENT_STATUS_LABEL[a.status]}</Tag>
-                {a.reason && <span className="text-dim">— {a.reason}</span>}
+                {a.reason && <span className="text-dim">– {a.reason}</span>}
               </div>
             ))}
           </div>
         )}
 
-        {payment.canSubmit && payment.providers.length === 0 && <div className="text-dim">Online payment confirmation is not available yet — please send your receipt to the university's office.</div>}
+        {payment.canSubmit && payment.providers.length === 0 && <div className="text-dim">Online payment confirmation is not available yet. Please send your receipt to the university's office.</div>}
 
         {payment.canSubmit && payment.providers.length > 0 && (
           <div className="flex flex-col gap-8 border-t border-border pt-10">
@@ -169,7 +169,7 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
                 )}
               </div>
             )}
-            {outcome?.outcome === "VERIFIED" && <div className="text-good">Payment confirmed{outcome.tracking.status === "SCHEDULED" ? " — your booking is confirmed." : "."}</div>}
+            {outcome?.outcome === "VERIFIED" && <div className="text-good">Payment confirmed{outcome.tracking.status === "SCHEDULED" ? ". Your booking is confirmed." : "."}</div>}
             {outcome?.outcome === "PENDING_REVIEW" && <div className="text-dim">Sent to the university's office. You will be emailed once they have checked it.</div>}
             {error && <ErrorNote>{error}</ErrorNote>}
 

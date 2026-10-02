@@ -118,7 +118,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("custom properties — creation, persistence, and typing", () => {
+describe("custom properties: creation, persistence, and typing", () => {
   it("creates a custom property, persists its exact type and value across a reload, and logs an audit line naming the key", async () => {
     const before = await prisma.item.findUniqueOrThrow({ where: { id: seItemId } });
     const result = await write(seCustodianId, {
@@ -168,7 +168,7 @@ describe("custom properties — creation, persistence, and typing", () => {
   });
 });
 
-describe("custom properties — collisions and validation", () => {
+describe("custom properties: collisions and validation", () => {
   it("refuses a duplicate custom-property key on the same item", async () => {
     const before = await getOne(seCustodianId, seItemId);
     await write(seCustodianId, {
@@ -209,7 +209,7 @@ describe("custom properties — collisions and validation", () => {
   });
 });
 
-describe("custom properties — version conflicts, authorization, and scope", () => {
+describe("custom properties: version conflicts, authorization, and scope", () => {
   it("refuses a stale addCustomProperty write and applies nothing", async () => {
     const before = await getOne(seCustodianId, seItemId);
     await expect(
@@ -265,7 +265,7 @@ describe("custom properties — version conflicts, authorization, and scope", ()
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it("still refuses a MANAGER from a DIFFERENT department — the widening is subtree-scoped, not blanket", async () => {
+  it("still refuses a MANAGER from a DIFFERENT department: the widening is subtree-scoped, not blanket", async () => {
     const before = await getOne(sysAdminId, seItemId);
     await expect(
       write(chemHeadId, {
@@ -296,7 +296,7 @@ describe("custom properties — version conflicts, authorization, and scope", ()
     expect(result.applied).toBe(1);
   });
 
-  it("keeps custom-property key discovery scoped per department — an SE custodian's filter fields never name a ChemE item's custom key, and vice versa", async () => {
+  it("keeps custom-property key discovery scoped per department: an SE custodian's filter fields never name a ChemE item's custom key, and vice versa", async () => {
     const seFields = await filterFields(seCustodianId, []);
     const chemFields = await filterFields(chemCustodianId, []);
 

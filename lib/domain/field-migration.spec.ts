@@ -36,7 +36,7 @@ const item = (id: string, props: Item["props"], customProps: Item["customProps"]
 const text = (key: string, label = key): FieldDef => ({ key, label, type: "text" });
 const num = (key: string, label = key, unit?: string): FieldDef => ({ key, label, type: "number", unit });
 
-describe("convertValue — reading a stored value as a new type", () => {
+describe("convertValue: reading a stored value as a new type", () => {
   it("reads numbers out of everyday text, units and thousands separators included", () => {
     expect(convertValue("16", num("ram"))).toEqual({ ok: true, value: 16 });
     expect(convertValue("16 GB", num("ram"))).toEqual({ ok: true, value: 16 });
@@ -66,7 +66,7 @@ describe("convertValue — reading a stored value as a new type", () => {
   });
 });
 
-describe("planCategoryMigration — nothing is lost silently", () => {
+describe("planCategoryMigration: nothing is lost silently", () => {
   it("Room from text to number: convertible values convert, the rest are kept as an extra detail", () => {
     const before = category([text("room", "Room")]);
     const after = category([num("room", "Room")]);
@@ -115,7 +115,7 @@ describe("generated keys", () => {
     expect(fieldKeyFor("Serial no.", [])).toBe("serial_no");
     expect(fieldKeyFor("Room", ["room"])).toBe("room_2");
     expect(fieldKeyFor("3D size", [])).toBe("d_3d_size");
-    expect(fieldKeyFor("—", [])).toBe("detail");
+    expect(fieldKeyFor("–", [])).toBe("detail");
   });
 
   it("category keys come from the name", () => {

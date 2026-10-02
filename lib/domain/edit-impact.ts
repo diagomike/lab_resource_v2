@@ -86,7 +86,7 @@ export function childrenImpact(index: TreeIndex, categories: Record<string, Cate
       severity: "destructive",
       title: `Deleting ${plural(plan.remove.length, "child", "children")}`,
       detail: nested
-        ? `${plural(rows, "row")} in total — the ${plural(plan.remove.length, "child", "children")} plus ${plural(nested, "nested item")} inside. This cannot be undone.`
+        ? `${plural(rows, "row")} in total: the ${plural(plan.remove.length, "child", "children")} plus ${plural(nested, "nested item")} inside. This cannot be undone.`
         : `${plural(rows, "row")} in total. This cannot be undone.`,
     });
     if (criticals.length) {
@@ -107,7 +107,7 @@ export function childrenImpact(index: TreeIndex, categories: Record<string, Cate
       id: `children-add-${entry.categoryId}`,
       severity: "info",
       title: `Adding ${entry.count} × ${cat.name}`,
-      detail: per > 1 ? `Each is scaffolded with its default parts — ${plural(entry.count * per, "new row")} in total.` : `${plural(entry.count, "new row")}.`,
+      detail: per > 1 ? `Each is scaffolded with its default parts: ${plural(entry.count * per, "new row")} in total.` : `${plural(entry.count, "new row")}.`,
     });
   }
 
@@ -129,7 +129,7 @@ function requiredGapNote(f: { key: string; label: string }, lacking: number): Im
   return {
     id: `cat-field-required-${f.key}`,
     severity: "warning",
-    title: `“${f.label || f.key}” becomes required — ${plural(lacking, "existing item")} ${lacking === 1 ? "has" : "have"} none`,
+    title: `“${f.label || f.key}” becomes required: ${plural(lacking, "existing item")} ${lacking === 1 ? "has" : "have"} none`,
     detail: "Fill them in now with one value, or leave them blank: they are asked for it on their next edit. Imports and automatic parts are never blocked.",
     fill: { key: f.key, label: f.label || f.key, count: lacking },
   };
@@ -195,7 +195,7 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
         id: `cat-field-custom-collision-${f.key}`,
         severity: "warning",
         title: `"${f.label || f.key}" already exists as a custom property on ${plural(colliding.length, "item")}`,
-        detail: `Those items keep their own custom value under that name, separate from this new field — the two will show side by side, not merged, which may read as duplicated or confusing.`,
+        detail: `Those items keep their own custom value under that name, separate from this new field. The two will show side by side, not merged, which may read as duplicated or confusing.`,
       });
     }
   }
@@ -265,7 +265,7 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
       title: `Counted as ${after.countingMode === "BULK" ? "a quantity" : "individual units"} instead`,
       detail:
         after.countingMode === "SERIALIZED"
-          ? `Quantities already recorded on ${plural(count, "item")} stop being meaningful — each row becomes one unit.`
+          ? `Quantities already recorded on ${plural(count, "item")} stop being meaningful. Each row becomes one unit.`
           : `${plural(count, "item")} that ${count === 1 ? "was" : "were"} one unit each now carries a quantity, starting from whatever is stored.`,
     });
   }
@@ -279,7 +279,7 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
       id: `cat-part-removed-${catId}`,
       severity: "info",
       title: `No longer built with ${part.qty} × ${nameOf(catId, after, before)}`,
-      detail: `Existing items keep the parts they already have — this only changes what gets scaffolded next time.`,
+      detail: `Existing items keep the parts they already have. This only changes what gets scaffolded next time.`,
     });
   }
   for (const [catId, part] of afterParts) {
@@ -288,7 +288,7 @@ export function categoryImpact(before: Category, after: Category, items: Item[])
       id: `cat-part-added-${catId}`,
       severity: "info",
       title: `Now built with ${part.qty} × ${nameOf(catId, after, before)}`,
-      detail: count ? `${plural(count, "existing item")} ${count === 1 ? "does" : "do"} not gain this retroactively — add it per item from the Children tab.` : "Applies to items created from now on.",
+      detail: count ? `${plural(count, "existing item")} ${count === 1 ? "does" : "do"} not gain this retroactively. Add it per item from the Children tab.` : "Applies to items created from now on.",
     });
   }
 

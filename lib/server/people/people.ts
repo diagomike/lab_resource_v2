@@ -156,7 +156,7 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
       const targetNode = await tx.orgNode.findUnique({ where: { id: nodeId } });
       if (!targetNode) throw new HttpError(400, "Org node not found");
       if (targetNode.userId) {
-        throw new HttpError(400, `"${targetNode.name}" already has an occupant — use a transition to replace them`);
+        throw new HttpError(400, `"${targetNode.name}" already has an occupant: use a transition to replace them`);
       }
       await tx.orgNode.update({ where: { id: nodeId }, data: { userId: user.id } });
       await tx.orgNodeAssignment.create({
@@ -243,7 +243,7 @@ async function assertNotLastActiveAdmin(targetUserId: string, action: string): P
     where: { id: { not: targetUserId }, status: "ACTIVE", roles: { some: { kind: "SYS_ADMIN" } } },
   });
   if (otherActiveAdmins === 0) {
-    throw new HttpError(400, `Cannot ${action} this person — they are the last active system administrator.`);
+    throw new HttpError(400, `Cannot ${action} this person. They are the last active system administrator.`);
   }
 }
 
@@ -312,7 +312,7 @@ export async function deactivate(actorUserId: string, actorRoles: RoleKind[], id
   // (setCustodian, singly or in bulk) then deactivate.
   const custodyCount = await prisma.item.count({ where: { custodianId: id } });
   if (custodyCount > 0) {
-    throw new HttpError(400, `Cannot deactivate "${user.name}" — they are custodian of ${custodyCount} resource(s); reassign custody first`);
+    throw new HttpError(400, `Cannot deactivate "${user.name}": they are custodian of ${custodyCount} resource(s); reassign custody first`);
   }
 
   return prisma.$transaction(async (tx) => {
@@ -399,7 +399,7 @@ export async function issueInvitation(
     to: user.email,
     subject: "Your ASTU Lab Resources invitation",
     html: `<p>Hello ${escapeHtml(user.name)},</p>
-           <p>Here is a fresh invitation link — the previous one, if any, no longer works. This link expires in ${INVITATION_TTL_DAYS} days.</p>
+           <p>Here is a fresh invitation link. The previous one, if any, no longer works. This link expires in ${INVITATION_TTL_DAYS} days.</p>
            <p><a href="${inviteUrl}">Accept your invitation and set a password</a></p>`,
   });
   return inviteUrl;
@@ -412,8 +412,8 @@ async function loadRegisteredForHelp(actorUserId: string, actorRoles: RoleKind[]
   const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");
   await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
-  if (user.status === "DISABLED") throw new HttpError(400, "This account is deactivated — reactivate it first.");
-  if (!user.passwordHash) throw new HttpError(400, "This person hasn't registered yet — send their invite link instead.");
+  if (user.status === "DISABLED") throw new HttpError(400, "This account is deactivated. Reactivate it first.");
+  if (!user.passwordHash) throw new HttpError(400, "This person hasn't registered yet. Send their invite link instead.");
   return user;
 }
 
@@ -430,7 +430,7 @@ export async function sendPasswordReset(actorUserId: string, actorRoles: RoleKin
     html: `<p>Hello ${escapeHtml(user.name)},</p>
            <p>An administrator sent you a password reset link. It expires in ${PASSWORD_RESET_TTL_HOURS} hours.</p>
            <p><a href="${APP_ORIGIN}/reset-password?token=${raw}">Choose a new password</a></p>
-           <p>If you did not ask for this, you can ignore this email — your password will not change.</p>`,
+           <p>If you did not ask for this, you can ignore this email. Your password will not change.</p>`,
   });
 }
 
@@ -453,7 +453,7 @@ export async function setTemporaryPassword(actorUserId: string, actorRoles: Role
     to: user.email,
     subject: "Your ASTU Lab Resources password was reset",
     html: `<p>Hello ${escapeHtml(user.name)},</p>
-           <p>An administrator set a temporary password on your account. They will give it to you directly — you'll be asked to choose your own the first time you sign in.</p>
+           <p>An administrator set a temporary password on your account. They will give it to you directly. You'll be asked to choose your own the first time you sign in.</p>
            <p>If you weren't expecting this, contact your administrator.</p>`,
   });
   return { temporaryPassword };
@@ -571,7 +571,7 @@ export async function moveHomeNode(actorUserId: string, targetUserId: string, in
   if (openNeeds > 0) blockers.push(`has ${openNeeds} open purchasing need(s)`);
   if (openDrafts > 0) blockers.push(`has ${openDrafts} lab change list(s) not yet decided`);
   if (blockers.length > 0) {
-    throw new HttpError(400, `Cannot move "${target.name}" — they ${blockers.join("; ")}. Resolve these first, or move them after they're cleared.`);
+    throw new HttpError(400, `Cannot move "${target.name}": they ${blockers.join("; ")}. Resolve these first, or move them after they're cleared.`);
   }
 
   await prisma.$transaction([

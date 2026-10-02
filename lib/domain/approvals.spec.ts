@@ -41,7 +41,7 @@ function chain(selectors: StepSelector[], over: Partial<Parameters<typeof buildC
   });
 }
 
-describe("mayRequestTransfer — who may ask to move resources", () => {
+describe("mayRequestTransfer: who may ask to move resources", () => {
   const person = (roles: RoleKind[]): Person => ({ id: "x", name: "x", homeOrgNodeId: "se", roles });
 
   it("custodians, heads, the store keeper and the admin may ask", () => {
@@ -54,7 +54,7 @@ describe("mayRequestTransfer — who may ask to move resources", () => {
   });
 });
 
-describe("buildChain — the org chart is the route", () => {
+describe("buildChain: the org chart is the route", () => {
   it("walks up from the owning unit, nearest office first", () => {
     const steps = chain([{ type: "HIERARCHY", stopAtKind: "UNIVERSITY" }]);
     expect(steps.map((s) => s.nodeId)).toEqual(["coeec", "astu"]);
@@ -117,7 +117,7 @@ describe("a vacant office blocks", () => {
     // The walk is over the owning unit's ANCESTORS, so it starts at the college.
     expect(steps.map((s) => s.nodeId)).toEqual(["coeec", "astu"]);
     expect(describeChain(steps, { nodes: headless })).toBe(
-      "College — College of Electrical Engineering and Computing — currently vacant → University — Adama Science and Technology University",
+      "College: College of Electrical Engineering and Computing: currently vacant → University: Adama Science and Technology University",
     );
   });
 
@@ -239,7 +239,7 @@ describe("canDecide is occupancy, checked live", () => {
 });
 
 describe("describeSelectors states a rule without naming a department", () => {
-  it("says the relation, not the unit — the same rule covers every pair", () => {
+  it("says the relation, not the unit: the same rule covers every pair", () => {
     expect(describeSelectors([{ type: "ITEM_CUSTODIAN" }, { type: "OWNER_HEAD" }, { type: "TARGET_HEAD" }, { type: "REQUESTER_RECEIPT" }], ORG_NODES)).toBe(
       "Current custodian → Head of the owning unit → Head of the receiving unit → Requester confirms receipt",
     );
@@ -275,7 +275,7 @@ describe("describeSelectors states a rule without naming a department", () => {
     for (const selector of every) {
       expect(describeSelectors([selector], ORG_NODES)).not.toBe("");
     }
-    expect(describeSelectors([], ORG_NODES)).toBe("nobody — applies immediately");
+    expect(describeSelectors([], ORG_NODES)).toBe("nobody: applies immediately");
   });
 
   it("shows every step of a movement's line", () => {
@@ -283,7 +283,7 @@ describe("describeSelectors states a rule without naming a department", () => {
   });
 });
 
-describe("movementChain — the line each movement walks", () => {
+describe("movementChain: the line each movement walks", () => {
   const offices = { cmdNodeId: "cmd-office", propertyNodeId: "property-office" };
   const types = (selectors: StepSelector[]) => selectors.map((s) => (s.type === "NODE_OCCUPANT" ? s.nodeId : s.type));
 
@@ -335,7 +335,7 @@ describe("movementChain — the line each movement walks", () => {
   });
 });
 
-describe("collapseRepeatedApprovers — one person, one signature", () => {
+describe("collapseRepeatedApprovers: one person, one signature", () => {
   it("skips a later consent step the same person already holds, but never an acceptance or a receipt", () => {
     const steps = collapseRepeatedApprovers(
       buildChain([{ type: "ITEM_CUSTODIAN" }, { type: "OWNER_HEAD" }, { type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }, { type: "REQUESTER_RECEIPT" }], {

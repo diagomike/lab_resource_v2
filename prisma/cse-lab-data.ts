@@ -107,7 +107,7 @@ export function labCounts(required: number): { present: number; brokenPcs: numbe
   return { present: DESIGNED_FOR, brokenPcs: Math.min(DESIGNED_FOR, required - (IDEAL - DESIGNED_FOR)) };
 }
 
-export const labName = (l: Pick<LabSpec, "block" | "room">) => `Software Laboratory — B${l.block}-R${l.room}`;
+export const labName = (l: Pick<LabSpec, "block" | "room">) => `Software Laboratory B${l.block}-R${l.room}`;
 
 /** mulberry32 — small, deterministic, good enough to pick "which ones are broken". */
 function prng(seed: number): () => number {

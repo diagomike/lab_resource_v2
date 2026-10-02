@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { HomeDto, NotificationDto } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { useHomeCounts } from "@/lib/home-counts";
+import { useNavFacts } from "@/lib/auth-context";
 import { timeAgo } from "@/components/shell/Bell";
 import { InlineError, PanelLoading } from "@/components/states";
 import { Panel, Screen, Tag } from "@/components/ui";
+import { DashboardBody } from "@/components/resources/DashboardPage";
+import { useShellHeader } from "@/app/(workspace)/layout";
 
 /**
  * Home — everyone's landing page. One next step at the top (the single most useful
@@ -104,8 +107,49 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "go
   );
 }
 
+/**
+ * What waits for someone whose Home is Insights: one small card per kind of thing, and
+ * nothing at all when nothing does. Secondary on purpose: the page is the overview.
+ */
+function PendingCards({ home }: { home: HomeDto }) {
+  const cards: { key: string; label: string; value?: string; detail?: string; path: string }[] = [
+    ...home.waiting.map((w) => ({ key: `waiting-${w.kind}`, label: w.label, value: String(w.count), path: w.path })),
+    ...home.unfinished.map((u) => ({ key: `unfinished-${u.path}`, label: u.label, detail: u.detail, path: u.path })),
+    ...(home.mine.length ? [{ key: "mine", label: "Your requests still open", value: String(home.mine.length), path: "/approvals?box=mine" }] : []),
+    ...(home.dueSoon.length ? [{ key: "due", label: "Dates falling due", value: String(home.dueSoon.length), path: home.dueSoon[0].path }] : []),
+  ];
+  if (!cards.length) return null;
+  return (
+    <section aria-label="Waiting for you" className="flex flex-col gap-6">
+      <div className="text-10.5 uppercase tracking-label text-faint font-semibold">Waiting for you</div>
+      <div className="flex flex-wrap gap-8">
+        {cards.map((c) => (
+          <Link
+            key={c.key}
+            href={c.path}
+            style={{ textDecoration: "none" }}
+            className="flex items-center gap-10 border border-border bg-panel rounded-3 px-12 py-8 text-text hover:border-accent hover:bg-panel2 min-w-0 max-w-full"
+          >
+            {c.value && <span className="text-13 font-semibold font-mono text-accent flex-none">{c.value}</span>}
+            <span className="min-w-0">
+              <span className="block text-11.5 leading-snug">{c.label}</span>
+              {c.detail && <span className="block text-11 text-dim truncate">{c.detail}</span>}
+            </span>
+            <span className="text-faint text-11 flex-none" aria-hidden="true">
+              ›
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function HomePage() {
   const router = useRouter();
+  // The AVP watches the whole university: their Home is Insights, filters and all.
+  const insightsHome = useNavFacts().caps?.isAvp ?? false;
+
   const { refresh: refreshCounts } = useHomeCounts();
   const [home, setHome] = useState<HomeDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,10 +169,23 @@ export default function HomePage() {
     load();
   }, [load]);
 
+  // Set once Home's own load settles: the shell clears screen headers on navigation,
+  // after this page's first effects run.
+  useShellHeader(insightsHome ? { title: "Home", subtitle: "The university's resources and their condition, and anything waiting for you" } : {}, [insightsHome, home, error]);
+
   async function openNotice(n: NotificationDto) {
     if (!n.read) await api.post("/notifications/read", { ids: [n.id] }).catch(() => {});
     refreshCounts();
     router.push(n.path);
+  }
+
+  if (insightsHome) {
+    // Pending work only adds cards above; if it can't load, the overview still shows.
+    return (
+      <Suspense fallback={<Screen><Panel><PanelLoading rows={6} /></Panel></Screen>}>
+        <DashboardBody lead={home ? <PendingCards home={home} /> : null} />
+      </Suspense>
+    );
   }
 
   if (error) {
@@ -249,7 +306,7 @@ export default function HomePage() {
               <div className="flex flex-wrap">
                 <Stat label="Labs & stores" value={g.places.toLocaleString()} />
                 <Stat label="Items" value={g.items.toLocaleString()} />
-                <Stat label="Working" value={pct === null ? "—" : `${pct}%`} tone={pct !== null && pct >= 90 ? "good" : "warn"} />
+                <Stat label="Working" value={pct === null ? "–" : `${pct}%`} tone={pct !== null && pct >= 90 ? "good" : "warn"} />
                 <Stat label="Need attention" value={g.attention.toLocaleString()} tone={g.attention ? "warn" : undefined} />
               </div>
             </Panel>

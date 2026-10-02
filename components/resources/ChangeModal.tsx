@@ -29,7 +29,7 @@ const KINDS: Array<{ kind: ChangeKind; label: string; blurb: string }> = [
   {
     kind: "moveInTree",
     label: "Position",
-    blurb: "Move it somewhere else in the tree. Owning unit and custodian stay as they are — position and accountability are separate facts.",
+    blurb: "Move it somewhere else in the tree. Owning unit and custodian stay as they are: position and accountability are separate facts.",
   },
   { kind: "deleteItem", label: "Delete", blurb: "Remove this resource and everything physically nested inside it." },
 ];
@@ -112,7 +112,7 @@ export function ChangeModal({
 
   const custodianOptions = (() => {
     const byId = new Map(options.custodian.map((o) => [o.value, o.label]));
-    for (const p of people) byId.set(p.id, p.homeNodeName ? `${p.name} — ${p.homeNodeName}` : p.name);
+    for (const p of people) byId.set(p.id, p.homeNodeName ? `${p.name}: ${p.homeNodeName}` : p.name);
     return [...byId.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
   })();
 
@@ -160,7 +160,7 @@ export function ChangeModal({
           : null;
 
   const currentLabel = currentLabelFor(kind, item);
-  const newLabel = kind === "deleteItem" ? "Delete this resource and its contents" : (selectOptions.find((o) => o.value === value)?.label ?? "—");
+  const newLabel = kind === "deleteItem" ? "Delete this resource and its contents" : (selectOptions.find((o) => o.value === value)?.label ?? "–");
   const unchanged = kind !== "deleteItem" && value === currentValueFor(kind, item);
 
   async function submit() {
@@ -175,7 +175,7 @@ export function ChangeModal({
             : { kind, itemIds: [item.id], value, note: note.trim() || undefined, expectedVersions };
       const result = await api.post<ItemChangeResultDto>("/resources/items/changes", input);
       if (result?.staged) {
-        toast.success(`Added to ${result.staged.labName}'s changes — not sent to the head yet`, { href: `/places/${result.staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+        toast.success(`Added to ${result.staged.labName}'s changes, not sent to the head yet`, { href: `/places/${result.staged.labItemId}?tab=draft`, linkLabel: "My changes" });
       } else {
         toast.success(kind === "deleteItem" ? `Removed ${item.name}` : `Saved ${item.name}`);
       }
@@ -251,7 +251,7 @@ export function ChangeModal({
 
       {stages && (
         <div className="text-11 text-dim bg-soft border border-accent rounded-2 px-8 py-6">
-          This joins the lab&apos;s changes. Send them to the department head when you&apos;re done — the register changes once the head approves.
+          This joins the lab&apos;s changes. Send them to the department head when you&apos;re done. The register changes once the head approves.
         </div>
       )}
 

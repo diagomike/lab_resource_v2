@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     // Refused before a byte is read when the declared size is already over.
     const declaredLength = Number(request.headers.get("content-length") ?? "");
     if (Number.isFinite(declaredLength) && declaredLength > ATTACHMENT_LIMITS.fileBytes) {
-      throw new HttpError(400, `That file is ${formatBytes(declaredLength)} — the limit is ${formatBytes(ATTACHMENT_LIMITS.fileBytes)} a file.`);
+      throw new HttpError(400, `That file is ${formatBytes(declaredLength)}: the limit is ${formatBytes(ATTACHMENT_LIMITS.fileBytes)} a file.`);
     }
 
     const bytes = Buffer.from(await request.arrayBuffer());

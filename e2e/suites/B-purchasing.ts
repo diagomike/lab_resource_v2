@@ -17,7 +17,7 @@ async function main() {
   const mat = await nodeId("Materials Science and Engineering");
   const [computer, chemical, chair] = await Promise.all([catId("computer"), catId("chemical"), catId("chair")]);
   const mainStore = await db.item.findFirstOrThrow({ where: { name: "ASTU Main Store" } });
-  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
+  const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X Software Lab 3" } });
 
   let needId = "";
   await check(B, "B-01", "needs: the lab's custodian raises one; a custodian of another lab is refused; only the head lists and declines", async () => {
@@ -39,6 +39,17 @@ async function main() {
     const row = await pr(reqId);
     const need = await db.needLine.findUniqueOrThrow({ where: { id: needId } });
     return { ok: r.status === 200 && row.stage === "APPROVING" && need.status === "CARRIED", evidence: { status: r.status, reference: row.reference, chain: row.steps.map((s) => `${s.label} [${s.status}]`), needStatus: need.status } };
+  });
+
+  await check(B, "B-02b", "details: the dean reads each line's kind and the lab need behind it (lab, who, priority, why); another unit's head 404", async () => {
+    const d = await get("deanCoeec", `/resources/purchase-requests/${reqId}/details`);
+    const outsider = await get("headChem", `/resources/purchase-requests/${reqId}/details`);
+    const osc = d.body?.lines?.find((l: any) => l.needs?.length);
+    const need = osc?.needs?.[0];
+    return {
+      ok: d.status === 200 && outsider.status === 404 && d.body.lines.length === 2 && need?.id === needId && need?.labName === girmaLab.name && need?.raisedById === S.custSe.id && need?.priority === "ESSENTIAL" && need?.reason === "Signals lab" && Boolean(osc?.categoryName),
+      evidence: { status: d.status, outsider: outsider.status, lines: d.body?.lines?.map((l: any) => ({ kind: l.categoryName, needs: l.needs.map((n: any) => `${n.labName} · ${n.raisedByName} · ${n.priority} · “${n.reason}”`) })) },
+    };
   });
 
   await check(B, "B-03", "custodian cannot compile; head of another unit cannot compile for SE", async () => {

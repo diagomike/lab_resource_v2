@@ -122,6 +122,13 @@ function renderChapter(id, file) {
       mermaidIndex += 1;
       const src = `/help/img/diagrams/${path.basename(file, ".md")}-${mermaidIndex}.svg`;
       if (!fs.existsSync(path.join(ROOT, "public", src))) throw new Error(`${file}: no pre-rendered diagram ${src}`);
+      // An <img> SVG must be strict XML — Mermaid's HTML labels write a bare <br>, and the
+      // browser then shows a broken image instead of the diagram.
+      const svg = fs.readFileSync(path.join(ROOT, "public", src), "utf8");
+      if (/<br>|&nbsp;/.test(svg)) throw new Error(`${src}: not valid XML (bare <br> or &nbsp;) — it would show as a broken image`);
+      // Its own pixel size, so a long flow shows full size and scrolls sideways (globals.css)
+      // instead of shrinking to an unreadable strip; Mermaid writes width="100%".
+      if (!/^<svg[^>]*\swidth="[\d.]+"[^>]*\sheight="[\d.]+"/.test(svg)) throw new Error(`${src}: give the <svg> a pixel width and height (its viewBox size)`);
       const { url, size } = asset(src);
       return `<figure class="diagram"><img src="${url}" alt="Flow diagram"${dims(size)} loading="lazy"></figure>`;
     }

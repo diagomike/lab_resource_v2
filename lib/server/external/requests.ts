@@ -226,7 +226,7 @@ export async function submitRequest(
     if (!isCivilDate(w.date)) throw new HttpError(400, "One of the dates is not a real date.");
     if (minutesOf(w.end) <= minutesOf(w.start)) throw new HttpError(400, `On ${w.date}, the end time must be after the start time.`);
     const startsAt = civilToInstant(w.date, w.start, DEFAULT_TIME_ZONE);
-    if (startsAt.getTime() < now + 86_400_000) throw new HttpError(400, `${w.date} is too soon — ask for dates at least a day ahead.`);
+    if (startsAt.getTime() < now + 86_400_000) throw new HttpError(400, `${w.date} is too soon. Ask for dates at least a day ahead.`);
     return { date: dateColumn(w.date), startTimeLocal: w.start, endTimeLocal: w.end, startsAt, endsAt: civilToInstant(w.date, w.end, DEFAULT_TIME_ZONE), sortOrder: i };
   });
 
@@ -304,7 +304,7 @@ const PUBLIC_EVENT_LABEL: Record<string, string> = {
   PAYMENT_SUBMITTED: "Payment submitted for checking",
   PAYMENT_VERIFIED: "Payment received",
   PAYMENT_REJECTED: "Payment could not be verified",
-  SCHEDULED: "Payment confirmed — booking confirmed",
+  SCHEDULED: "Payment confirmed: booking confirmed",
   DECLINED: "Request declined",
   CANCELLED: "Request cancelled",
   EXPIRED: "Quote expired unpaid",
@@ -376,7 +376,7 @@ export async function requesterView(id: string): Promise<PublicTrackingDto> {
       ? bookings.map((b) => {
           const s = instantToCivil(b.startsAt, DEFAULT_TIME_ZONE);
           const machines = b.resources.filter((r) => r.item.id !== b.labItemId).map((r) => r.item.name);
-          return { place: machines.length ? `${machines.join(", ")} — ${b.lab.name}` : b.lab.name, date: s.date, start: s.time, end: instantToCivil(b.endsAt, DEFAULT_TIME_ZONE).time, confirmed: b.state === "CONFIRMED" };
+          return { place: machines.length ? `${machines.join(", ")}: ${b.lab.name}` : b.lab.name, date: s.date, start: s.time, end: instantToCivil(b.endsAt, DEFAULT_TIME_ZONE).time, confirmed: b.state === "CONFIRMED" };
         })
       : [],
     contacts: revealed ? departments.map((a) => ({ departmentName: a.orgNode.name, people: contactsOf(a) })).filter((c) => c.people.length) : [],
@@ -436,7 +436,7 @@ async function releaseHolds(tx: Prisma.TransactionClient, requestId: string, sta
 export async function cancelForRequester(userId: string, id: string): Promise<PublicTrackingDto> {
   await assertOwnRequest(userId, id);
   const row = await loadRow(id);
-  if (!cancellable(row)) throw new HttpError(409, "This request can no longer be cancelled here — contact the university.");
+  if (!cancellable(row)) throw new HttpError(409, "This request can no longer be cancelled here. Contact the university.");
   await prisma.$transaction(async (tx) => {
     await releaseHolds(tx, row.id, "CANCELLED");
     await tx.externalRequest.update({ where: { id: row.id }, data: { status: "CANCELLED", closingNote: "Cancelled by the requester." } });
@@ -701,7 +701,7 @@ export async function forward(userId: string, id: string, input: ForwardExternal
   if (!["SUBMITTED", "UNDER_REVIEW"].includes(row.status)) throw new HttpError(409, "This request is past review.");
   const ids = [...new Set(input.orgNodeIds)];
   const nodes = await prisma.orgNode.findMany({ where: { id: { in: ids }, active: true, kind: "COLLEGE" }, include: { user: { select: { email: true } } } });
-  if (nodes.length !== ids.length) throw new HttpError(400, "Choose active colleges — each dean sends it on to their departments.");
+  if (nodes.length !== ids.length) throw new HttpError(400, "Choose active colleges. Each dean sends it on to their departments.");
   const fresh = nodes.filter((n) => !row.assignments.some((a) => a.orgNodeId === n.id));
   if (!fresh.length) throw new HttpError(400, "It has already been sent to every college chosen.");
 
@@ -715,7 +715,7 @@ export async function forward(userId: string, id: string, input: ForwardExternal
     await mailStaff(
       n.user?.email,
       `External request ${row.reference} for ${n.name}`,
-      [`${esc(row.organizationName)} has asked the university for ${row.kind === "SAMPLE_ANALYSIS" ? "a sample analysis on a machine" : "rooms or labs"}. Send it on to the departments of your college that can host it — or decline it for the college.`, input.note ? `Note: ${esc(input.note)}` : ""].filter(Boolean),
+      [`${esc(row.organizationName)} has asked the university for ${row.kind === "SAMPLE_ANALYSIS" ? "a sample analysis on a machine" : "rooms or labs"}. Send it on to the departments of your college that can host it, or decline it for the college.`, input.note ? `Note: ${esc(input.note)}` : ""].filter(Boolean),
       paths.outside(row.id),
     );
   }
@@ -749,7 +749,7 @@ export async function forwardToDepartments(userId: string, collegeAssignmentId: 
       n.user?.email,
       `External request ${college.request.reference} for ${n.name}`,
       [
-        `${esc(college.request.organizationName)} has asked for ${college.request.kind === "SAMPLE_ANALYSIS" ? "a sample analysis" : "rooms or labs"}. Ask your custodians to hold what is needed on the requested dates, then send the dean the booked rooms, the cost breakdown and the contact persons — or decline.`,
+        `${esc(college.request.organizationName)} has asked for ${college.request.kind === "SAMPLE_ANALYSIS" ? "a sample analysis" : "rooms or labs"}. Ask your custodians to hold what is needed on the requested dates, then send the dean the booked rooms, the cost breakdown and the contact persons, or decline.`,
         input.note ? `Note from the dean: ${esc(input.note)}` : "",
       ].filter(Boolean),
       paths.outside(college.request.id),
@@ -785,7 +785,7 @@ export async function assignCustodians(userId: string, departmentAssignmentId: s
       `Hold ${dept.request.kind === "SAMPLE_ANALYSIS" ? "a machine" : "rooms"} for ${dept.request.reference}`,
       [
         `Your head asks you to hold <strong>${esc(t.want)}</strong> for ${esc(dept.request.organizationName)} on the dates they asked for.${input.note ? ` Note: ${esc(input.note)}` : ""}`,
-        "Hold the slots under <strong>External requests</strong>, then mark your part done — or say you can't.",
+        "Hold the slots under <strong>External requests</strong>, then mark your part done, or say you can't.",
       ],
       paths.outside(dept.request.id),
     );
@@ -838,7 +838,7 @@ export async function finishTask(userId: string, taskId: string, input: FinishTa
     const holds = await prisma.reservation.count({
       where: { externalRequestId: task.assignment.requestId, requestedById: task.custodianId, state: "HELD", lab: { OR: [{ ownerOrgNodeId: task.assignment.orgNodeId }, { currentOrgNodeId: task.assignment.orgNodeId }] } },
     });
-    if (!holds) throw new HttpError(400, "Hold at least one slot first — or say you can't.");
+    if (!holds) throw new HttpError(400, "Hold at least one slot first, or say you can't.");
   }
   const actor = await actorOf(userId);
   await prisma.$transaction(async (tx) => {
@@ -847,7 +847,7 @@ export async function finishTask(userId: string, taskId: string, input: FinishTa
   });
   await mailStaff(
     await emailOf(task.assignment.orgNode.userId),
-    `${task.custodian.name} ${input.outcome === "DONE" ? "has held" : "can't hold"} ${task.want} — ${task.assignment.request.reference}`,
+    `${task.custodian.name} ${input.outcome === "DONE" ? "has held" : "can't hold"} ${task.want}: ${task.assignment.request.reference}`,
     [input.note ? esc(input.note) : "No note.", "When every custodian has answered, send the dean the booked rooms, the cost breakdown and the contact persons."],
     paths.outside(task.assignment.request.id),
   );
@@ -908,7 +908,7 @@ export async function reviewAssignment(userId: string, assignmentId: string, inp
   } else {
     if (!a.parent) throw new HttpError(409, "This department answers the AVP directly.");
     if (!leads(access, a.parent.orgNodeId)) throw new HttpError(403, `Only the dean of ${a.parent.orgNode.name} reviews its departments.`);
-    if (!WORKING.includes(a.parent.status)) throw new HttpError(409, "The college has already answered — the AVP's office would have to send it back first.");
+    if (!WORKING.includes(a.parent.status)) throw new HttpError(409, "The college has already answered. The AVP's office would have to send it back first.");
     if (a.status !== "SUBMITTED" && a.status !== "APPROVED") throw new HttpError(409, "The department hasn't submitted its answer.");
     if (input.decision === "APPROVE" && a.status === "APPROVED") throw new HttpError(409, "Already approved.");
   }
@@ -932,7 +932,7 @@ export async function submitCollege(userId: string, collegeAssignmentId: string,
   if (!leads(access, college.orgNodeId)) throw new HttpError(403, `Only the dean of ${college.orgNode.name} answers for it.`);
   assertUnderReview(college.request);
   if (!WORKING.includes(college.status)) throw new HttpError(409, "The college has already answered.");
-  if (!collegeReady({ assignments: college.children }, college)) throw new HttpError(409, "Approve or decline every department's answer first — at least one approved.");
+  if (!collegeReady({ assignments: college.children }, college)) throw new HttpError(409, "Approve or decline every department's answer first: at least one approved.");
   const total = college.children.filter((c) => APPROVED.includes(c.status)).reduce((sum, c) => sum + (c.amountSantim ?? 0), 0);
 
   const actor = await actorOf(userId);
@@ -991,7 +991,7 @@ export async function sendQuote(userId: string, id: string, input: SendQuoteInpu
   await prisma.$transaction(async (tx) => {
     await tx.externalRequest.update({ where: { id }, data: { status: "QUOTED", quoteAmountSantim: input.amountSantim, quoteNote: input.note || null, quoteSentAt: new Date(), paymentDeadline: deadline } });
     await tx.reservation.updateMany({ where: { externalRequestId: id, state: "HELD" }, data: { holdExpiresAt: deadline } });
-    await event(tx, id, actor, "QUOTED", `${etb(input.amountSantim)}, payable by ${input.paymentDeadline}${input.note ? ` — ${input.note}` : ""}`);
+    await event(tx, id, actor, "QUOTED", `${etb(input.amountSantim)}, payable by ${input.paymentDeadline}${input.note ? `: ${input.note}` : ""}`);
   });
 
   const bank = bankDetails();

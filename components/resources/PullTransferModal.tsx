@@ -106,7 +106,7 @@ export function PullTransferModal({
       <Modal title="Transfer requested" onClose={onDone} width="440px">
         <div className="text-11.5 text-dim">
           {done.outcome === "APPLIED"
-            ? "Applied — it is already in your lab."
+            ? "Applied. It is already in your lab."
             : done.request.movement === "LOAN"
               ? "Requested. The holding unit decides first; you confirm receipt once it arrives. Track it under Approvals → Raised by me."
               : "Requested. The holding side and the offices on its chain decide first; you confirm receipt once it arrives, and it is then yours. Track it under Approvals → Raised by me."}
@@ -119,7 +119,7 @@ export function PullTransferModal({
   }
 
   return (
-    <Modal title={`Request ${label} to my lab`} onClose={onClose} width="480px">
+    <Modal title={`Request ${label} to my lab`} onClose={onClose} width="480px" dirty={!!note.trim() || permanent}>
       <div className="flex flex-col gap-6">
         <label className="text-10.5 uppercase tracking-label text-faint font-semibold">Into</label>
         {targets === null ? (
@@ -134,7 +134,7 @@ export function PullTransferModal({
       <div className="flex flex-col gap-6">
         <label className="text-10.5 uppercase tracking-label text-faint font-semibold">How</label>
         {fromStore ? (
-          <span className="text-11 text-dim">From the Main Store — it becomes your unit's, with you as its custodian.</span>
+          <span className="text-11 text-dim">From the Main Store. It becomes your unit's, with you as its custodian.</span>
         ) : (
           <div className="flex flex-col gap-4">
             {[
@@ -173,7 +173,7 @@ export function PullTransferModal({
           ) : preview.outcome === "DENIED" ? (
             <span className="text-bad">{preview.reason}</span>
           ) : preview.outcome === "APPLIED" ? (
-            <span className="text-dim">Applies immediately — no approval needed.</span>
+            <span className="text-dim">Applies immediately. No approval needed.</span>
           ) : (
             <span className="text-dim">
               Needs: {preview.steps?.filter((s) => s.status !== "SKIPPED").map((s) => (s.approverName ? `${s.label} (${s.approverName})` : s.label)).join(" → ")}

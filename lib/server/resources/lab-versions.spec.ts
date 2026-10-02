@@ -101,7 +101,7 @@ afterAll(async () => {
 }, 60_000);
 
 
-describe("Draft — staged from the register, merged on approval", () => {
+describe("Draft: staged from the register, merged on approval", () => {
   let labId: string;
   beforeAll(async () => {
     labId = await makeLab("LV Lab A", 3);
@@ -127,7 +127,7 @@ describe("Draft — staged from the register, merged on approval", () => {
     await versions.applyVersionEdit(custodianId, labId, "DRAFT", { kind: "deleteItem", itemIds: [(await itemNamed(labId, "Workstation 03")).id] });
   });
 
-  it("a department head can't edit a version — they only decide", async () => {
+  it("a department head can't edit a version: they only decide", async () => {
     await expect(versions.applyVersionEdit(headId, labId, "DRAFT", { kind: "setName", itemIds: [labId], value: "Renamed" })).rejects.toMatchObject({ status: 403 });
   });
 
@@ -157,7 +157,7 @@ describe("Draft — staged from the register, merged on approval", () => {
     expect(await prisma.labVersion.count({ where: { labItemId: labId, kind: "DRAFT" } })).toBe(0);
   });
 
-  it("a merge is refused as STALE when the register changed underneath it — nothing is overwritten", async () => {
+  it("a merge is refused as STALE when the register changed underneath it: nothing is overwritten", async () => {
     const ws = await itemNamed(labId, "Workstation 01");
     await versions.applyVersionEdit(custodianId, labId, "DRAFT", { kind: "setStatus", itemIds: [ws.id], value: "UNDER_MAINTENANCE" });
     const request = await versions.submitVersion(custodianId, labId, "DRAFT");
@@ -209,7 +209,7 @@ describe("Draft — staged from the register, merged on approval", () => {
   });
 });
 
-describe("Deciding — only the lab's own head", () => {
+describe("Deciding: only the lab's own head", () => {
   let labId: string;
   beforeAll(async () => {
     labId = await makeLab("LV Lab B", 2);

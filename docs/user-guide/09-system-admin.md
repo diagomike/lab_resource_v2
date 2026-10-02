@@ -22,7 +22,7 @@ Your **Home** adds **Loose ends**: posts nobody holds (a department without a he
 
 ## 2. Organisation
 
-**Organisation** draws the structure: the university, its colleges and their departments, and offices such as Procurement, Property Administration, the College Managing Director, ICT and each college's ADAA office. Use **Graph** for the map, or **Cards** (easier on a phone).
+**Organisation** draws the structure: the university, its colleges and their departments, and offices such as Procurement, Property Administration, the College Managing Director, ICT and each college's ADAA office. It opens on **Cards**, one list per level; **Graph** draws the map.
 
 ![Organisation](img/admin/02-organisation.jpg)
 

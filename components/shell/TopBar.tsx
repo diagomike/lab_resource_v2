@@ -5,11 +5,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "../../lib/theme-context";
 import { useAuth, useNavFacts } from "../../lib/auth-context";
-import { canAccessPath } from "../../lib/nav";
+import { YOU_GROUP, canAccessPath } from "../../lib/nav";
 import { helpChaptersFor, helpHrefFor } from "../../lib/help/audience";
-import { ROLE_LABEL } from "@/lib/shared";
+import { ROLE_LABEL, type RoleKind } from "@/lib/shared";
 import Bell from "./Bell";
-import { CircleHelp, Menu, Moon, Search, Sun } from "lucide-react";
+import NavIcon from "./NavIcon";
+import { ChevronDown, CircleHelp, LogOut, Menu, Moon, Search, Sun } from "lucide-react";
 
 function initials(name: string): string {
   const words = name
@@ -20,10 +21,99 @@ function initials(name: string): string {
   return words.slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
 }
 
+/**
+ * The avatar opens the person's own corner — Help & guides, Profile & password, and
+ * Sign out — where people look for them. The panel is fixed-positioned because the top
+ * bar clips its overflow (same as the bell).
+ */
+function UserMenu({ name, roles }: { name: string | null; roles: RoleKind[] }) {
+  const router = useRouter();
+  const { logout } = useAuth();
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const roleLine = roles.map((r) => ROLE_LABEL[r]).join(" · ");
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!panelRef.current?.contains(t) && !buttonRef.current?.contains(t)) setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onClick);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onClick);
+    };
+  }, [open]);
+
+  const itemCls = "w-full border-0 bg-transparent text-left text-12 text-text px-12 py-7 flex items-center gap-8 hover:bg-panel3 cursor-pointer";
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Your account"
+        title="Your account"
+        className="flex items-center gap-7 md:pl-8 md:border-l border-0 border-solid border-topline bg-transparent text-current h-26 flex-none cursor-pointer hover:opacity-90"
+      >
+        <span className="w-22 h-22 rounded-full bg-topline flex items-center justify-center text-11 font-semibold flex-none">
+          {name ? initials(name) : "··"}
+        </span>
+        <span className="leading-tight text-left hidden lg:block">
+          <span className="block text-11 font-medium whitespace-nowrap">{name ?? "…"}</span>
+          <span className="block text-10.5 opacity-60 whitespace-nowrap">{roleLine}</span>
+        </span>
+        <ChevronDown size={12} aria-hidden="true" className="opacity-80 flex-none" />
+      </button>
+
+      {open && (
+        <div ref={panelRef} role="menu" aria-label="Your account" className="fixed right-8 top-38 z-50 w-230 bg-panel text-text border border-border2 rounded-4 py-4">
+          <div className="px-12 py-7 border-b border-border mb-4 lg:hidden">
+            <div className="text-12 font-semibold">{name ?? "…"}</div>
+            <div className="text-11 text-dim">{roleLine}</div>
+          </div>
+          {YOU_GROUP.items.map((item) => (
+            <Link key={item.key} role="menuitem" href={item.path} onClick={() => setOpen(false)} style={{ textDecoration: "none" }} className={itemCls}>
+              <span className="text-dim flex">
+                <NavIcon name={item.icon} />
+              </span>
+              {item.label}
+            </Link>
+          ))}
+          <div className="border-t border-border my-4" />
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              void logout().then(() => router.replace("/login"));
+            }}
+            className={itemCls}
+          >
+            <LogOut size={14} strokeWidth={1.75} aria-hidden="true" className="text-dim flex-none" />
+            Sign out
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { theme, toggle } = useTheme();
   const { user, me } = useAuth();
-  const roles = user?.roles ?? [];
   const pathname = usePathname();
   // Help opens on the guide section for this screen and this person's role.
   const helpHref = helpHrefFor(pathname, helpChaptersFor(me));
@@ -129,17 +219,7 @@ export default function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
         <span className="opacity-70 hidden lg:inline">{theme === "light" ? "Light" : "Dark"}</span>
       </button>
 
-      <div className="flex items-center gap-7 md:pl-8 md:border-l border-topline flex-none">
-        <div className="w-22 h-22 rounded-full bg-topline flex items-center justify-center text-11 font-semibold flex-none">
-          {user ? initials(user.name) : "··"}
-        </div>
-        <div className="leading-tight pr-4 hidden lg:block">
-          <div className="text-11 font-medium whitespace-nowrap">{user?.name ?? "…"}</div>
-          <div className="text-10.5 opacity-60 whitespace-nowrap">
-            {roles.map((r) => ROLE_LABEL[r]).join(" · ")}
-          </div>
-        </div>
-      </div>
+      <UserMenu name={user?.name ?? null} roles={user?.roles ?? []} />
     </div>
   );
 }

@@ -118,7 +118,7 @@ afterAll(async () => {
 const newLab = (name: string, ownerOrgNodeId = deptId, custodian = custodianId) => ({ categoryId: labCat, name, ownerOrgNodeId, custodianId: custodian, props: { room: "B510-R8" } });
 
 describe("the ADAA's reach", () => {
-  it("is the whole college — not just the ADAA office they sit in", async () => {
+  it("is the whole college, not just the ADAA office they sit in", async () => {
     const orgScope = await import("../org/scope");
     const officeId = await makeNode("adaa-office", "OFFICE", 2, collegeId);
     const officeAdaa = await makeUser("adaa-in-office", ["ADAA"], officeId);
@@ -144,13 +144,13 @@ describe("who creates labs and stores", () => {
     expect(sent.slice(mark).map((m) => m.subject)).toEqual(["You now run Places Lab One"]);
   });
 
-  it("the college's ADAA adds no labs — not a department's, not the college's", async () => {
+  it("the college's ADAA adds no labs, not a department's, not the college's", async () => {
     await expect(places.createPlace(adaaId, newLab("Places ADAA Lab"))).rejects.toMatchObject({ status: 403 });
     await expect(places.createPlace(adaaId, newLab("Places ADAA College Lab", collegeId, custodianId))).rejects.toMatchObject({ status: 403 });
     expect((await places.placeOptions(adaaId)).units).toEqual([expect.objectContaining({ id: collegeId, storesOnly: true })]);
   });
 
-  it("the ADAA adds the college's store and names its keeper — anyone in the college, made a custodian if they aren't one", async () => {
+  it("the ADAA adds the college's store and names its keeper: anyone in the college, made a custodian if they aren't one", async () => {
     const offered = await places.custodianCandidates(adaaId, collegeId, true);
     expect(offered.find((c) => c.id === lecturerId)).toMatchObject({ becomesCustodian: true });
     expect(offered.find((c) => c.id === custodianId)).toMatchObject({ becomesCustodian: false });
@@ -166,7 +166,7 @@ describe("who creates labs and stores", () => {
     await expect(places.createPlace(adaaId, { ...store, name: "Places Dept Store", ownerOrgNodeId: deptId, custodianId })).rejects.toMatchObject({ status: 403 });
   });
 
-  it("a lab is still run by a custodian — someone without the role isn't offered", async () => {
+  it("a lab is still run by a custodian: someone without the role isn't offered", async () => {
     await expect(places.createPlace(headId, newLab("Places Lecturer Lab", deptId, (await makeUser("lecturer-2", [], deptId))))).rejects.toMatchObject({ status: 400 });
   });
 

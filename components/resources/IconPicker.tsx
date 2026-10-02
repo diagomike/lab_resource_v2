@@ -137,7 +137,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (icon
             setOpen(true);
           }}
           onKeyDown={onKeyDown}
-          placeholder={open ? "Search icons — e.g. curtain, water, computer…" : "Choose an icon"}
+          placeholder={open ? "Search icons: e.g. curtain, water, computer…" : "Choose an icon"}
           className="h-24 min-w-0 flex-1 bg-transparent px-8 text-11 outline-none"
         />
         <button type="button" aria-label="Open icon list" onClick={() => (setOpen((o) => !o), inputRef.current?.focus())} className="grid h-24 w-26 place-items-center text-faint hover:text-text">
@@ -175,7 +175,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (icon
                 })}
                 {matches.length > MAX_SHOWN && (
                   <div className="px-8 py-6 text-11 text-faint">
-                    {matches.length - MAX_SHOWN} more — keep typing to narrow down.
+                    {matches.length - MAX_SHOWN} more: keep typing to narrow down.
                   </div>
                 )}
               </>

@@ -59,10 +59,10 @@ export function sniffDocument(bytes: Buffer): { ok: true; doc: SniffedDocument }
 }
 
 export const REFUSAL_MESSAGE: Record<DocumentRefusal, string> = {
-  UNRECOGNIZED: "Attach a PDF, a photo or scan (JPEG, PNG, WebP), or an Excel workbook (.xlsx) — that file is none of these.",
-  DAMAGED_PDF: "That PDF looks incomplete or damaged — save or scan it again and attach the new copy.",
-  MACRO_WORKBOOK: "Macro-enabled or binary workbooks (.xlsm, .xlsb) aren't accepted — save it as a plain .xlsx.",
-  LEGACY_OFFICE: "Older Office files (.xls, .doc) and password-protected workbooks aren't accepted — save it as .xlsx or PDF without a password.",
+  UNRECOGNIZED: "Attach a PDF, a photo or scan (JPEG, PNG, WebP), or an Excel workbook (.xlsx). That file is none of these.",
+  DAMAGED_PDF: "That PDF looks incomplete or damaged. Save or scan it again and attach the new copy.",
+  MACRO_WORKBOOK: "Macro-enabled or binary workbooks (.xlsm, .xlsb) aren't accepted. Save it as a plain .xlsx.",
+  LEGACY_OFFICE: "Older Office files (.xls, .doc) and password-protected workbooks aren't accepted. Save it as .xlsx or PDF without a password.",
 };
 
 /**

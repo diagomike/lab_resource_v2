@@ -116,7 +116,7 @@ async function canEditLab(actorId: string, labItemId: string): Promise<boolean> 
 
 async function assertCanEditLab(actorId: string, labItemId: string): Promise<void> {
   if (!(await canEditLab(actorId, labItemId))) {
-    throw new HttpError(403, "Only this lab's custodian changes its resources — the department head approves them.");
+    throw new HttpError(403, "Only this lab's custodian changes its resources. The department head approves them.");
   }
 }
 
@@ -168,7 +168,7 @@ async function createVersion(tx: Tx, labItemId: string, kind: LabVersionKind, ac
 async function ensureEditable(tx: Tx, labItemId: string, kind: KindArg, actorId: string): Promise<LabVersion & { items: VersionItem[] }> {
   const existing = await tx.labVersion.findUnique({ where: { labItemId_kind: { labItemId, kind } }, include: { items: true } });
   if (existing) {
-    if (existing.status === "SUBMITTED") throw new HttpError(409, "This lab's changes are waiting for the department head — take them back to keep editing.");
+    if (existing.status === "SUBMITTED") throw new HttpError(409, "This lab's changes are waiting for the department head. Take them back to keep editing.");
     return existing;
   }
   await createVersion(tx, labItemId, kind, actorId, { live: await loadLive(labItemId, tx) });
@@ -203,7 +203,7 @@ export async function applyVersionEdit(
       const mapId = (id: string) => {
         if (own.has(id)) return id;
         const mapped = bySource.get(id);
-        if (!mapped) throw new HttpError(400, "That item isn't part of this lab's copy — it may have been added after the copy was made. Use “Start again from the lab” on My changes first.");
+        if (!mapped) throw new HttpError(400, "That item isn't part of this lab's copy. It may have been added after the copy was made. Use “Start again from the lab” on My changes first.");
         return mapped;
       };
       const mapped: VersionOp =
@@ -293,7 +293,7 @@ export async function discardVersion(actorId: string, labItemId: string, kind: K
   await assertCanEditLab(actorId, labItemId);
   const v = await loadVersion(labItemId, kind);
   if (!v) return;
-  if (v.status === "SUBMITTED") throw new HttpError(409, "It's waiting for the department head — withdraw it first.");
+  if (v.status === "SUBMITTED") throw new HttpError(409, "It's waiting for the department head. Withdraw it first.");
   await prisma.labVersion.delete({ where: { id: v.id } });
 }
 
@@ -303,7 +303,7 @@ export async function refreshDraft(actorId: string, labItemId: string): Promise<
   await assertCanEditLab(actorId, labItemId);
   await prisma.$transaction(async (tx) => {
     const v = await tx.labVersion.findUnique({ where: { labItemId_kind: { labItemId, kind: "DRAFT" } } });
-    if (v?.status === "SUBMITTED") throw new HttpError(409, "It's waiting for the department head — withdraw it first.");
+    if (v?.status === "SUBMITTED") throw new HttpError(409, "It's waiting for the department head. Withdraw it first.");
     if (v) await tx.labVersion.delete({ where: { id: v.id } });
     await createVersion(tx, labItemId, "DRAFT", actorId, { live: await loadLive(labItemId, tx) });
   });
@@ -422,7 +422,7 @@ async function decideCommitNow(actorId: string, requestId: string, decision: "AP
   if (!request) throw new HttpError(404, "Request not found");
   if (request.status !== "PENDING") throw new HttpError(409, "This request has already been decided.");
   const head = await currentHeadOf(request.lab.ownerOrgNodeId);
-  if (!head || head.id !== actorId) throw new HttpError(403, "You are not this lab's department head — you may not decide this request.");
+  if (!head || head.id !== actorId) throw new HttpError(403, "You are not this lab's department head. You may not decide this request.");
   const version = request.versionId ? await prisma.labVersion.findUnique({ where: { id: request.versionId }, include: { items: true } }) : null;
   if (!version) throw new HttpError(409, "The version this request covers no longer exists.");
 
@@ -587,7 +587,7 @@ export async function stageFromRegister(actorId: string, input: ItemChangeInput,
   const isStore = (r: (typeof roots)[number]) => r.category.key === "store" || r.custodian.roles.some((x) => x.kind === "STORE_KEEPER");
   const drafted = roots.filter((r) => !isStore(r));
   if (!drafted.length) return null; // everything touched sits in a store
-  if (drafted.length !== 1 || rootIds.length !== 1) throw new HttpError(400, "Changes are collected one lab at a time — change one lab's items at a time.");
+  if (drafted.length !== 1 || rootIds.length !== 1) throw new HttpError(400, "Changes are collected one lab at a time: change one lab's items at a time.");
   if (!OP_KINDS.has(input.kind) || (input.kind === "moveInTree" && !input.value)) {
     throw new HttpError(403, `Custody, ownership and moves out of ${drafted[0].name} go through a move (transfer), not the lab's changes.`);
   }

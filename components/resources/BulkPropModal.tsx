@@ -66,7 +66,7 @@ export function BulkPropModal({
       return;
     }
     const staged = r.result.staged;
-    if (staged) toast.success(`Added to ${staged.labName}'s changes — not sent to the head yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+    if (staged) toast.success(`Added to ${staged.labName}'s changes, not sent to the head yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
     else toast.success(`${field!.label} set on ${itemIds.length} item${itemIds.length === 1 ? "" : "s"}`);
     onApplied();
     onClose();

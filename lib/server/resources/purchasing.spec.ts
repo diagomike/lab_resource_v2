@@ -244,7 +244,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("needs — raise, browse, decline", () => {
+describe("needs: raise, browse, decline", () => {
   it("raises a need at the actor's own home unit, and a head can decline it with a note", async () => {
     const headId = await makeUser("needs-head", ["MANAGER"]);
     const { deptId } = await makeChain("needs", headId);
@@ -305,7 +305,7 @@ describe("needs — raise, browse, decline", () => {
   });
 });
 
-describe("compilePurchaseRequest — the org chart as the ladder", () => {
+describe("compilePurchaseRequest: the org chart as the ladder", () => {
   it("refuses when no Procurement Office is on the org chart", async () => {
     await prisma.orgNode.update({ where: { id: procurementNodeId }, data: { active: false } });
     try {
@@ -462,7 +462,7 @@ describe("compilePurchaseRequest — the org chart as the ladder", () => {
   });
 });
 
-describe("decideStep — vacancy, handoff, reject, revise", () => {
+describe("decideStep: vacancy, handoff, reject, revise", () => {
   async function setUpChain(prefix: string) {
     const deptHeadId = await makeUser(`${prefix}-dept-head`, ["MANAGER"]);
     const collegeHeadId = await makeUser(`${prefix}-college-head`);
@@ -476,7 +476,7 @@ describe("decideStep — vacancy, handoff, reject, revise", () => {
     return { requestId: result.id, deptHeadId, collegeHeadId, universityHeadId, universityId, collegeId, deptId };
   }
 
-  it("a vacant college deanship blocks — undecidable by anyone — and appointing someone unblocks it immediately", async () => {
+  it("a vacant college deanship blocks (undecidable by anyone) and appointing someone unblocks it immediately", async () => {
     // The compiling head's own OWNER_HEAD step is already self-skipped (they occupy
     // the department AND raised the request) — the college HIERARCHY step is the
     // first genuinely PENDING one from the moment the request is compiled.
@@ -516,7 +516,7 @@ describe("decideStep — vacancy, handoff, reject, revise", () => {
     expect(resubmitted.steps).toHaveLength(4);
   });
 
-  it("the full happy path settles at ORDER_PLACED once every remaining step approves — dept head, dean, AVP, then Procurement", async () => {
+  it("the full happy path settles at ORDER_PLACED once every remaining step approves: dept head, dean, AVP, then Procurement", async () => {
     const { requestId, collegeHeadId, universityHeadId } = await setUpChain("happy");
     let decided = await purchasing.decideStep(collegeHeadId, requestId, "APPROVE");
     expect(decided.stage).toBe("APPROVING"); // still waiting on the university/AVP and Procurement steps
@@ -542,7 +542,7 @@ describe("cancelPurchaseRequest", () => {
     expect(req.stage).toBe("CANCELLED");
   });
 
-  it("F-047: the raiser cannot cancel after ORDER_PLACED — only procurement can, and only with a note", async () => {
+  it("F-047: the raiser cannot cancel after ORDER_PLACED: only procurement can, and only with a note", async () => {
     const deptHeadId = await makeUser("f047-dept-head", ["MANAGER"]);
     const collegeHeadId = await makeUser("f047-college-head");
     const universityHeadId = await makeUser("f047-university-head");
@@ -722,7 +722,7 @@ describe("the reporting pipeline and receiving", () => {
     // Named after what was ordered, not the category's generic default.
     expect(firstTwo.every((i) => i.name.startsWith("Balance"))).toBe(true);
     const log = await prisma.itemChange.findFirstOrThrow({ where: { itemId: firstTwo[0].id, kind: "createItem" } });
-    expect(log.note).toContain(`Loaded from import ${dto.reference} — Ohaus PX224`);
+    expect(log.note).toContain(`Loaded from import ${dto.reference}: Ohaus PX224`);
 
     mark = sent.length;
     const complete = await imports.loadImportLine(s.keeperId, dto.id, { lineId: dto.lines[0].id, qty: 1, storeParentId: s.storeId });
@@ -804,7 +804,7 @@ describe("the reporting pipeline and receiving", () => {
   });
 });
 
-describe("history and visibility — every send-back is kept, everyone involved can follow it", () => {
+describe("history and visibility: every send-back is kept, everyone involved can follow it", () => {
   /** makeChain adds edges only; readableRequestWhere reads OrgClosure, so this block
    *  writes the closure rows the real org module would have (cascade-deleted with
    *  the orphan nodes in afterAll). */
@@ -821,7 +821,7 @@ describe("history and visibility — every send-back is kept, everyone involved 
     });
   }
 
-  it("records submit, every decision with its note, and every resubmit — surviving REVISE clearing the steps", async () => {
+  it("records submit, every decision with its note, and every resubmit: surviving REVISE clearing the steps", async () => {
     const deptHeadId = await makeUser("hist-dept-head", ["MANAGER"]);
     const deanId = await makeUser("hist-dean");
     const avpId = await makeUser("hist-avp");
@@ -857,7 +857,7 @@ describe("history and visibility — every send-back is kept, everyone involved 
     ]);
     expect(final.history[1].note).toMatch(/^(?!Sent back).+: Reduce computers by 2$/);
     expect(final.history[4].note).toMatch(/Add unit costs$/);
-    expect(final.history[8].note).toMatch(/^Approved — .+: Budget line confirmed$/);
+    expect(final.history[8].note).toMatch(/^Approved: .+: Budget line confirmed$/);
   });
 
   it("the raising unit's members, the offices above it, need raisers and the store can read it; an unrelated head cannot", async () => {
@@ -900,7 +900,7 @@ describe("history and visibility — every send-back is kept, everyone involved 
   });
 });
 
-describe("F-048 — estimated costs follow the same rule as item costs", () => {
+describe("F-048: estimated costs follow the same rule as item costs", () => {
   it("a unit's plain custodian sees the request but not the price; the head, the raiser and the purchasing roles do", async () => {
     const deptHeadId = await makeUser("cost-dept-head", ["MANAGER"]);
     const { deptId } = await makeChain("cost", deptHeadId);
@@ -929,7 +929,7 @@ describe("F-048 — estimated costs follow the same rule as item costs", () => {
   });
 });
 
-describe("attachments — minutes, letters and spreadsheets on a request", () => {
+describe("attachments: minutes, letters and spreadsheets on a request", () => {
   /** A small but complete PDF; `tag` makes each one's bytes (and hash) distinct. */
   const pdf = (tag: string) => Buffer.from(`%PDF-1.4\n% ${tag}\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n`, "latin1");
   const photo = (w: number, h: number) => sharp({ create: { width: w, height: h, channels: 3, background: { r: 250, g: 250, b: 245 } } }).png().toBuffer();
@@ -977,7 +977,7 @@ describe("attachments — minutes, letters and spreadsheets on a request", () =>
     createdRequestIds.push(request.id);
 
     const circular = await attachments.stage(deanId, "Budget circular.pdf", pdf("circular"));
-    const decided = await purchasing.decideStep(deanId, request.id, "REJECT", "Not within this year's allocation — see the circular", [circular.id]);
+    const decided = await purchasing.decideStep(deanId, request.id, "REJECT", "Not within this year's allocation: see the circular", [circular.id]);
     expect(decided.stage).toBe("REJECTED");
     const entry = decided.history.at(-1)!;
     expect(entry.stage).toBe("REJECTED");

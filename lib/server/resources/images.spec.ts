@@ -118,7 +118,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("images — upload-session authorization", () => {
+describe("images: upload-session authorization", () => {
   it("lets the item's own custodian create an upload session", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
     expect(session.uploadSessionId).toBeTruthy();
@@ -132,7 +132,7 @@ describe("images — upload-session authorization", () => {
     await expect(images.createUploadSession(seHeadId, seItemId)).rejects.toMatchObject({ status: 404 });
   });
 
-  it("still refuses a MANAGER from a DIFFERENT department — the widening is subtree-scoped, not blanket", async () => {
+  it("still refuses a MANAGER from a DIFFERENT department: the widening is subtree-scoped, not blanket", async () => {
     await expect(images.createUploadSession(chemHeadId, seItemId)).rejects.toMatchObject({ status: 404 });
   });
 
@@ -146,7 +146,7 @@ describe("images — upload-session authorization", () => {
   });
 });
 
-describe("images — receiving bytes", () => {
+describe("images: receiving bytes", () => {
   it("sniffs the real format/dimensions from the bytes, ignoring what a caller might have claimed", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
     const result = await images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(64, 48));
@@ -239,7 +239,7 @@ describe("images — receiving bytes", () => {
   });
 });
 
-describe("images — finalizing through applyChange (addImage)", () => {
+describe("images: finalizing through applyChange (addImage)", () => {
   async function uploadedSession(itemId: string, actorId = seCustodianId) {
     const session = await images.createUploadSession(actorId, itemId);
     await images.receiveUpload(actorId, session.uploadSessionId, await pngBytes(80, 60));
@@ -335,7 +335,7 @@ describe("images — finalizing through applyChange (addImage)", () => {
   });
 });
 
-describe("images — cleanup after a committed transaction, never before", () => {
+describe("images: cleanup after a committed transaction, never before", () => {
   it("deletes the file from storage when a photo is removed, only after the removal commits", async () => {
     const session = await images.createUploadSession(seCustodianId, seItemId);
     await images.receiveUpload(seCustodianId, session.uploadSessionId, await pngBytes(10, 10));
@@ -371,7 +371,7 @@ describe("images — cleanup after a committed transaction, never before", () =>
     await storage.remove(image.storageKey);
   });
 
-  it("F-025: a deleted subtree is soft-deleted — every photo and pending upload stays exactly where it is, nothing physically removed", async () => {
+  it("F-025: a deleted subtree is soft-deleted: every photo and pending upload stays exactly where it is, nothing physically removed", async () => {
     // A photo on the parent, an UPLOADED-but-never-finalized session on the child —
     // deleteItem is now a soft delete (deletedAt, the row and every photo behind
     // it kept, recoverable), not the hard delete this test used to prove wiped

@@ -138,13 +138,16 @@ const dayAhead = (n: number) => new Date(Date.now() + 3 * 3_600_000 + n * 86_400
 const approvers = (req: { steps: Array<{ status: string; label: string; approverName: string | null }> }) =>
   req.steps.filter((s) => s.status !== "SKIPPED").map((s) => `${s.label}${s.approverName ? ` (${s.approverName})` : ""}`);
 
-/** Decides every remaining step of a transfer as whoever holds it, in order. */
-async function walkTransfer(id: string): Promise<any> {
+/** Decides every remaining step of a transfer as whoever holds it, in order — after
+ *  checking that each of them can read what moves, from where and to whom. */
+async function walkTransfer(id: string, path = "DT"): Promise<any> {
   for (let guard = 0; guard < 12; guard++) {
     const req = await get<any>("admin@astu.edu.et", `/resources/transfers/${id}`);
     if (req.status !== "PENDING") return req;
     const step = req.steps.find((s: any) => s.status === "PENDING");
     const who = await db.user.findUniqueOrThrow({ where: { id: step.approverId } });
+    const d = await get<any>(who.email, `/resources/transfers/${id}/details`);
+    check(path, `${step.label}: reads the details (${d.items?.length} item(s) → ${d.to?.place?.join(" › ")})`, d.items?.length > 0 && d.items.every((i: any) => i.categoryName && i.status && i.from.length && !i.removed) && d.to?.place?.length > 0 && Boolean(d.to?.unitName), d);
     await post(who.email, `/resources/transfers/${id}/decide`, { decision: "APPROVE", note: `validated: ${step.label}` });
   }
   throw new Error(`transfer ${id} did not settle`);
@@ -210,20 +213,29 @@ async function purchaseAndImports() {
   });
   const order = pr.steps.filter((s: any) => s.status !== "SKIPPED").map((s: any) => s.label);
   check("P1", "ladder is dean → CMD → AVP → procurement", JSON.stringify(order) === JSON.stringify([
-    "College — College of Electrical Engineering and Computing",
+    "College: College of Electrical Engineering and Computing",
     "College Managing Director",
-    "University — Adama Science and Technology University",
+    "University: Adama Science and Technology University",
     "Procurement Office",
   ]), order);
 
+  // Each approver reads the request in full at their step: the lines and their kinds.
+  const readsDetails = async (who: string) => {
+    const d = await get<any>(who, `/resources/purchase-requests/${pr.id}/details`);
+    check("P1", `${who} reads every line's details`, d.lines?.length === 2 && d.lines.every((l: any) => l.categoryName && Array.isArray(l.needs)), d);
+  };
+  await readsDetails(DEAN);
   let m = mark();
   await post(DEAN, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE", note: "validated" });
   check("P1", "✉ CMD is next after the dean", mailed(m, CMD, `${pr.reference} is waiting for your approval`));
   check("P1", "the AVP can't decide before the CMD", await refused(403, () => post(AVP, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE" })));
+  await readsDetails(CMD);
   m = mark();
   await post(CMD, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE", note: "validated" });
   check("P1", "✉ AVP is next after the CMD", mailed(m, AVP, `${pr.reference} is waiting for your approval`));
+  await readsDetails(AVP);
   await post(AVP, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE", note: "validated" });
+  await readsDetails(PROC);
   const placed = await post<any>(PROC, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE", note: "validated" });
   check("P1", "approved → Order placed", placed.stage === "ORDER_PLACED", placed.stage);
   await post(PROC, `/resources/purchase-requests/${pr.id}/advance`, { note: "Buyer found" });
@@ -287,7 +299,7 @@ async function movements() {
   check("P4", "chain: receiving head → Property Admin → custodian accepts", JSON.stringify(p4.request.steps.map((s: any) => s.selector)) === JSON.stringify(["TARGET_HEAD", "NODE_OCCUPANT", "TARGET_CUSTODIAN"]), approvers(p4.request));
   check("P4", "✉ the receiving head, and the custodian it's for", mailed(m, HEAD, /A transfer is waiting for you/) && mailed(m, ALI, /Coming to you from the store/));
   check("P4", "Procurement is not on it", !approvers(p4.request).some((a) => a.includes("Procurement")));
-  const p4done = await walkTransfer(p4.request.id);
+  const p4done = await walkTransfer(p4.request.id, "P4");
   const chairAfter = await db.item.findUniqueOrThrow({ where: { id: chair.id } });
   check("P4", "applied: owner CSE, custodian Ali, in his lab", p4done.status === "APPLIED" && chairAfter.ownerOrgNodeId === cse.id && chairAfter.custodianId === aliUser.id && chairAfter.parentId === aliLab.id);
 
@@ -295,7 +307,7 @@ async function movements() {
   const table = await db.item.findFirstOrThrow({ where: { parentId: store.id, category: { key: "table" }, deletedAt: null } });
   const p6 = await transfer(ALI, { itemIds: [table.id], transfer: { targetParentId: aliLab.id, targetOrgNodeId: "", targetCustodianId: null } });
   check("P6", "request from the store: keeper → CSE head → Property Admin → receipt", p6.request.movement === "FROM_STORE" && JSON.stringify(p6.request.steps.map((s: any) => s.selector)) === JSON.stringify(["ITEM_CUSTODIAN", "TARGET_HEAD", "NODE_OCCUPANT", "REQUESTER_RECEIPT"]), approvers(p6.request));
-  await walkTransfer(p6.request.id);
+  await walkTransfer(p6.request.id, "P6");
   const tableAfter = await db.item.findUniqueOrThrow({ where: { id: table.id } });
   check("P6", "given, not lent: owner CSE, custodian Ali", tableAfter.ownerOrgNodeId === cse.id && tableAfter.custodianId === aliUser.id);
 
@@ -303,7 +315,7 @@ async function movements() {
   const teacherChair = await childNamed(aliLab.id, "Teacher Chair");
   const p7 = await transfer(ALI, { itemIds: [teacherChair.id], transfer: { targetParentId: store.id, targetOrgNodeId: "", targetCustodianId: null } });
   check("P7", "return to the store: CSE head → Property Admin → keeper accepts", p7.request.movement === "TO_STORE" && JSON.stringify(p7.request.steps.map((s: any) => s.selector)) === JSON.stringify(["OWNER_HEAD", "NODE_OCCUPANT", "TARGET_CUSTODIAN"]), approvers(p7.request));
-  await walkTransfer(p7.request.id);
+  await walkTransfer(p7.request.id, "P7");
   const tcAfter = await db.item.findUniqueOrThrow({ where: { id: teacherChair.id } });
   check("P7", "owned by the university, in the keeper's custody", tcAfter.parentId === store.id && tcAfter.ownerOrgNodeId === store.ownerOrgNodeId && tcAfter.custodianId === store.custodianId);
 
@@ -313,11 +325,11 @@ async function movements() {
   const p8a = await transfer(YOHANNES, { itemIds: [teacherTable.id], transfer: { targetParentId: yLab.id, targetOrgNodeId: "", targetCustodianId: null, permanent: true } });
   check("P8", "same college: Ali → CSE head (once) → CMD → receipt", p8a.request.movement === "PERMANENT" && JSON.stringify(approvers(p8a.request)) === JSON.stringify([
     "Current custodian (Ali Kibret Muhamed)",
-    "Head — Computer Science and Engineering (CSE Department Head)",
+    "Head: Computer Science and Engineering (CSE Department Head)",
     "College Managing Director (College Managing Director (CMD))",
     "Confirm receipt (Yohannes Alemu)",
   ]), approvers(p8a.request));
-  await walkTransfer(p8a.request.id);
+  await walkTransfer(p8a.request.id, "P8");
   const ttAfter = await db.item.findUniqueOrThrow({ where: { id: teacherTable.id } });
   check("P8", "custody moved to Yohannes (same owning department)", ttAfter.custodianId === yUser.id && ttAfter.parentId === yLab.id);
 
@@ -326,7 +338,7 @@ async function movements() {
   const hannaUser = await db.user.findUniqueOrThrow({ where: { emailLower: HANNA } });
   const p8b = await transfer(HANNA, { itemIds: [whiteboard.id], transfer: { targetParentId: hannaLab.id, targetOrgNodeId: "", targetCustodianId: null, permanent: true } });
   check("P8", "across colleges: … → ChemE head → CMD → Property Admin → receipt", JSON.stringify(p8b.request.steps.map((s: any) => s.selector)) === JSON.stringify(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "NODE_OCCUPANT", "NODE_OCCUPANT", "REQUESTER_RECEIPT"]) && approvers(p8b.request).some((a) => a.startsWith("Property Administration")), approvers(p8b.request));
-  await walkTransfer(p8b.request.id);
+  await walkTransfer(p8b.request.id, "P8");
   const wbAfter = await db.item.findUniqueOrThrow({ where: { id: whiteboard.id } });
   check("P8", "ownership moved to ChemE, custody to Hanna", wbAfter.ownerOrgNodeId === chem.id && wbAfter.custodianId === hannaUser.id);
 
@@ -334,7 +346,7 @@ async function movements() {
   const rack = await childNamed(aliLab.id, "Switch Rack");
   const p9 = await transfer(HANNA, { itemIds: [rack.id], transfer: { targetParentId: hannaLab.id, targetOrgNodeId: "", targetCustodianId: null } });
   check("P9", "loan: custodian → owning head → receiving head → receipt; no CMD, no Property Admin", p9.request.movement === "LOAN" && JSON.stringify(p9.request.steps.map((s: any) => s.selector)) === JSON.stringify(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "REQUESTER_RECEIPT"]), approvers(p9.request));
-  await walkTransfer(p9.request.id);
+  await walkTransfer(p9.request.id, "P9");
   const rackAfter = await db.item.findUniqueOrThrow({ where: { id: rack.id } });
   check("P9", "the owner stays CSE, custody stays with Ali", rackAfter.ownerOrgNodeId === cse.id && rackAfter.custodianId === aliUser.id && rackAfter.currentOrgNodeId === chem.id);
 }
@@ -385,7 +397,7 @@ async function places() {
   const newbie = await db.user.findUniqueOrThrow({ where: { emailLower: NEWBIE } });
   check("P12", "the invited custodian registered through the emailed link", reg.ok && newbie.status === "ACTIVE", reg.status);
 
-  const place = { categoryId: labKind, name: "Validation Robotics Lab — B510-R30", ownerOrgNodeId: cse.id, custodianId: newbie.id, props: { block: "510", room: "30", seats: 24, purpose: "Robotics practicals" } };
+  const place = { categoryId: labKind, name: "Validation Robotics Lab B510-R30", ownerOrgNodeId: cse.id, custodianId: newbie.id, props: { block: "510", room: "30", seats: 24, purpose: "Robotics practicals" } };
   check("P12", "a custodian can't add a lab", await refused(403, () => post(ALI, "/places", place)));
   check("P12", "another department's head can't add one in CSE", await refused(403, () => post(CHEM_HEAD, "/places", place)));
   check("P12", "the ADAA adds no labs (only the college's stores)", await refused(403, () => post(ADAA, "/places", place)));
@@ -658,12 +670,12 @@ async function external() {
   m = mark();
   const paid = await post<any>(requester, `/portal/requests/${created.id}/payments`, { provider: "TELEBIRR", reference: "FAKE-12500" });
   check("P10", "verified payment → PAID, waiting for the AVP", paid.outcome === "VERIFIED" && paid.tracking.status === "PAID", [paid.outcome, paid.tracking.status]);
-  check("P10", "✉ the AVP is asked to confirm the payment", mailed(m, AVP, `${created.reference} is paid — confirm the payment`));
+  check("P10", "✉ the AVP is asked to confirm the payment", mailed(m, AVP, `${created.reference} is paid: confirm the payment`));
   check("P10", "a head can't confirm the payment", await refused(403, () => post(HEAD, `/external-requests/${created.id}/confirm`, {})));
   m = mark();
   const confirmed = await post<any>(AVP, `/external-requests/${created.id}/confirm`, {});
   check("P10", "the AVP confirms → SCHEDULED, contacts revealed", confirmed.status === "SCHEDULED" && !!confirmed.contactsRevealedAt);
-  check("P10", "✉ requester (with contacts), custodian and head", mailed(m, "outside.requester@example.org", `Booking confirmed — ${created.reference}`) && mailed(m, ALI, `Booking confirmed on your calendar — ${created.reference}`) && mailed(m, HEAD, `${created.reference} is paid and booked`));
+  check("P10", "✉ requester (with contacts), custodian and head", mailed(m, "outside.requester@example.org", `Booking confirmed: ${created.reference}`) && mailed(m, ALI, `Booking confirmed on your calendar: ${created.reference}`) && mailed(m, HEAD, `${created.reference} is paid and booked`));
   check("P10", "the confirmation email lists the contact persons", /\+251911123456/.test(lastBodyTo("outside.requester@example.org")));
   mine = await get<any>(requester, `/portal/requests/${created.id}`);
   check("P10", "requester now sees the booked room and who to call", mine.bookings.every((b: any) => b.confirmed) && mine.contacts[0]?.people.length === 2, { bookings: mine.bookings, contacts: mine.contacts });
@@ -692,7 +704,7 @@ async function external() {
   await upTheLine(s.id, sParts, 300_000);
   await post(AVP, `/external-requests/${s.id}/quote`, { amountSantim: 300_000, paymentDeadline: dayAhead(10) });
   const sMine = await get<any>(requester, `/portal/requests/${s.id}`);
-  check("P11", "the requester sees the machine held, in its lab", sMine.kind === "SAMPLE_ANALYSIS" && sMine.bookings[0]?.place === `${machine.name} — ${aliLab.name}`, sMine.bookings);
+  check("P11", "the requester sees the machine held, in its lab", sMine.kind === "SAMPLE_ANALYSIS" && sMine.bookings[0]?.place === `${machine.name}: ${aliLab.name}`, sMine.bookings);
 }
 
 // ── Run ─────────────────────────────────────────────────────────────────────

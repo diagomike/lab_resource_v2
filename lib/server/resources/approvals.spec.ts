@@ -155,7 +155,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("the closed loophole — direct transferItem is refused, even custodying both ends", () => {
+describe("the closed loophole: direct transferItem is refused, even custodying both ends", () => {
   it("a non-SYS_ADMIN direct applyChange call with kind: transferItem is refused regardless of custody", async () => {
     const bothEndsId = await makeUser("both-ends");
     const ownerNodeId = await makeNode("loophole-owner", bothEndsId);
@@ -168,7 +168,7 @@ describe("the closed loophole — direct transferItem is refused, even custodyin
     expect(after.parentId).toBeNull();
   });
 
-  it("SYS_ADMIN may still call it directly — unaffected", async () => {
+  it("SYS_ADMIN may still call it directly: unaffected", async () => {
     const ownerId = await makeUser("sysadmin-both-ends-owner");
     const ownerNodeId = await makeNode("loophole-sysadmin", ownerId);
     const destLabId = await makeItem(ownerNodeId, ownerId, "Loophole SysAdmin Dest");
@@ -179,7 +179,7 @@ describe("the closed loophole — direct transferItem is refused, even custodyin
   });
 });
 
-describe("requestTransfer — who may ask (pull: the requester holds the destination)", () => {
+describe("requestTransfer: who may ask (pull: the requester holds the destination)", () => {
   it("an office that only approves may not ask to move anything", async () => {
     const propAdminId = await makeUser("deny-propadmin", ["PROPERTY_ADMIN"]);
     const lenderId = await makeUser("deny-propadmin-lender", ["CUSTODIAN"]);
@@ -257,7 +257,7 @@ describe("requestTransfer — who may ask (pull: the requester holds the destina
   });
 });
 
-describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
+describe("decideStep: vacancy, handoff, receipt-gated apply", () => {
   async function setUpChain() {
     const requesterId = await makeUser("flow-requester", ["CUSTODIAN"]);
     const lenderId = await makeUser("flow-lender", ["CUSTODIAN"]);
@@ -278,7 +278,7 @@ describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
     return { requestId: result.request.id, requesterId, lenderId, ownerHeadId, targetHeadId, ownerNodeId, targetNodeId, sourceId, destLabId };
   }
 
-  it("a vacant OWNER_HEAD blocks — undecidable by anyone — and appointing someone unblocks it immediately", async () => {
+  it("a vacant OWNER_HEAD blocks (undecidable by anyone) and appointing someone unblocks it immediately", async () => {
     const { requestId, ownerNodeId, requesterId, lenderId } = await setUpChain();
     await approvals.decideStep(lenderId, requestId, "APPROVE");
     await setHead(ownerNodeId, null);
@@ -338,7 +338,7 @@ describe("decideStep — vacancy, handoff, receipt-gated apply", () => {
     await expect(approvals.decideStep(lenderId, requestId, "APPROVE")).rejects.toMatchObject({ status: 409 });
   });
 
-  it("a rename mid-flight does not void an approved transfer (F-041) — it still applies, using a fresh version", async () => {
+  it("a rename mid-flight does not void an approved transfer (F-041): it still applies, using a fresh version", async () => {
     const { requestId, requesterId, lenderId, ownerHeadId, targetHeadId, sourceId, targetNodeId, destLabId, ownerNodeId } = await setUpChain();
     await approvals.decideStep(lenderId, requestId, "APPROVE");
     await approvals.decideStep(ownerHeadId, requestId, "APPROVE");
@@ -415,7 +415,7 @@ describe("cancelRequest", () => {
   });
 });
 
-describe("pull floors — who may ask for what, into where", () => {
+describe("pull floors: who may ask for what, into where", () => {
   it("pulling into a destination you don't hold is refused (404), like any out-of-custody write", async () => {
     const outsiderId = await makeUser("outsider", ["CUSTODIAN"]);
     const ownerId = await makeUser("floor-owner", ["CUSTODIAN"]);
@@ -428,7 +428,7 @@ describe("pull floors — who may ask for what, into where", () => {
     await expect(approvals.previewTransfer(outsiderId, transferInput([sourceId], destLabId, targetNodeId))).rejects.toMatchObject({ status: 404 });
   });
 
-  it("pulling something you already hold is refused (400) — that is a Move", async () => {
+  it("pulling something you already hold is refused (400): that is a Move", async () => {
     const custodianId = await makeUser("own-item", ["CUSTODIAN"]);
     const nodeId = await makeNode("own-item-node", null);
     const labA = await makeItem(nodeId, custodianId, "Own Lab A");
@@ -438,7 +438,7 @@ describe("pull floors — who may ask for what, into where", () => {
   });
 });
 
-describe("store handover — the main store hands stock over to a department", () => {
+describe("store handover: the main store hands stock over to a department", () => {
   const STORE_CHAIN = [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }];
 
   function handoverInput(itemIds: string[], targetParentId: string, targetOrgNodeId: string, targetCustodianId: string) {
@@ -519,7 +519,7 @@ describe("store handover — the main store hands stock over to a department", (
   });
 });
 
-describe("R2-1 (2026-09-23 run) — an item already in a pending transfer can't be promised again", () => {
+describe("R2-1 (2026-09-23 run): an item already in a pending transfer can't be promised again", () => {
   function handoverInput(itemIds: string[], targetParentId: string, targetOrgNodeId: string, targetCustodianId: string) {
     return { kind: "transferItem" as const, itemIds, transfer: { targetParentId, targetOrgNodeId, targetCustodianId, transferOwnership: true } };
   }
@@ -619,7 +619,7 @@ describe("R2-1 (2026-09-23 run) — an item already in a pending transfer can't 
   });
 });
 
-describe("R2-3 (2026-09-23 run) — a handover can name what arrives the way the lab does", () => {
+describe("R2-3 (2026-09-23 run): a handover can name what arrives the way the lab does", () => {
   beforeAll(async () => {
     await makePolicy({ id: `${testKey}-chain-storekeeper-r23`, actorRole: "STORE_KEEPER", outcome: "CHAIN", chain: [{ type: "TARGET_HEAD" }, { type: "TARGET_CUSTODIAN" }] });
   });
@@ -673,7 +673,7 @@ describe("R2-3 (2026-09-23 run) — a handover can name what arrives the way the
   });
 });
 
-describe("F-042 — a pull always asks both the owning and the receiving end, regardless of the requester's role", () => {
+describe("F-042: a pull always asks both the owning and the receiving end, regardless of the requester's role", () => {
   beforeAll(async () => {
     // The exact chain pol-store-transfer uses for a genuine HANDOVER — seeded here
     // under a STORE_KEEPER role so resolvePolicy resolves a CHAIN outcome (not
@@ -705,7 +705,7 @@ describe("F-042 — a pull always asks both the owning and the receiving end, re
     expect(preview.steps?.find((s) => s.selector === "TARGET_HEAD")?.approverId).toBe(storeHeadId);
   });
 
-  it("a dean can no longer pull into a unit's store they don't custody — only custodians move resources (2026-09-22)", async () => {
+  it("a dean can no longer pull into a unit's store they don't custody: only custodians move resources (2026-09-22)", async () => {
     const deanId = await makeUser("f042-dean", ["MANAGER"]);
     const seHeadId = await makeUser("f042-se-head", ["MANAGER"]);
     const seCustodianId = await makeUser("f042-se-custodian", ["CUSTODIAN"]);
@@ -740,7 +740,7 @@ describe("F-042 — a pull always asks both the owning and the receiving end, re
   });
 });
 
-describe("F-040 — concurrent final approvals never leave an applied transfer marked STALE", () => {
+describe("F-040: concurrent final approvals never leave an applied transfer marked STALE", () => {
   it("4 simultaneous final approvals yield exactly one APPLIED and no STALE overwrite", async () => {
     const requesterId = await makeUser("f040-requester", ["CUSTODIAN"]);
     const lenderId = await makeUser("f040-lender", ["CUSTODIAN"]);
@@ -782,7 +782,7 @@ describe("F-040 — concurrent final approvals never leave an applied transfer m
   });
 });
 
-describe("a tree selection — a container ticked together with what is inside it", () => {
+describe("a tree selection: a container ticked together with what is inside it", () => {
   it("transfer and move act on the top-most items only; nested parts travel inside them instead of being pulled out", async () => {
     const keeperId = await makeUser("nested-keeper", ["STORE_KEEPER"]);
     const headId = await makeUser("nested-head", ["MANAGER"]);
@@ -824,7 +824,7 @@ describe("a tree selection — a container ticked together with what is inside i
   });
 });
 
-describe("movements — permanent transfers go to the CMD, Main Store movements to Property Administration", () => {
+describe("movements: permanent transfers go to the CMD, Main Store movements to Property Administration", () => {
   let cmdId: string;
   let universityId: string;
   let storeCategoryId: string;
@@ -962,7 +962,7 @@ describe("movements — permanent transfers go to the CMD, Main Store movements 
     expect([after.ownerOrgNodeId, after.custodianId]).toEqual([s.a1.nodeId, s.a1.custodianId]);
   });
 
-  it("a request from the Main Store goes to the store keeper, the receiving head and Property Administration — never a loan", async () => {
+  it("a request from the Main Store goes to the store keeper, the receiving head and Property Administration, never a loan", async () => {
     const s = await stage("mv-from");
     const store = await mainStore("mv-from");
     const req = await request(s.a1.custodianId, [store.stockId], s.a1.labId);

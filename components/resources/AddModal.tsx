@@ -451,7 +451,7 @@ export function AddModal({
       return;
     }
     const staged = r.result.staged;
-    if (staged) toast.success(`Added to ${staged.labName}'s changes — not sent to the head yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+    if (staged) toast.success(`Added to ${staged.labName}'s changes, not sent to the head yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
     else toast.success(preview.names.length === 1 ? `Added ${preview.names[0]}` : `Added ${preview.names.length} resources`);
     onCreated();
     onClose();
@@ -462,16 +462,16 @@ export function AddModal({
   if (preview) {
     const destinationName = parent ? (containers.find((c) => c.id === parent)?.name ?? "the chosen place") : "the top level";
     return (
-      <Modal title="Preview — Add resources" onClose={onClose} width="480px">
+      <Modal title="Preview: Add resources" onClose={onClose} width="480px">
         {error && <ErrorNote>{error}</ErrorNote>}
         <p className="text-11 text-dim">
           Adds <strong className="text-text">{preview.names.length}</strong> × {selectedCategory?.name} to <strong className="text-text">{destinationName}</strong>
-          {preview.rows > preview.names.length ? ` — ${preview.rows} rows in total, parts included` : ""}. New rows are highlighted among what&apos;s already there.
+          {preview.rows > preview.names.length ? `: ${preview.rows} rows in total, parts included` : ""}. New rows are highlighted among what&apos;s already there.
         </p>
         <PreviewList existing={preview.existing} added={preview.names} iconKey={selectedCategory?.iconKey} />
         <div className="flex items-center gap-8">
           <Button variant="primary" disabled={busy} onClick={apply}>
-            {busy ? "Creating…" : `Apply — create ${preview.names.length}`}
+            {busy ? "Creating…" : `Apply: create ${preview.names.length}`}
           </Button>
           <Button onClick={() => setPreview(null)} disabled={busy}>
             Back
@@ -634,7 +634,7 @@ export function AddModal({
           Creates {count} × {categories.find((c) => c.id === categoryId)?.name}
           {templateRows > 1 && (
             <>
-              , each with its full default subtree — <strong className="text-text font-mono">{count * templateRows}</strong> rows in total.
+              , each with its full default subtree: <strong className="text-text font-mono">{count * templateRows}</strong> rows in total.
             </>
           )}
         </p>

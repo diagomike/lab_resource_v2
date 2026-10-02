@@ -23,7 +23,7 @@ function selectDriver(): VerifierDriver {
       return httpVerifierDriver(base, key);
     }
     default:
-      throw new Error(`Unknown VERIFIER_DRIVER "${kind}" — use "http" or "fake".`);
+      throw new Error(`Unknown VERIFIER_DRIVER "${kind}". Use "http" or "fake".`);
   }
 }
 

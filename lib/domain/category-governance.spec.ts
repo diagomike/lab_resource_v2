@@ -23,7 +23,7 @@ const lab = (over: Partial<GovernedCategory> = {}): GovernedCategory => ({
 const item = (id: string, props: Item["props"]): Item => ({ id, parentId: null, categoryId: "lab", name: id, qty: 1, status: "WORKING", critical: false, props, images: [], ownerOrgNodeId: "d", currentOrgNodeId: "d", custodianId: "u", version: 1, createdAt: "", updatedAt: "" });
 const items = [item("a", { room: "B528-RG16", seats: 25 }), item("b", { room: "C-105", seats: null })];
 
-describe("classifyEdit — adding goes through, changing data waits", () => {
+describe("classifyEdit: adding goes through, changing data waits", () => {
   it("adding a detail, an option, a part, a name or an icon is additive", () => {
     const after = lab({ name: "Laboratory", iconKey: "Beaker", fields: [...lab().fields, { key: "block", label: "Block", type: "text" }], defaultChildren: [{ categoryId: "bench", qty: 4, critical: false }] });
     expect(classifyEdit(lab(), after, items)).toEqual({ cls: "ADDITIVE", reasons: [] });
@@ -58,7 +58,7 @@ describe("classifyEdit — adding goes through, changing data waits", () => {
   });
 });
 
-describe("routeEdit — who decides", () => {
+describe("routeEdit: who decides", () => {
   const custodian = { isTop: false, headsOwnUnit: false };
   const head = { isTop: false, headsOwnUnit: true };
   const top = { isTop: true, headsOwnUnit: false };

@@ -181,7 +181,7 @@ export async function createPlace(actorId: string, input: CreatePlaceInput): Pro
   const isStore = await isStoreKind(input.categoryId);
   await assertCanManagePlace(actorId, input.ownerOrgNodeId, isStore);
   const owner = await prisma.orgNode.findUnique({ where: { id: input.ownerOrgNodeId }, select: { kind: true } });
-  if (owner?.kind === "OFFICE") throw new HttpError(400, "A lab or store belongs to a department, a college or the university — not an office.");
+  if (owner?.kind === "OFFICE") throw new HttpError(400, "A lab or store belongs to a department, a college or the university, not an office.");
   const kind = await prisma.resourceCategory.findUnique({ where: { id: input.categoryId }, select: { isPlace: true, active: true, name: true } });
   if (!kind?.isPlace || !kind.active) throw new HttpError(400, "Choose a kind of place: a lab, workshop, studio or store.");
   await assertCandidate(actorId, input.ownerOrgNodeId, input.custodianId, isStore);
@@ -235,7 +235,7 @@ export async function updatePlace(actorId: string, placeId: string, input: Updat
   }
   if (input.custodianId && input.custodianId !== before.custodianId) {
     await assertCandidate(actorId, before.ownerOrgNodeId, input.custodianId, before.isStore);
-    if (before.draftStatus === "SUBMITTED") throw new HttpError(409, `${before.name} has changes waiting for the head — decide them before handing the place over.`);
+    if (before.draftStatus === "SUBMITTED") throw new HttpError(409, `${before.name} has changes waiting for the head. Decide them before handing the place over.`);
     const moving = [placeId, ...(await heldWithPlace(placeId, before.custodianId, before.ownerOrgNodeId))];
     await run({ kind: "setCustodian", itemIds: moving, value: input.custodianId, ...(input.note ? { note: input.note } : {}) } as ItemChangeInput);
     const after = await getPlace(actorId, placeId);
@@ -258,6 +258,6 @@ export async function updatePlace(actorId: string, placeId: string, input: Updat
 export async function removePlace(actorId: string, placeId: string): Promise<void> {
   const place = await getPlace(actorId, placeId);
   await assertCanManagePlace(actorId, place.ownerOrgNodeId, place.isStore);
-  if (place.itemCount > 0) throw new HttpError(409, `${place.name} still holds ${place.itemCount} thing${place.itemCount === 1 ? "" : "s"} — move them out first.`);
+  if (place.itemCount > 0) throw new HttpError(409, `${place.name} still holds ${place.itemCount} thing${place.itemCount === 1 ? "" : "s"}. Move them out first.`);
   await applyChange(actorId, { kind: "deleteItem", itemIds: [placeId] }, { asPlaceManager: true });
 }

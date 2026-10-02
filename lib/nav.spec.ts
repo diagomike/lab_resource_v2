@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CapabilitiesDto, RoleKind } from "@/lib/shared";
-import { canAccessPath, landingPathFor, navFor, type NavFacts } from "./nav";
+import { YOU_GROUP, canAccessPath, landingPathFor, navFor, type NavFacts } from "./nav";
 
 const NONE: CapabilitiesDto = {
   isAdmin: false,
@@ -36,13 +36,21 @@ const PEOPLE: Record<string, NavFacts> = {
 };
 
 describe("the sidebar shows each person what they use (the plan's matrix)", () => {
-  it("everyone gets Home, Resources, Approvals and their own section", () => {
+  it("everyone gets Home, Resources and Approvals", () => {
     for (const f of Object.values(PEOPLE)) {
-      expect(keys(f)).toEqual(expect.arrayContaining(["home", "register", "approvals", "help", "profile"]));
+      expect(keys(f)).toEqual(expect.arrayContaining(["home", "register", "approvals"]));
     }
   });
 
-  it("a custodian: their labs, bookings, needs, outside tasks and categories — no Insights, History or People", () => {
+  it("help and profile live behind the avatar, not in the sidebar", () => {
+    expect(YOU_GROUP.items.map((i) => i.key)).toEqual(["help", "profile"]);
+    for (const f of Object.values(PEOPLE)) {
+      expect(keys(f)).not.toContain("help");
+      expect(keys(f)).not.toContain("profile");
+    }
+  });
+
+  it("a custodian: their labs, bookings, needs, outside tasks and categories: no Insights, History or People", () => {
     const k = keys(PEOPLE.custodian);
     expect(k).toEqual(expect.arrayContaining(["places", "schedule", "purchasing", "external-requests", "categories"]));
     expect(k).not.toContain("dashboard");
@@ -58,7 +66,7 @@ describe("the sidebar shows each person what they use (the plan's matrix)", () =
     expect(keys(PEOPLE.head)).not.toContain("admin-org-structure");
   });
 
-  it("the ADAA manages the college's stores and categories, and reads Insights and History — no bookings or buying", () => {
+  it("the ADAA manages the college's stores and categories, and reads Insights and History: no bookings or buying", () => {
     const k = keys(PEOPLE.adaa);
     expect(k).toEqual(expect.arrayContaining(["places", "categories", "dashboard", "change-log"]));
     expect(k).not.toContain("schedule");
@@ -66,7 +74,7 @@ describe("the sidebar shows each person what they use (the plan's matrix)", () =
   });
 
   it("procurement buys and nothing else; the store keeper runs stores and arrivals", () => {
-    expect(keys(PEOPLE.procurement)).toEqual(["home", "register", "approvals", "purchasing", "help", "profile"]);
+    expect(keys(PEOPLE.procurement)).toEqual(["home", "register", "approvals", "purchasing"]);
     expect(keys(PEOPLE.storeKeeper)).toEqual(expect.arrayContaining(["places", "purchasing"]));
     expect(keys(PEOPLE.storeKeeper)).not.toContain("categories");
   });
@@ -76,7 +84,7 @@ describe("the sidebar shows each person what they use (the plan's matrix)", () =
   });
 
   it("an outside requester gets no workspace at all", () => {
-    expect(keys(facts(["EXTERNAL"]))).toEqual(["help", "profile"]);
+    expect(keys(facts(["EXTERNAL"]))).toEqual([]);
   });
 });
 

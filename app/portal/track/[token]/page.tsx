@@ -16,7 +16,7 @@ export default function PortalTrackPage() {
             <Link href="/login" className="text-accent underline">
               Sign in
             </Link>{" "}
-            — or{" "}
+            or{" "}
             <Link href="/portal/signup" className="text-accent underline">
               create an account
             </Link>{" "}

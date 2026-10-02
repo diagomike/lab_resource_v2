@@ -71,7 +71,7 @@ export function groupRows(rows: RowNode[], levels: Array<(item: Item) => GroupKe
     if (!item) continue;
     const keys = levels.flatMap((f) => {
       const k = f(item);
-      return k.length ? k : [{ id: "__none", label: "—" }];
+      return k.length ? k : [{ id: "__none", label: "–" }];
     });
     let b = top;
     for (const k of keys) {
@@ -407,7 +407,7 @@ export function describeAgg(agg: Agg, max = 2): string {
   const parts = agg.counts.slice(0, max).map(([v, n]) => `${n} ${v}`);
   if (agg.counts.length > max) parts.push(`+${agg.counts.length - max} more`);
   if (agg.empty > 0) parts.push(`${agg.empty} unset`);
-  return parts.join(" · ") || "—";
+  return parts.join(" · ") || "–";
 }
 
 export function summaryFields(cat: Category | undefined) {
