@@ -56,6 +56,21 @@ export const HomeDto = z.object({
 });
 export type HomeDto = z.infer<typeof HomeDto>;
 
-/** The sidebar's badges and the bell's count — refreshed every minute. */
-export const HomeCountsDto = z.object({ approvals: z.number().int(), purchasing: z.number().int(), places: z.number().int(), outside: z.number().int(), unread: z.number().int() });
+/** One area's live counts: what waits for this person's action, and what they started
+ *  or take part in that is still moving (it stops counting once it reaches its end,
+ *  and at once when it fails: rejected, cancelled, declined). */
+export const AreaCountDto = z.object({ action: z.number().int(), following: z.number().int() });
+export type AreaCountDto = z.infer<typeof AreaCountDto>;
+
+export const countAreas = ["approvals", "purchasing", "places", "outside", "bookings"] as const;
+export type CountArea = (typeof countAreas)[number];
+
+/** The sidebar's badges, the tabs' counts and the bell's — refreshed every minute.
+ *  `tabs` breaks an area down by the tabs of its screen ("approvals.inbox",
+ *  "purchasing.needs", …). */
+export const HomeCountsDto = z.object({
+  areas: z.object({ approvals: AreaCountDto, purchasing: AreaCountDto, places: AreaCountDto, outside: AreaCountDto, bookings: AreaCountDto }),
+  tabs: z.record(z.string(), AreaCountDto),
+  unread: z.number().int(),
+});
 export type HomeCountsDto = z.infer<typeof HomeCountsDto>;

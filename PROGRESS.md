@@ -5236,3 +5236,19 @@ its model that make porting it as-is the wrong move.
   - **Checks:** `tsc` clean, 618/618, `next build` clean; on :3200 as Property Admin: Bookings and People & roles in
     the sidebar, people reach = store keeper/custodian at the university and PROP office, "Change custody or unit…"
     on a loaned item opens with only the three record tabs and a required reason.
+- **2026-10-03 (feedback round, R3: live counts on the sidebar and tabs)**
+  - `HomeCountsDto` is now `{ areas: {approvals, purchasing, places, outside, bookings: {action, following}}, tabs:
+    {"approvals.inbox", "approvals.mine", "purchasing.needs|requests|arrivals", "places.changes",
+    "bookings.requests"}, unread }`. `action` = waits for you (as before); `following` (new `followingFor`) = what
+    you sent or take part in that hasn't reached its end: transfers until applied, lab/store changes until
+    decided, purchase requests until CLOSED, needs until their purchase closes, procurement's pipeline, import
+    records not yet loaded (Property Admin), booking requests until decided, outside requests until scheduled.
+    Rejected/withdrawn/declined/expired stop counting at once.
+  - `CountChips` (`components/ui.tsx`): solid accent = waiting for you; muted slate-blue (`--follow`/`--followbg`,
+    5.5:1 light, ~7:1 dark) = in progress. Sidebar (now Bookings too) and the `Tabs` primitive (`following`).
+    Approvals: "Waiting for me" / "Sent by me" counts; in "Sent by me" finished and failed items step aside into a
+    collapsed **Finished (n)**. Purchasing tabs read the same counts. The lab page keeps its own orange
+    "waiting" tag. Home's "Unfinished" includes store keepers' unsent store changes.
+  - Approvals' `mayBook` follows the new booking roles. Guide: Getting started explains the two numbers.
+  - **Checks:** `tsc` clean, 618/618, build clean; on :3200 the store keeper's pending store change shows a
+    grey-blue 1 on Labs & stores, Approvals and "Sent by me", and Property Admin's counts show it waiting (1).

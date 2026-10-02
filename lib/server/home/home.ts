@@ -125,11 +125,11 @@ async function myRequests(userId: string): Promise<MyRequestDto[]> {
 
 /** Lab changes made and not sent yet. */
 async function unfinishedFor(userId: string, caps: CapabilitiesDto): Promise<UnfinishedDto[]> {
-  if (!caps.isCustodian) return [];
+  if (!caps.isCustodian && !caps.isStoreKeeper) return [];
   const drafts = await safe([], () => labVersions.unsentDrafts(userId));
   return drafts.map((d) => ({
     label: `Send your changes for ${d.labName}`,
-    detail: `${d.changes} change${d.changes === 1 ? "" : "s"} not sent to the head yet.`,
+    detail: `${d.changes} change${d.changes === 1 ? "" : "s"} not sent yet.`,
     path: paths.place(d.labItemId, "draft"),
   }));
 }
@@ -235,20 +235,67 @@ export async function homeFor(userId: string): Promise<HomeDto> {
   };
 }
 
-/** The sidebar's badges and the bell — the same facts as Home, counts only. */
+const OPEN_OUTSIDE = ["SUBMITTED", "UNDER_REVIEW", "QUOTED", "PAYMENT_SUBMITTED", "PAID"];
+
+/** What this person started or takes part in that hasn't reached its end yet. A
+ *  failed ending (rejected, withdrawn, declined, expired) stops counting at once. */
+async function followingFor(userId: string, caps: CapabilitiesDto) {
+  const heads = caps.headOf.length > 0;
+  const [t, l, p, b, c, n, pipeline, importsOpen, outside] = await Promise.all([
+    safe([], () => transfers.listForActor(userId, "mine")),
+    safe([], () => labVersions.listForActor(userId, "mine")),
+    safe([], () => purchasing.listForActor(userId, "mine")),
+    safe([], () => listBookings(userId, "mine")),
+    safe({ waiting: [], mine: [] }, () => governance.listChanges(userId)),
+    safe([], () => (caps.isCustodian ? purchasing.listMyNeeds(userId) : Promise.resolve([]))),
+    safe([], () => (caps.isProcurement || caps.isAdmin ? purchasing.listForActor(userId, "pipeline") : Promise.resolve([]))),
+    safe(0, () => (caps.isPropertyAdmin ? prisma.importRecord.count({ where: { status: "OPEN" } }) : Promise.resolve(0))),
+    safe([], async () => (caps.isAvp || heads || caps.deanOf.length || caps.isCustodian ? await external.listForActor(userId) : [])),
+  ]);
+  const live = (stage: string) => !["CLOSED", "REJECTED", "CANCELLED"].includes(stage);
+  const transfersOpen = t.filter((r) => r.status === "PENDING").length;
+  const labOpen = l.filter((r) => r.status === "PENDING").length;
+  const purchasesOpen = p.filter((r) => live(r.stage)).length;
+  const bookingsOpen = b.filter((r) => r.state === "REQUESTED").length;
+  const categoryOpen = c.mine.filter((x) => x.status === "PENDING").length;
+  const needsOpen = n.filter((x) => x.status === "OPEN" || (x.status === "CARRIED" && x.purchaseStage !== null && live(x.purchaseStage))).length;
+  const pipelineOpen = pipeline.filter((r) => live(r.stage)).length;
+  const outsideOpen = outside.filter((r) => OPEN_OUTSIDE.includes(r.status) && !r.waitingOnMe).length;
+  return { transfersOpen, labOpen, purchasesOpen, bookingsOpen, categoryOpen, needsOpen, pipelineOpen, importsOpen, outsideOpen };
+}
+
+/** The sidebar's badges, the screens' tab counts and the bell: the same facts as Home. */
 export async function homeCounts(userId: string): Promise<HomeCountsDto> {
   const caps = await capabilitiesOf(userId);
-  const [waiting, drafts, unread] = await Promise.all([
+  const [waiting, drafts, unread, f] = await Promise.all([
     waitingFor(userId, caps),
-    caps.isCustodian ? safe([], () => labVersions.unsentDrafts(userId)) : Promise.resolve([]),
+    caps.isCustodian || caps.isStoreKeeper ? safe([], () => labVersions.unsentDrafts(userId)) : Promise.resolve([]),
     unreadCount(userId),
+    followingFor(userId, caps),
   ]);
   const sum = (kinds: WaitingKind[]) => waiting.filter((w) => kinds.includes(w.kind)).reduce((n, w) => n + w.count, 0);
+  const tabs = {
+    "approvals.inbox": { action: sum(["transfer", "lab-commit", "purchase", "booking", "category-change"]), following: 0 },
+    "approvals.mine": { action: 0, following: f.transfersOpen + f.labOpen + f.purchasesOpen + f.bookingsOpen + f.categoryOpen },
+    "purchasing.needs": { action: sum(["needs"]), following: f.needsOpen },
+    "purchasing.requests": { action: 0, following: f.purchasesOpen + f.pipelineOpen },
+    "purchasing.arrivals": { action: sum(["arrivals", "loads"]), following: f.importsOpen },
+    "places.changes": { action: drafts.length, following: f.labOpen },
+    "bookings.requests": { action: sum(["booking"]), following: f.bookingsOpen },
+  };
+  const area = (...keys: Array<keyof typeof tabs>) => ({
+    action: keys.reduce((n, k) => n + tabs[k].action, 0),
+    following: keys.reduce((n, k) => n + tabs[k].following, 0),
+  });
   return {
-    approvals: sum(["transfer", "lab-commit", "purchase", "booking", "category-change"]),
-    purchasing: sum(["needs", "arrivals", "loads"]),
-    places: drafts.length,
-    outside: sum(["external"]),
+    areas: {
+      approvals: area("approvals.inbox", "approvals.mine"),
+      purchasing: area("purchasing.needs", "purchasing.requests", "purchasing.arrivals"),
+      places: area("places.changes"),
+      outside: { action: sum(["external"]), following: f.outsideOpen },
+      bookings: area("bookings.requests"),
+    },
+    tabs,
     unread,
   };
 }

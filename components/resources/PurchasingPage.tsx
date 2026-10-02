@@ -18,6 +18,7 @@ import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished, linesFromNeeds } from 
 import { purchaseWords, sendBackWords } from "@/lib/domain/decision-words";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useHomeCounts } from "@/lib/home-counts";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog, Tabs } from "@/components/ui";
 import { PanelLoading, InlineError } from "@/components/states";
 import { ImportsPanel } from "./ImportsPanel";
@@ -1247,6 +1248,7 @@ type Section = "needs" | "requests" | "arrivals";
  */
 function PurchasingInner() {
   const { user, me } = useAuth();
+  const { counts: liveCounts } = useHomeCounts();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -1324,11 +1326,17 @@ function PurchasingInner() {
 
   if (!user) return null;
 
-  const tabs = sections.map((s) => ({
-    key: s,
-    label: s === "needs" ? "Lab needs" : s === "requests" ? "Requests" : "Arrivals",
-    count: s === "needs" && headsUnit ? (openNeeds?.length ?? 0) : undefined,
-  }));
+  // Live counts per tab (lib/server/home/home.ts `homeCounts`): what waits for this
+  // person, and what of theirs is still moving.
+  const tabs = sections.map((s) => {
+    const live = liveCounts?.tabs[`purchasing.${s}`];
+    return {
+      key: s,
+      label: s === "needs" ? "Lab needs" : s === "requests" ? "Requests" : "Arrivals",
+      count: s === "needs" && headsUnit && openNeeds ? openNeeds.length : live?.action,
+      following: live?.following,
+    };
+  });
 
   return (
     <Screen>

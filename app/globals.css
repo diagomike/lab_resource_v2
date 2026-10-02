@@ -30,6 +30,10 @@
     --accent: #0b69b0;
     --accent2: #1183d6;
     --soft: #e1eefa;
+    /* "In progress": things a person follows that are still moving. A muted blue of the
+       accent's family, so it reads as related but quieter (5.5:1). */
+    --follow: #46607a;
+    --followbg: #e3eaf2;
     --sel: #d5e7f7;
     --top: #0a4e86;
     --topfg: #dceaf6;
@@ -94,6 +98,8 @@
     --accent: #4fa6e8;
     --accent2: #7cc2f5;
     --soft: #132b3b;
+    --follow: #9fb8d0;
+    --followbg: #1d2a37;
     --sel: #1c3446;
     --top: #0a1720;
     --topfg: #cfe0ee;

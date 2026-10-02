@@ -53,7 +53,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
             <Link href={`/places/${request.labItemId}`} className="text-text hover:text-accent">
               {request.labName}
             </Link>{" "}
-            · Changes to the lab
+            · Changes
           </div>
           <div className="text-11 text-dim">
             by {request.requesterName} · {new Date(request.createdAt).toLocaleString()}

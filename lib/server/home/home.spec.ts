@@ -152,7 +152,10 @@ describe("Home", () => {
   it("a need the custodian asks for waits for the head: Home's next step and the Purchasing badge", async () => {
     await purchasing.raiseNeed(custodianId, { labItemId: labId, name: "Oscilloscope", qty: 2, reason: "Two broke this term" });
     const counts = await home.homeCounts(headId);
-    expect(counts.purchasing).toBe(1);
+    expect(counts.areas.purchasing.action).toBe(1);
+    expect(counts.tabs["purchasing.needs"]).toEqual({ action: 1, following: 0 });
+    // The custodian who asked keeps seeing it as in progress until it reaches its end.
+    expect((await home.homeCounts(custodianId)).tabs["purchasing.needs"].following).toBeGreaterThanOrEqual(1);
     const h = await home.homeFor(headId);
     expect(h.waiting).toEqual([{ kind: "needs", label: "Needs to build into a purchase request", count: 1, path: "/purchasing?tab=needs" }]);
     expect(h.nextStep).toMatchObject({ path: "/purchasing?tab=needs", action: "Build a request" });
@@ -175,9 +178,9 @@ describe("Home", () => {
     });
     expect(staged).toBeTruthy();
     const h = await home.homeFor(custodianId);
-    expect(h.unfinished).toEqual([{ label: `Send your changes for ${testKey} Lab`, detail: "1 change not sent to the head yet.", path: `/places/${labId}?tab=draft` }]);
+    expect(h.unfinished).toEqual([{ label: `Send your changes for ${testKey} Lab`, detail: "1 change not sent yet.", path: `/places/${labId}?tab=draft` }]);
     expect(h.nextStep).toMatchObject({ title: `Send your changes for ${testKey} Lab` });
-    expect((await home.homeCounts(custodianId)).places).toBe(1);
+    expect((await home.homeCounts(custodianId)).areas.places.action).toBe(1);
   });
 
   it("someone with nothing waiting is all caught up", async () => {

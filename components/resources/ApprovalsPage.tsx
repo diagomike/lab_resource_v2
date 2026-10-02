@@ -422,6 +422,23 @@ async function loadBox(box: Box, mayBook: boolean): Promise<{ entries: Entry[]; 
   return { entries, failed };
 }
 
+/** Still moving: not yet at its end, and not failed. In "Sent by me" these come first;
+ *  the rest step aside into "Finished". */
+function isLive(e: Entry): boolean {
+  switch (e.kind) {
+    case "transfer":
+      return e.row.status === "PENDING";
+    case "lab-commit":
+      return e.row.status === "PENDING";
+    case "purchase":
+      return !["CLOSED", "REJECTED", "CANCELLED"].includes(e.row.stage);
+    case "booking":
+      return e.row.state === "REQUESTED";
+    case "category-change":
+      return e.row.status === "PENDING" || e.row.status === "STALE";
+  }
+}
+
 function EntryCard({ entry, viewerId, onChanged }: { entry: Entry; viewerId: string; onChanged: () => void }) {
   switch (entry.kind) {
     case "transfer":
@@ -451,8 +468,8 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 }
 
 function Inbox() {
-  const { user } = useAuth();
-  const { refresh: refreshCounts } = useHomeCounts();
+  const { user, me } = useAuth();
+  const { counts: liveCounts, refresh: refreshCounts } = useHomeCounts();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -460,7 +477,8 @@ function Inbox() {
   const box: Box = params.get("box") === "mine" ? "mine" : "inbox";
   const kindParam = params.get("kind") as ApprovalKind | null;
   const kind: ApprovalKind | null = kindParam && KINDS.includes(kindParam) ? kindParam : null;
-  const mayBook = !!user?.roles.some((r) => r === "SYS_ADMIN" || r === "MANAGER" || r === "CUSTODIAN");
+  // The same people the booking service accepts (lib/server/scheduling/context.ts).
+  const mayBook = !!user?.roles.some((r) => r === "SYS_ADMIN" || r === "CUSTODIAN" || r === "ADAA" || r === "PROPERTY_ADMIN") || (me?.caps?.headOf.length ?? 0) > 0;
 
   const [data, setData] = useState<{ box: Box; entries: Entry[]; failed: string[] } | null>(null);
   const [waitingCount, setWaitingCount] = useState<number | null>(null);
@@ -526,7 +544,10 @@ function Inbox() {
 
   const counts = new Map<ApprovalKind, number>();
   for (const e of entries ?? []) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
-  const shown = (entries ?? []).filter((e) => !kind || e.kind === kind || (focused && e === focused));
+  const matching = (entries ?? []).filter((e) => !kind || e.kind === kind || (focused && e === focused));
+  // "Sent by me": what is still moving first; finished and failed ones step aside.
+  const shown = box === "mine" ? matching.filter((e) => isLive(e) || e === focused) : matching;
+  const finished = box === "mine" ? matching.filter((e) => !isLive(e) && e !== focused) : [];
   const missingFocus = entries && focus && !focused;
 
   return (
@@ -536,8 +557,8 @@ function Inbox() {
         value={box}
         onChange={(b) => setQuery({ box: b, kind: null, focus: null })}
         tabs={[
-          { key: "inbox", label: "Waiting for me", count: waitingCount ?? undefined },
-          { key: "mine", label: "Sent by me" },
+          { key: "inbox", label: "Waiting for me", count: waitingCount ?? liveCounts?.tabs["approvals.inbox"]?.action },
+          { key: "mine", label: "Sent by me", following: liveCounts?.tabs["approvals.mine"]?.following },
         ]}
       />
 
@@ -576,8 +597,10 @@ function Inbox() {
       <Panel>
         {entries === null ? (
           <PanelLoading rows={4} />
-        ) : shown.length === 0 ? (
+        ) : shown.length === 0 && finished.length === 0 ? (
           <div className="px-14 py-14 text-11.5 text-dim leading-loose">{kind ? `No ${KIND_LABEL[kind].toLowerCase()} here.` : EMPTY[box]}</div>
+        ) : shown.length === 0 ? (
+          <div className="px-14 py-14 text-11.5 text-dim leading-loose">Nothing you sent is still in progress.</div>
         ) : (
           <div className="p-12 flex flex-col gap-10">
             {shown.map((e) => {
@@ -600,6 +623,22 @@ function Inbox() {
           </div>
         )}
       </Panel>
+
+      {finished.length > 0 && (
+        <details className="bg-panel border border-border rounded-3">
+          <summary className="cursor-pointer px-14 py-10 text-11.5 font-medium text-dim">
+            Finished ({finished.length}): done, withdrawn, rejected or declined
+          </summary>
+          <div className="p-12 pt-0 flex flex-col gap-10">
+            {finished.map((e) => (
+              <div key={`${e.kind}-${e.id}`} id={`approval-${e.kind}-${e.id}`} className="flex flex-col gap-4">
+                <div className="text-11 uppercase tracking-label font-semibold text-faint px-2">{KIND_LABEL[e.kind]}</div>
+                <EntryCard entry={e} viewerId={user.id} onChanged={onChanged} />
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </Screen>
   );
 }

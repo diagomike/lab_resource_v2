@@ -29,6 +29,8 @@ export default {
       accent: "var(--accent)",
       accent2: "var(--accent2)",
       soft: "var(--soft)",
+      follow: "var(--follow)",
+      followbg: "var(--followbg)",
       sel: "var(--sel)",
       top: "var(--top)",
       topfg: "var(--topfg)",

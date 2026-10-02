@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 import { navFor, screenKeyForPath } from "../../lib/nav";
 import { useAuth, useNavFacts } from "../../lib/auth-context";
 import { useHomeCounts } from "../../lib/home-counts";
-import { SCOPE_LABEL, type HomeCountsDto, type ScopeDto } from "@/lib/shared";
+import { SCOPE_LABEL, type CountArea, type ScopeDto } from "@/lib/shared";
+import { CountChips } from "@/components/ui";
 
 /** "The whole university · 14 units" or "3 units" — plain words, no internal levels. */
 function scopeMeta(scope: ScopeDto): string {
@@ -14,8 +15,9 @@ function scopeMeta(scope: ScopeDto): string {
   return scope.isGlobal ? `The whole university · ${units}` : units;
 }
 
-/** Which sidebar entry shows which count — what is waiting there for this person. */
-const BADGE: Record<string, keyof HomeCountsDto> = { approvals: "approvals", purchasing: "purchasing", places: "places", "external-requests": "outside" };
+/** Which sidebar entry shows which area's counts: what waits there for this person, and
+ *  what of theirs is still moving. */
+const BADGE: Record<string, CountArea> = { approvals: "approvals", purchasing: "purchasing", places: "places", "external-requests": "outside", schedule: "bookings" };
 
 export default function Sidebar({
   scope,
@@ -82,15 +84,15 @@ export default function Sidebar({
             </div>
             {group.items.map((item) => {
               const on = item.key === activeKey;
-              const n = BADGE[item.key] && counts ? counts[BADGE[item.key]] : 0;
-              const count = n > 0 ? String(n) : "";
+              const area = BADGE[item.key] && counts ? counts.areas[BADGE[item.key]] : null;
+              const words = area && (area.action || area.following) ? [area.action ? `${area.action} waiting for you` : "", area.following ? `${area.following} in progress` : ""].filter(Boolean).join(", ") : "";
               return (
                 <Link
                   key={item.key}
                   href={item.path}
                   onClick={() => onNavigate?.()}
                   aria-current={on ? "page" : undefined}
-                  title={count ? `${item.label}: ${count} waiting for you` : undefined}
+                  title={words ? `${item.label}: ${words}` : undefined}
                   style={{
                     textDecoration: "none",
                     borderLeftColor: on ? "var(--accent)" : "transparent",
@@ -102,11 +104,7 @@ export default function Sidebar({
                 >
                   <NavIcon name={item.icon} />
                   <span className="flex-1 whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>
-                  {count && (
-                    <span className="text-10.5 font-semibold font-mono px-5 rounded-full bg-accent text-white leading-relaxed" aria-hidden="true">
-                      {count}
-                    </span>
-                  )}
+                  {area && <CountChips action={area.action} following={area.following} />}
                 </Link>
               );
             })}

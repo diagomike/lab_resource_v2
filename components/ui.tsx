@@ -172,13 +172,39 @@ export function Table<T>({
 
 /** Horizontal tabs for the sections of one screen. A count shows what is waiting in a
  *  section (it reads "3 waiting" to a screen reader, not just "3"). */
+/**
+ * Live counts beside a sidebar entry or a tab: a solid accent chip for what waits for
+ * this person's action, a quieter slate-blue chip for what they follow that is still
+ * moving (it disappears once everything reaches its end).
+ */
+export function CountChips({ action = 0, following = 0 }: { action?: number; following?: number }) {
+  if (!action && !following) return null;
+  const words = [action ? `${action} waiting for you` : "", following ? `${following} in progress` : ""].filter(Boolean).join(", ");
+  return (
+    <span className="flex items-center gap-3 flex-none" title={words}>
+      {action > 0 && (
+        <span className="text-10.5 font-semibold font-mono px-5 rounded-full bg-accent text-white leading-relaxed" aria-hidden="true">
+          {action}
+        </span>
+      )}
+      {following > 0 && (
+        <span className="text-10.5 font-semibold font-mono px-5 rounded-full bg-followbg text-follow leading-relaxed" aria-hidden="true">
+          {following}
+        </span>
+      )}
+      <span className="sr-only">{words}</span>
+    </span>
+  );
+}
+
 export function Tabs<K extends string>({
   tabs,
   value,
   onChange,
   label,
 }: {
-  tabs: Array<{ key: K; label: string; count?: number }>;
+  /** `count`: waiting for this person; `following`: theirs, still in progress. */
+  tabs: Array<{ key: K; label: string; count?: number; following?: number }>;
   value: K;
   onChange: (key: K) => void;
   /** What the tabs switch between, for assistive tech ("Purchasing sections"). */
@@ -198,12 +224,7 @@ export function Tabs<K extends string>({
             className={`px-12 h-32 text-12 font-medium flex items-center gap-6 border-b-2 -mb-px whitespace-nowrap ${on ? "border-accent text-text" : "border-transparent text-dim hover:text-text"}`}
           >
             {t.label}
-            {t.count ? (
-              <span className="rounded-full bg-warnbg text-warn border border-warn px-6 text-11 font-mono leading-snug">
-                {t.count}
-                <span className="sr-only"> waiting</span>
-              </span>
-            ) : null}
+            <CountChips action={t.count} following={t.following} />
           </button>
         );
       })}
