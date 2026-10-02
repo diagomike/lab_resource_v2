@@ -69,7 +69,7 @@ describe("requester accounts", () => {
 
     await expect(auth.login({ email, password: input.password }, {})).rejects.toMatchObject({ status: 401, message: expect.stringMatching(/Confirm your email/) });
     // A wrong password still says only that.
-    await expect(auth.login({ email, password: "wrong one entirely" }, {})).rejects.toMatchObject({ status: 401, message: "Invalid email or password" });
+    await expect(auth.login({ email, password: "wrong one entirely" }, {})).rejects.toMatchObject({ status: 401, message: expect.stringContaining("The password is wrong") });
 
     await expect(accounts.verifyEmail("x".repeat(43))).rejects.toMatchObject({ status: 400 });
     await accounts.verifyEmail(tokenIn(sent[0].html));

@@ -46,9 +46,12 @@ export function Button({
   variant = "default",
   type = "button",
   disabled,
+  title,
 }: {
   children: ReactNode;
   onClick?: () => void;
+  /** Says what the button will do, on hover. */
+  title?: string;
   /** danger only for what destroys or can't be undone; warn for "are you sure". */
   variant?: "default" | "primary" | "warn" | "danger";
   type?: "button" | "submit";
@@ -65,6 +68,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`border h-28 px-12 rounded-2 text-11.5 font-medium whitespace-nowrap disabled:opacity-45 ${styles[variant]}`}
     >
       {children}

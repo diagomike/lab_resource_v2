@@ -1,6 +1,7 @@
 import "server-only";
 import type { z, ZodSchema } from "zod";
 import { HttpError } from "./http-error";
+import { readableIssues } from "@/lib/shared/validation-message";
 
 /**
  * Replaces `@Body(new ZodValidationPipe(Schema)) body: Input`. Validates a request body
@@ -21,10 +22,10 @@ export async function parseBody<T extends ZodSchema>(schema: T, request: Request
   const json = await request.json().catch(() => undefined);
   const result = schema.safeParse(json);
   if (!result.success) {
-    throw new HttpError(400, "Validation failed", {
-      message: "Validation failed",
-      issues: result.error.issues,
-    });
+    // The message names each field and how to fix it (lib/shared/validation-message.ts);
+    // `issues` stays in the body for anything that reads them field by field.
+    const message = readableIssues(result.error.issues);
+    throw new HttpError(400, message, { message, issues: result.error.issues });
   }
   return result.data;
 }

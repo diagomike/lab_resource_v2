@@ -4,6 +4,7 @@ import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { requireRole, requireSession } from "@/lib/server/auth/session";
 import { hashIp } from "@/lib/server/auth/token";
 import { MAX_LETTER_BYTES, listForRequester, submitRequest } from "@/lib/server/external/requests";
+import { readableIssues } from "@/lib/shared/validation-message";
 
 /**
  * The signed-in requester's own requests. GET lists them; POST sends a new one —
@@ -39,7 +40,10 @@ export async function POST(request: NextRequest) {
       throw new HttpError(400, "The request details could not be read.");
     }
     const parsed = SubmitExternalRequestInput.safeParse(payload);
-    if (!parsed.success) throw new HttpError(400, "Validation failed", { message: parsed.error.issues[0]?.message ?? "Validation failed", issues: parsed.error.issues });
+    if (!parsed.success) {
+      const message = readableIssues(parsed.error.issues);
+      throw new HttpError(400, message, { message, issues: parsed.error.issues });
+    }
 
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || undefined;
     const result = await submitRequest(user.id, parsed.data, { bytes: Buffer.from(await letter.arrayBuffer()), fileName: letter.name }, hashIp(ip));

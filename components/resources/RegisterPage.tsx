@@ -39,7 +39,6 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
   const [returnOpen, setReturnOpen] = useState(false);
   const [bulkMore, setBulkMore] = useState(false);
   const [categories, setCategories] = useState<ResourceCategoryDto[]>([]);
-  const allExpanded = state.expanded === true;
   const options = useEditOptions();
   const { markers, transfers: transferMarkers, refresh: refreshMarkers } = usePendingMarkers();
   /** After any edit: the table, and the draft markers (the edit may have been staged). */
@@ -182,16 +181,6 @@ function MyRegister({ canSwitch }: { canSwitch: boolean }) {
               </Button>
             )}
             <ExportViewButton rows={state.rowNodes} byId={state.byId} fileBase="Resources" paged={state.mode === "flat" && state.total > state.pageSize} />
-            {state.mode !== "flat" && (
-              <button
-                onClick={() => state.setExpanded(allExpanded ? {} : true)}
-                title={allExpanded ? "Collapse all" : "Expand all"}
-                className="border border-border2 bg-panel2 text-dim h-24 px-9 rounded-2 text-11 flex items-center gap-5 flex-none"
-              >
-                <span aria-hidden="true">{allExpanded ? "▾" : "▸"}</span>
-                <span>{allExpanded ? "Collapse all" : "Expand all"}</span>
-              </button>
-            )}
             <div className="flex items-center gap-4">
               {MODES.map((m) => (
                 <button

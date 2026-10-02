@@ -122,7 +122,7 @@ export async function submitPayment(requestId: string, input: SubmitPaymentInput
       const current = await lockRequest(tx, row.id);
       if (!PAYABLE.includes(current.status)) throw new HttpError(409, "This request is no longer awaiting payment.");
       await tx.paymentVerification.create({
-        data: { requestId: row.id, provider: input.provider, reference, claimKey, status: "VERIFIED", ...receiptFields(receipt, amountSantim!, paidAt!.at) },
+        data: { requestId: row.id, provider: input.provider, reference, claimKey, status: "VERIFIED", receiptLink: input.receiptLink ?? null, ...receiptFields(receipt, amountSantim!, paidAt!.at) },
       });
       await event(tx, row.id, { id: null, label: "Requester" }, "PAYMENT_VERIFIED", `${etb(amountSantim!)} via ${PROVIDER_INPUT[input.provider].label} (${reference})`);
       return settle(tx, row.id);
@@ -165,6 +165,7 @@ async function reject(
         reference,
         status: "REJECTED",
         reason,
+        receiptLink: input.receiptLink ?? null,
         ...(receipt ? receiptFields(receipt, amountSantim, paidAt) : { raw: (raw ?? Prisma.JsonNull) as Prisma.InputJsonValue }),
       },
     });
@@ -180,7 +181,7 @@ async function submitForReview(requestId: string, requestRef: string, claimKey: 
       const current = await lockRequest(tx, requestId);
       if (!PAYABLE.includes(current.status)) throw new HttpError(409, "This request is no longer awaiting payment.");
       await tx.paymentVerification.create({
-        data: { requestId, provider: input.provider, reference, claimKey, status: "PENDING_REVIEW", amountSantim: input.amountSantim, requesterNote: input.note || null },
+        data: { requestId, provider: input.provider, reference, claimKey, status: "PENDING_REVIEW", amountSantim: input.amountSantim, requesterNote: input.note || null, receiptLink: input.receiptLink ?? null },
       });
       await event(tx, requestId, { id: null, label: "Requester" }, "PAYMENT_SUBMITTED", `${etb(input.amountSantim!)} via ${PROVIDER_INPUT[input.provider].label} (${reference}): for manual review`);
       await settle(tx, requestId);

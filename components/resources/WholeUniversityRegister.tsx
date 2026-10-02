@@ -47,7 +47,6 @@ export function WholeUniversityRegister() {
   const state = useRegisterState({ scope: "UNIVERSITY", defaultMode: "grouped", defaultGroupBy: ["owner"] });
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [pullOpen, setPullOpen] = useState(false);
-  const allExpanded = state.expanded === true;
   const { user } = useAuth();
   const { markers, transfers: transferMarkers } = usePendingMarkers();
 
@@ -92,16 +91,6 @@ export function WholeUniversityRegister() {
           <div className="flex items-center gap-10">
             <RegisterScopeSwitch scope="university" />
             <ExportViewButton rows={state.rowNodes} byId={state.byId} fileBase="University resources" paged={state.mode === "flat" && state.total > state.pageSize} />
-            {state.mode !== "flat" && (
-              <button
-                onClick={() => state.setExpanded(allExpanded ? {} : true)}
-                title={allExpanded ? "Collapse all" : "Expand all"}
-                className="border border-border2 bg-panel2 text-dim h-24 px-9 rounded-2 text-11 flex items-center gap-5 flex-none"
-              >
-                <span aria-hidden="true">{allExpanded ? "▾" : "▸"}</span>
-                <span>{allExpanded ? "Collapse all" : "Expand all"}</span>
-              </button>
-            )}
             <div className="flex items-center gap-4">
               {MODES.map((m) => (
                 <button

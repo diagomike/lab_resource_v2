@@ -15,6 +15,7 @@ import type {
 } from "@/lib/shared";
 import { PURCHASE_UNITS } from "@/lib/shared";
 import { STAGE_HELP, STAGE_LABEL, isEditable, isFinished, linesFromNeeds } from "@/lib/domain/purchasing";
+import { purchaseWords, sendBackWords } from "@/lib/domain/decision-words";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog, Tabs } from "@/components/ui";
@@ -1003,14 +1004,14 @@ function RequestCard({
         <div className="flex flex-col gap-6 pt-4">
           <div className="flex flex-wrap items-center gap-8">
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (why: shown to everyone following this request)" className={`${inputCls} min-w-[260px] flex-1`} />
-            <Button variant="primary" onClick={() => decide("APPROVE")} disabled={busy || uploading}>
-              Approve
+            <Button variant="primary" onClick={() => decide("APPROVE")} disabled={busy || uploading} title={purchaseWords(request.steps).approveMeans}>
+              {purchaseWords(request.steps).approve}
+            </Button>
+            <Button onClick={() => decide("REVISE")} disabled={busy || uploading} title={sendBackWords(request.raisedByName).means}>
+              {sendBackWords(request.raisedByName).label}
             </Button>
             <Button variant="danger" onClick={() => decide("REJECT")} disabled={busy || uploading}>
               Reject
-            </Button>
-            <Button onClick={() => decide("REVISE")} disabled={busy || uploading}>
-              Send back for revision
             </Button>
           </div>
           <AttachmentPicker

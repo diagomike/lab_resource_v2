@@ -5176,3 +5176,35 @@ its model that make porting it as-is the wrong move.
     with a screenshot (41 now).
   - **Checks:** `tsc` clean; 600/600 unit; validator 124/124 and campaign 180/183 (3 known) with the renamed
     places; 41 screenshots retaken. Merge to master held at the user's request.
+- **2026-10-02 (feedback round, R1: quick fixes)** — Plan: `docs/decisions/2026-10-02-feedback-round-plan.md`
+  (also `~/.claude/plans/federated-plotting-gadget.md`), from the user's 17 comments after walking the app. The
+  user's decisions: Property Admin approves store-to-lab sends and the custodian confirms receipt; Property Admin
+  checks arrival counts pre-filled from procurement before the keeper loads; a store keeper's "Mine" is the
+  stores they keep; the ADAA manages people in their college and Property Admin the store staff; deans lose place
+  management; the AVP, CMD and deans lose Bookings; the CMD loses Outside requests. Phases R1–R7, one commit each.
+  - The previous session's uncommitted work (approver detail, account menu, no em-dashes, dashless places, the
+    AVP's Home) was committed first, on its own (`945b2a9`). Backup before this round's migrations:
+    `backups/lrms_v2-2026-10-02-before-feedback-round.dump`.
+  - **Category name once:** the page heading is gone for an existing category; the read-only header or the
+    editor's Name field heads it.
+  - **"Expand all" removed** (Resources, whole university, Insights). The lab trees keep "Collapse all".
+  - **Decisions say what happens next** (`lib/domain/decision-words.ts`, spec): "Approve and send to <next
+    approver>", "Approve, then Ali confirms receipt", "Confirm I received it", "Accept into my care", "Approve:
+    start the purchase" (the last ladder step), "Return to <raiser> to revise"; lab changes "Approve: the
+    register changes now" / "Return to <custodian> to revise"; outside requests "Approve, add to the college's
+    answer" / "Approve the college's answer" / "Return to the head/dean", "Send up to the dean/AVP".
+  - **Errors that say how to fix it:** `lib/shared/validation-message.ts` (spec) turns every schema refusal into
+    "Please fix: Contact person 2, email: give a valid email address, like name@astu.edu.et." (`parseBody` and the
+    portal's multipart route). Sign-in names the problem: no account with that email, not set up yet, turned off,
+    wrong password with tries left. This deliberately says whether an email has an account (accepted for this
+    internal system; the 5-per-15-minutes throttle stays).
+  - **Payment:** the requester may paste a link to their receipt (`PaymentVerification.receiptLink`, migration
+    `20261002230000_payment_receipt_link`, applied to `lrms_v2`); the AVP sees it, plus "Should be paid into: CBE
+    1000370930353", checked against the receipt's (often masked) account. Dev, launch and e2e configs use
+    1000370930353.
+  - `Button` takes a `title`. Guide ch. 06/07 follow the new button names; Help rebuilt (13 chapters, 89 sections).
+  - **Note:** `prisma generate` can't replace the query-engine DLL while the user's `next dev` (:3000) runs; the
+    types and client JS are written anyway, and the engine is the same version. That dev server needs a restart to
+    read the new column.
+  - **Checks:** `tsc` clean, 610/610 tests, `next build` clean; on the production build (:3200) sign-in with an
+    unknown email shows the new message, and a category's name shows once.

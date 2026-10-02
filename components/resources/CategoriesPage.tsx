@@ -183,10 +183,9 @@ function CategoriesInner() {
             <div className="p-14 min-w-0">
               {showEditor ? (
                 <>
-                  <h2 className="text-14 font-semibold mb-12 flex items-center gap-8">
-                    {selected && <CategoryIcon iconKey={selected.iconKey} className="size-18" />}
-                    {selected ? selected.name : "A new category"}
-                  </h2>
+                  {/* An existing category's name heads its own view (the read-only header,
+                      or the editor's Name field), so it is never printed twice. */}
+                  {!selected && <h2 className="text-14 font-semibold mb-12">A new category</h2>}
                   <CategoryEditor
                     category={selected}
                     groups={groups}

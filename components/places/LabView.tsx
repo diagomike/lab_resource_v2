@@ -319,7 +319,7 @@ function TreeView({ nodes, markers, focusItem, addedIds }: { nodes: LabTreeNodeD
   const toggle = (id: string) => setCollapsed((c) => (c.has(id) ? (c.delete(id), new Set(c)) : new Set(c).add(id)));
   return (
     <div className="max-h-[65vh] overflow-y-auto">
-      <TreeControls onExpand={() => setCollapsed(new Set())} onCollapse={() => setCollapsed(initialCollapsed(nodes, null))} />
+      <TreeControls onCollapse={() => setCollapsed(initialCollapsed(nodes, null))} />
       {rows.map(({ node, depth, hasKids }) => (
         <TreeRow key={node.id} node={node} depth={depth} hasKids={hasKids} open={!collapsed.has(node.id)} onToggle={() => toggle(node.id)} focused={node.id === focusItem || node.sourceItemId === focusItem}>
           {addedIds?.has(node.id) && <Tag tone="good">to acquire</Tag>}
@@ -334,14 +334,11 @@ function TreeView({ nodes, markers, focusItem, addedIds }: { nodes: LabTreeNodeD
   );
 }
 
-function TreeControls({ onExpand, onCollapse }: { onExpand: () => void; onCollapse: () => void }) {
+function TreeControls({ onCollapse }: { onCollapse: () => void }) {
   return (
     <div className="flex gap-10 px-14 py-6 border-b border-border text-11">
-      <button onClick={onExpand} className="text-accent hover:underline">
-        Expand all
-      </button>
       <button onClick={onCollapse} className="text-accent hover:underline">
-        Collapse
+        Collapse all
       </button>
     </div>
   );
@@ -448,11 +445,8 @@ function VersionTree({
   return (
     <div>
       <div className="flex flex-wrap items-center gap-10 px-14 py-6 border-b border-border text-11">
-        <button onClick={() => setCollapsed(new Set())} className="text-accent hover:underline">
-          Expand all
-        </button>
         <button onClick={() => setCollapsed(initialCollapsed(version.nodes, null))} className="text-accent hover:underline">
-          Collapse
+          Collapse all
         </button>
         {editable && selectedIds.length > 0 && (
           <span className="flex items-center gap-6 ml-auto">

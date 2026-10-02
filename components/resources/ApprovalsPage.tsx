@@ -29,6 +29,7 @@ import { PurchaseLines, TransferDetails } from "./ApprovalDetails";
 import { ClashList } from "@/components/scheduling/SchedulePage";
 import { STATE_LABEL } from "@/components/scheduling/WeekCalendar";
 import { useToast } from "@/components/toast";
+import { purchaseWords, sendBackWords, transferWords } from "@/lib/domain/decision-words";
 
 const STATUS_TONE: Record<string, "warn" | "good" | "bad" | "neutral"> = {
   PENDING: "warn",
@@ -81,9 +82,10 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
 
   const currentStep = request.steps.find((s) => s.status === "PENDING");
   const canDecide = request.status === "PENDING" && currentStep?.approverId === viewerId;
-  const isReceipt = currentStep?.selector === "REQUESTER_RECEIPT";
+  const isReceipt = currentStep?.selector === "REQUESTER_RECEIPT" || currentStep?.selector === "OWNER_RECEIPT";
   const isAcceptance = currentStep?.selector === "TARGET_CUSTODIAN";
-  const approveLabel = isReceipt ? "Confirm receipt" : isAcceptance ? "Accept into my custody" : "Approve";
+  const words = transferWords(request.steps);
+  const approveLabel = words.approve;
 
   async function decide(decision: "APPROVE" | "REJECT") {
     setBusy(true);
@@ -138,21 +140,17 @@ function TransferRequestCard({ request, viewerId, onDecided }: { request: Change
 
       {confirming && (
         <ConfirmDialog
-          title={confirming === "APPROVE" ? (isReceipt || isAcceptance ? approveLabel : "Approve this step") : "Reject this request"}
+          title={confirming === "APPROVE" ? approveLabel : "Reject this request"}
           tone={confirming === "APPROVE" ? "primary" : "danger"}
-          confirmLabel={confirming === "APPROVE" ? approveLabel : "Reject"}
+          confirmLabel={confirming === "APPROVE" ? approveLabel : "Reject: it stops here"}
           busy={busy}
           error={null}
           message={
             <div className="flex flex-col gap-8">
               <span>
                 {confirming === "APPROVE"
-                  ? isReceipt
-                    ? "Confirms the resource has physically arrived. This is what applies the transfer to the register."
-                    : isAcceptance
-                      ? "Confirms it has arrived and you now answer for it. This is what applies it to the register."
-                      : "Advances this request to its next step."
-                  : "Ends this request outright. The requester can raise a new one if circumstances change."}
+                  ? words.approveMeans
+                  : `It stops here and nothing moves. ${request.requesterName} is told, and can ask again if things change.`}
               </span>
               <input
                 value={note}
@@ -256,6 +254,8 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
 
   const currentStep = request.steps.find((s) => s.status === "PENDING");
   const canDecide = request.stage === "APPROVING" && currentStep?.approverId === viewerId;
+  const words = purchaseWords(request.steps);
+  const back = sendBackWords(request.raisedByName);
 
   async function decide(decision: "APPROVE" | "REJECT" | "REVISE") {
     setBusy(true);
@@ -300,13 +300,13 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
       {canDecide && (
         <div className="flex items-center gap-8 pt-4">
           <Button variant="primary" onClick={() => setConfirming("APPROVE")} disabled={busy}>
-            Approve
+            {words.approve}
+          </Button>
+          <Button onClick={() => setConfirming("REVISE")} disabled={busy}>
+            {back.label}
           </Button>
           <Button variant="danger" onClick={() => setConfirming("REJECT")} disabled={busy}>
             Reject
-          </Button>
-          <Button onClick={() => setConfirming("REVISE")} disabled={busy}>
-            Send back for revision
           </Button>
         </div>
       )}
@@ -318,19 +318,19 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
 
       {confirming && (
         <ConfirmDialog
-          title={confirming === "APPROVE" ? "Approve this step" : confirming === "REJECT" ? "Reject this request" : "Send back for revision"}
+          title={confirming === "APPROVE" ? words.approve : confirming === "REJECT" ? `Reject ${request.reference}` : back.label}
           tone={confirming === "REJECT" ? "danger" : "primary"}
-          confirmLabel={confirming === "APPROVE" ? "Approve" : confirming === "REJECT" ? "Reject" : "Send back"}
+          confirmLabel={confirming === "APPROVE" ? words.approve : confirming === "REJECT" ? "Reject: it stops here" : back.label}
           busy={busy || uploading}
           error={error}
           message={
             <div className="flex flex-col gap-8">
               <span>
                 {confirming === "APPROVE"
-                  ? "Advances this request to its next step."
+                  ? words.approveMeans
                   : confirming === "REJECT"
-                    ? "Ends this request outright. The requester can raise a new one if circumstances change."
-                    : "Sends this back to the requester to edit and resubmit. The approval chain restarts once they do."}
+                    ? `It stops here. ${request.raisedByName} is told, and any lab needs it carried are open again.`
+                    : back.means}
               </span>
               <input
                 value={note}

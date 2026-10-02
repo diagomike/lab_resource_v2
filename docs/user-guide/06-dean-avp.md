@@ -38,9 +38,11 @@ You have three answers:
 
 | Button | What happens |
 |---|---|
-| **Approve** (1) | Your step is done; the request moves to the next approver. Add a note if you like. |
+| **Approve and send to …** (1) | The button names the next approver ("Approve and send to the AVP"). Your step is done and the request moves on to them. Add a note if you like. |
+| **Return to … to revise** (3) | The button names the head who raised it. The request goes back to them with your note. They edit and resubmit, and the chain starts again at the dean's step. The history keeps your note. |
 | **Reject** (2) | The request stops, with your reason. Any needs carried into it reopen for the department. |
-| **Send back for revision** (3) | The request goes back to the head with your note. They edit and resubmit, and the chain starts again at the dean's step. The history keeps your note. |
+
+Each dialog says in one sentence what happens next, so you never have to guess what "approve" means at your step.
 
 Sending back, with a note:
 

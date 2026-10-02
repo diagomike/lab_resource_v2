@@ -15,7 +15,7 @@ Read [Getting started](00-getting-started.md) first. Your **scope is university-
 
 ## 1. Approve a request
 
-A request reaches you after the head, the dean, the College Managing Director and the AVP. It appears in **Approvals**, the same card the other approvers see ([Dean, AVP and CMD](06-dean-avp.md#1-purchase-requests)). **Approve** (with a note), **Reject** or **Send back for revision**.
+A request reaches you after the head, the dean, the College Managing Director and the AVP. It appears in **Approvals**, the same card the other approvers see ([Dean, AVP and CMD](06-dean-avp.md#1-purchase-requests)). **Approve: start the purchase** (with a note), **Return to … to revise** or **Reject**.
 
 ![Approve, with a note](img/approvers/05-procurement-approve.jpg)
 

@@ -39,6 +39,7 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
   const [manual, setManual] = useState(false);
   const [amount, setAmount] = useState(((quote.amountSantim - payment.paidSantim) / 100).toFixed(2));
   const [note, setNote] = useState("");
+  const [receiptLink, setReceiptLink] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<SubmitPaymentResultDto | null>(null);
@@ -48,7 +49,8 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
   const santim = parseEtb(amount);
   const suffixDigits = option?.extra?.kind === "SUFFIX" ? option.extra.digits : 8;
   const extraOk = !option?.extra || (option.extra.kind === "SUFFIX" ? suffix.length === option.extra.digits : /^2519\d{8}$/.test(phone));
-  const ready = Boolean(option) && reference.trim().length >= 4 && extraOk && (!manual || santim !== null);
+  const linkOk = !receiptLink.trim() || /^https:\/\/\S+$/.test(receiptLink.trim());
+  const ready = Boolean(option) && reference.trim().length >= 4 && extraOk && linkOk && (!manual || santim !== null);
 
   async function submit() {
     if (!option) return;
@@ -64,6 +66,7 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
         manualReview: manual || undefined,
         amountSantim: manual ? santim : undefined,
         note: manual && note.trim() ? note.trim() : undefined,
+        receiptLink: receiptLink.trim() || undefined,
       });
       setOutcome(result);
       onUpdated(result.tracking);
@@ -73,6 +76,7 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
         setPhone("");
         setManual(false);
         setNote("");
+        setReceiptLink("");
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not submit this payment.");
@@ -141,6 +145,20 @@ export default function PaymentPanel({ data, onUpdated }: { data: PublicTracking
                 </label>
               )}
             </div>
+
+            <label className="flex flex-col gap-4">
+              <span className={labelClass}>Link to your receipt (optional)</span>
+              <input
+                value={receiptLink}
+                onChange={(e) => setReceiptLink(e.target.value)}
+                placeholder="https://… the receipt page your bank or app gave you"
+                className={`${inputClass} font-mono`}
+                autoComplete="off"
+                inputMode="url"
+              />
+              {!linkOk && <span className="text-11 text-bad">Paste the full link, starting with https://</span>}
+              {linkOk && <span className="text-11 text-dim">The university&apos;s office opens it to see your receipt in one click.</span>}
+            </label>
 
             {manual && (
               <div className="flex flex-wrap gap-10">

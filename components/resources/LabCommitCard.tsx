@@ -88,10 +88,10 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
         {request.canDecide && (
           <>
             <Button variant="primary" onClick={() => setConfirming("APPROVE")} disabled={busy}>
-              Approve
+              Approve: the register changes now
             </Button>
-            <Button variant="danger" onClick={() => setConfirming("REJECT")} disabled={busy}>
-              Send back
+            <Button onClick={() => setConfirming("REJECT")} disabled={busy}>
+              Return to {request.requesterName} to revise
             </Button>
           </>
         )}
@@ -105,9 +105,9 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
 
       {confirming && (
         <ConfirmDialog
-          title={confirming === "APPROVE" ? "Approve and apply" : "Send back to the custodian"}
-          tone={confirming === "APPROVE" ? "primary" : "danger"}
-          confirmLabel={confirming === "APPROVE" ? "Approve" : "Send back"}
+          title={confirming === "APPROVE" ? `Approve ${request.labName}'s changes` : `Return to ${request.requesterName} to revise`}
+          tone={confirming === "APPROVE" ? "primary" : "warn"}
+          confirmLabel={confirming === "APPROVE" ? "Approve: the register changes now" : `Return to ${request.requesterName}`}
           busy={busy}
           error={null}
           message={
@@ -115,7 +115,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
               <span>
                 {confirming === "APPROVE"
                   ? "Applies these changes to the live register, credited to the custodian. If anything was changed in the register since they started, nothing is applied and it goes back to them."
-                  : "The changes stay as they are. The custodian sees your reason, revises and sends them again."}
+                  : `Nothing changes in the register. ${request.requesterName} sees your reason, revises the changes and sends them again.`}
               </span>
               <input
                 value={note}

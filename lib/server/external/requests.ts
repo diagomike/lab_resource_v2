@@ -30,7 +30,7 @@ import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookin
 import { equipmentOf, writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, portalUrl } from "./mail";
 import { PROVIDER_INPUT } from "@/lib/domain/payment-receipt";
-import { enabledProviders } from "../payments/config";
+import { enabledProviders, receiverConfig } from "../payments/config";
 import { paths } from "@/lib/paths";
 
 /**
@@ -654,7 +654,12 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
           createdAt: p.createdAt.toISOString(),
           canReview: p.status === "PENDING_REVIEW" && PAYABLE.includes(row.status),
           receiptUrl: receiptUrlOf(p.raw),
+          receiptLink: p.receiptLink,
         }))
+      : [],
+    // What a receipt must have been paid into: the AVP checks against these.
+    payTo: access.avp
+      ? enabledProviders().map((provider) => ({ provider, label: PROVIDER_INPUT[provider].label, ...receiverConfig(provider) }))
       : [],
     paidSantim: paidSantimOf(row.payments),
     events: row.events.map((e) => ({ at: e.at.toISOString(), actorLabel: e.actorLabel, kind: e.kind, note: e.note })),

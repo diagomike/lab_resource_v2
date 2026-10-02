@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronsDownUp } from "lucide-react";
 import type { EffectiveStatus, ItemSummaryBreakdownDto, ItemSummaryDto } from "@/lib/shared";
 import { NEEDS_ATTENTION, STATUS_LABEL } from "@/lib/domain/status";
 import { newRule } from "@/lib/domain/filters";
@@ -53,7 +52,6 @@ export function DashboardBody({ lead }: { lead?: ReactNode } = {}) {
   const [dimension, setDimension] = useState<SummaryDimension>("owner");
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const allExpanded = state.expanded === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -281,17 +279,6 @@ export function DashboardBody({ lead }: { lead?: ReactNode } = {}) {
 
           <Panel
             title={hasFilters ? "Matching resource hierarchy" : "Register hierarchy"}
-            actions={
-              <button
-                type="button"
-                onClick={() => state.setExpanded(allExpanded ? {} : true)}
-                title={allExpanded ? "Collapse every row" : "Expand every row"}
-                className="flex h-24 items-center gap-5 rounded-2 border border-border2 bg-panel2 px-9 text-11 text-dim"
-              >
-                <ChevronsDownUp className="size-13" />
-                {allExpanded ? "Collapse all" : "Expand all"}
-              </button>
-            }
           >
             {state.loading ? (
               <PanelLoading rows={6} />

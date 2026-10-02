@@ -1732,6 +1732,9 @@ model PaymentVerification {
   reason          String?
   /// The requester's note when asking for manual review.
   requesterNote   String?
+  /// The requester's own link to the bank's receipt page, for the AVP's office to
+  /// open and check (https only).
+  receiptLink     String?
   reviewedById    String?
   reviewedAt      DateTime?                 @db.Timestamptz(3)
   createdAt       DateTime                  @default(now())

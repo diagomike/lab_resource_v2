@@ -150,6 +150,14 @@ export const SubmitPaymentInput = z.object({
   manualReview: z.boolean().optional(),
   amountSantim: z.number().int().min(1).optional(),
   note: z.string().trim().max(1000).optional(),
+  /** The bank's own receipt page, so the AVP's office can open it in one click. */
+  receiptLink: z
+    .string()
+    .trim()
+    .max(500)
+    .regex(/^https:\/\/\S+$/, "Paste the full receipt link from your bank, starting with https://")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
 });
 export type SubmitPaymentInput = z.infer<typeof SubmitPaymentInput>;
 
@@ -418,8 +426,13 @@ export const ExternalRequestDto = z.object({
       /** The bank's own receipt page, when the verifier's response gave one — for the
        *  AVP's office to check by hand before confirming the payment. */
       receiptUrl: z.string().nullable(),
+      /** The link the requester pasted to their receipt. */
+      receiptLink: z.string().nullable(),
     }),
   ),
+  /** Where the university is paid, per accepted provider: what to check a receipt
+   *  against. */
+  payTo: z.array(z.object({ provider: PaymentProviderSchema, label: z.string(), account: z.string().nullable(), name: z.string().nullable() })),
   /** Verified (automatically or by hand) so far. */
   paidSantim: z.number().int(),
   can: z.object({ forward: z.boolean(), quote: z.boolean(), close: z.boolean(), placeHold: z.boolean(), extendHolds: z.boolean(), confirm: z.boolean() }),

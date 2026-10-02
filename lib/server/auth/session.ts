@@ -36,7 +36,7 @@ export async function requireSession(request: NextRequest): Promise<AuthedUser> 
     throw new HttpError(401, "Session expired");
   }
   if (session.user.status === "DISABLED") {
-    throw new HttpError(401, "Account disabled");
+    throw new HttpError(401, "This account was turned off by an administrator.");
   }
   // An administrator-issued temporary password must be replaced before the account
   // can do anything else — only the three calls the change screen itself needs pass.

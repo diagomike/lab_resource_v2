@@ -145,9 +145,17 @@ describe("F-010: throttles on forgot-password and login", () => {
   it("locks out login after repeated failures on the same account", async () => {
     const { email } = await makeUser("login-lockout");
     for (let i = 0; i < 5; i++) {
-      await expect(auth.login({ email, password: "wrong" }, {})).rejects.toMatchObject({ status: 401, message: "Invalid email or password" });
+      await expect(auth.login({ email, password: "wrong" }, {})).rejects.toMatchObject({ status: 401, message: expect.stringContaining("The password is wrong") });
     }
     await expect(auth.login({ email, password: "wrong" }, {})).rejects.toMatchObject({ status: 401, message: expect.stringContaining("Too many failed attempts") });
+  });
+
+  it("says which part of a sign-in was wrong, and how many tries are left", async () => {
+    const { email } = await makeUser("login-words");
+    await expect(auth.login({ email: `nobody-${email}`, password: "x" }, {})).rejects.toMatchObject({ status: 401, message: expect.stringContaining("No account uses") });
+    await expect(auth.login({ email, password: "wrong" }, {})).rejects.toMatchObject({ message: expect.stringContaining("4 tries left") });
+    const disabled = await makeUser("login-disabled", { status: "DISABLED" });
+    await expect(auth.login({ email: disabled.email, password: "x" }, {})).rejects.toMatchObject({ message: expect.stringContaining("turned off by an administrator") });
   });
 });
 

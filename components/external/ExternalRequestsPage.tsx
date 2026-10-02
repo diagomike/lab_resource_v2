@@ -122,7 +122,7 @@ function NoteModal({
   title: string;
   intro: string;
   confirmLabel: string;
-  tone?: "primary" | "danger";
+  tone?: "primary" | "danger" | "warn";
   noteRequired?: boolean;
   path: string;
   body: Record<string, unknown>;
@@ -403,7 +403,7 @@ type Pending =
   | { kind: "forward"; assignment: ExternalAssignmentDto }
   | { kind: "assign"; assignment: ExternalAssignmentDto }
   | { kind: "submit-dept"; assignment: ExternalAssignmentDto }
-  | { kind: "note"; title: string; intro: string; confirmLabel: string; tone?: "primary" | "danger"; noteRequired?: boolean; path: string; body: Record<string, unknown> };
+  | { kind: "note"; title: string; intro: string; confirmLabel: string; tone?: "primary" | "danger" | "warn"; noteRequired?: boolean; path: string; body: Record<string, unknown> };
 
 function TaskLine({ task, onAct }: { task: ExternalTaskDto; onAct: (p: Pending) => void }) {
   return (
@@ -447,13 +447,21 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
       path: `/external-requests/assignments/${a.id}/decline`,
       body: {},
     });
+  // Whoever answered this part (the head of a department, the dean of a college) and
+  // where approving sends it: into the college's answer for the AVP, or into the quote.
+  const answeredBy = a.headName ?? `the ${college ? "dean" : "head"} of ${a.orgNodeName}`;
   const review = (decision: "APPROVE" | "RETURN") =>
     onAct({
       kind: "note",
-      title: `${decision === "APPROVE" ? "Approve" : "Send back"}: ${a.orgNodeName}`,
-      intro: decision === "APPROVE" ? "Their answer goes into the next step up." : `It goes back to the ${college ? "dean" : "head"} to answer again.`,
-      confirmLabel: decision === "APPROVE" ? "Approve" : "Send back",
-      tone: decision === "APPROVE" ? "primary" : "danger",
+      title: decision === "APPROVE" ? `Approve ${a.orgNodeName}'s answer` : `Return to ${answeredBy}`,
+      intro:
+        decision === "APPROVE"
+          ? college
+            ? "The college's answer is accepted. It counts toward the quote you send the requester."
+            : "The department's answer joins the college's answer. Send the college's answer up to the AVP once every department has answered."
+          : `It goes back to ${answeredBy} to answer again. Say what to change.`,
+      confirmLabel: decision === "APPROVE" ? (college ? "Approve: it counts toward the quote" : "Approve: it joins the college's answer") : `Return to ${answeredBy}`,
+      tone: decision === "APPROVE" ? "primary" : "warn",
       noteRequired: decision === "RETURN",
       path: `/external-requests/assignments/${a.id}/review`,
       body: { decision },
@@ -487,7 +495,7 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
         {a.can.assign && <Button onClick={() => onAct({ kind: "assign", assignment: a })}>Ask custodians…</Button>}
         {a.can.submit && !college && (
           <Button variant="primary" onClick={() => onAct({ kind: "submit-dept", assignment: a })}>
-            Send to the dean…
+            Send up to the dean…
           </Button>
         )}
         {a.can.submit && college && (
@@ -497,17 +505,17 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
               onAct({ kind: "note", title: `Send to the AVP: ${a.orgNodeName}`, intro: "The college's answer (every approved department's rooms, costs and contacts) goes to the AVP's office.", confirmLabel: "Send to the AVP", path: `/external-requests/assignments/${a.id}/submit`, body: {} })
             }
           >
-            Send to the AVP…
+            Send up to the AVP…
           </Button>
         )}
         {a.can.review && (
           <>
             {a.status !== "APPROVED" && (
               <Button variant="primary" onClick={() => review("APPROVE")}>
-                Approve…
+                {college ? "Approve the college's answer…" : "Approve, add to the college's answer…"}
               </Button>
             )}
-            <Button onClick={() => review("RETURN")}>Send back…</Button>
+            <Button onClick={() => review("RETURN")}>Return to {college ? "the dean" : "the head"}…</Button>
           </>
         )}
         {a.can.decline && (
@@ -551,7 +559,20 @@ function TheLine({ request, onAct }: { request: ExternalRequestDto; onAct: (p: P
 
 type PaymentRow = ExternalRequestDto["payments"][number];
 
-function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: ExternalRequestDto) => void }) {
+/** "1000370930353" against what a receipt prints, often masked ("1****0353"): the
+ *  digits it shows before and after the stars must be the account's own. */
+function sameAccount(expected: string, seen: string): boolean {
+  const a = expected.replace(/\D/g, "");
+  const b = seen.replace(/[^\d*]/g, "");
+  if (!a || !b) return false;
+  const star = b.indexOf("*");
+  if (star < 0) return a === b;
+  const head = b.slice(0, star);
+  const tail = b.slice(b.lastIndexOf("*") + 1);
+  return a.startsWith(head) && a.endsWith(tail) && head.length + tail.length > 0;
+}
+
+function PaymentRowView({ payment, payTo, onDone }: { payment: PaymentRow; payTo: ExternalRequestDto["payTo"]; onDone: (r: ExternalRequestDto) => void }) {
   const [open, setOpen] = useState<"APPROVE" | "REJECT" | null>(null);
   const [amount, setAmount] = useState(payment.amountSantim !== null ? (payment.amountSantim / 100).toFixed(2) : "");
   const [note, setNote] = useState("");
@@ -561,6 +582,9 @@ function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: 
   });
   const p = payment;
   const santim = parseEtb(amount);
+  // The university's own account for this provider: what the receipt must show.
+  const expected = payTo.find((t) => t.provider === p.provider);
+  const matches = expected?.account && p.receiverAccount ? sameAccount(expected.account, p.receiverAccount) : null;
   return (
     <div className="px-14 py-8 border-b border-border last:border-0 flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-8 text-11">
@@ -572,6 +596,11 @@ function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: 
         {p.receiptUrl && (
           <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="text-11 text-accent underline">
             Bank receipt
+          </a>
+        )}
+        {p.receiptLink && (
+          <a href={p.receiptLink} target="_blank" rel="noreferrer noopener" className="text-11 text-accent underline">
+            Receipt link from the requester
           </a>
         )}
         <div className="flex-1" />
@@ -592,6 +621,14 @@ function PaymentRowView({ payment, onDone }: { payment: PaymentRow; onDone: (r: 
             {p.payerName ? `From ${p.payerName}` : ""}
             {p.receiverName || p.receiverAccount ? ` → ${[p.receiverName, p.receiverAccount].filter(Boolean).join(" · ")}` : ""}
             {p.paidAt ? ` · paid ${new Date(p.paidAt).toLocaleString()}` : ""}
+          </span>
+        )}
+        {expected && (expected.account || expected.name) && (
+          <span>
+            Should be paid into: <strong className="text-text font-mono">{[expected.label, expected.account, expected.name].filter(Boolean).join(" · ")}</strong>
+            {matches === true && <span className="text-good"> · the receipt shows this account</span>}
+            {matches === false && <span className="text-bad"> · the receipt shows a different account</span>}
+            {matches === null && <span> · check the receipt against this</span>}
           </span>
         )}
         {p.requesterNote && <span className="italic">Requester: "{p.requesterNote}"</span>}
@@ -767,7 +804,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
           {r.payments.length === 0 ? (
             <div className="px-14 py-10 text-11 text-dim">{r.paidSantim > 0 ? "Receipts are visible to the AVP's office." : "No payment submitted yet."}</div>
           ) : (
-            r.payments.map((p) => <PaymentRowView key={p.id} payment={p} onDone={updated} />)
+            r.payments.map((p) => <PaymentRowView key={p.id} payment={p} payTo={r.payTo} onDone={updated} />)
           )}
         </Panel>
       )}

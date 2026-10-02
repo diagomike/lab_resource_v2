@@ -63,19 +63,25 @@ export async function login(
     include: { roles: true },
   });
 
-  // One message for "no such user" and "wrong password" alike — a distinct error would
-  // turn the login form into an account-enumeration oracle.
-  if (!user || !user.passwordHash) {
+  // Each refusal says what went wrong and what to do (2026-10-02, by product direction:
+  // a university system whose people kept being told only "login failed"). This does
+  // name whether an email has an account — accepted for this internal system; the
+  // per-account throttle above still caps guessing at five tries per 15 minutes.
+  const fail = async (message: string): Promise<never> => {
     await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: false } });
-    throw new HttpError(401, "Invalid email or password");
-  }
-  if (user.status === "DISABLED") {
-    await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: false } });
-    throw new HttpError(401, "Account disabled");
-  }
+    throw new HttpError(401, message);
+  };
+  const triesLeft = MAX_LOGIN_FAILURES_PER_WINDOW - recentFailures - 1;
+  if (!user) return fail(`No account uses ${input.email.trim()}. Check the spelling, or ask your department head (or the system administrator) for an invitation.`);
+  if (!user.passwordHash)
+    return fail("This account has not been set up yet. Open the invitation email and choose a password, or use \"Forgot password\" to get a new link.");
+  if (user.status === "DISABLED") return fail("This account was turned off by an administrator. Ask your department head or the system administrator to turn it back on.");
   if (!(await argon2.verify(user.passwordHash, input.password))) {
-    await prisma.loginAttempt.create({ data: { emailLower, ipHash, succeeded: false } });
-    throw new HttpError(401, "Invalid email or password");
+    return fail(
+      triesLeft > 0
+        ? `The password is wrong. ${triesLeft} ${triesLeft === 1 ? "try" : "tries"} left before a 15-minute pause. Use "Forgot password" if you don't remember it.`
+        : "The password is wrong, and that was the last try: wait 15 minutes, or use \"Forgot password\".",
+    );
   }
   // An outside requester who signed up but hasn't followed the email link yet
   // (lib/server/auth/external-account.ts). Said only after the password matched.
