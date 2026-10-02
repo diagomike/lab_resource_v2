@@ -62,11 +62,14 @@ export type UpdatePlaceInput = z.infer<typeof UpdatePlaceInput>;
 export const PlaceOptionsDto = z.object({
   /** The kinds of place (Lab, Workshop, Studio, Store) with their details to fill. */
   kinds: z.array(z.object({ id: z.string(), key: z.string(), name: z.string(), iconKey: z.string() })),
-  /** The units whose places this person manages. */
-  units: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string() })),
+  /** The units whose places this person manages — `storesOnly` where they may add
+   *  stores but not labs (the ADAA's college). */
+  units: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string(), storesOnly: z.boolean() })),
 });
 export type PlaceOptionsDto = z.infer<typeof PlaceOptionsDto>;
 
-/** Who can run a place of a unit: active custodians (and store keepers) who work there. */
-export const PlaceCustodianDto = z.object({ id: z.string(), name: z.string(), title: z.string().nullable(), runs: z.number().int() });
+/** Who can run a place of a unit: active custodians (and store keepers) who work there;
+ *  for a store, anyone who works there — `becomesCustodian` when choosing them makes them
+ *  one (they hold no custodian role yet). */
+export const PlaceCustodianDto = z.object({ id: z.string(), name: z.string(), title: z.string().nullable(), runs: z.number().int(), becomesCustodian: z.boolean() });
 export type PlaceCustodianDto = z.infer<typeof PlaceCustodianDto>;

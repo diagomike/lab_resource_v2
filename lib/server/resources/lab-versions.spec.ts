@@ -170,6 +170,25 @@ describe("Draft — staged from the register, merged on approval", () => {
     expect(draft.status).toBe("EDITING");
   });
 
+  it("a correction elsewhere in the lab, or the lab being renamed, doesn't void the custodian's changes or get undone by them", async () => {
+    await versions.discardVersion(custodianId, labId, "DRAFT");
+    const ws1 = await itemNamed(labId, "Workstation 01 (fixed)");
+    const ws2 = await itemNamed(labId, "Workstation 02");
+    await versions.applyVersionEdit(custodianId, labId, "DRAFT", { kind: "setStatus", itemIds: [ws1.id], value: "UNDER_MAINTENANCE" });
+    await versions.applyVersionEdit(custodianId, labId, "DRAFT", { kind: "createItem", parentId: labId, categoryId: wsCat, count: 1 });
+    // While the changes are being made, the admin corrects another workstation and the lab's name.
+    await mutate.applyChange(sysAdminId, { kind: "setName", itemIds: [ws2.id], value: "Workstation 02 (relabelled)" });
+    await mutate.applyChange(sysAdminId, { kind: "setName", itemIds: [labId], value: "LV Lab A (B510-R8)" });
+    const states = await versions.getLabStates(custodianId, labId);
+    expect(states.draft?.diff.map((d) => d.kind).sort()).toEqual(["added", "changed"]); // only the custodian's own
+    const request = await versions.submitVersion(custodianId, labId, "DRAFT");
+    const decided = await versions.decideCommit(headId, request.id, "APPROVE");
+    expect(decided.status).toBe("APPLIED");
+    expect((await prisma.item.findUniqueOrThrow({ where: { id: ws2.id } })).name).toBe("Workstation 02 (relabelled)"); // not undone
+    expect((await prisma.item.findUniqueOrThrow({ where: { id: labId } })).name).toBe("LV Lab A (B510-R8)");
+    expect((await prisma.item.findUniqueOrThrow({ where: { id: ws1.id } })).status).toBe("UNDER_MAINTENANCE");
+  });
+
   it("rejecting returns the draft to the custodian with the reason", async () => {
     await versions.refreshDraft(custodianId, labId);
     const ws = await itemNamed(labId, "Workstation 01 (fixed)");
@@ -183,7 +202,7 @@ describe("Draft — staged from the register, merged on approval", () => {
   });
 
   it("the admin's own edits stay direct", async () => {
-    const ws = await itemNamed(labId, "Workstation 02");
+    const ws = await itemNamed(labId, "Workstation 02 (relabelled)");
     const r = await mutate.applyChange(sysAdminId, { kind: "setName", itemIds: [ws.id], value: "Workstation 02b" });
     expect(r.staged).toBeUndefined();
     expect(r.applied).toBe(1);

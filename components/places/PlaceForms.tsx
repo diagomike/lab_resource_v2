@@ -73,8 +73,9 @@ export function DetailFields({ fields, draft, onChange }: { fields: CategoryFiel
   );
 }
 
-/** Who runs a place of this unit: its custodians, with how many places each runs now. */
-export function CustodianPicker({ unitId, value, onChange }: { unitId: string; value: string; onChange: (id: string) => void }) {
+/** Who runs a place of this unit: its custodians, with how many places each runs now.
+ *  For a store, anyone who works there — choosing someone new makes them a custodian. */
+export function CustodianPicker({ unitId, value, onChange, store = false }: { unitId: string; value: string; onChange: (id: string) => void; store?: boolean }) {
   const [people, setPeople] = useState<PlaceCustodianDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -83,26 +84,31 @@ export function CustodianPicker({ unitId, value, onChange }: { unitId: string; v
     setPeople(null);
     setError(null);
     api
-      .get<PlaceCustodianDto[]>(`/places/custodians?unit=${encodeURIComponent(unitId)}`)
+      .get<PlaceCustodianDto[]>(`/places/custodians?unit=${encodeURIComponent(unitId)}${store ? "&store=1" : ""}`)
       .then((rows) => live && setPeople(rows))
       .catch((e) => live && setError(e instanceof ApiError ? e.message : "Could not load this unit's custodians"));
     return () => {
       live = false;
     };
-  }, [unitId]);
+  }, [unitId, store]);
 
   if (error) return <ErrorNote>{error}</ErrorNote>;
-  if (people === null) return <div className="text-11 text-faint">Loading the unit&apos;s custodians…</div>;
+  if (people === null) return <div className="text-11 text-faint">Loading the unit&apos;s people…</div>;
   if (!people.length)
-    return <div className="text-11 text-warn">Nobody in this unit is a custodian yet. Add one under People &amp; roles first.</div>;
+    return (
+      <div className="text-11 text-warn">
+        {store ? "Nobody has an account in this unit yet. Ask the administrator to invite them." : "Nobody in this unit is a custodian yet. Add one under People & roles first."}
+      </div>
+    );
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
-      <option value="">Choose who runs it…</option>
+      <option value="">{store ? "Choose the store keeper…" : "Choose who runs it…"}</option>
       {people.map((p) => (
         <option key={p.id} value={p.id}>
           {p.name}
           {p.title ? ` — ${p.title}` : ""}
           {p.runs ? ` · runs ${p.runs} already` : ""}
+          {p.becomesCustodian ? " · becomes a custodian" : ""}
         </option>
       ))}
     </select>
@@ -113,8 +119,11 @@ export function CustodianPicker({ unitId, value, onChange }: { unitId: string; v
  *  and details, and who runs it. The new place opens once created. */
 export function AddPlaceModal({ options, categories, onClose }: { options: PlaceOptionsDto; categories: ResourceCategoryDto[]; onClose: () => void }) {
   const router = useRouter();
-  const [kindId, setKindId] = useState(options.kinds.find((k) => k.key === "lab")?.id ?? options.kinds[0]?.id ?? "");
   const [unitId, setUnitId] = useState(options.units[0]?.id ?? "");
+  const storesOnly = options.units.find((u) => u.id === unitId)?.storesOnly ?? false;
+  const kinds = storesOnly ? options.kinds.filter((k) => k.key === "store") : options.kinds;
+  const [kindId, setKindId] = useState((storesOnly ? kinds[0] : options.kinds.find((k) => k.key === "lab"))?.id ?? kinds[0]?.id ?? "");
+  const isStore = options.kinds.find((k) => k.id === kindId)?.key === "store";
   const [name, setName] = useState("");
   const [details, setDetails] = useState<DetailDraft>({});
   const [custodianId, setCustodianId] = useState("");
@@ -138,7 +147,7 @@ export function AddPlaceModal({ options, categories, onClose }: { options: Place
   }
 
   return (
-    <Modal title="Add a lab or store" onClose={onClose} width="560px" dirty={!!name.trim() || Object.values(details).some((v) => String(v ?? "").trim())}>
+    <Modal title={options.units.every((u) => u.storesOnly) ? "Add a store" : "Add a lab or store"} onClose={onClose} width="560px" dirty={!!name.trim() || Object.values(details).some((v) => String(v ?? "").trim())}>
       <form
         className="flex flex-col gap-14"
         onSubmit={(e) => {
@@ -149,7 +158,7 @@ export function AddPlaceModal({ options, categories, onClose }: { options: Place
         <fieldset className="flex flex-col gap-6">
           <legend className={`${labelCls} mb-4`}>What kind of place</legend>
           <div className="flex flex-wrap gap-8">
-            {options.kinds.map((k) => (
+            {kinds.map((k) => (
               <label key={k.id} className={`flex items-center gap-6 cursor-pointer rounded-2 border px-10 py-7 text-11.5 ${kindId === k.id ? "border-accent bg-soft" : "border-border2 hover:bg-panel2"}`}>
                 <input type="radio" name="kind" value={k.id} checked={kindId === k.id} onChange={() => (setKindId(k.id), setDetails({}))} className="sr-only" />
                 <CategoryIcon iconKey={k.iconKey} className="size-14" />
@@ -161,7 +170,16 @@ export function AddPlaceModal({ options, categories, onClose }: { options: Place
         {options.units.length > 1 && (
           <label className="flex flex-col gap-4">
             <span className={labelCls}>Belongs to</span>
-            <select value={unitId} onChange={(e) => (setUnitId(e.target.value), setCustodianId(""))} className={inputCls}>
+            <select
+              value={unitId}
+              onChange={(e) => {
+                const next = options.units.find((u) => u.id === e.target.value);
+                setUnitId(e.target.value);
+                setCustodianId("");
+                if (next?.storesOnly) setKindId(options.kinds.find((k) => k.key === "store")?.id ?? "");
+              }}
+              className={inputCls}
+            >
               {options.units.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name}
@@ -172,13 +190,15 @@ export function AddPlaceModal({ options, categories, onClose }: { options: Place
         )}
         <label className="flex flex-col gap-4">
           <span className={labelCls}>Name</span>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Software Laboratory — B510-R8" className={inputCls} />
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={isStore ? "e.g. CoEEC College Store — B508-R2" : "e.g. Software Laboratory — B510-R8"} className={inputCls} />
         </label>
         <DetailFields fields={fields} draft={details} onChange={setDetails} />
         <label className="flex flex-col gap-4">
-          <span className={labelCls}>Who runs it (its custodian)</span>
-          <CustodianPicker unitId={unitId} value={custodianId} onChange={setCustodianId} />
-          <span className="text-11 text-dim">They are told, and they add and change what it holds; you approve their changes.</span>
+          <span className={labelCls}>{isStore ? "Its store keeper" : "Who runs it (its custodian)"}</span>
+          <CustodianPicker unitId={unitId} value={custodianId} onChange={setCustodianId} store={isStore} />
+          <span className="text-11 text-dim">
+            {isStore ? "They are told, and they record what the store holds; changes in a store apply at once." : "They are told, and they add and change what it holds; you approve their changes."}
+          </span>
         </label>
         {error && <ErrorNote>{error}</ErrorNote>}
         {missing.length > 0 && name.trim() && <div className="text-11 text-warn">Still needed: {missing.join(", ")}.</div>}

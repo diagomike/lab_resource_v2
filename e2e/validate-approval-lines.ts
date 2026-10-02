@@ -23,8 +23,9 @@
  *   P9 loan                    unchanged: no CMD, no Property Admin; the owner stays
  *   P10 external (rooms)       sign up → verify → request → AVP → dean → head → 2 custodians → back up → quote → pay → AVP confirms
  *   P11 external (sample)      a machine held instead of a room
- *   P12 places from above      an invited custodian; the ADAA adds a lab for them (✉); custodians and other
- *                              departments' heads can't; the head changes who runs it (✉ both)
+ *   P12 places from above      an invited custodian; the head adds a lab for them (✉); custodians, other
+ *                              departments' heads and the ADAA can't; the ADAA adds the college's store and
+ *                              names its keeper (✉); the head changes who runs the lab (✉ both)
  *   P13 categories             a custodian's new category applies at once (✉ head); a change to data it
  *                              holds waits for the head, then converts the values
  *   P14 a lab's changes        staged in the lab's changes, not the register → sent (✉ head) → approved (✉)
@@ -387,14 +388,25 @@ async function places() {
   const place = { categoryId: labKind, name: "Validation Robotics Lab — B510-R30", ownerOrgNodeId: cse.id, custodianId: newbie.id, props: { block: "510", room: "30", seats: 24, purpose: "Robotics practicals" } };
   check("P12", "a custodian can't add a lab", await refused(403, () => post(ALI, "/places", place)));
   check("P12", "another department's head can't add one in CSE", await refused(403, () => post(CHEM_HEAD, "/places", place)));
-  const offered = await get<any[]>(ADAA, `/places/custodians?unit=${cse.id}`);
-  check("P12", "the ADAA is offered the department's custodians", offered.some((u) => u.id === newbie.id), offered.length);
+  check("P12", "the ADAA adds no labs (only the college's stores)", await refused(403, () => post(ADAA, "/places", place)));
   let m = mark();
-  const lab = await post<any>(ADAA, "/places", place);
-  check("P12", "the ADAA adds a CSE lab", lab.name === place.name && lab.custodianId === newbie.id);
+  const lab = await post<any>(HEAD, "/places", place);
+  check("P12", "the CSE head adds the lab", lab.name === place.name && lab.custodianId === newbie.id);
   check("P12", "✉ the custodian hears they run it", mailed(m, NEWBIE, `You now run ${place.name}`));
   const note = await db.notification.findFirst({ where: { userId: newbie.id, title: `You now run ${place.name}` } });
   check("P12", "…and the bell has it, linking to the lab", note?.path === `/places/${lab.id}`, note?.path);
+
+  // The ADAA's college store, and its keeper.
+  const coeec = await node("COEEC");
+  const storeKind = await catId("store");
+  const offered = await get<any[]>(ADAA, `/places/custodians?unit=${coeec.id}&store=1`);
+  const yohannes = await db.user.findUniqueOrThrow({ where: { emailLower: YOHANNES } });
+  check("P12", "the ADAA is offered the college's people — custodians, and others who would become one", offered.some((u) => u.id === yohannes.id && !u.becomesCustodian) && offered.some((u) => u.becomesCustodian), offered.length);
+  m = mark();
+  const store = await post<any>(ADAA, "/places", { categoryId: storeKind, name: "Validation CoEEC College Store", ownerOrgNodeId: coeec.id, custodianId: yohannes.id, props: { level: "College store", block: "508", room: "1" } });
+  check("P12", "the ADAA adds the college store with its keeper", store.isStore === true && store.custodianId === yohannes.id && store.canManage === true);
+  check("P12", "✉ the keeper hears they keep it", mailed(m, YOHANNES, "You now keep Validation CoEEC College Store"));
+
   const aliUser = await db.user.findUniqueOrThrow({ where: { emailLower: ALI } });
   m = mark();
   await call(HEAD, "PATCH", `/places/${lab.id}`, { custodianId: aliUser.id, note: "Ali runs the robotics practicals this term" });
@@ -471,6 +483,9 @@ async function exists(kind: string, id: string): Promise<boolean> {
     place: () => db.item.findUnique({ where: { id } }),
     category: () => db.resourceCategory.findUnique({ where: { id } }),
     external: () => db.externalRequest.findUnique({ where: { id } }),
+    need: () => db.needLine.findUnique({ where: { id } }),
+    import: () => db.importRecord.findUnique({ where: { id } }),
+    request: () => db.purchaseRequest.findUnique({ where: { id } }),
   };
   return !!(await (find[kind] ?? (async () => null))());
 }
@@ -499,6 +514,7 @@ async function mailTour(fromMark: number) {
       else if (screen === "external-requests" && focus) ids.push(["external", focus]);
       if (screen === "places" && url.pathname.split("/")[2]) ids.push(["place", url.pathname.split("/")[2]]);
       if (screen === "schedule" && url.searchParams.get("lab")) ids.push(["place", url.searchParams.get("lab")!]);
+      for (const key of ["need", "import", "request"] as const) if (screen === "purchasing" && url.searchParams.get(key)) ids.push([key, url.searchParams.get(key)!]);
       if (screen === "categories" && url.searchParams.get("id")) ids.push(["category", url.searchParams.get("id")!]);
       if (screen === "categories" && url.searchParams.get("change")) ids.push(["category-change", url.searchParams.get("change")!]);
       if (!ids.length) generic.push(label);
@@ -528,10 +544,9 @@ async function mailTour(fromMark: number) {
   }
   const failures = results.filter((r) => r.path === "M" && !r.ok).length;
   check("M", `${links} emailed links followed: a real screen, sign-in returns to it, it opens, the bell agrees`, links > 20 && failures === 0, { links, failures });
-  // Withdrawn notices have nothing left to open, and the lab needs and arrivals tabs are
-  // the item's own short queue; anything else should name its item.
-  const unexpected = generic.filter((g) => !/withdrawn/i.test(g) && !/→ \/purchasing\?tab=(needs|arrivals)$/.test(g));
-  check("M", "every link names its exact item (withdrawn notices and the needs/arrivals queues aside)", unexpected.length === 0, unexpected);
+  // Withdrawn notices have nothing left to open; anything else names its item.
+  const unexpected = generic.filter((g) => !/withdrawn/i.test(g));
+  check("M", "every link names its exact item (withdrawn notices aside)", unexpected.length === 0, unexpected);
 }
 
 // ── P10–P11: external requests ──────────────────────────────────────────────

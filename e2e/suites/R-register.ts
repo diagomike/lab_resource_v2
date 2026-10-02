@@ -1,4 +1,7 @@
-/** Suite R — register: custodians & heads creating, moving, editing. H8–H12. */
+/** Suite R — register: custodians & heads creating, moving, editing. H8–H12.
+ *  2026-10-02: places are added from above (Labs & stores), so the head adds the SE store
+ *  these cases work in, with Girma as its keeper. A store is worked directly (a lab's
+ *  edits are staged for its head — suite D), so the register's own rules show here. */
 import { get, post, api, check, ev, db, done, uniq, nodeId, userId, S } from "../lib";
 
 const R = "R";
@@ -15,15 +18,16 @@ async function item(name: string) {
 async function main() {
   const se = await nodeId("Software Engineering");
   const chem = await nodeId("Chemical Engineering");
-  const mat = await nodeId("Materials Science");
+  const mat = await nodeId("Materials Science and Engineering");
   const [lab, computer, chair, whiteboard] = await Promise.all([catId("lab"), catId("computer"), catId("chair"), catId("whiteboard")]);
   const girmaLab = await item("SE Lab X — Software Lab 3");
 
+  const store = await catId("store");
   let newLab = "";
-  await check(R, "R-01", "custodian registers their own lab (own home unit, self as custodian)", async () => {
-    const r = await change("custSe", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: se, custodianId: S.custSe.id, name: uniq("E2E Robotics Lab") });
-    newLab = r.body?.itemIds?.[0];
-    return { ok: r.status === 200 && !!newLab, evidence: ev(r) };
+  await check(R, "R-01", "a custodian can't add a lab or store — not in the register, not on Labs & stores", async () => {
+    const register = await change("custSe", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: se, custodianId: S.custSe.id, name: uniq("E2E Robotics Lab") });
+    const places = await post("custSe", "/places", { categoryId: lab, name: uniq("E2E Robotics Lab"), ownerOrgNodeId: se, custodianId: S.custSe.id, props: { block: "1", room: "1" } });
+    return { ok: register.status === 403 && places.status === 403, evidence: { register: register.status, labsAndStores: places.status } };
   });
 
   await check(R, "R-02", "custodian refused: root for another unit, or naming someone else as custodian", async () => {
@@ -32,13 +36,14 @@ async function main() {
     return { ok: otherUnit.status === 403 && otherCust.status === 403, evidence: { otherUnit: otherUnit.status, otherCustodian: otherCust.status } };
   });
 
-  await check(R, "R-03", "head registers a lab for their department with an assistant as custodian; refused for another department", async () => {
-    const own = await change("headSe", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: se, custodianId: S.custSe2.id, name: uniq("E2E Head Lab") });
-    const foreign = await change("headSe", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: chem, custodianId: S.custChem.id });
-    return { ok: own.status === 200 && foreign.status === 403, evidence: { own: own.status, foreign: foreign.status } };
+  await check(R, "R-03", "the head adds a store for their department with a custodian as its keeper (Labs & stores); refused for another department", async () => {
+    const own = await post("headSe", "/places", { categoryId: store, name: uniq("E2E SE Store"), ownerOrgNodeId: se, custodianId: S.custSe.id, props: { level: "Department store", block: "509", room: "2" } });
+    newLab = own.body?.id;
+    const foreign = await post("headSe", "/places", { categoryId: store, name: uniq("E2E Foreign Store"), ownerOrgNodeId: chem, custodianId: S.custChem.id, props: { level: "Department store" } });
+    return { ok: own.status === 201 && !!newLab && foreign.status === 403, evidence: { own: own.status, foreign: foreign.status } };
   });
 
-  await check(R, "R-04", "add 2 computers into the new lab: template subtree instantiated, custody/ownership inherited", async () => {
+  await check(R, "R-04", "add 2 computers into the new store: template subtree instantiated, custody/ownership inherited", async () => {
     const r = await change("custSe", { kind: "createItem", parentId: newLab, categoryId: computer, count: 2, customProps: { "Asset tag": { type: "TEXT", value: "ASTU-001" } } });
     const ids: string[] = r.body?.itemIds ?? [];
     const kids = await db.item.findMany({ where: { parentId: { in: ids } } });
@@ -66,10 +71,10 @@ async function main() {
     return { ok: r.status === 400, evidence: { status: r.status, created: made, ms }, hypothesis: "H11" };
   });
 
-  await check(R, "R-07", "H11 — a root can name a DISABLED user or a STUDENT as custodian", async () => {
-    const disabled = await change("admin", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: se, custodianId: S.disabled.id, name: uniq("E2E Disabled-custody Lab") });
-    const student = await change("headSe", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: se, custodianId: S.student.id, name: uniq("E2E Student-custody Lab") });
-    return { ok: disabled.status === 400 && student.status === 400, evidence: { disabledCustodian: disabled.status, studentCustodian: student.status }, hypothesis: "H11" };
+  await check(R, "R-07", "H11 — a root can name a DISABLED user or someone who holds no custody role as custodian", async () => {
+    const disabled = await change("admin", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: se, custodianId: S.disabled.id, name: uniq("E2E Disabled-custody Lab"), props: { block: "1", room: "1" } });
+    const noRole = await change("admin", { kind: "createItem", parentId: null, categoryId: lab, count: 1, ownerOrgNodeId: se, custodianId: S.procurement.id, name: uniq("E2E Procurement-custody Lab"), props: { block: "1", room: "1" } });
+    return { ok: disabled.status === 400 && noRole.status === 400, evidence: { disabledCustodian: disabled.status, procurementOfficerCustodian: noRole.status }, hypothesis: "H11" };
   });
 
   let myComputer = "";
@@ -83,15 +88,15 @@ async function main() {
     return { ok: owner.status === 403 && current.status === 403, evidence: { setOwnerOrg: owner.status, setCurrentOrg: current.status, ownerAfter: row.ownerOrgNodeId === chem ? "Chemical Engineering" : row.ownerOrgNodeId, revert: revert.status }, hypothesis: "H8" };
   });
 
-  await check(R, "R-09", "H8 — custodian dumps custody on a student / a disabled user / another department's custodian with no acceptance", async () => {
+  await check(R, "R-09", "H8 — custodian dumps custody on someone with no custody role / a disabled user / another department's custodian with no acceptance", async () => {
     const c = await change("custSe", { kind: "createItem", parentId: newLab, categoryId: whiteboard, count: 3 });
     const [a, b, d] = c.body.itemIds;
-    const toStudent = await change("custSe", { kind: "setCustodian", itemIds: [a], value: S.student.id });
+    const toStudent = await change("custSe", { kind: "setCustodian", itemIds: [a], value: S.procurement.id });
     const toDisabled = await change("custSe", { kind: "setCustodian", itemIds: [b], value: S.disabled.id });
     const toForeign = await change("custSe", { kind: "setCustodian", itemIds: [d], value: S.custChem.id });
     return {
       ok: [toStudent, toDisabled, toForeign].every((r) => r.status >= 400),
-      evidence: { student: toStudent.status, disabledUser: toDisabled.status, otherDepartmentCustodian: toForeign.status },
+      evidence: { noCustodyRole: toStudent.status, disabledUser: toDisabled.status, otherDepartmentCustodian: toForeign.status },
       hypothesis: "H8",
     };
   });
@@ -115,9 +120,9 @@ async function main() {
     return { ok: take.status >= 400, evidence: { setCustodianToSelf: take.status, custodianAfter: after.custodianId === S.custChem.id ? "Hanna (host)" : "Girma (lender)" }, hypothesis: "H9" };
   });
 
-  await check(R, "R-12", "outsiders cannot write another lab's item (404): other custodian, staff, student, other head", async () => {
+  await check(R, "R-12", "outsiders cannot write another place's item (404/403): other custodians, other heads, the offices", async () => {
     const out: Record<string, number> = {};
-    for (const a of ["custChem", "staffSe", "student", "headChem", "custMat", "storekeeper", "procurement", "propadmin"]) out[a] = (await change(a, { kind: "setName", itemIds: [myComputer], value: "pwned" })).status;
+    for (const a of ["custChem", "staffSe", "headChem", "custMat", "storekeeper", "procurement", "propadmin", "adaa"]) out[a] = (await change(a, { kind: "setName", itemIds: [myComputer], value: "pwned" })).status;
     return { ok: Object.values(out).every((s) => s === 404 || s === 403), evidence: out };
   });
 
@@ -138,7 +143,7 @@ async function main() {
     const row = await db.item.findUniqueOrThrow({ where: { id: myComputer } });
     const [a, b] = await Promise.all([
       change("custSe", { kind: "setName", itemIds: [myComputer], value: "E2E Computer A", expectedVersions: { [myComputer]: row.version } }),
-      change("headSe", { kind: "setName", itemIds: [myComputer], value: "E2E Computer B", expectedVersions: { [myComputer]: row.version } }),
+      change("admin", { kind: "setName", itemIds: [myComputer], value: "E2E Computer B", expectedVersions: { [myComputer]: row.version } }),
     ]);
     const s = [a.status, b.status].sort();
     return { ok: s[0] === 200 && s[1] === 409, evidence: { statuses: [a.status, b.status] } };
@@ -161,7 +166,9 @@ async function main() {
     return { ok: add.status === 200 && collide.status === 400 && badKey.status === 400 && remove.status === 200, evidence: { add: add.status, collideWithField: collide.status, badKey: badKey.status, remove: remove.status } };
   });
 
-  await check(R, "R-17", "images: upload + attach; non-image bytes refused; another custodian cannot open an upload session", async () => {
+  // Every university account reads the whole register, photos included (2026-10-01) —
+  // only adding a photo stays with whoever looks after the item.
+  await check(R, "R-17", "images: upload + attach; non-image bytes refused; another custodian can see the photo but cannot open an upload session", async () => {
     const sess = await post("custSe", `/resources/items/${myComputer}/images/upload-sessions`);
     const up = await api("custSe", "PUT", `/resources/images/upload/${sess.body.uploadSessionId}`, undefined, { "content-type": "image/png" });
     void up;
@@ -173,7 +180,7 @@ async function main() {
     const img = await db.itemImage.findFirst({ where: { itemId: myComputer } });
     const serve = img ? await fetch(`http://localhost:3100/api/resources/images/${img.storageKey}`, { headers: { cookie: `lrms_session=${S.custChem.token}` } }) : null;
     return {
-      ok: sess.status === 201 && res.status === 200 && attach.status === 200 && fake.status === 400 && foreignSess.status >= 400 && serve?.status === 404,
+      ok: sess.status === 201 && res.status === 200 && attach.status === 200 && fake.status === 400 && foreignSess.status >= 400 && serve?.status === 200,
       evidence: { session: sess.status, upload: res.status, attach: attach.status, spoofedUpload: fake.status, foreignSession: foreignSess.status, foreignCustodianFetchesPhoto: serve?.status },
     };
   });

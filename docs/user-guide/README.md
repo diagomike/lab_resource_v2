@@ -23,7 +23,7 @@ Every change is recorded, with who made it and when.
 |---|---|---|
 | A **lab custodian** (ARA / lab responsible) | Keep your labs' records true, send their changes to your head, ask for what they need, decide bookings of your rooms | [Lab custodian](02-custodian.md) |
 | A **department head** | Approve your labs' changes, add labs and choose who runs them, build purchase requests, look after your categories and people | [Department head](03-department-head.md) |
-| A college's **ADAA** (Associate Dean of Academic Affairs) | Add the college's labs and stores and choose who runs them; see the whole college | [ADAA](04-adaa.md) |
+| A college's **ADAA** (Associate Dean of Academic Affairs) | Add the college's stores and choose their store keepers; see the whole college | [ADAA](04-adaa.md) |
 | A **dean, the AVP or the College Managing Director** | Approve purchase requests and permanent transfers; the AVP also handles outside institutions' requests | [Dean / AVP / CMD](06-dean-avp.md) |
 | The **procurement officer** | Give purchases their final approval and follow orders until they arrive | [Procurement](07-procurement.md) |
 | The **store keeper** | Load what arrived into the Main Store, and move it to the labs | [Store keeper](08-store-keeper.md) |

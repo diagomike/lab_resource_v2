@@ -126,7 +126,7 @@ function PlaceInner({ id }: { id: string }) {
         {place.canManage && (
           <div className="flex flex-wrap items-center gap-8 pt-8 border-t border-border">
             <Button onClick={() => setEditing("details")}>Edit name and details</Button>
-            <Button onClick={() => setEditing("custodian")}>Change who runs it</Button>
+            <Button onClick={() => setEditing("custodian")}>{place.isStore ? "Change its store keeper" : "Change who runs it"}</Button>
             <Button variant="danger" disabled={place.itemCount > 0} onClick={() => setEditing("remove")}>
               Remove
             </Button>
@@ -246,7 +246,7 @@ function ChangeCustodianModal({ place, onClose, onSaved }: { place: PlaceDto; on
           Now run by <strong className="text-text">{place.custodianName}</strong>. The new custodian takes over the place and everything in it that {place.custodianName} answered for on
           the unit&apos;s behalf; anything borrowed stays with whoever holds it.
         </p>
-        <CustodianPicker unitId={place.ownerOrgNodeId} value={custodianId} onChange={setCustodianId} />
+        <CustodianPicker unitId={place.ownerOrgNodeId} value={custodianId} onChange={setCustodianId} store={place.isStore} />
         <label className="flex flex-col gap-4">
           <span className={labelCls}>Why (optional — both people see it)</span>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Covering during study leave" className={inputCls} />

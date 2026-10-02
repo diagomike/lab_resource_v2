@@ -14,7 +14,13 @@ export const paths = {
   category: (categoryId: string, changeId?: string) => `/categories?id=${categoryId}${changeId ? `&change=${changeId}` : ""}`,
   place: (placeId: string, tab?: "current" | "draft" | "approvals") => `/places/${placeId}${tab ? `?tab=${tab}` : ""}`,
   needs: () => "/purchasing?tab=needs",
+  /** One lab need, highlighted on the Lab needs tab. */
+  need: (needId: string) => `/purchasing?tab=needs&need=${needId}`,
   arrivals: () => "/purchasing?tab=arrivals",
+  /** A purchase request that arrived, chosen in Arrivals' "record what arrived". */
+  arrived: (requestId: string) => `/purchasing?tab=arrivals&request=${requestId}`,
+  /** One import record, highlighted on the Arrivals tab. */
+  importRecord: (importId: string) => `/purchasing?tab=arrivals&import=${importId}`,
   requests: () => "/purchasing?tab=requests",
   calendar: (labId: string) => `/schedule?lab=${labId}`,
   /** An outside institution's request, opened on Outside requests. */

@@ -1,4 +1,6 @@
-/** Suite B — purchasing: needs → compile → ladder with send-backs → pipeline → receiving. H19–H21. */
+/** Suite B — purchasing: needs → compile → ladder with send-backs → pipeline → arrivals. H19–H21.
+ *  2026-10-02: a need belongs to a lab its custodian runs; the ladder has the CMD after the
+ *  dean; arrivals are import records (Property Administration records, the store keeper loads). */
 import { get, post, check, ev, db, done, uniq, nodeId, S } from "../lib";
 
 const B = "B";
@@ -12,26 +14,26 @@ async function catId(key: string) {
 
 async function main() {
   const se = await nodeId("Software Engineering");
-  const mat = await nodeId("Materials Science");
+  const mat = await nodeId("Materials Science and Engineering");
   const [computer, chemical, chair] = await Promise.all([catId("computer"), catId("chemical"), catId("chair")]);
   const mainStore = await db.item.findFirstOrThrow({ where: { name: "ASTU Main Store" } });
   const girmaLab = await db.item.findFirstOrThrow({ where: { name: "SE Lab X — Software Lab 3" } });
 
   let needId = "";
-  await check(B, "B-01", "needs: staff raise one; student refused; only the head lists and declines", async () => {
-    const n = await post("staffSe", "/resources/needs", { name: "Oscilloscope", qty: 2, reason: "Signals lab" });
+  await check(B, "B-01", "needs: the lab's custodian raises one; a custodian of another lab is refused; only the head lists and declines", async () => {
+    const n = await post("custSe", "/resources/needs", { labItemId: girmaLab.id, name: "Oscilloscope", qty: 2, priority: "ESSENTIAL", reason: "Signals lab" });
     needId = n.body?.id;
-    const student = await post("student", "/resources/needs", { name: "Laptop", qty: 1, reason: "please" });
+    const notTheirs = await post("staffSe", "/resources/needs", { labItemId: girmaLab.id, name: "Laptop", qty: 1, reason: "please" });
     const listByHead = await get("headSe", `/resources/needs?node=${se}`);
     const listByCust = await get("custSe", `/resources/needs?node=${se}`);
-    const n2 = await post("custSe", "/resources/needs", { name: "Spare mice", qty: 10, reason: "broken" });
+    const n2 = await post("custSe", "/resources/needs", { labItemId: girmaLab.id, name: "Spare mice", qty: 10, reason: "broken" });
     const declineByCust = await post("custSe", `/resources/needs/${n2.body.id}/decline`, { note: "no" });
     const declineByHead = await post("headSe", `/resources/needs/${n2.body.id}/decline`, { note: "Use stock" });
-    return { ok: n.status === 200 && student.status === 403 && listByHead.status === 200 && listByCust.status === 403 && declineByCust.status === 403 && declineByHead.status === 200, evidence: { raise: n.status, student: student.status, headLists: listByHead.status, custodianLists: listByCust.status, custodianDeclines: declineByCust.status, headDeclines: declineByHead.status } };
+    return { ok: n.status === 200 && [403, 404].includes(notTheirs.status) && listByHead.status === 200 && listByCust.status === 403 && declineByCust.status === 403 && declineByHead.status === 200, evidence: { raise: n.status, otherCustodian: notTheirs.status, headLists: listByHead.status, custodianLists: listByCust.status, custodianDeclines: declineByCust.status, headDeclines: declineByHead.status } };
   });
 
   let reqId = "";
-  await check(B, "B-02", "head compiles a request carrying the need; chain = head (self-skipped) → dean → AVP → Procurement", async () => {
+  await check(B, "B-02", "head compiles a request carrying the need; chain = head (self-skipped) → dean → CMD → AVP → Procurement", async () => {
     const r = await post("headSe", "/resources/purchase-requests", { orgNodeId: se, title: uniq("E2E PR"), lines: [{ name: "Oscilloscope", qty: 2, categoryId: computer, estimatedUnitCost: 45000, justification: "Signals lab", fromNeedIds: [needId] }, { name: "Ethanol", qty: 20, unit: "L", categoryId: chemical, estimatedUnitCost: 300 }] });
     reqId = r.body?.id;
     const row = await pr(reqId);
@@ -60,12 +62,13 @@ async function main() {
     return { ok: avpEarly.status === 403 && procEarly.status === 403 && rev.status === 200 && mid.stage === "REVISING" && rr.status < 300 && after.stage === "APPROVING", evidence: { avpEarly: avpEarly.status, procurementEarly: procEarly.status, afterRevise: mid.stage, resubmitKeepingCarriedNeed: rr.status, body: firstBody.slice(0, 160), workaroundWithoutNeedLink: retry?.status, afterResubmit: after.stage } };
   });
 
-  await check(B, "B-05", "dean → AVP → procurement approve → ORDER_PLACED; history kept across the send-back", async () => {
+  await check(B, "B-05", "dean → CMD → AVP → procurement approve → ORDER_PLACED; history kept across the send-back", async () => {
     const d1 = await decide("deanCoeec", reqId, "APPROVE");
+    const d1b = await decide("cmd", reqId, "APPROVE");
     const d2 = await decide("avp", reqId, "APPROVE");
     const d3 = await decide("procurement", reqId, "APPROVE", "Order via EGP");
     const row = await pr(reqId);
-    return { ok: row.stage === "ORDER_PLACED" && row.events.length >= 5, evidence: { statuses: [d1.status, d2.status, d3.status], stage: row.stage, history: row.events.map((e) => `${e.stage}: ${e.note ?? ""}`) } };
+    return { ok: row.stage === "ORDER_PLACED" && row.events.length >= 5, evidence: { statuses: [d1.status, d1b.status, d2.status, d3.status], stage: row.stage, history: row.events.map((e) => `${e.stage}: ${e.note ?? ""}`) } };
   });
 
   await check(B, "B-06", "pipeline: only procurement advances; stops at IN_STORE", async () => {
@@ -90,45 +93,58 @@ async function main() {
   const lines = (await pr(reqId)).lines;
   const scope = lines.find((l) => l.name === "Oscilloscope")!;
   const eth = lines.find((l) => l.name === "Ethanol")!;
+  const record = (a: string, body: unknown) => post(a, "/resources/imports", body);
+  const load = (a: string, impId: string, body: unknown) => post(a, `/resources/imports/${impId}/load`, body);
+  const fromPr = (lineItems: unknown[]) => ({ source: "PURCHASE_REQUEST", purchaseRequestId: reqId, supplier: "E2E Supplies", lines: lineItems });
+  let impId = "";
+  let impScope = "";
+  let impEth = "";
 
-  await check(B, "B-08", "receiving guards: custodian refused; into a container the store keeper doesn't hold → 404", async () => {
-    const byCust = await post("custSe", `/resources/purchase-requests/${reqId}/receive`, { lineId: scope.id, qty: 1, categoryId: computer, storeParentId: girmaLab.id });
-    const foreign = await post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: scope.id, qty: 1, categoryId: computer, storeParentId: girmaLab.id });
-    return { ok: byCust.status === 403 && foreign.status === 404, evidence: { custodian: byCust.status, storeKeeperIntoForeignLab: foreign.status } };
+  await check(B, "B-08", "arrivals: only Property Administration records; only the store keeper loads, and only into the store", async () => {
+    const lineItems = [
+      { name: "Oscilloscope", categoryId: computer, qty: 2, unit: "pcs", purchaseLineId: scope.id },
+      { name: "Ethanol", categoryId: chemical, qty: 10, unit: "L", purchaseLineId: eth.id },
+    ];
+    const byCust = await record("custSe", fromPr(lineItems));
+    const byKeeper = await record("storekeeper", fromPr(lineItems));
+    const imp = await record("propadmin", fromPr(lineItems));
+    impId = imp.body?.id;
+    impScope = imp.body?.lines?.find((l: any) => l.name === "Oscilloscope")?.id;
+    impEth = imp.body?.lines?.find((l: any) => l.name === "Ethanol")?.id;
+    const loadByCust = await load("custSe", impId, { lineId: impScope, qty: 1, storeParentId: mainStore.id });
+    const intoLab = await load("storekeeper", impId, { lineId: impScope, qty: 1, storeParentId: girmaLab.id });
+    return {
+      ok: byCust.status === 403 && byKeeper.status === 403 && imp.status === 201 && loadByCust.status === 403 && intoLab.status >= 400 && intoLab.status < 500,
+      evidence: { custodianRecords: byCust.status, keeperRecords: byKeeper.status, propertyAdminRecords: imp.status, custodianLoads: loadByCust.status, keeperLoadsIntoALab: intoLab.status },
+    };
   });
 
-  await check(B, "B-09", "H21 — receipt category can differ from the line (line: Computer → received as Chair)", async () => {
-    const r = await post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: scope.id, qty: 1, categoryId: chair, storeParentId: mainStore.id });
-    const made = await db.item.findFirst({ where: { parentId: mainStore.id, name: "Oscilloscope", categoryId: chair } });
-    return { ok: r.status === 400, evidence: { status: r.status, createdAsChair: !!made }, hypothesis: "H21" };
+  await check(B, "B-09", "H21 — what arrived can't be recorded as a different kind than was ordered (line: Computer → recorded as Chair)", async () => {
+    const r = await record("propadmin", fromPr([{ name: "Oscilloscope", categoryId: chair, qty: 1, unit: "pcs", purchaseLineId: scope.id }]));
+    if (r.status === 201) await post("propadmin", `/resources/imports/${r.body.id}/cancel`, { note: "E2E cleanup" });
+    return { ok: r.status === 400 || r.status === 409, evidence: { status: r.status, message: r.body?.message }, hypothesis: "H21" };
   });
 
-  await check(B, "B-10", "H21 — concurrent receipts of the same line lose updates (2 × qty 1 in parallel)", async () => {
-    const before = Number((await db.purchaseLine.findUniqueOrThrow({ where: { id: eth.id } })).receivedQty ?? 0);
-    const [a, b] = await Promise.all([
-      post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: eth.id, qty: 1, categoryId: chemical, storeParentId: mainStore.id }),
-      post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: eth.id, qty: 1, categoryId: chemical, storeParentId: mainStore.id }),
-    ]);
-    const after = Number((await db.purchaseLine.findUniqueOrThrow({ where: { id: eth.id } })).receivedQty ?? 0);
-    const items = await db.item.count({ where: { parentId: mainStore.id, name: "Ethanol" } });
-    return { ok: after - before === 2, evidence: { statuses: [a.status, b.status], receivedQtyDelta: after - before, ethanolItemsCreated: items }, hypothesis: "H21" };
+  await check(B, "B-10", "H21 — concurrent loads of the same line don't lose updates (2 × qty 1 in parallel)", async () => {
+    const [a, b] = await Promise.all([load("storekeeper", impId, { lineId: impEth, qty: 1, storeParentId: mainStore.id }), load("storekeeper", impId, { lineId: impEth, qty: 1, storeParentId: mainStore.id })]);
+    const line = await db.importLine.findUniqueOrThrow({ where: { id: impEth } });
+    return { ok: Number(line.loadedQty) === 2, evidence: { statuses: [a.status, b.status], loadedQty: String(line.loadedQty) }, hypothesis: "H21" };
   });
 
-  await check(B, "B-11", "H21 — over-receipt: ordered 10 L, receive 500 L", async () => {
-    const r = await post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: eth.id, qty: 500, categoryId: chemical, storeParentId: mainStore.id });
-    const line = await db.purchaseLine.findUniqueOrThrow({ where: { id: eth.id } });
-    return { ok: r.status === 400 || r.status === 409, evidence: { status: r.status, receivedQty: String(line.receivedQty), orderedQty: String(line.qty) }, hypothesis: "H21" };
+  await check(B, "B-11", "H21 — over-load: recorded 10 L, load 500 L", async () => {
+    const r = await load("storekeeper", impId, { lineId: impEth, qty: 500, storeParentId: mainStore.id });
+    const line = await db.importLine.findUniqueOrThrow({ where: { id: impEth } });
+    return { ok: r.status === 400 || r.status === 409, evidence: { status: r.status, loadedQty: String(line.loadedQty), recordedQty: String(line.qty) }, hypothesis: "H21" };
   });
 
-  await check(B, "B-12", "finishing the lines closes the request; receiving after CLOSED is refused", async () => {
-    const ethRemaining = Number(eth.qty) - Number((await db.purchaseLine.findUniqueOrThrow({ where: { id: eth.id } })).receivedQty ?? 0);
-    if (ethRemaining > 0) await post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: eth.id, qty: ethRemaining, categoryId: chemical, storeParentId: mainStore.id });
-    const remaining = Number(scope.qty) - Number((await db.purchaseLine.findUniqueOrThrow({ where: { id: scope.id } })).receivedQty ?? 0);
-    const r = remaining > 0 ? await post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: scope.id, qty: remaining, categoryId: computer, storeParentId: mainStore.id }) : null;
+  await check(B, "B-12", "loading everything closes the request; loading after that is refused", async () => {
+    const ethLine = await db.importLine.findUniqueOrThrow({ where: { id: impEth } });
+    await load("storekeeper", impId, { lineId: impEth, qty: Number(ethLine.qty) - Number(ethLine.loadedQty), storeParentId: mainStore.id });
+    const r = await load("storekeeper", impId, { lineId: impScope, qty: 2, storeParentId: mainStore.id });
     const row = await pr(reqId);
-    const again = await post("storekeeper", `/resources/purchase-requests/${reqId}/receive`, { lineId: scope.id, qty: 1, categoryId: computer, storeParentId: mainStore.id });
+    const again = await load("storekeeper", impId, { lineId: impScope, qty: 1, storeParentId: mainStore.id });
     const oscs = await db.item.count({ where: { parentId: mainStore.id, name: { startsWith: "Oscilloscope" } } });
-    return { ok: row.stage === "CLOSED" && again.status === 409, evidence: { finalReceive: r?.status, stage: row.stage, receiveAfterClose: again.status, oscilloscopeItemsInStore: oscs } };
+    return { ok: r.status === 200 && row.stage === "CLOSED" && again.status === 409 && oscs === 2, evidence: { finalLoad: r.status, stage: row.stage, loadAfterClose: again.status, oscilloscopeItemsInStore: oscs } };
   });
 
   await check(B, "B-13", "H21 — a SERIALIZED line may be ordered in fractions (2.5 computers)", async () => {
@@ -138,7 +154,7 @@ async function main() {
   });
 
   await check(B, "B-14", "H19 — a rejected request leaves the needs it carried stuck as CARRIED", async () => {
-    const n = await post("custSe", "/resources/needs", { name: "Projector", qty: 1, reason: "Room B509" });
+    const n = await post("custSe", "/resources/needs", { labItemId: girmaLab.id, name: "Projector", qty: 1, reason: "Room B509" });
     const r = await post("headSe", "/resources/purchase-requests", { orgNodeId: se, title: uniq("E2E reject"), lines: [{ name: "Projector", qty: 1, fromNeedIds: [n.body.id] }] });
     await decide("deanCoeec", r.body.id, "REJECT", "Not this year");
     const need = await db.needLine.findUniqueOrThrow({ where: { id: n.body.id } });
@@ -151,6 +167,7 @@ async function main() {
     const r = await post("headSe", "/resources/purchase-requests", { orgNodeId: se, title: uniq("E2E cancel late"), lines: [{ name: "Router", qty: 1 }] });
     const id = r.body.id;
     await decide("deanCoeec", id, "APPROVE");
+    await decide("cmd", id, "APPROVE");
     await decide("avp", id, "APPROVE");
     await decide("procurement", id, "APPROVE");
     await advance("procurement", id);

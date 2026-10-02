@@ -46,17 +46,18 @@ async function main() {
     };
   });
 
-  await check(A, "A-07", "a signed-in student cannot reach admin API routes", async () => {
-    const r1 = await get("student", "/people");
-    const r2 = await post("student", "/org/nodes", { name: "x", level: 1, kind: "COLLEGE", parentIds: [] });
+  // The STUDENT role is gone (2026-10-01); a custodian is now the least-privileged account.
+  await check(A, "A-07", "a signed-in custodian cannot reach admin API routes", async () => {
+    const r1 = await get("staffSe", "/people");
+    const r2 = await post("staffSe", "/org/nodes", { name: "x", level: 1, kind: "COLLEGE", parentIds: [] });
     return { ok: r1.status === 403 && r2.status === 403, evidence: { people: ev(r1), createNode: ev(r2) } };
   });
 
-  await check(A, "A-08", "org chart (names, occupants, emails) readable by any signed-in account, incl. student", async () => {
-    const r = await get("student", "/org/nodes?scope=all");
+  await check(A, "A-08", "org chart (names, occupants, emails) readable by any signed-in account, incl. a custodian", async () => {
+    const r = await get("staffSe", "/org/nodes?scope=all");
     const withEmail = Array.isArray(r.body) ? r.body.filter((n: any) => n.occupant?.email).map((n: any) => `${n.name} → ${n.occupant.email}`) : [];
-    // Recorded as a finding if a student can enumerate every office holder's email.
-    return { ok: !(r.status === 200 && withEmail.length > 0), evidence: { status: r.status, occupantEmailsVisibleToStudent: withEmail } };
+    // Recorded as a finding if any account can enumerate every office holder's email.
+    return { ok: !(r.status === 200 && withEmail.length > 0), evidence: { status: r.status, occupantEmailsVisibleToCustodian: withEmail } };
   });
 
   await check(A, "A-09", "custodian directory (/people/custodians) exposes university-wide emails to a custodian", async () => {

@@ -7,10 +7,11 @@ const email = (p: string) => `${uniq(p)}@e2e.test`;
 async function main() {
   const se = await nodeId("Software Engineering");
   const chem = await nodeId("Chemical Engineering");
-  const mat = await nodeId("Materials Science");
+  const mat = await nodeId("Materials Science and Engineering");
 
   await check(P, "P-01", "admin invites one person per role; each gets INVITED status, an invite URL and an email", async () => {
-    const roles = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "STAFF", "STUDENT", "STORE_KEEPER", "EXTERNAL"];
+    // STAFF and STUDENT were removed (2026-10-01); ADAA was added.
+    const roles = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "CUSTODIAN", "ADAA", "STORE_KEEPER", "EXTERNAL"];
     const seq = mailSeq();
     const out: Record<string, number> = {};
     const ids: string[] = [];
@@ -64,9 +65,9 @@ async function main() {
     return { ok: foreign.status === 403 && r.status === 201 && row?.homeNodeId === se && !row?.orgNode, evidence: { foreignHome: foreign.status, status: r.status, homeIsSE: row?.homeNodeId === se, occupies: row?.orgNode?.name ?? null } };
   });
 
-  await check(P, "P-07", "SE head may not invite MANAGER / PROCUREMENT / SYS_ADMIN / mixed role sets", async () => {
+  await check(P, "P-07", "SE head may not invite MANAGER / PROCUREMENT / SYS_ADMIN / STORE_KEEPER / ADAA / mixed role sets", async () => {
     const r: Record<string, number> = {};
-    for (const roles of [["MANAGER"], ["PROCUREMENT"], ["SYS_ADMIN"], ["CUSTODIAN", "SYS_ADMIN"], ["STORE_KEEPER"], ["STUDENT"]]) {
+    for (const roles of [["MANAGER"], ["PROCUREMENT"], ["SYS_ADMIN"], ["CUSTODIAN", "SYS_ADMIN"], ["STORE_KEEPER"], ["ADAA"]]) {
       r[roles.join("+")] = (await post("headSe", "/people", { name: "P nope", email: email("p-nope"), roles })).status;
     }
     return { ok: Object.values(r).every((s) => s === 403), evidence: r };
@@ -155,12 +156,19 @@ async function main() {
     };
   });
 
-  await check(P, "P-15", "H1 — a DISABLED invited account still holds a usable invitation token (accepting it would reactivate)", async () => {
-    const inv = await post("admin", "/people", { name: "P disabled invitee", email: email("p-disinv"), roles: ["CUSTODIAN"], homeNodeId: se });
+  // Checked by behaviour, not by comparing expiry times across two processes' clocks: the
+  // emailed link of an invited person who was then deactivated must not register them.
+  await check(P, "P-15", "H1 — a DISABLED invited account can't be reactivated through its emailed invitation", async () => {
+    const seq = mailSeq();
+    const address = email("p-disinv");
+    const inv = await post("admin", "/people", { name: "P disabled invitee", email: address, roles: ["CUSTODIAN"], homeNodeId: se });
+    await new Promise((r) => setTimeout(r, 800));
+    const raw = mailsSince(seq).find((m) => m.to.some((t) => t.includes(address)))?.raw ?? "";
+    const token = raw.replace(/=\r?\n/g, "").replace(/=3D/g, "=").match(/accept-invite\?token=([\w-]+)/)?.[1];
     await post("admin", `/people/${inv.body.id}/deactivate`);
+    const reg = await post(null, "/auth/register", { token, name: "P disabled invitee", password: "astu1234-reactivate" });
     const u = await db.user.findUniqueOrThrow({ where: { id: inv.body.id } });
-    const usable = await db.invitation.count({ where: { emailLower: u.emailLower, consumedAt: null, expiresAt: { gt: new Date() } } });
-    return { ok: !(u.status === "DISABLED" && usable > 0), evidence: { status: u.status, usableInvitationTokens: usable, note: "register() in auth.ts never checks User.status; confirm with e2e/auth-check.ts" }, hypothesis: "H1" };
+    return { ok: !!token && reg.status === 400 && u.status === "DISABLED" && !u.passwordHash, evidence: { tokenFromEmail: !!token, register: ev(reg), statusAfter: u.status }, hypothesis: "H1" };
   });
 
   await check(P, "P-16", "HTML in a person's name is escaped in the invitation email", async () => {
@@ -172,10 +180,15 @@ async function main() {
     return { ok: r.status === 201 && !raw.includes("<img src=x") && /&lt;img|&amp;lt;|=3Cimg/i.test(raw) === true || (!!m && !raw.includes("<img src=x")), evidence: { status: r.status, rawContainsTag: raw.includes("<img src=x") } };
   });
 
-  await check(P, "P-17", "PROPERTY_ADMIN reads everyone but cannot invite", async () => {
+  // The seeded Property Administrator occupies the Property office, and like any post's
+  // occupant may invite into it — never into a department.
+  await check(P, "P-17", "PROPERTY_ADMIN reads everyone; invites only into the office they hold, never elsewhere", async () => {
     const list = await get("propadmin", "/people");
-    const inv = await post("propadmin", "/people", { name: "x", email: email("p-pa"), roles: ["CUSTODIAN"] });
-    return { ok: list.status === 200 && inv.status === 403, evidence: { list: list.status, count: list.body?.length, invite: inv.status } };
+    const elsewhere = await post("propadmin", "/people", { name: "x", email: email("p-pa"), roles: ["CUSTODIAN"], homeNodeId: se });
+    const own = await post("propadmin", "/people", { name: "P PA office clerk", email: email("p-pa-own"), roles: ["CUSTODIAN"] });
+    const prop = await db.orgNode.findFirstOrThrow({ where: { code: "PROP" } });
+    const home = own.status === 201 ? (await db.user.findUniqueOrThrow({ where: { id: own.body.id } })).homeNodeId : null;
+    return { ok: list.status === 200 && elsewhere.status === 403 && own.status === 201 && home === prop.id, evidence: { list: list.status, count: list.body?.length, inviteIntoSE: elsewhere.status, inviteIntoOwnOffice: own.status, homeIsPropertyOffice: home === prop.id } };
   });
 
   await check(P, "P-18", "Materials head (two parent colleges) invites into Materials; both deans see the person", async () => {

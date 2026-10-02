@@ -57,7 +57,7 @@ Your **Home** adds **Loose ends**: posts nobody holds (a department without a he
 | **Property Administration** | The Main Store, arrivals, movements in and out of the store, university-wide categories ([Property administrator](10-property-admin.md)) |
 | **Procurement** | The Procurement Office ([Procurement](07-procurement.md)) |
 | **Head of a unit** | Heads a unit: a department head, a dean, the AVP, the College Managing Director. What they head is the unit they **occupy** |
-| **Associate Dean, Academic Affairs** | A college's ADAA: manages the college's labs and stores ([ADAA](04-adaa.md)). Home them in the college or its ADAA office |
+| **Associate Dean, Academic Affairs** | A college's ADAA: adds the college's stores and chooses their store keepers ([ADAA](04-adaa.md)). Home them in the college or its ADAA office |
 | **Lab custodian** | Runs labs or stores ([Lab custodian](02-custodian.md)) |
 | **Store keeper** | The Main Store ([Store keeper](08-store-keeper.md)) |
 | **Outside requester** | An institution outside the university; they sign up themselves on the portal |

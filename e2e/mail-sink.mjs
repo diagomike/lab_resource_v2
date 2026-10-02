@@ -1,4 +1,4 @@
-// Minimal SMTP sink for the E2E campaign: accepts every message on 127.0.0.1:2525 and
+// Minimal SMTP sink for the E2E campaign: accepts every message on 127.0.0.1:2527 and
 // writes it to e2e/mail/<seq>.eml plus an index line (to, subject). Nothing leaves the machine.
 import net from "node:net";
 import fs from "node:fs";
@@ -51,4 +51,4 @@ net
     });
     sock.on("error", () => {});
   })
-  .listen(2525, "127.0.0.1", () => console.log("mail sink on 127.0.0.1:2525"));
+  .listen(2527, "127.0.0.1", () => console.log("mail sink on 127.0.0.1:2527"));

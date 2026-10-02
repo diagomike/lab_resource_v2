@@ -40,6 +40,9 @@ let otherDeptId: string;
 let groupId: string;
 let labCat: string;
 let thingCat: string;
+let storeCat: string;
+let storeCatCreated = false;
+let lecturerId: string;
 let headId: string;
 let adaaId: string;
 let custodianId: string;
@@ -81,20 +84,27 @@ beforeAll(async () => {
   const base = { groupId, countingMode: "SERIALIZED" as const, impairRule: "NEVER" as const, templateChildren: [], iconKey: "Package" };
   labCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-lab`, name: "Places Lab", isPlace: true, fields: [{ key: "room", label: "Room", type: "TEXT", options: [], summary: true, longText: false, required: true, sortOrder: 0 }] })).id;
   thingCat = (await categories.create(sysAdminId, { ...base, key: `${testKey}-thing`, name: "Places Thing", isPlace: false, fields: [] })).id;
+  // A store is the category keyed "store" (places.ts tells a store by it).
+  const existingStore = await prisma.resourceCategory.findUnique({ where: { key: "store" } });
+  storeCat = existingStore?.id ?? (await categories.create(sysAdminId, { ...base, key: "store", name: "Store", isPlace: true, fields: [] })).id;
+  storeCatCreated = !existingStore;
 
   headId = await makeUser("head", ["MANAGER"], deptId);
   await prisma.orgNode.update({ where: { id: deptId }, data: { userId: headId } });
   adaaId = await makeUser("adaa", ["ADAA"], collegeId);
   custodianId = await makeUser("custodian", ["CUSTODIAN"], deptId);
   otherCustodianId = await makeUser("custodian-2", ["CUSTODIAN"], deptId);
+  // Works in the college with no role that lets them hold custody.
+  lecturerId = await makeUser("lecturer", [], deptId);
 }, 60_000);
 
 afterAll(async () => {
   const all = await prisma.item.findMany({ where: { ownerOrgNodeId: { in: createdNodeIds } }, select: { id: true } });
   await prisma.itemChange.deleteMany({ where: { itemId: { in: all.map((i) => i.id) } } });
   for (let pass = 0; pass < 5; pass++) await prisma.item.deleteMany({ where: { ownerOrgNodeId: { in: createdNodeIds }, children: { none: {} } } });
-  await prisma.itemChange.deleteMany({ where: { categoryId: { in: [labCat, thingCat] } } });
-  await prisma.resourceCategory.deleteMany({ where: { id: { in: [labCat, thingCat] } } });
+  const ownCats = [labCat, thingCat, ...(storeCatCreated ? [storeCat] : [])];
+  await prisma.itemChange.deleteMany({ where: { categoryId: { in: ownCats } } });
+  await prisma.resourceCategory.deleteMany({ where: { id: { in: ownCats } } });
   await prisma.categoryGroup.delete({ where: { id: groupId } });
   await prisma.orgNode.updateMany({ where: { id: { in: createdNodeIds } }, data: { userId: null } });
   await prisma.userRole.deleteMany({ where: { userId: { in: createdUserIds } } });
@@ -134,9 +144,30 @@ describe("who creates labs and stores", () => {
     expect(sent.slice(mark).map((m) => m.subject)).toEqual(["You now run Places Lab One"]);
   });
 
-  it("the college's ADAA creates one for a department under the college", async () => {
-    const lab = await places.createPlace(adaaId, newLab("Places ADAA Lab"));
-    expect(lab.ownerOrgNodeId).toBe(deptId);
+  it("the college's ADAA adds no labs — not a department's, not the college's", async () => {
+    await expect(places.createPlace(adaaId, newLab("Places ADAA Lab"))).rejects.toMatchObject({ status: 403 });
+    await expect(places.createPlace(adaaId, newLab("Places ADAA College Lab", collegeId, custodianId))).rejects.toMatchObject({ status: 403 });
+    expect((await places.placeOptions(adaaId)).units).toEqual([expect.objectContaining({ id: collegeId, storesOnly: true })]);
+  });
+
+  it("the ADAA adds the college's store and names its keeper — anyone in the college, made a custodian if they aren't one", async () => {
+    const offered = await places.custodianCandidates(adaaId, collegeId, true);
+    expect(offered.find((c) => c.id === lecturerId)).toMatchObject({ becomesCustodian: true });
+    expect(offered.find((c) => c.id === custodianId)).toMatchObject({ becomesCustodian: false });
+    const store = { categoryId: storeCat, name: "Places College Store", ownerOrgNodeId: collegeId, custodianId: lecturerId, props: {} };
+    const mark = sent.length;
+    const created = await places.createPlace(adaaId, store);
+    expect(created).toMatchObject({ isStore: true, custodianId: lecturerId, ownerOrgNodeId: collegeId, canManage: true });
+    expect(sent.slice(mark).map((m) => m.subject)).toEqual(["You now keep Places College Store"]);
+    expect((await prisma.userRole.findMany({ where: { userId: lecturerId } })).map((r) => r.kind)).toContain("CUSTODIAN");
+    expect((await places.listPlaces(adaaId)).map((p) => p.id)).toContain(created.id);
+    // The ADAA changes the keeper; a department's store stays its head's.
+    expect((await places.updatePlace(adaaId, created.id, { custodianId })).custodianId).toBe(custodianId);
+    await expect(places.createPlace(adaaId, { ...store, name: "Places Dept Store", ownerOrgNodeId: deptId, custodianId })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("a lab is still run by a custodian — someone without the role isn't offered", async () => {
+    await expect(places.createPlace(headId, newLab("Places Lecturer Lab", deptId, (await makeUser("lecturer-2", [], deptId))))).rejects.toMatchObject({ status: 400 });
   });
 
   it("a custodian never creates a lab, here or through the register", async () => {

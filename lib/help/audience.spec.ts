@@ -17,7 +17,7 @@ function me(roles: RoleKind[], post?: { kind: "DEPARTMENT" | "COLLEGE" | "UNIVER
       : null,
     canSeeCost: false,
     scopeMode: "ORG_SUBTREE",
-    caps: { isAdmin: false, isPropertyAdmin: false, isProcurement: false, isStoreKeeper: false, isCustodian: false, isAdaa: false, headOf: [], deanOf: [], isAvp: false, officeCodes: [], adaaCollegeId: null, managesPlacesIn: [] },
+    caps: { isAdmin: false, isPropertyAdmin: false, isProcurement: false, isStoreKeeper: false, isCustodian: false, isAdaa: false, headOf: [], deanOf: [], isAvp: false, officeCodes: [], adaaCollegeId: null, managesPlacesIn: [], managesStoresIn: [] },
   };
 }
 const roleChapters = (m: MeContextDto) => [...helpChaptersFor(m, ALL)].filter((c) => !(GENERAL_CHAPTERS as readonly string[]).includes(c)).sort();
@@ -47,7 +47,7 @@ describe("Help: who reads which chapter", () => {
 
   it("the top-bar Help opens the section for this screen and this role", () => {
     expect(helpHrefFor("/purchasing", helpChaptersFor(me(["MANAGER"], { kind: "DEPARTMENT" }), ALL))).toBe("/help?c=head#head--4-the-labs-needs");
-    expect(helpHrefFor("/places", helpChaptersFor(me(["ADAA"]), ALL))).toBe("/help?c=adaa#adaa--2-labs--stores");
+    expect(helpHrefFor("/places", helpChaptersFor(me(["ADAA"]), ALL))).toBe("/help?c=adaa#adaa--2-the-colleges-stores");
     expect(helpHrefFor("/places", helpChaptersFor(me(["CUSTODIAN"]), ALL))).toBe("/help?c=custodian#custodian--2-your-labs");
     expect(helpHrefFor("/home", helpChaptersFor(me(["SYS_ADMIN"]), ALL))).toBe("/help?c=system-admin#system-admin--1-home");
     expect(helpHrefFor("/purchasing", helpChaptersFor(me(["STORE_KEEPER"]), ALL))).toBe("/help?c=store-keeper#store-keeper--1-load-an-import-record");

@@ -55,7 +55,7 @@ const SCREEN_SECTIONS: Array<[string, string[]]> = [
   // them, so they never shadow someone else's section.
   ["/home", ["system-admin--1-home", "property-admin--1-university-wide-view", "adaa--1-your-home", "head--1-your-home", "custodian--1-your-home", "getting-started--5-home"]],
   ["/register", ["system-admin--5-corrections-and-history", "property-admin--1-university-wide-view", "procurement--4-university-wide-view", "store-keeper--2-move-stock-to-a-lab", "adaa--3-resources-insights-and-history", "custodian--3-resources", "getting-started--7-find-your-way-around"]],
-  ["/places", ["property-admin--2-the-main-store", "adaa--2-labs--stores", "head--3-labs--stores", "custodian--2-your-labs", "concepts--places-and-the-things-inside-them"]],
+  ["/places", ["property-admin--2-the-main-store", "adaa--2-the-colleges-stores", "head--3-labs--stores", "custodian--2-your-labs", "concepts--places-and-the-things-inside-them"]],
   ["/schedule", ["custodian--8-bookings-of-your-labs", "custodian--9-weekly-classes"]],
   ["/approvals", ["property-admin--4-approving-movements", "procurement--1-approve-a-request", "dean-avp--1-purchase-requests", "head--2-decide-lab-changes", "custodian--10-moving-things", "appendix--who-approves-what"]],
   ["/purchasing", ["property-admin--3-import-records", "procurement--2-your-pipeline", "store-keeper--1-load-an-import-record", "head--4-the-labs-needs", "custodian--7-ask-for-something", "dean-avp--1-purchase-requests"]],

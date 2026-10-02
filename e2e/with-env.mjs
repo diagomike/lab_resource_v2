@@ -26,7 +26,7 @@ export const e2eEnv = {
   APP_ORIGIN: "http://localhost:3100",
   // Mail goes to the local SMTP sink (e2e/mail-sink.mjs), never Gmail.
   SMTP_HOST: "127.0.0.1",
-  SMTP_PORT: "2525",
+  SMTP_PORT: "2527", // 2525 is the sister app's Mailpit
   SMTP_SECURE: "false",
   SMTP_USER: "",
   SMTP_PASS: "",

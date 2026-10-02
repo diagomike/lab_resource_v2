@@ -12,17 +12,31 @@ async function main() {
   const groups = (await get("admin", "/resources/category-groups")).body as any[];
   const groupId = groups[0].id;
 
-  await check(C, "C-01", "only SYS_ADMIN / PROPERTY_ADMIN may write categories and groups", async () => {
+  // 2026-10-01: categories belong to the department that made them — its custodians and
+  // head add them (applying at once); the kinds of place stay with the admin and Property
+  // Administration, and so do the groups.
+  await check(C, "C-01", "who writes categories: a department's custodians and head add their own; not place kinds; office roles can't; groups stay central", async () => {
     const lab = await cat("lab");
-    const out: Record<string, number> = {};
-    for (const a of ["headSe", "custSe", "storekeeper", "procurement", "student"]) {
-      out[`${a}:createCat`] = (await post(a, "/resources/categories", { key: uniq("x"), name: "x", iconKey: "Box", groupId, countingMode: "SERIALIZED" })).status;
-      out[`${a}:patchCat`] = (await patch(a, `/resources/categories/${lab.id}`, { expectedVersion: lab.version, name: "hijack" })).status;
+    const out: Record<string, number | string> = {};
+    for (const a of ["headSe", "custSe"]) {
+      const made = await post(a, "/resources/categories", { name: uniq(`E2E ${a} kit`), iconKey: "Box", groupId, countingMode: "SERIALIZED" });
+      out[`${a}:createCat`] = made.status;
+      out[`${a}:steward`] = made.body?.stewardName ?? "";
+      if (made.status === 201) await del("admin", `/resources/categories/${made.body.id}`);
+      out[`${a}:patchPlaceKind`] = (await patch(a, `/resources/categories/${lab.id}`, { expectedVersion: lab.version, name: "hijack" })).status;
       out[`${a}:createGroup`] = (await post(a, "/resources/category-groups", { name: uniq("g") })).status;
+    }
+    for (const a of ["storekeeper", "procurement"]) {
+      out[`${a}:createCat`] = (await post(a, "/resources/categories", { name: uniq("x"), iconKey: "Box", groupId, countingMode: "SERIALIZED" })).status;
+      out[`${a}:patchCat`] = (await patch(a, `/resources/categories/${lab.id}`, { expectedVersion: lab.version, name: "hijack" })).status;
     }
     const pa = await post("propadmin", "/resources/categories", { key: uniq("pa-cat"), name: uniq("PA Cat"), iconKey: "Box", groupId, countingMode: "SERIALIZED" });
     if (pa.status === 201) await del("propadmin", `/resources/categories/${pa.body.id}`);
-    return { ok: Object.values(out).every((s) => s === 403) && pa.status === 201, evidence: { out, propAdminCreate: pa.status } };
+    const ok =
+      out["headSe:createCat"] === 201 && out["custSe:createCat"] === 201 && out["headSe:steward"] === "Software Engineering" && out["custSe:steward"] === "Software Engineering" &&
+      [out["headSe:patchPlaceKind"], out["custSe:patchPlaceKind"], out["headSe:createGroup"], out["custSe:createGroup"], out["storekeeper:createCat"], out["storekeeper:patchCat"], out["procurement:createCat"], out["procurement:patchCat"]].every((x) => x === 403) &&
+      pa.status === 201;
+    return { ok, evidence: { out, propAdminCreate: pa.status } };
   });
 
   await check(C, "C-02", "groups: create, duplicate refused (case-insensitive), rename, delete-in-use 409", async () => {
@@ -118,13 +132,13 @@ async function main() {
     return { ok: made.status === 200 && off.status === 200 && refused.status === 400 && delInUse.status === 409, evidence: { create: made.status, deactivate: off.status, createAfter: ev(refused), deleteInUse: delInUse.status } };
   });
 
-  await check(C, "C-11", "configure scheduling: Lab → ROOM and Computer → EQUIPMENT, each audited", async () => {
-    const lab = await cat("lab");
+  await check(C, "C-11", "configure scheduling: Computer off and back to EQUIPMENT, each change audited", async () => {
     const comp = await cat("computer");
-    const r1 = await patch("admin", `/resources/categories/${lab.id}`, { expectedVersion: lab.version, bookingMode: "ROOM" });
-    const r2 = await patch("admin", `/resources/categories/${comp.id}`, { expectedVersion: comp.version, bookingMode: "EQUIPMENT" });
-    const audit = await db.itemChange.count({ where: { categoryId: { in: [lab.id, comp.id] }, targetKind: "CATEGORY", at: { gte: new Date(Date.now() - 60_000) } } });
-    return { ok: r1.status === 200 && r2.status === 200 && audit >= 2, evidence: { lab: r1.status, computer: r2.status, auditRows: audit } };
+    const r1 = await patch("admin", `/resources/categories/${comp.id}`, { expectedVersion: comp.version, bookingMode: "NOT_BOOKABLE" });
+    const r2 = await patch("admin", `/resources/categories/${comp.id}`, { expectedVersion: comp.version + 1, bookingMode: "EQUIPMENT" });
+    const audit = await db.itemChange.count({ where: { categoryId: comp.id, targetKind: "CATEGORY", at: { gte: new Date(Date.now() - 60_000) } } });
+    const after = await cat("computer");
+    return { ok: r1.status === 200 && r2.status === 200 && audit >= 2 && after.bookingMode === "EQUIPMENT", evidence: { off: r1.status, back: r2.status, auditRows: audit, now: after.bookingMode } };
   });
 
   await check(C, "C-12", "category key/name hygiene: whitespace-only name, 2,000-char name, key with spaces", async () => {

@@ -1,3 +1,5 @@
+> **Superseded on 2026-10-02** by [docs/manual-walkthrough.md](../manual-walkthrough.md), written for the app after the UX-flow round (Home, Labs & stores, the ADAA, staged lab changes, needs, Mailpit). The acts below describe roles and screens that have since changed.
+
 # Before you start
 
 > **Changed on 2026-09-28.** These acts were recorded before the approval-line round. What differs now, and where the current behaviour is described:

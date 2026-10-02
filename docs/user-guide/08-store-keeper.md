@@ -14,7 +14,7 @@ Read [Getting started](00-getting-started.md) first. You see the register univer
 
 ## 1. Load an import record
 
-When Property Administration records a delivery, you're told ("IMP-2026-… is ready to load into the store"), **Home** shows **Arrivals to load into the store**, and it appears under **Purchasing → Arrivals**. A record lists what actually arrived, from a purchase request or from an EGP purchase that never went through LRMS, with the model or serial numbers where the delivery documents gave them.
+When Property Administration records a delivery, you're told ("IMP-2026-… is ready to load into the store"), **Home** shows **Arrivals to load into the store**, and it appears under **Purchasing → Arrivals**; the notice's link opens Arrivals with that record marked. A record lists what actually arrived, from a purchase request or from an EGP purchase that never went through LRMS, with the model or serial numbers where the delivery documents gave them.
 
 For each line:
 

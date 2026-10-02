@@ -30,3 +30,7 @@ e2e/.state.json
 
 # Local database backups
 backups/
+
+# Mailpit (npm run mail:catch) — the dev server's outbox, and the local-only env that points at it
+.mailpit/
+.env*.local

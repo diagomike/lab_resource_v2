@@ -1292,6 +1292,10 @@ model VersionItem {
   /// screen stays black"). Shown to the head, and logged as the change's reason when
   /// the draft merges — a direct edit keeps its reason, so a staged one must too.
   note         String?
+  /// The custodian changed this row. Rows nobody touched follow the register when it
+  /// moves on under the copy (domain/version-ops.ts `rebaseUntouched`), so a lab's changes
+  /// never silently undo someone else's correction.
+  touched      Boolean    @default(false)
 
   version LabVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 

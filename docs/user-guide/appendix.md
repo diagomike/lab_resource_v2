@@ -5,7 +5,7 @@
 | What | Raised by | Decided by, in order |
 |---|---|---|
 | A **lab's changes** (what broke, was mended, renamed, added or removed) | The lab's custodian | The lab's department head |
-| A new **lab or store**, or a new custodian for one | The department's head, the college's ADAA, or Property Administration (Main Store) | Applies at once; the custodians are told |
+| A new **lab or store**, or a new custodian for one | The department's head (its labs and stores), the college's ADAA (the college's stores), or Property Administration (the Main Store) | Applies at once; the custodians are told |
 | A new **category**, or an addition to one | A custodian or head (for their department), the ADAA (for the college) | Applies at once; the head is told |
 | A **category change** that alters what items already hold | A custodian | The department head (a head's own change applies after its review) |
 | …that reaches **other departments' items** | A custodian or head | Their head → the administrator → Property Administration |
@@ -133,7 +133,7 @@ flowchart LR
 | **"Added to … 's changes (not sent yet)"** | Changes in a lab go to its head first | Send them from the lab's **My changes** tab (or **Home**) |
 | **"Custody, ownership and moves out of … go through a move (transfer)"** | Those can't be lab changes | Use **Move to another place…**, **Request to my lab…** or **Return to store…** |
 | **"Couldn't be applied … changed in the register since you started these changes"** | Someone changed an item while yours waited | **Start again from the lab** on **My changes**, redo your change, send again |
-| **"New labs and stores are created on Labs & stores by the unit's head"** | Places are managed from above | Ask your head, the college's ADAA, or Property Administration |
+| **"New labs and stores are created on Labs & stores by the unit's head"** | Places are managed from above | Ask your department head (labs), the college's ADAA (a college store), or Property Administration (the Main Store) |
 | **"Labs, workshops, studios and stores are kept by Property Administration"** | The kinds of place are shared by everyone | Ask Property Administration for a change to what a place records |
 | **"Already taken …"** when booking | A confirmed booking, class or hold covers that time | Pick another time |
 | **"Only N pcs of … are left to load"** | You tried to load more than the import record says arrived | Enter the remaining quantity, or ask Property Administration to correct the record |

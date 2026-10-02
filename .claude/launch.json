@@ -12,6 +12,19 @@
       "autoPort": true
     },
     {
+      "name": "mail",
+      "runtimeExecutable": "C:/Users/pc/AppData/Local/Microsoft/WinGet/Packages/axllent.mailpit_Microsoft.Winget.Source_8wekyb3d8bbwe/mailpit.exe",
+      "runtimeArgs": [
+        "--smtp",
+        "127.0.0.1:2526",
+        "--listen",
+        "127.0.0.1:8026",
+        "--database",
+        "D:/py_yaddessa/lab_resource_v2/.mailpit/mailpit.db"
+      ],
+      "port": 8026
+    },
+    {
       "name": "dev-nomail",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

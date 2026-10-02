@@ -46,7 +46,7 @@ Click a lab to open it. Its page has the lab's details (block, room, seats, what
 
 ![A lab's page](img/custodian/03-lab-page.jpg)
 
-> **Good to know:** a lab's own details (its name, block, room, seats) and who runs it are kept by your head, the college's ADAA or Property Administration. Ask them if something there is wrong.
+> **Good to know:** a lab's own details (its name, block, room, seats) and who runs it are kept by your department head (a college store's by the college's ADAA; the Main Store's by Property Administration). Ask them if something there is wrong.
 
 ## 3. Resources
 

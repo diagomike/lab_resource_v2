@@ -198,6 +198,32 @@ describe("F-018 — a dean's invite and resend reach the whole subtree they can 
   });
 });
 
+describe("an office that reads the whole university still acts only for itself", () => {
+  it("Property Administration's occupant can't invite into, resend for, or manage a department's people", async () => {
+    const office = await makeNode("pa-office", 1);
+    await prisma.orgNode.update({ where: { id: office }, data: { kind: "OFFICE" } });
+    await prisma.orgClosure.create({ data: { ancestorId: office, descendantId: office, depth: 0 } });
+    const dept = await makeNode("pa-dept", 2);
+    const paId = await makeUser("pa", ["PROPERTY_ADMIN"]);
+    await prisma.orgNode.update({ where: { id: office }, data: { userId: paId } });
+    const invitee = await makeUser("pa-dept-invitee", ["CUSTODIAN"], "INVITED");
+    const staffer = await makeUser("pa-dept-staff", ["CUSTODIAN"]);
+    await prisma.user.updateMany({ where: { id: { in: [invitee, staffer] } }, data: { homeNodeId: dept } });
+    try {
+      await expect(people.create(paId, ["PROPERTY_ADMIN"], { name: "PA Out", email: `${testKey}-pa-out@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: dept })).rejects.toMatchObject({ status: 403 });
+      await expect(people.resendInvite(paId, ["PROPERTY_ADMIN"], invitee)).rejects.toMatchObject({ status: 403 });
+      await expect(people.setEmailNotifications(paId, ["PROPERTY_ADMIN"], staffer, false)).rejects.toMatchObject({ status: 403 });
+      // Into its own office is fine.
+      const own = await people.create(paId, ["PROPERTY_ADMIN"], { name: "PA Clerk", email: `${testKey}-pa-own@astu.edu.et`, roles: ["CUSTODIAN"] });
+      createdUserIds.push(own.id);
+      expect(own.homeNodeId).toBe(office);
+    } finally {
+      await prisma.orgNode.update({ where: { id: office }, data: { userId: null } });
+      await prisma.orgClosure.deleteMany({ where: { ancestorId: office } });
+    }
+  });
+});
+
 describe("email notifications — a per-person switch", () => {
   it("an admin switches anyone; a head only their own department's staff; others are refused", async () => {
     const org = await import("../org/org");

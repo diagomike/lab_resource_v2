@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContainerOptionDto, CreateImportInput, ImportRecordDto, PurchaseRequestDto, ResourceCategoryDto } from "@/lib/shared";
 import { PURCHASE_UNITS } from "@/lib/shared";
 import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
@@ -8,6 +8,7 @@ import { api, ApiError } from "@/lib/api";
 import { Panel, ErrorNote, Button, Tag } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { couldNotLoad } from "@/components/toast";
+import { FOCUS_ROW, useScrollToFocus } from "@/lib/use-focus-row";
 
 const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-11";
 const labelCls = "text-10.5 uppercase tracking-label text-faint";
@@ -27,7 +28,21 @@ const blankLine = (): DraftLine => ({ key: newKey(), name: "", categoryId: "", q
  * request at "Arrived at the main store" or standalone for an EGP purchase; the store
  * keeper loads the store from each record, line by line. Procurement follows along.
  */
-export function ImportsPanel({ categories, canRecord, canLoad }: { categories: ResourceCategoryDto[]; canRecord: boolean; canLoad: boolean }) {
+export function ImportsPanel({
+  categories,
+  canRecord,
+  canLoad,
+  focusImportId = null,
+  focusRequestId = null,
+}: {
+  categories: ResourceCategoryDto[];
+  canRecord: boolean;
+  canLoad: boolean;
+  /** The import record a link named — highlighted and scrolled to. */
+  focusImportId?: string | null;
+  /** An arrived purchase request a link named — chosen in "record what arrived". */
+  focusRequestId?: string | null;
+}) {
   const [records, setRecords] = useState<ImportRecordDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,10 +54,11 @@ export function ImportsPanel({ categories, canRecord, canLoad }: { categories: R
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load import records"));
   }
   useEffect(load, []);
+  useScrollToFocus(focusImportId ? `import-${focusImportId}` : null, !!records);
 
   return (
     <>
-      {canRecord && <RecordImport categories={categories} records={records ?? []} onCreated={load} />}
+      {canRecord && <RecordImport categories={categories} records={records ?? []} onCreated={load} focusRequestId={focusRequestId} />}
       {error && <ErrorNote>{error}</ErrorNote>}
       <Panel title="Import records" actions={<span className="text-11 text-faint">{canLoad ? "Load what arrived into the store" : "What arrived, and whether it is in the store yet"}</span>}>
         {records === null ? (
@@ -52,7 +68,10 @@ export function ImportsPanel({ categories, canRecord, canLoad }: { categories: R
         ) : (
           <div className="p-12 flex flex-col gap-10">
             {records.map((r) => (
-              <ImportCard key={r.id} record={r} canLoad={canLoad} canRecord={canRecord} onChanged={load} />
+              <div key={r.id} id={`import-${r.id}`} aria-current={r.id === focusImportId ? "true" : undefined} className={r.id === focusImportId ? `${FOCUS_ROW} rounded-3 p-4 flex flex-col gap-4` : undefined}>
+                {r.id === focusImportId && <div className="text-11 text-accent px-2">The one you followed</div>}
+                <ImportCard record={r} canLoad={canLoad} canRecord={canRecord} onChanged={load} />
+              </div>
             ))}
           </div>
         )}
@@ -63,7 +82,7 @@ export function ImportsPanel({ categories, canRecord, canLoad }: { categories: R
 
 // ── Recording what arrived (Property Administration) ─────────────────────────────
 
-function RecordImport({ categories, records, onCreated }: { categories: ResourceCategoryDto[]; records: ImportRecordDto[]; onCreated: () => void }) {
+function RecordImport({ categories, records, onCreated, focusRequestId }: { categories: ResourceCategoryDto[]; records: ImportRecordDto[]; onCreated: () => void; focusRequestId: string | null }) {
   const [source, setSource] = useState<"PURCHASE_REQUEST" | "EGP">("PURCHASE_REQUEST");
   const [arrived, setArrived] = useState<PurchaseRequestDto[] | null>(null);
   const [requestId, setRequestId] = useState("");
@@ -105,6 +124,17 @@ function RecordImport({ categories, records, onCreated }: { categories: Resource
     setLines(left.length ? left : [blankLine()]);
   }
 
+  // A notice ("PR-… has arrived") names the request: it starts chosen, with its lines.
+  const preselected = useRef(false);
+  const focused = !!focusRequestId && arrived?.some((r) => r.id === focusRequestId) === true;
+  useEffect(() => {
+    if (!focused || preselected.current) return;
+    preselected.current = true;
+    choose(focusRequestId!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused]);
+  useScrollToFocus(focused ? "record-import" : null, focused);
+
   const update = (key: string, patch: Partial<DraftLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
   const ready = lines.length > 0 && lines.every((l) => l.name.trim() && l.categoryId && Number(l.qty) > 0) && (source === "EGP" ? egpReference.trim() : requestId);
@@ -143,7 +173,8 @@ function RecordImport({ categories, records, onCreated }: { categories: Resource
   }
 
   return (
-    <Panel title="Record an import" actions={<span className="text-11 text-faint">What a purchase actually delivered — the store loads from this</span>}>
+    <div id="record-import" aria-current={focused ? "true" : undefined} className={focused && requestId === focusRequestId ? `${FOCUS_ROW} rounded-3 p-4` : undefined}>
+      <Panel title="Record an import" actions={<span className="text-11 text-faint">What a purchase actually delivered — the store loads from this</span>}>
       <div className="p-12 flex flex-col gap-10">
         <div className="flex items-center gap-4">
           {(["PURCHASE_REQUEST", "EGP"] as const).map((s) => (
@@ -249,7 +280,8 @@ function RecordImport({ categories, records, onCreated }: { categories: Resource
           </Button>
         </div>
       </div>
-    </Panel>
+      </Panel>
+    </div>
   );
 }
 

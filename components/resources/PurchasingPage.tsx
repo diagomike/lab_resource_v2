@@ -23,6 +23,7 @@ import { ImportsPanel } from "./ImportsPanel";
 import { AttachmentPicker, RequestDocuments, discardAttachments } from "./PurchaseAttachments";
 import { CategoryCombobox } from "./AddModal";
 import { couldNotLoad, toast } from "@/components/toast";
+import { FOCUS_ROW, useScrollToFocus } from "@/lib/use-focus-row";
 
 const inputCls = "h-28 px-8 rounded-2 border border-border2 bg-panel text-11.5 outline-none focus:border-accent";
 const labelCls = "text-11 uppercase tracking-label text-dim font-semibold";
@@ -290,8 +291,9 @@ function ReplacementsPanel({ rows, onAsk }: { rows: ReplacementSuggestionDto[]; 
   );
 }
 
-function MyNeeds({ needs, onChanged }: { needs: NeedLineDto[] | null; onChanged: () => void }) {
+function MyNeeds({ needs, onChanged, focusId }: { needs: NeedLineDto[] | null; onChanged: () => void; focusId: string | null }) {
   const [withdrawing, setWithdrawing] = useState<NeedLineDto | null>(null);
+  useScrollToFocus(focusId ? `need-${focusId}` : null, !!needs);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -322,7 +324,7 @@ function MyNeeds({ needs, onChanged }: { needs: NeedLineDto[] | null; onChanged:
           {needs.map((n) => {
             const status = needStatusText(n);
             return (
-              <li key={n.id} className="px-14 py-9 flex flex-wrap items-start gap-10">
+              <li key={n.id} id={`need-${n.id}`} aria-current={n.id === focusId ? "true" : undefined} className={`px-14 py-9 flex flex-wrap items-start gap-10 ${n.id === focusId ? FOCUS_ROW : ""}`}>
                 <div className="flex-1 min-w-[220px] flex flex-col gap-2">
                   <div className="text-11.5">
                     <span className="font-medium">{n.name}</span>
@@ -384,9 +386,12 @@ function LabNeedsReview({
   onRetry,
   onDeclined,
   onBuild,
+  focusId,
 }: {
   needs: NeedLineDto[] | null;
   error: string | null;
+  /** The need a link named — highlighted and scrolled to. */
+  focusId: string | null;
   onRetry: () => void;
   onDeclined: () => void;
   /** Starts a purchase request from the chosen needs. */
@@ -394,6 +399,7 @@ function LabNeedsReview({
 }) {
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [declining, setDeclining] = useState<NeedLineDto | null>(null);
+  useScrollToFocus(focusId ? `need-${focusId}` : null, !!needs);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [declineError, setDeclineError] = useState<string | null>(null);
@@ -464,7 +470,7 @@ function LabNeedsReview({
               <h3 className="px-14 pt-10 pb-4 text-11 font-semibold">{lab}</h3>
               <ul>
                 {rows.map((n) => (
-                  <li key={n.id} className="px-14 py-8 flex flex-wrap items-start gap-10 hover:bg-panel2">
+                  <li key={n.id} id={`need-${n.id}`} aria-current={n.id === focusId ? "true" : undefined} className={`px-14 py-8 flex flex-wrap items-start gap-10 ${n.id === focusId ? FOCUS_ROW : "hover:bg-panel2"}`}>
                     <input type="checkbox" checked={chosen.has(n.id)} onChange={() => toggle(n.id)} aria-label={`Choose ${n.name} for ${lab}`} className="mt-3" />
                     <div className="flex-1 min-w-[220px] flex flex-col gap-2">
                       <div className="text-11.5">
@@ -1263,6 +1269,10 @@ function PurchasingInner() {
   // the store and Property Administration on arrivals, everyone else on requests.
   const fallback: Section = seesNeeds ? "needs" : (canLoadStore || canRecordImports) && !canRunPipeline ? "arrivals" : "requests";
   const requested = params.get("tab") as Section | null;
+  // A notice names one line: `?need=` (Lab needs), `?import=` / `?request=` (Arrivals).
+  const focusNeed = params.get("need");
+  const focusImport = params.get("import");
+  const focusRequest = params.get("request");
   const section: Section = requested && sections.includes(requested) ? requested : sections.includes(fallback) ? fallback : "requests";
   const go = useCallback(
     (s: Section) => {
@@ -1335,6 +1345,7 @@ function PurchasingInner() {
                 setPrefill(chosen);
                 go("requests");
               }}
+              focusId={focusNeed}
             />
           )}
           {isCustodian && (
@@ -1347,7 +1358,7 @@ function PurchasingInner() {
                   document.getElementById("ask-for-something")?.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}
               />
-              <MyNeeds needs={myNeeds} onChanged={loadCustodian} />
+              <MyNeeds needs={myNeeds} onChanged={loadCustodian} focusId={focusNeed} />
             </>
           )}
         </>
@@ -1395,7 +1406,7 @@ function PurchasingInner() {
         </>
       )}
 
-      {section === "arrivals" && <ImportsPanel key={`imports-${refreshKey}`} categories={categories} canRecord={canRecordImports} canLoad={canLoadStore} />}
+      {section === "arrivals" && <ImportsPanel key={`imports-${refreshKey}`} categories={categories} canRecord={canRecordImports} canLoad={canLoadStore} focusImportId={focusImport} focusRequestId={focusRequest} />}
     </Screen>
   );
 }

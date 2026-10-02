@@ -61,7 +61,7 @@ Your department's labs are yours to manage. Open **Labs & stores**: every lab an
 
 ## 4. The labs' needs
 
-Your custodians ask for what their labs need (**Ask for something**). Needs aren't purchases: they wait for you. Open **Purchasing → Lab needs**. **The labs' needs** lists them **by lab**, essential needs first, each with who asked, how many, how much it matters, the specification and why.
+Your custodians ask for what their labs need (**Ask for something**). Needs aren't purchases: they wait for you. Open **Purchasing → Lab needs**. **The labs' needs** lists them **by lab**, essential needs first, each with who asked, how many, how much it matters, the specification and why. When you open a need from its notice (email or bell), that need is marked and scrolled into view.
 
 ![The labs' needs](img/head/05-needs.jpg)
 

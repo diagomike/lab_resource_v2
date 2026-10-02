@@ -147,7 +147,8 @@ by 3 hours).
 `docs/decisions/2026-10-01-ux-flow-plan.md`):** five jobs (know what we have, share it, buy
 what's missing, book it, outside access). Everyone lands on **Home** (next step, waiting for
 you, unfinished, your requests, due soon, the bell). Places (labs, workshops, studios, stores)
-are added from above — the head, the college's **ADAA**, Property Admin for the Main Store —
+are added from above — the department's head (its labs and stores), the college's **ADAA** (the
+college's own stores only, choosing their store keepers), Property Admin for the Main Store —
 and custodians are assigned to them; a custodian's edits always go into the lab's changes for
 the head. Categories belong to the department that made them (changes to data wait for the
 head). Every notice links to its exact item. Roles: SYS_ADMIN, PROPERTY_ADMIN, PROCUREMENT,
@@ -155,8 +156,11 @@ MANAGER (head/dean/AVP/CMD by the post held), ADAA, CUSTODIAN, STORE_KEEPER, EXT
 **Dev seed (reseeded 2026-10-02):** ASTU → five colleges (CoEEC, CoMCME, CoCEA, CoANS,
 CoHSS) with an `adaa.<college>@astu.edu.et` each, their departments, the CMD/PROC/PROP/ICT
 offices; the 125-category ASTU catalogue; CSE's 31 labs with block/room/seats; ChemE's
-machines with 36 photos and chemicals; the Main Store. Password `astu1234`. The paragraphs
-below are older history.
+machines with 36 photos and chemicals; the Main Store. Password `astu1234`.
+**Mail in development goes to Mailpit** (`npm run mail:catch`, inbox http://127.0.0.1:8026;
+`.env.development.local`, copied from `.env.development.local.example`), never to a real inbox; the
+e2e harness uses its own sink on :2527. **Manual walkthrough:** `docs/manual-walkthrough.md`.
+The paragraphs below are older history.
 
 One `npm run dev` at the repo root (Next.js, Turbopack) — there is no
 second process any more; the old NestJS API and Vite dev server are gone.
@@ -5078,3 +5082,49 @@ its model that make porting it as-is the wrong move.
       pass the validator got before they run again.
     - Mailpit for `npm run dev` (`.env.development.local`) is not set up; use the `dev-nomail` launch config.
     - Nothing is merged: `master` and production (Neon/Vercel) are untouched; `feat/ux-flow` holds P0–P6.
+
+- **2026-10-02 (UX-flow follow-ups: the open items, fixed as asked)**
+  - **1. Highlight:** a need's notice opens `/purchasing?tab=needs&need=<id>`; "has arrived" opens Arrivals
+    with that request already chosen in **Record an import** (`?request=`); "ready to load" opens Arrivals
+    with that import record marked (`?import=`). The named row gets the accent edge and is scrolled into
+    view (`lib/use-focus-row.ts`, the same marking as Approvals). New `paths.need/arrived/importRecord`.
+  - **2. The ADAA manages the college's stores only**, and names their store keepers. `CapabilitiesDto`
+    gains `managesStoresIn` (the ADAA's college); `managesPlacesIn` no longer includes the ADAA (deans
+    keep theirs). `places.ts`: `mayManage(caps, unit, isStore)`; options mark a unit `storesOnly` (the form
+    offers only Store, "Its store keeper", "+ Add a store"); a store's keeper may be **anyone who works in
+    the unit** — someone without a custodian role is marked "becomes a custodian" and is given CUSTODIAN
+    on assignment (so the ADAA needs no People & roles); the notice reads "You now keep …". Guide: ADAA
+    chapter §2 "The college's stores" + 6 other places; ADAA screenshots retaken.
+  - **3. Tests.** The 2026-09-15 campaign (`e2e/suites/*`, 181 cases) rebuilt for this round: a new
+    fixture on the current seed (SE custodians + "SE Lab X — Software Lab 3", Materials under two
+    colleges, a CoMCME dean, the seeded loan), the cast mapped to the seeded accounts (STUDENT/STAFF gone,
+    ADAA/CMD added), and every case restated where the product changed on purpose (labs from above,
+    staged lab changes, needs on labs, the CMD step, import records instead of receiving, the
+    account-based portal, category governance, levels that follow parents). `node e2e/run-campaign.mjs`
+    runs it all: **178/181**, the 3 ✘ being the long-standing design-decided O-11, S-14, S-18. The
+    approval-lines validator: **96/96**; its mail tour now allows no list-only links at all (56 links).
+    e2e sink moved to :2527 (the sister app's Mailpit holds 2525).
+  - **Two product bugs the campaign found, fixed with tests:**
+    - *A lab's changes were voided (and would have undone others' work) by any correction elsewhere in the
+      lab*: the copy was diffed against the live register two-way. `VersionItem.touched` (migration
+      `20261002050746_version_item_touched`, existing rows marked touched) + pure
+      `domain/version-ops.ts rebaseUntouched`: rows the custodian never touched follow the register;
+      a real conflict on a touched row is still refused as stale; an addition's parent only has to
+      exist (the head renaming the lab no longer voids additions in it). Specs: version-ops 2,
+      lab-versions 1.
+    - *An office that reads the whole university could add/manage people in any department* (the
+      Property Admin occupying PROP invited into SE): people writes (invite, resend, manage) now reach
+      `scope.postSubtreeIds` — the units under the posts held — not `visibleNodeIds`. Spec in people.spec.
+  - **4. Mailpit:** `.env.development.local` (git-ignored; `.env.development.local.example` committed)
+    points `next dev` SMTP at 127.0.0.1:2526 (1025 is held by another program here), plus the fake
+    payment verifier and test bank details, so `npm run dev` is complete for the portal too.
+    `npm run mail:catch` / the **mail** launch config start Mailpit (inbox :8026). Checked: a need raised
+    on the dev server landed in Mailpit, and its link opened the head's Lab needs with that need marked.
+  - **Manual walkthrough:** `docs/manual-walkthrough.md` — setup (Mailpit, accounts, letting the CSE
+    custodians' emails through, an optional clean start), 14 acts across every role and feature with
+    what to expect and a checklist; `docs/walkthrough/` marked superseded.
+  - **Checks:** `tsc` clean, 599/599 unit tests, `help:build` (13 chapters, 88 sections) and `next build`
+    clean; campaign 178/181 (3 known); validator 96/96.
+  - **Still open:** deans still manage their college's labs and stores (`managesPlacesIn` from `deanOf`) —
+    the plan never asked for it; say if the dean should lose it too. The CSE custodians' email
+    notifications stay off in the seed (their real addresses); the walkthrough says how to switch them on.

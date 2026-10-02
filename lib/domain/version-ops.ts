@@ -444,3 +444,33 @@ export function idealStats(ideal: VItem[], live: LiveItem[], labItemId: string):
   }
   return [...rows.values()];
 }
+
+/**
+ * A lab's changes are a copy of the lab. When the register moves on under the copy (an
+ * admin's correction, a move, the head renaming the lab), the rows the custodian never
+ * touched are brought up to date from the register — so the copy carries only the
+ * custodian's own changes, never a silent undo of someone else's. Rows the custodian did
+ * touch are left alone: if the register changed those too, approving them is refused as
+ * stale (a real conflict). `base` maps each copied item to the version it was copied at;
+ * the result's `base` has the refreshed rows' new versions.
+ */
+export function rebaseUntouched(
+  rows: Array<VItem & { touched: boolean }>,
+  live: Array<LiveItem & { version: number }>,
+  base: Record<string, number>,
+): { rows: VItem[]; base: Record<string, number>; refreshed: string[] } {
+  const liveById = new Map(live.map((l) => [l.id, l]));
+  const rowOfSource = new Map(rows.filter((r) => r.sourceItemId).map((r) => [r.sourceItemId!, r.id]));
+  const nextBase = { ...base };
+  const refreshed: string[] = [];
+  const out = rows.map(({ touched, ...row }) => {
+    const l = row.sourceItemId ? liveById.get(row.sourceItemId) : undefined;
+    if (touched || !l || base[l.id] === undefined || base[l.id] === l.version) return row;
+    refreshed.push(row.id);
+    nextBase[l.id] = l.version;
+    // Its place in the copy follows the register too, when the new parent is in the copy.
+    const parentRow = l.parentId ? rowOfSource.get(l.parentId) : undefined;
+    return { ...row, name: l.name, qty: l.qty, status: l.status, props: l.props, customProps: l.customProps, parentId: parentRow ?? row.parentId };
+  });
+  return { rows: out, base: nextBase, refreshed };
+}

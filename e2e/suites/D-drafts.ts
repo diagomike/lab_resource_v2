@@ -1,12 +1,13 @@
-/** Suite D — lab Drafts and Ideals as whole trees (2026-09-22 rework; Materials Science, a
- *  clean department). Same check ids as before, restated for the new model: register edits
- *  are STAGED into the lab's Draft when the department uses drafts; a head only decides. */
-import { get, post, check, ev, db, done, uniq, nodeId, S } from "../lib";
+/** Suite D — a lab's changes (2026-10-02, the UX-flow round; Materials Science and Engineering,
+ *  a clean department). Drafts are always on: a custodian's register edits are STAGED into the
+ *  lab's changes and the head decides; ideals are gone (needs replace them); the head adds
+ *  the lab and assigns its custodian. Same check ids where the intent survives. */
+import { get, post, api, check, ev, db, done, uniq, nodeId, S } from "../lib";
 
 const D = "D";
 const change = (a: string, b: unknown) => post(a, "/resources/items/changes", b);
-const op = (a: string, lab: string, kind: "draft" | "ideal", b: unknown) => post(a, `/resources/labs/${lab}/versions/${kind}/ops`, b);
-const act = (a: string, lab: string, kind: "draft" | "ideal", action: string) => post(a, `/resources/labs/${lab}/versions/${kind}/${action}`);
+const op = (a: string, lab: string, b: unknown) => post(a, `/resources/labs/${lab}/versions/draft/ops`, b);
+const act = (a: string, lab: string, action: string) => post(a, `/resources/labs/${lab}/versions/draft/${action}`);
 const decide = (a: string, id: string, decision: "APPROVE" | "REJECT", note?: string) => post(a, `/resources/lab-commits/${id}/decide`, { decision, note });
 
 async function catId(key: string) {
@@ -14,24 +15,24 @@ async function catId(key: string) {
 }
 
 async function main() {
-  const mat = await nodeId("Materials Science");
+  const mat = await nodeId("Materials Science and Engineering");
   const se = await nodeId("Software Engineering");
   const [labCat, computer, chair, whiteboard] = await Promise.all([catId("lab"), catId("computer"), catId("chair"), catId("whiteboard")]);
 
-  // Setup (direct, before draft mode): a Materials lab with 2 chairs and a whiteboard.
-  const labRes = await change("custMat", { kind: "createItem", parentId: null, categoryId: labCat, count: 1, ownerOrgNodeId: mat, custodianId: S.custMat.id, name: uniq("E2E Materials Lab") });
-  const lab = labRes.body.itemIds[0];
-  const chairs = (await change("custMat", { kind: "createItem", parentId: lab, categoryId: chair, count: 2 })).body.itemIds as string[];
-  const wb = (await change("custMat", { kind: "createItem", parentId: lab, categoryId: whiteboard, count: 1 })).body.itemIds[0] as string;
+  // Setup: the head adds a Materials lab for the custodian; the admin (whose edits apply at
+  // once) puts 2 chairs and a whiteboard in it.
+  const labRes = await post("headMat", "/places", { categoryId: labCat, name: uniq("E2E Materials Lab"), ownerOrgNodeId: mat, custodianId: S.custMat.id, props: { block: "601", room: "2" } });
+  const lab = labRes.body.id as string;
+  const chairs = (await change("admin", { kind: "createItem", parentId: lab, categoryId: chair, count: 2 })).body.itemIds as string[];
+  const wb = (await change("admin", { kind: "createItem", parentId: lab, categoryId: whiteboard, count: 1 })).body.itemIds[0] as string;
 
-  await check(D, "D-01", "H18 — an ideal can be proposed for a department that is not in draft mode", async () => {
-    const r = await act("custMat", lab, "ideal", "start");
-    return { ok: r.status === 200, evidence: ev(r), hypothesis: "H18" };
+  await check(D, "D-01", "drafts are always on: there is no switch, and ideals are gone", async () => {
+    const toggle = await post("admin", `/org/nodes/${mat}/draft-workflow`, { enabled: false });
+    const ideal = await post("custMat", `/resources/labs/${lab}/versions/ideal/start`);
+    return { ok: toggle.status === 404 && ideal.status >= 400 && ideal.status < 500, evidence: { draftSwitch: toggle.status, idealStart: ideal.status } };
   });
 
-  await check(D, "D-02", "enable draft mode (admin only); custodian's direct write is STAGED; head cannot write; SYS_ADMIN still writes", async () => {
-    const byHead = await post("headMat", `/org/nodes/${mat}/draft-workflow`, { enabled: true });
-    const on = await post("admin", `/org/nodes/${mat}/draft-workflow`, { enabled: true });
+  await check(D, "D-02", "custodian's direct write is STAGED; head cannot write; SYS_ADMIN still writes", async () => {
     const cust = await change("custMat", { kind: "setName", itemIds: [wb], value: "WB staged" });
     const head = await change("headMat", { kind: "setName", itemIds: [wb], value: "WB head direct" });
     // The admin edits a DIFFERENT item — editing the staged whiteboard would (rightly)
@@ -39,27 +40,27 @@ async function main() {
     const admin = await change("admin", { kind: "setName", itemIds: [chairs[1]], value: "Chair 02b" });
     const live = await db.item.findUniqueOrThrow({ where: { id: wb } });
     const adminRow = await db.item.findUniqueOrThrow({ where: { id: chairs[1] } });
-    const ok = byHead.status === 403 && on.status === 200 && cust.status === 200 && Boolean(cust.body?.staged) && head.status >= 403 && admin.status === 200 && live.name !== "WB staged" && adminRow.name === "Chair 02b";
-    return { ok, evidence: { headToggles: byHead.status, adminToggles: on.status, custodianDirect: [cust.status, cust.body?.staged ? "staged" : "applied"], headDirect: head.status, adminDirect: admin.status, liveWhiteboard: live.name, adminRenamed: adminRow.name } };
+    const ok = cust.status === 200 && Boolean(cust.body?.staged) && head.status >= 403 && admin.status === 200 && live.name !== "WB staged" && adminRow.name === "Chair 02b";
+    return { ok, evidence: { custodianDirect: [cust.status, cust.body?.staged ? "staged" : "applied"], headDirect: head.status, adminDirect: admin.status, liveWhiteboard: live.name, adminRenamed: adminRow.name } };
   });
 
-  await check(D, "D-03", "custody/ownership never staged; a change outside the lab refused; an outsider cannot edit the lab's draft", async () => {
+  await check(D, "D-03", "custody/ownership never staged; a change outside the lab refused; an outsider cannot edit the lab's changes", async () => {
     const outside = await db.item.findFirst({ where: { parentId: null, ownerOrgNodeId: se, deletedAt: null } });
     const r = {
       setOwnerOrg: (await change("custMat", { kind: "setOwnerOrg", itemIds: [wb], value: se })).status,
       setCustodian: (await change("custMat", { kind: "setCustodian", itemIds: [wb], value: S.headMat.id })).status,
-      outsideLab: outside ? (await op("custMat", lab, "draft", { kind: "setName", itemIds: [outside.id], value: "x" })).status : 400,
-      outsiderEdits: (await op("custChem", lab, "draft", { kind: "setName", itemIds: [wb], value: "x" })).status,
-      outsiderIdeal: (await act("custChem", lab, "ideal", "start")).status,
+      outsideLab: outside ? (await op("custMat", lab, { kind: "setName", itemIds: [outside.id], value: "x" })).status : 400,
+      outsiderEdits: (await op("custChem", lab, { kind: "setName", itemIds: [wb], value: "x" })).status,
+      outsiderStarts: (await act("custChem", lab, "start")).status,
     };
-    return { ok: r.setOwnerOrg === 403 && r.setCustodian === 403 && r.outsideLab === 400 && r.outsiderEdits === 403 && r.outsiderIdeal === 403, evidence: r };
+    return { ok: r.setOwnerOrg === 403 && r.setCustodian === 403 && r.outsideLab === 400 && r.outsiderEdits === 403 && r.outsiderStarts === 403, evidence: r };
   });
 
   let commitId = "";
-  await check(D, "D-04", "stage create/status/remove, submit, head rejects → draft back to editing with the reason, nothing applied", async () => {
+  await check(D, "D-04", "stage create/status/remove, submit, head rejects → changes back to editing with the reason, nothing applied", async () => {
     const s1 = await change("custMat", { kind: "createItem", parentId: lab, categoryId: computer, count: 2 });
     const s2 = await change("custMat", { kind: "setStatus", itemIds: [chairs[0]], value: "BROKEN" });
-    const sub = await act("custMat", lab, "draft", "submit");
+    const sub = await act("custMat", lab, "submit");
     commitId = sub.body?.id;
     const inbox = await get("headMat", "/resources/lab-commits?box=inbox");
     const inInbox = (inbox.body ?? []).some((c: any) => c.id === commitId);
@@ -72,7 +73,7 @@ async function main() {
   });
 
   await check(D, "D-05", "resubmit and approve → merged into the register, attributed to the custodian, not the head", async () => {
-    const sub = await act("custMat", lab, "draft", "submit");
+    const sub = await act("custMat", lab, "submit");
     const ok = await decide("headMat", sub.body.id, "APPROVE");
     const computers = await db.item.count({ where: { parentId: lab, categoryId: computer, deletedAt: null } });
     const wbRow = await db.item.findUniqueOrThrow({ where: { id: wb } });
@@ -84,10 +85,10 @@ async function main() {
     };
   });
 
-  await check(D, "D-06", "H17 — two edits of the same item in one draft: approval applies both, all-or-nothing", async () => {
+  await check(D, "D-06", "H17 — two edits of the same item in one batch of changes: approval applies both, all-or-nothing", async () => {
     await change("custMat", { kind: "setName", itemIds: [chairs[1]], value: "Chair renamed" });
     await change("custMat", { kind: "setStatus", itemIds: [chairs[1]], value: "BROKEN" });
-    const sub = await act("custMat", lab, "draft", "submit");
+    const sub = await act("custMat", lab, "submit");
     const res = await decide("headMat", sub.body.id, "APPROVE");
     const after = await db.item.findUniqueOrThrow({ where: { id: chairs[1] } });
     const both = after.name === "Chair renamed" && after.status === "BROKEN";
@@ -96,28 +97,26 @@ async function main() {
 
   await check(D, "D-07", "a staged rename approved after an admin changed the item is refused as STALE — never a lost update", async () => {
     await change("custMat", { kind: "setName", itemIds: [wb], value: "WB from stale draft" });
-    const sub = await act("custMat", lab, "draft", "submit");
+    const sub = await act("custMat", lab, "submit");
     await change("admin", { kind: "setName", itemIds: [wb], value: "WB corrected by admin" });
     const res = await decide("headMat", sub.body.id, "APPROVE");
     const row = await db.item.findUniqueOrThrow({ where: { id: wb } });
-    await act("custMat", lab, "draft", "discard");
+    await act("custMat", lab, "discard");
     return { ok: res.body?.status === "STALE" && row.name === "WB corrected by admin", evidence: { commitStatus: res.body?.status, resolution: res.body?.resolution, finalName: row.name } };
   });
 
-  await check(D, "D-08", "ideal: add to the proposal, submit, approve; ideal-vs-actual and department purchasables agree", async () => {
-    await op("custMat", lab, "ideal", { kind: "createItem", parentId: lab, categoryId: chair, count: 4 });
-    await op("custMat", lab, "ideal", { kind: "createItem", parentId: lab, categoryId: computer, count: 2 });
-    const sub = await act("custMat", lab, "ideal", "submit");
-    const ok = await decide("headMat", sub.body.id, "APPROVE");
-    const iva = await get("custMat", `/resources/labs/${lab}/ideal-vs-actual`);
-    const pur = await get("headMat", `/resources/departments/${mat}/purchasables`);
-    const chairRow = (iva.body ?? []).find((r: any) => r.categoryId === chair);
-    return { ok: ok.body?.status === "APPLIED" && chairRow?.idealQty === 6 && chairRow?.actualCount === 2 && pur.status === 200, evidence: { commit: ok.body?.status, chairIdealActual: chairRow ? [chairRow.idealQty, chairRow.actualCount] : null, purchasables: ev(pur) } };
+  await check(D, "D-08", "needs replace ideals: the broken chairs are a replacement suggestion, and asking raises a REPLACEMENT need on the lab", async () => {
+    const sugg = await get("custMat", "/resources/needs/replacements");
+    const mine = (sugg.body ?? []).find((s: any) => s.labItemId === lab && s.categoryId === chair);
+    const need = await post("custMat", "/resources/needs", { labItemId: lab, name: "Lab chair", qty: 2, unit: "pcs", categoryId: chair, priority: "IMPORTANT", kind: "REPLACEMENT", replacesItemIds: mine?.items.map((i: any) => i.id) ?? [], reason: "Two chairs broke" });
+    const forHead = await get("headMat", `/resources/needs?node=${mat}`);
+    const listed = (forHead.body ?? []).find((n: any) => n.id === need.body?.id);
+    return { ok: !!mine && mine.items.length === 2 && need.status === 200 && listed?.kind === "REPLACEMENT" && listed?.labItemId === lab, evidence: { suggestion: mine?.items.length, need: ev(need), headSees: listed ? [listed.kind, listed.labName] : null } };
   });
 
   await check(D, "D-09", "vacant headship blocks decisions for everyone (incl. admin); appointing a head unblocks", async () => {
-    await op("custMat", lab, "ideal", { kind: "createItem", parentId: lab, categoryId: whiteboard, count: 1 });
-    const sub = await act("custMat", lab, "ideal", "submit");
+    await change("custMat", { kind: "setName", itemIds: [chairs[0]], value: "Chair while vacant" });
+    const sub = await act("custMat", lab, "submit");
     await post("admin", `/people/${S.headMat.id}/assign-node`, { nodeId: null });
     const adminTry = await decide("admin", sub.body.id, "APPROVE");
     const exHead = await decide("headMat", sub.body.id, "APPROVE");
@@ -126,25 +125,23 @@ async function main() {
     return { ok: adminTry.status === 403 && exHead.status === 403 && back.status === 200, evidence: { adminWhileVacant: adminTry.status, formerHeadWhileVacant: exHead.status, afterReappointment: back.status } };
   });
 
-  await check(D, "D-10", "the custodian cannot approve their own commit; withdraw works only while submitted; a stranger cannot withdraw", async () => {
+  await check(D, "D-10", "the custodian cannot approve their own changes; withdraw works only while sent; a stranger cannot withdraw", async () => {
     await change("custMat", { kind: "setName", itemIds: [chairs[0]], value: "self-approve" });
-    const sub = await act("custMat", lab, "draft", "submit");
+    const sub = await act("custMat", lab, "submit");
     const self = await decide("custMat", sub.body.id, "APPROVE");
-    const stranger = await act("custChem", lab, "draft", "withdraw");
-    const withdraw = await act("custMat", lab, "draft", "withdraw");
-    const again = await act("custMat", lab, "draft", "withdraw");
+    const stranger = await act("custChem", lab, "withdraw");
+    const withdraw = await act("custMat", lab, "withdraw");
+    const again = await act("custMat", lab, "withdraw");
     const req = await db.labCommitRequest.findUniqueOrThrow({ where: { id: sub.body.id } });
-    await act("custMat", lab, "draft", "discard");
+    await act("custMat", lab, "discard");
     return { ok: self.status === 403 && stranger.status === 403 && withdraw.status === 200 && again.status === 409 && req.status === "CANCELLED", evidence: { selfApprove: self.status, strangerWithdraws: stranger.status, withdraw: withdraw.status, withdrawAgain: again.status, requestAfter: req.status } };
   });
 
-  await check(D, "D-11", "turning draft mode OFF while a commit is pending: the pending commit can still be decided", async () => {
-    const s = await change("custMat", { kind: "setStatus", itemIds: [chairs[0]], value: "WORKING" });
-    const sub = await act("custMat", lab, "draft", "submit");
-    const off = await post("admin", `/org/nodes/${mat}/draft-workflow`, { enabled: false });
-    const res = await decide("headMat", sub.body.id, "APPROVE");
-    const states = await get("custMat", `/resources/labs/${lab}/states`);
-    return { ok: res.body?.status === "APPLIED", evidence: { staged: Boolean(s.body?.staged), toggleOff: off.status, approveAfterOff: res.body?.status ?? res.status, statesAfterOff: states.status } };
+  await check(D, "D-11", "the lab itself is not the custodian's: renaming it is refused; its head renames it on Labs & stores", async () => {
+    const byCustodian = await change("custMat", { kind: "setName", itemIds: [lab], value: "Renamed by custodian" });
+    const viaPlaces = await api("custMat", "PATCH", `/places/${lab}`, { name: "Renamed by custodian" });
+    const byHead = await api("headMat", "PATCH", `/places/${lab}`, { name: uniq("E2E Materials Lab (renamed)") });
+    return { ok: byCustodian.status === 403 && viaPlaces.status === 403 && byHead.status === 200, evidence: { custodianThroughRegister: byCustodian.status, custodianThroughPlaces: viaPlaces.status, head: byHead.status } };
   });
 
   await done();

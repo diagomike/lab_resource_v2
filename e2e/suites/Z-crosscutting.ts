@@ -12,7 +12,7 @@ async function main() {
     const email = `${uniq("z-leaver")}@e2e.test`;
     const p = await post("admin", "/people", { name: "Z Leaver", email, roles: ["CUSTODIAN"], homeNodeId: se });
     await db.user.update({ where: { id: p.body.id }, data: { status: "ACTIVE" } });
-    const lab = (await post("admin", "/resources/items/changes", { kind: "createItem", parentId: null, categoryId: (await db.resourceCategory.findUniqueOrThrow({ where: { key: "lab" } })).id, count: 1, ownerOrgNodeId: se, custodianId: p.body.id, name: uniq("Z Lab") })).body.itemIds[0];
+    const lab = (await post("admin", "/resources/items/changes", { kind: "createItem", parentId: null, categoryId: (await db.resourceCategory.findUniqueOrThrow({ where: { key: "lab" } })).id, count: 1, ownerOrgNodeId: se, custodianId: p.body.id, name: uniq("Z Lab"), props: { block: "509", room: "Z" } })).body.itemIds[0];
     const blocked = await post("admin", `/people/${p.body.id}/deactivate`);
     await post("admin", "/resources/items/changes", { kind: "setCustodian", itemIds: [lab], value: S.custSe.id });
     const ok = await post("admin", `/people/${p.body.id}/deactivate`);
@@ -52,18 +52,18 @@ async function main() {
 
   await check(Z, "Z-04", "SQL/JSON-ish input in a name is stored literally, not executed", async () => {
     const evil = `'); DROP TABLE "Item";--`;
-    const r = await post("custSe", "/resources/items/changes", { kind: "setName", itemIds: [girmaLab.id], value: evil });
+    const r = await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: evil });
     const row = await db.item.findUniqueOrThrow({ where: { id: girmaLab.id } });
     const tableStillThere = await db.item.count();
-    await post("custSe", "/resources/items/changes", { kind: "setName", itemIds: [girmaLab.id], value: "SE Lab X — Software Lab 3" });
+    await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: "SE Lab X — Software Lab 3" });
     return { ok: r.status === 200 && row.name === evil && tableStillThere > 0, evidence: { stored: row.name === evil, itemsTableRowCount: tableStillThere } };
   });
 
   await check(Z, "Z-05", "unicode / emoji / RTL text in names round-trips", async () => {
     const name = "実験室 🔬 مختبر ‮EVIL‬";
-    const r = await post("custSe", "/resources/items/changes", { kind: "setName", itemIds: [girmaLab.id], value: name });
+    const r = await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name });
     const row = await db.item.findUniqueOrThrow({ where: { id: girmaLab.id } });
-    await post("custSe", "/resources/items/changes", { kind: "setName", itemIds: [girmaLab.id], value: "SE Lab X — Software Lab 3" });
+    await api("headSe", "PATCH", `/places/${girmaLab.id}`, { name: "SE Lab X — Software Lab 3" });
     return { ok: r.status === 200 && row.name === name, evidence: { roundTripped: row.name === name } };
   });
 

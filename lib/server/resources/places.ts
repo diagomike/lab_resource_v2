@@ -12,10 +12,15 @@ import { applyChange } from "./mutate";
  * Places — labs, workshops, studios and stores: static, managed from above.
  *
  * Who manages a unit's places (capabilities.ts `managesPlacesIn`): its head; for a
- * college and its departments, the dean and the ADAA; for the university (the Main
- * Store), Property Administration; the admin everywhere. They create the place, keep
- * its details (block, room, seats…) and assign its custodian — a custodian never
- * creates a lab; they are assigned to one and run what is inside it.
+ * college and its departments, the dean; for the university (the Main Store), Property
+ * Administration; the admin everywhere. The college's ADAA manages the college's own
+ * STORES only (`managesStoresIn`) and chooses each one's store keeper. They create the
+ * place, keep its details (block, room, seats…) and assign its custodian — a custodian
+ * never creates a lab; they are assigned to one and run what is inside it.
+ *
+ * A store's keeper may be anyone who works in the unit: choosing someone who holds no
+ * custodian role yet gives them the CUSTODIAN role (what lets a person hold custody), so
+ * the ADAA can name the college store's keeper without People & roles.
  *
  * Every write still goes through mutate.ts's one write door (`asPlaceManager`), so the
  * register's history, placement rules and field validation apply unchanged.
@@ -35,11 +40,22 @@ const PLACE_SELECT = {
   labVersions: { where: { kind: "DRAFT" as const }, select: { status: true } },
 } as const;
 
-async function assertCanManagePlace(actorId: string, ownerOrgNodeId: string): Promise<void> {
+type Caps = Awaited<ReturnType<typeof capabilitiesOf>>;
+
+function mayManage(caps: Caps, ownerOrgNodeId: string, isStore: boolean): boolean {
+  return caps.managesPlacesIn.includes(ownerOrgNodeId) || (isStore && caps.managesStoresIn.includes(ownerOrgNodeId));
+}
+
+async function assertCanManagePlace(actorId: string, ownerOrgNodeId: string, isStore: boolean): Promise<void> {
   const caps = await capabilitiesOf(actorId);
-  if (!caps.managesPlacesIn.includes(ownerOrgNodeId)) {
-    throw new HttpError(403, "Labs and stores are managed by the unit's head, its college's ADAA, or Property Administration for the Main Store.");
-  }
+  if (mayManage(caps, ownerOrgNodeId, isStore)) return;
+  if (!isStore && caps.managesStoresIn.includes(ownerOrgNodeId)) throw new HttpError(403, "The ADAA adds the college's stores; labs are added by each department's head.");
+  throw new HttpError(403, "Labs and stores are managed by the unit's head, the college's ADAA (its stores), or Property Administration for the Main Store.");
+}
+
+async function isStoreKind(categoryId: string): Promise<boolean> {
+  const kind = await prisma.resourceCategory.findUnique({ where: { id: categoryId }, select: { key: true } });
+  return kind?.key === "store";
 }
 
 /** Everything inside each place (any depth), and how much of it needs attention. */
@@ -63,7 +79,7 @@ function loadPlaces(where: Prisma.ItemWhereInput) {
   return prisma.item.findMany({ where: { ...where, parentId: null, deletedAt: null, category: { isPlace: true } }, select: PLACE_SELECT, orderBy: { name: "asc" } });
 }
 
-function toDto(row: PlaceRow, counts: Map<string, { items: number; attention: number }>, actorId: string, managed: Set<string>): PlaceDto {
+function toDto(row: PlaceRow, counts: Map<string, { items: number; attention: number }>, actorId: string, caps: Caps): PlaceDto {
   const c = counts.get(row.id) ?? { items: 0, attention: 0 };
   return {
     id: row.id,
@@ -81,7 +97,7 @@ function toDto(row: PlaceRow, counts: Map<string, { items: number; attention: nu
     itemCount: c.items,
     needsAttention: c.attention,
     draftStatus: row.labVersions[0]?.status ?? null,
-    canManage: managed.has(row.ownerOrgNodeId),
+    canManage: mayManage(caps, row.ownerOrgNodeId, row.category.key === "store"),
     isMine: row.custodianId === actorId,
     version: row.version,
   };
@@ -90,12 +106,17 @@ function toDto(row: PlaceRow, counts: Map<string, { items: number; attention: nu
 /** The places this person manages, and the ones they run. */
 export async function listPlaces(actorId: string): Promise<PlaceDto[]> {
   const caps = await capabilitiesOf(actorId);
-  const managed = new Set(caps.managesPlacesIn);
-  const rows = await loadPlaces({ OR: [{ custodianId: actorId }, ...(managed.size ? [{ ownerOrgNodeId: { in: [...managed] } }] : [])] });
+  const rows = await loadPlaces({
+    OR: [
+      { custodianId: actorId },
+      ...(caps.managesPlacesIn.length ? [{ ownerOrgNodeId: { in: caps.managesPlacesIn } }] : []),
+      ...(caps.managesStoresIn.length ? [{ ownerOrgNodeId: { in: caps.managesStoresIn }, category: { key: "store" } }] : []),
+    ],
+  });
   const counts = await countsFor(rows.map((r) => r.id));
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   return rows
-    .map((r) => toDto(r, counts, actorId, managed))
+    .map((r) => toDto(r, counts, actorId, caps))
     .sort((a, b) => Number(b.isMine) - Number(a.isMine) || collator.compare(a.ownerOrgNodeName, b.ownerOrgNodeName) || collator.compare(a.name, b.name));
 }
 
@@ -103,8 +124,7 @@ export async function listPlaces(actorId: string): Promise<PlaceDto[]> {
 export async function getPlace(actorId: string, placeId: string): Promise<PlaceDto> {
   const [row] = await loadPlaces({ id: placeId });
   if (!row) throw new HttpError(404, "Lab or store not found");
-  const caps = await capabilitiesOf(actorId);
-  return toDto(row, await countsFor([row.id]), actorId, new Set(caps.managesPlacesIn));
+  return toDto(row, await countsFor([row.id]), actorId, await capabilitiesOf(actorId));
 }
 
 export async function placeOptions(actorId: string): Promise<PlaceOptionsDto> {
@@ -112,15 +132,20 @@ export async function placeOptions(actorId: string): Promise<PlaceOptionsDto> {
   const [kinds, units] = await Promise.all([
     prisma.resourceCategory.findMany({ where: { isPlace: true, active: true }, select: { id: true, key: true, name: true, iconKey: true }, orderBy: { name: "asc" } }),
     // Places belong to the university (the Main Store), a college or a department — never an office.
-    prisma.orgNode.findMany({ where: { id: { in: caps.managesPlacesIn }, active: true, kind: { not: "OFFICE" } }, select: { id: true, name: true, kind: true }, orderBy: [{ level: "asc" }, { name: "asc" }] }),
+    prisma.orgNode.findMany({
+      where: { id: { in: [...caps.managesPlacesIn, ...caps.managesStoresIn] }, active: true, kind: { not: "OFFICE" } },
+      select: { id: true, name: true, kind: true },
+      orderBy: [{ level: "asc" }, { name: "asc" }],
+    }),
   ]);
-  return { kinds, units: units.map((u) => ({ id: u.id, name: u.name, kind: u.kind })) };
+  return { kinds, units: units.map((u) => ({ id: u.id, name: u.name, kind: u.kind, storesOnly: !caps.managesPlacesIn.includes(u.id) })) };
 }
 
 /** Who may run a place of this unit: active custodians and store keepers who work in
- *  it or below it (for the university itself — the Main Store — the store keepers). */
-export async function custodianCandidates(actorId: string, ownerOrgNodeId: string): Promise<PlaceCustodianDto[]> {
-  await assertCanManagePlace(actorId, ownerOrgNodeId);
+ *  it or below it (for the university itself — the Main Store — the store keepers). A
+ *  college or department STORE may be kept by anyone who works there. */
+export async function custodianCandidates(actorId: string, ownerOrgNodeId: string, isStore = false): Promise<PlaceCustodianDto[]> {
+  await assertCanManagePlace(actorId, ownerOrgNodeId, isStore);
   const owner = await prisma.orgNode.findUnique({ where: { id: ownerOrgNodeId }, select: { kind: true } });
   const below = (await prisma.orgClosure.findMany({ where: { ancestorId: ownerOrgNodeId }, select: { descendantId: true } })).map((r) => r.descendantId);
   const people = await prisma.user.findMany({
@@ -128,26 +153,38 @@ export async function custodianCandidates(actorId: string, ownerOrgNodeId: strin
       status: "ACTIVE",
       ...(owner?.kind === "UNIVERSITY"
         ? { roles: { some: { kind: "STORE_KEEPER" } } }
-        : { homeNodeId: { in: below }, roles: { some: { kind: { in: ["CUSTODIAN", "STORE_KEEPER"] } } } }),
+        : isStore
+          ? { homeNodeId: { in: below }, roles: { none: { kind: "EXTERNAL" } } }
+          : { homeNodeId: { in: below }, roles: { some: { kind: { in: ["CUSTODIAN", "STORE_KEEPER"] } } } }),
     },
-    select: { id: true, name: true, title: true, _count: { select: { custodyOf: { where: { parentId: null, deletedAt: null } } } } },
+    select: { id: true, name: true, title: true, roles: { select: { kind: true } }, _count: { select: { custodyOf: { where: { parentId: null, deletedAt: null } } } } },
     orderBy: { name: "asc" },
   });
-  return people.map((p) => ({ id: p.id, name: p.name, title: p.title, runs: p._count.custodyOf }));
+  return people.map((p) => ({
+    id: p.id,
+    name: p.name,
+    title: p.title,
+    runs: p._count.custodyOf,
+    becomesCustodian: !p.roles.some((r) => r.kind === "CUSTODIAN" || r.kind === "STORE_KEEPER" || r.kind === "SYS_ADMIN"),
+  }));
 }
 
-async function assertCandidate(actorId: string, ownerOrgNodeId: string, custodianId: string): Promise<void> {
-  const candidates = await custodianCandidates(actorId, ownerOrgNodeId);
-  if (!candidates.some((c) => c.id === custodianId)) throw new HttpError(400, "Choose a custodian who works in this unit.");
+/** The chosen person may run this place — and, for a store, becomes a custodian if they
+ *  are not one yet (so they can hold what is in it). */
+async function assertCandidate(actorId: string, ownerOrgNodeId: string, custodianId: string, isStore: boolean): Promise<void> {
+  const candidate = (await custodianCandidates(actorId, ownerOrgNodeId, isStore)).find((c) => c.id === custodianId);
+  if (!candidate) throw new HttpError(400, isStore ? "Choose a store keeper who works in this unit." : "Choose a custodian who works in this unit.");
+  if (candidate.becomesCustodian) await prisma.userRole.create({ data: { userId: custodianId, kind: "CUSTODIAN" } });
 }
 
 export async function createPlace(actorId: string, input: CreatePlaceInput): Promise<PlaceDto> {
-  await assertCanManagePlace(actorId, input.ownerOrgNodeId);
+  const isStore = await isStoreKind(input.categoryId);
+  await assertCanManagePlace(actorId, input.ownerOrgNodeId, isStore);
   const owner = await prisma.orgNode.findUnique({ where: { id: input.ownerOrgNodeId }, select: { kind: true } });
   if (owner?.kind === "OFFICE") throw new HttpError(400, "A lab or store belongs to a department, a college or the university — not an office.");
   const kind = await prisma.resourceCategory.findUnique({ where: { id: input.categoryId }, select: { isPlace: true, active: true, name: true } });
   if (!kind?.isPlace || !kind.active) throw new HttpError(400, "Choose a kind of place: a lab, workshop, studio or store.");
-  await assertCandidate(actorId, input.ownerOrgNodeId, input.custodianId);
+  await assertCandidate(actorId, input.ownerOrgNodeId, input.custodianId, isStore);
 
   const props = Object.fromEntries(Object.entries(input.props).filter(([, v]) => v !== "" && v !== null));
   const created = await applyChange(
@@ -158,10 +195,14 @@ export async function createPlace(actorId: string, input: CreatePlaceInput): Pro
   const id = created.itemIds[0];
   const place = await getPlace(actorId, id);
   await notify(input.custodianId, actorId, {
-    subject: `You now run ${place.name}`,
-    paragraphs: [`You are the custodian of <strong>${esc(place.name)}</strong> (${esc(kind.name)}, ${esc(place.ownerOrgNodeName)}). Add what it holds, and your changes go to the head for approval.`],
+    subject: isStore ? `You now keep ${place.name}` : `You now run ${place.name}`,
+    paragraphs: [
+      isStore
+        ? `You are the store keeper of <strong>${esc(place.name)}</strong> (${esc(place.ownerOrgNodeName)}). Record what it holds; your changes in the store apply at once.`
+        : `You are the custodian of <strong>${esc(place.name)}</strong> (${esc(kind.name)}, ${esc(place.ownerOrgNodeName)}). Add what it holds, and your changes go to the head for approval.`,
+    ],
     path: `/places/${id}`,
-    action: "Open the lab",
+    action: isStore ? "Open the store" : "Open the lab",
   });
   return place;
 }
@@ -184,7 +225,7 @@ async function heldWithPlace(placeId: string, custodianId: string, ownerOrgNodeI
 
 export async function updatePlace(actorId: string, placeId: string, input: UpdatePlaceInput): Promise<PlaceDto> {
   const before = await getPlace(actorId, placeId);
-  await assertCanManagePlace(actorId, before.ownerOrgNodeId);
+  await assertCanManagePlace(actorId, before.ownerOrgNodeId, before.isStore);
   const run = (change: ItemChangeInput) => applyChange(actorId, change, { asPlaceManager: true });
 
   if (input.name !== undefined && input.name !== before.name) await run({ kind: "setName", itemIds: [placeId], value: input.name });
@@ -193,16 +234,16 @@ export async function updatePlace(actorId: string, placeId: string, input: Updat
     if ((before.props[key] ?? null) !== next) await run({ kind: "setProperty", itemIds: [placeId], propKey: key, value: next });
   }
   if (input.custodianId && input.custodianId !== before.custodianId) {
-    await assertCandidate(actorId, before.ownerOrgNodeId, input.custodianId);
+    await assertCandidate(actorId, before.ownerOrgNodeId, input.custodianId, before.isStore);
     if (before.draftStatus === "SUBMITTED") throw new HttpError(409, `${before.name} has changes waiting for the head — decide them before handing the place over.`);
     const moving = [placeId, ...(await heldWithPlace(placeId, before.custodianId, before.ownerOrgNodeId))];
     await run({ kind: "setCustodian", itemIds: moving, value: input.custodianId, ...(input.note ? { note: input.note } : {}) } as ItemChangeInput);
     const after = await getPlace(actorId, placeId);
     await notify(input.custodianId, actorId, {
-      subject: `You now run ${after.name}`,
+      subject: before.isStore ? `You now keep ${after.name}` : `You now run ${after.name}`,
       paragraphs: [`You are now the custodian of <strong>${esc(after.name)}</strong> (${esc(after.ownerOrgNodeName)}), and of the ${moving.length - 1} things in it it answered for.${quoted(input.note)}`],
       path: `/places/${placeId}`,
-      action: "Open the lab",
+      action: before.isStore ? "Open the store" : "Open the lab",
     });
     await notify(before.custodianId, actorId, {
       subject: `${after.name} has a new custodian`,
@@ -216,7 +257,7 @@ export async function updatePlace(actorId: string, placeId: string, input: Updat
 /** An empty place can be removed by whoever manages it; one with anything inside cannot. */
 export async function removePlace(actorId: string, placeId: string): Promise<void> {
   const place = await getPlace(actorId, placeId);
-  await assertCanManagePlace(actorId, place.ownerOrgNodeId);
+  await assertCanManagePlace(actorId, place.ownerOrgNodeId, place.isStore);
   if (place.itemCount > 0) throw new HttpError(409, `${place.name} still holds ${place.itemCount} thing${place.itemCount === 1 ? "" : "s"} — move them out first.`);
   await applyChange(actorId, { kind: "deleteItem", itemIds: [placeId] }, { asPlaceManager: true });
 }

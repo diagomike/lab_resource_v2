@@ -44,11 +44,13 @@ export default function PlacesPage() {
   }
   useEffect(() => {
     load();
-    api.get<PlaceOptionsDto>("/places/options").then(setOptions).catch(() => setOptions({ kinds: [], units: [] }));
+    api.get<PlaceOptionsDto>("/places/options").then(setOptions).catch(couldNotLoad("what you may add", () => setOptions({ kinds: [], units: [] })));
     api.get<ResourceCategoryDto[]>("/resources/categories").then(setCategories).catch(couldNotLoad("the categories", () => setCategories([])));
   }, []);
 
   const canAdd = Boolean(options?.units.length && options.kinds.length);
+  // The ADAA adds the college's stores only.
+  const addLabel = options?.units.length && options.units.every((u) => u.storesOnly) ? "Add a store" : "Add a lab or store";
   const shown = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return (places ?? []).filter((p) => !needle || `${p.name} ${p.ownerOrgNodeName} ${p.custodianName} ${placeSummary(p)}`.toLowerCase().includes(needle));
@@ -68,7 +70,7 @@ export default function PlacesPage() {
         actions={
           canAdd ? (
             <Button variant="primary" onClick={() => setAdding(true)}>
-              + Add a lab or store
+              + {addLabel}
             </Button>
           ) : undefined
         }
@@ -79,7 +81,7 @@ export default function PlacesPage() {
           <PanelLoading rows={5} />
         ) : places.length === 0 ? (
           canAdd ? (
-            <EmptyState title="No labs or stores yet" body="Add the first one, and choose the custodian who runs it. They are told, and they record what it holds." action={{ label: "Add a lab or store", onClick: () => setAdding(true) }} />
+            <EmptyState title="No labs or stores yet" body="Add the first one, and choose who runs it. They are told, and they record what it holds." action={{ label: addLabel, onClick: () => setAdding(true) }} />
           ) : (
             <EmptyState title="You don't run a lab yet" body="Your department head assigns you to a lab or store. It appears here, with what it holds and your changes." />
           )

@@ -15,6 +15,7 @@ const NONE: CapabilitiesDto = {
   officeCodes: [],
   adaaCollegeId: null,
   managesPlacesIn: [],
+  managesStoresIn: [],
 };
 
 function facts(roles: RoleKind[], caps: Partial<CapabilitiesDto> = {}): NavFacts {
@@ -26,7 +27,7 @@ const keys = (f: NavFacts) => navFor(f).flatMap((g) => g.items.map((i) => i.key)
 const PEOPLE: Record<string, NavFacts> = {
   custodian: facts(["CUSTODIAN"], { isCustodian: true }),
   head: facts(["MANAGER"], { headOf: ["cse"], managesPlacesIn: ["cse"] }),
-  adaa: facts(["ADAA"], { isAdaa: true, adaaCollegeId: "coeec", managesPlacesIn: ["coeec", "cse"] }),
+  adaa: facts(["ADAA"], { isAdaa: true, adaaCollegeId: "coeec", managesStoresIn: ["coeec"] }),
   avp: facts(["MANAGER"], { isAvp: true }),
   propertyAdmin: facts(["PROPERTY_ADMIN"], { isPropertyAdmin: true, managesPlacesIn: ["astu"] }),
   procurement: facts(["PROCUREMENT"], { isProcurement: true }),
@@ -57,7 +58,7 @@ describe("the sidebar shows each person what they use (the plan's matrix)", () =
     expect(keys(PEOPLE.head)).not.toContain("admin-org-structure");
   });
 
-  it("the ADAA manages the college's places and categories, and reads Insights and History — no bookings or buying", () => {
+  it("the ADAA manages the college's stores and categories, and reads Insights and History — no bookings or buying", () => {
     const k = keys(PEOPLE.adaa);
     expect(k).toEqual(expect.arrayContaining(["places", "categories", "dashboard", "change-log"]));
     expect(k).not.toContain("schedule");

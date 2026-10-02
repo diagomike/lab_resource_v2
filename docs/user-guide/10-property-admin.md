@@ -26,7 +26,7 @@ The university's Main Store is yours to manage in **Labs & stores**: its details
 
 When procurement marks a purchase **Arrived at the main store**, you're told, and **Home** shows **Arrivals to record**. In **Purchasing → Arrivals**, **Record an import**:
 
-- **From a purchase request**: choose the **Arrived purchase request**. Its lines are filled in with what is still to come; correct them to what actually arrived: quantities, and the **model or serials** from the delivery documents. You can't record more than was ordered.
+- **From a purchase request**: choose the **Arrived purchase request** (opened from the "has arrived" notice, it is already chosen and marked). Its lines are filled in with what is still to come; correct them to what actually arrived: quantities, and the **model or serials** from the delivery documents. You can't record more than was ordered.
 - **Standalone EGP purchase**: for goods bought through EGP that never had an LRMS request. Give the **EGP number** and the supplier, and list what arrived.
 
 Click **Record import**. The store keeper is told and loads it into the store, line by line; **Import records** shows each line's progress. You can **cancel** a record nothing has been loaded from yet (with a reason) and record it again.

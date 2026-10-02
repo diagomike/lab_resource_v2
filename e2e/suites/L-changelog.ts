@@ -1,5 +1,5 @@
 /** Suite L — change log & audit scoping. */
-import { get, post, check, ev, db, done, uniq, nodeId, S } from "../lib";
+import { get, post, check, ev, db, done, uniq, nodeId, mintAs, S } from "../lib";
 
 const L = "L";
 const change = (a: string, b: unknown) => post(a, "/resources/items/changes", b);
@@ -12,11 +12,12 @@ async function main() {
   const seComputer = await db.item.findFirstOrThrow({ where: { parentId: { not: null }, ownerOrgNodeId: se, category: { key: "computer" }, custodianId: S.custSe.id } });
   const chemStore = await db.item.findFirstOrThrow({ where: { name: "Chemistry Store — Room C-12" } });
 
-  await check(L, "L-01", "an edit writes an ItemChange with the actor, before/after and a scope snapshot", async () => {
-    const before = await db.item.findUniqueOrThrow({ where: { id: seComputer.id } });
+  // A custodian's edit is staged and lands when the head approves — logged as the custodian's.
+  await check(L, "L-01", "an approved edit writes an ItemChange with the custodian as actor, before/after and a scope snapshot", async () => {
     await change("custSe", { kind: "setName", itemIds: [seComputer.id], value: "E2E Log Computer" });
+    const sent = await post("custSe", `/resources/labs/${girmaLab.id}/versions/draft/submit`);
+    await post("headSe", `/resources/lab-commits/${sent.body?.id}/decide`, { decision: "APPROVE" });
     const row = await db.itemChange.findFirstOrThrow({ where: { itemId: seComputer.id, kind: "setName" }, orderBy: { at: "desc" } });
-    await change("custSe", { kind: "setName", itemIds: [seComputer.id], value: before.name });
     return { ok: row.actorId === S.custSe.id && row.after === "E2E Log Computer" && row.ownerOrgNodeId === se && !!row.custodianId, evidence: { actorIsCustodian: row.actorId === S.custSe.id, before: row.before, after: row.after, snapshotOwner: row.ownerOrgNodeId === se } };
   });
 
@@ -45,19 +46,22 @@ async function main() {
     return { ok: !row || row.actorId !== null, evidence: { latestTransferActor: row?.actorId ? (row.actorId === S.custChem.id ? "requester (Hanna)" : row.actorId) : "none found" } };
   });
 
-  await check(L, "L-06", "a student cannot read the change log at all", async () => {
-    const r = await log("student");
-    const rows = entriesOf(r);
-    const itemRows = rows.filter((e: any) => e.targetKind === "ITEM");
-    return { ok: r.status === 403 || itemRows.length === 0, evidence: { status: r.status, itemRowsVisibleToStudent: itemRows.length } };
+  await check(L, "L-06", "an outside requester's account cannot read the change log at all", async () => {
+    const email = `${uniq("e2e-outsider")}@example.org`;
+    const outsider = await db.user.create({ data: { email, emailLower: email, name: "E2E Outsider", status: "ACTIVE", roles: { create: [{ kind: "EXTERNAL" }] } } });
+    await mintAs("outsider", outsider.id);
+    const r = await log("outsider");
+    const itemRows = entriesOf(r).filter((e: any) => e.targetKind === "ITEM");
+    return { ok: r.status === 403 || itemRows.length === 0, evidence: { status: r.status, itemRowsVisibleToOutsider: itemRows.length } };
   });
 
   await check(L, "L-07", "a bulk edit shares one batchId across its rows", async () => {
-    const whiteboards = (await change("custSe", { kind: "createItem", parentId: girmaLab.id, categoryId: (await db.resourceCategory.findUniqueOrThrow({ where: { key: "whiteboard" } })).id, count: 3, name: uniq("E2E Batch") })).body.itemIds as string[];
-    await change("custSe", { kind: "setStatus", itemIds: whiteboards, value: "BROKEN" });
+    // The admin's edits apply at once (a custodian's are staged for the head).
+    const whiteboards = (await change("admin", { kind: "createItem", parentId: girmaLab.id, categoryId: (await db.resourceCategory.findUniqueOrThrow({ where: { key: "whiteboard" } })).id, count: 3, name: uniq("E2E Batch") })).body.itemIds as string[];
+    await change("admin", { kind: "setStatus", itemIds: whiteboards, value: "BROKEN" });
     const rows = await db.itemChange.findMany({ where: { itemId: { in: whiteboards }, kind: "setStatus" } });
     const batchIds = new Set(rows.map((r) => r.batchId));
-    await change("custSe", { kind: "deleteItem", itemIds: whiteboards });
+    await change("admin", { kind: "deleteItem", itemIds: whiteboards });
     return { ok: rows.length === 3 && batchIds.size === 1 && !batchIds.has(null), evidence: { rows: rows.length, distinctBatchIds: batchIds.size } };
   });
 

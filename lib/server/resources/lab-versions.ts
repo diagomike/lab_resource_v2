@@ -14,7 +14,7 @@ import type {
   VersionOpInput,
 } from "@/lib/shared";
 import type { Category, CustomProp, Item as DomainItem } from "@/lib/domain/types";
-import { applyVersionOp, diffVersion, VersionOpError, type LiveItem, type VersionOp, type VItem } from "@/lib/domain/version-ops";
+import { applyVersionOp, diffVersion, rebaseUntouched, VersionOpError, type LiveItem, type VersionOp, type VItem } from "@/lib/domain/version-ops";
 import { computeStatuses, statusOf } from "@/lib/domain/status";
 import { prisma } from "../prisma";
 import { HttpError } from "../http-error";
@@ -197,7 +197,7 @@ export async function applyVersionEdit(
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`labversion:${labItemId}:${kind}`}))`;
       const version = await ensureEditable(tx, labItemId, kind, actorId);
-      const before = version.items.map(toVItem);
+      const before = await rebaseStored(tx, version);
       const bySource = new Map(before.filter((v) => v.sourceItemId).map((v) => [v.sourceItemId!, v.id]));
       const own = new Set(before.map((v) => v.id));
       const mapId = (id: string) => {
@@ -246,6 +246,7 @@ async function persistRows(tx: Tx, versionId: string, before: VItem[], after: VI
       data: added.map((a) => ({
         id: a.id,
         versionId,
+        touched: true,
         parentId: a.parentId,
         sourceItemId: a.sourceItemId,
         categoryId: a.categoryId,
@@ -264,6 +265,7 @@ async function persistRows(tx: Tx, versionId: string, before: VItem[], after: VI
     await tx.versionItem.update({
       where: { id: a.id },
       data: {
+        touched: true,
         parentId: a.parentId,
         name: a.name,
         qty: new Prisma.Decimal(a.qty),
@@ -309,9 +311,38 @@ export async function refreshDraft(actorId: string, labItemId: string): Promise<
 
 // ── Diffs ────────────────────────────────────────────────────────────────
 
+/** The version's rows with the ones the custodian never touched brought up to date from
+ *  the live register — what the copy means now (domain `rebaseUntouched`). */
+function rebasedRows(version: { items: VersionItem[]; baseVersions: Prisma.JsonValue }, live: PrismaItem[]) {
+  return rebaseUntouched(
+    version.items.map((r) => ({ ...toVItem(r), touched: r.touched })),
+    live.map((l) => ({ ...toLive(l), version: l.version })),
+    (version.baseVersions ?? {}) as Record<string, number>,
+  );
+}
+
+/** Stores that rebase before an edit, so the custodian edits current values (and a later
+ *  approval isn't refused over a change they never made). */
+async function rebaseStored(tx: Tx, version: LabVersion & { items: VersionItem[] }): Promise<VItem[]> {
+  const live = await loadLive(version.labItemId, tx);
+  const { rows, base, refreshed } = rebasedRows(version, live);
+  if (refreshed.length) {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const id of refreshed) {
+      const r = byId.get(id)!;
+      await tx.versionItem.update({
+        where: { id },
+        data: { parentId: r.parentId, name: r.name, qty: new Prisma.Decimal(r.qty), status: r.status, props: r.props as Prisma.InputJsonValue, customProps: r.customProps as unknown as Prisma.InputJsonValue },
+      });
+    }
+    await tx.labVersion.update({ where: { id: version.id }, data: { baseVersions: base as Prisma.InputJsonValue } });
+  }
+  return rows;
+}
+
 async function diffFor(version: { items: VersionItem[]; baseVersions: Prisma.JsonValue }, live: PrismaItem[], categories: Record<string, Category>): Promise<DiffEntryDto[]> {
   const base = Object.keys((version.baseVersions ?? {}) as Record<string, number>);
-  const diff = diffVersion(version.items.map(toVItem), live.map(toLive), base, {
+  const diff = diffVersion(rebasedRows(version, live).rows, live.map(toLive), base, {
     categoryName: (id) => categories[id]?.name ?? id,
     fieldLabel: (categoryId, key) => categories[categoryId]?.fields.find((f) => f.key === key)?.label ?? key,
   });
@@ -421,25 +452,32 @@ async function decideCommitNow(actorId: string, requestId: string, decision: "AP
         const categories = await loadCategories(tx);
         const diff = await diffFor(version, live, categories);
         const liveById = new Map(live.map((l) => [l.id, l]));
-        const base = version.baseVersions as Record<string, number>;
+        const { rows, base } = rebasedRows(version, live);
 
-        // Staleness: every real item this merge writes must be as it was when copied.
+        // Staleness: every real item this merge writes must be as it was when copied; a
+        // place something is added into only has to still exist.
         const touchedReal = new Set<string>();
+        const parentsOnly = new Set<string>();
         for (const d of diff) {
           if (d.sourceItemId) touchedReal.add(d.sourceItemId);
-          if (d.kind === "added" && d.markerItemId) touchedReal.add(d.markerItemId);
+          if (d.kind === "added" && d.markerItemId) parentsOnly.add(d.markerItemId);
         }
-        const locked = touchedReal.size
-          ? await tx.$queryRaw<{ id: string; name: string; version: number }[]>`SELECT id, name, version FROM "Item" WHERE id = ANY(${[...touchedReal]}) AND "deletedAt" IS NULL FOR UPDATE`
+        for (const id of touchedReal) parentsOnly.delete(id);
+        const lockIds = [...touchedReal, ...parentsOnly];
+        const locked = lockIds.length
+          ? await tx.$queryRaw<{ id: string; name: string; version: number }[]>`SELECT id, name, version FROM "Item" WHERE id = ANY(${lockIds}) AND "deletedAt" IS NULL FOR UPDATE`
           : [];
         const lockedById = new Map(locked.map((l) => [l.id, l]));
-        const changed = [...touchedReal].filter((id) => !lockedById.has(id) || (base[id] !== undefined && lockedById.get(id)!.version !== base[id]));
+        const changed = [
+          ...[...touchedReal].filter((id) => !lockedById.has(id) || (base[id] !== undefined && lockedById.get(id)!.version !== base[id])),
+          ...[...parentsOnly].filter((id) => !lockedById.has(id)),
+        ];
         if (changed.length) {
           const names = changed.map((id) => (lockedById.get(id) ? `"${lockedById.get(id)!.name}"` : "an item that no longer exists"));
           throw new HttpError(409, `Changed in the register since you started these changes: ${names.join(", ")}.`);
         }
 
-        await mergeDraft(tx, request.requesterId, version.items.map(toVItem), diff, liveById, cleanupKeys);
+        await mergeDraft(tx, request.requesterId, rows, diff, liveById, cleanupKeys);
         await tx.labVersion.delete({ where: { id: version.id } });
         await tx.labCommitRequest.update({ where: { id: requestId }, data: { status: "APPLIED", versionId: null, ...decided, resolution: note ?? null } });
       },

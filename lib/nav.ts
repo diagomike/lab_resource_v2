@@ -75,7 +75,7 @@ function who({ roles, caps }: NavFacts): Who {
     propertyAdmin: has("PROPERTY_ADMIN"),
     procurement: has("PROCUREMENT"),
     storeKeeper: has("STORE_KEEPER"),
-    managesPlaces: (caps?.managesPlacesIn.length ?? 0) > 0,
+    managesPlaces: (caps?.managesPlacesIn.length ?? 0) + (caps?.managesStoresIn.length ?? 0) > 0,
   };
 }
 

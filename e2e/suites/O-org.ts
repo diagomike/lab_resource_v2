@@ -25,15 +25,18 @@ async function main() {
     return { ok: c.status === 201 && d.status === 201 && anc.includes(uni) && anc.includes(college) && anc.includes(dept), evidence: { college: c.status, dept: d.status, ancestors: anc.length } };
   });
 
-  await check(O, "O-02", "validation: non-adjacent level, level-0 with parent, level>0 without parent, empty name, unknown parent", async () => {
+  // 2026-10-02: nobody types a level — a unit sits one below its parents, whatever level is sent.
+  await check(O, "O-02", "validation: a sent level is ignored (the unit sits below its parent); level-0 with parent, no parent, empty name, unknown parent refused", async () => {
+    const ignored = await createNode(uniq("E2E Level Ignored"), 3, "DEPARTMENT", [uni]);
+    const placedAt = ignored.body?.level;
+    if (ignored.status === 201) await del("admin", `/org/nodes/${ignored.body.id}`);
     const r = {
-      nonAdjacent: (await createNode(uniq("bad"), 3, "DEPARTMENT", [uni])).status,
       rootWithParent: (await createNode(uniq("bad"), 0, "UNIVERSITY", [uni])).status,
       noParent: (await createNode(uniq("bad"), 2, "DEPARTMENT", [])).status,
       emptyName: (await createNode("", 1, "COLLEGE", [uni])).status,
       unknownParent: (await createNode(uniq("bad"), 1, "COLLEGE", ["does-not-exist"])).status,
     };
-    return { ok: Object.values(r).every((s) => s === 400), evidence: r };
+    return { ok: ignored.status === 201 && placedAt === 1 && Object.values(r).every((s) => s === 400), evidence: { sentLevel3UnderTheUniversity: [ignored.status, placedAt], ...r } };
   });
 
   await check(O, "O-03", "name hygiene: 5,000-char name, whitespace-only name, and duplicate sibling name are refused", async () => {
@@ -60,7 +63,6 @@ async function main() {
       out[`${a}:parents`] = (await put(a, `/org/nodes/${se}/parents`, { parentIds: [comcme] })).status;
       out[`${a}:deactivate`] = (await post(a, `/org/nodes/${dept}/deactivate`)).status;
       out[`${a}:delete`] = (await del(a, `/org/nodes/${dept}`)).status;
-      out[`${a}:draft`] = (await post(a, `/org/nodes/${se}/draft-workflow`, { enabled: true })).status;
       out[`${a}:assign`] = (await post(a, `/people/${await userId("staff.se@e2e.test")}/assign-node`, { nodeId: dept })).status;
     }
     return { ok: Object.values(out).every((s) => s === 403), evidence: out };
@@ -77,9 +79,9 @@ async function main() {
   await check(O, "O-07", "occupant assign → replace → vacate keeps a dated ledger and mails only new assignments", async () => {
     // Throwaway occupants, not the shared staff.se/staff.chem fixtures: assign-node
     // auto-grants MANAGER (F-017), which would make those shared actors heads for every
-    // later suite (R-12, T-06, V-01b, V-06 all read them as plain STAFF).
-    const a = await createPersonAt(se, "STAFF");
-    const b = await createPersonAt(se, "STAFF");
+    // later suite (R-12, T-06, V-01b, V-06 all read them as plain custodians).
+    const a = await createPersonAt(se, "CUSTODIAN");
+    const b = await createPersonAt(se, "CUSTODIAN");
     const seq = mailSeq();
     const r1 = await post("admin", `/people/${a}/assign-node`, { nodeId: dept, reason: "first" });
     const r2 = await post("admin", `/people/${b}/assign-node`, { nodeId: dept, reason: "replace" });
@@ -123,7 +125,7 @@ async function main() {
 
   await check(O, "O-10", "H7 — a second level-0 UNIVERSITY node can be created and its occupant becomes a second AVP", async () => {
     const root2 = await createNode(uniq("E2E Second University"), 0, "UNIVERSITY", []);
-    const holder = await createPersonAt(se, "STAFF");
+    const holder = await createPersonAt(se, "CUSTODIAN");
     const assign = root2.status === 201 ? await post("admin", `/people/${holder}/assign-node`, { nodeId: root2.body.id }) : null;
     await mintAs("secondAvp", holder);
     const list = await get("secondAvp", "/external-requests");
@@ -158,13 +160,18 @@ async function main() {
 
   await check(O, "O-13", "H6 — delete refuses cleanly (400 naming the blocker) when the node carries purchasing needs", async () => {
     const d = await createNode(uniq("E2E Need Dept"), 2, "DEPARTMENT", [college]);
-    const raiser = await createPersonAt(d.body.id, "STAFF");
+    const raiser = await createPersonAt(d.body.id, "CUSTODIAN");
     await mintAs("needRaiser", raiser);
-    const need = await post("needRaiser", "/resources/needs", { name: "Oscilloscope", qty: 1, reason: "E2E" });
+    // A need belongs to a lab: the admin adds one for the raiser, who asks for something,
+    // then the (empty) lab is removed — the need still names the department.
+    const labCat = (await db.resourceCategory.findUniqueOrThrow({ where: { key: "lab" } })).id;
+    const lab = await post("admin", "/places", { categoryId: labCat, name: uniq("E2E Need Lab"), ownerOrgNodeId: d.body.id, custodianId: raiser, props: { block: "1", room: "1" } });
+    const need = await post("needRaiser", "/resources/needs", { labItemId: lab.body?.id, name: "Oscilloscope", qty: 1, reason: "E2E" });
+    await del("admin", `/places/${lab.body?.id}`);
     // the raiser later moves to another department (no API for that — see P suite)
     await db.user.update({ where: { id: raiser }, data: { homeNodeId: se } });
     const r = await del("admin", `/org/nodes/${d.body.id}`);
-    return { ok: r.status === 400, evidence: { need: need.status, deleteNode: ev(r) }, hypothesis: "H6" };
+    return { ok: need.status === 200 && r.status === 400, evidence: { lab: lab.status, need: need.status, deleteNode: ev(r) }, hypothesis: "H6" };
   });
 
   await check(O, "O-14", "delete blockers: node with a child refused; clean leaf deletes and closure rows go", async () => {

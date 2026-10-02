@@ -1,13 +1,13 @@
 # ADAA (Associate Dean of Academic Affairs)
 
-*You are your college's Associate Dean of Academic Affairs.* You see the whole college: every department's labs and what is in them. You **add the college's labs and stores**, and the departments', and **choose who runs each one**. You also look after the college's categories with its departments.
+*You are your college's Associate Dean of Academic Affairs.* You see the whole college: every department's labs and what is in them. You **add the college's own stores** and **choose each one's store keeper**. Labs are added by each department's head. You also look after the college's categories with its departments.
 
 Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.md) first.
 
 | Task | Section |
 |---|---|
 | See the college at a glance | [1. Your Home](#1-your-home) |
-| Add a lab or store, choose its custodian | [2. Labs & stores](#2-labs--stores) |
+| Add the college's store, choose its keeper | [2. The college's stores](#2-the-colleges-stores) |
 | Find anything in the college, or the university | [3. Resources, Insights and History](#3-resources-insights-and-history) |
 | Kinds of resources | [4. Categories](#4-categories) |
 
@@ -19,23 +19,22 @@ Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.
 
 ![Your Home](img/adaa/01-home.jpg)
 
-## 2. Labs & stores
+## 2. The college's stores
 
-**Labs & stores** lists every lab and store in your college and its departments: its custodian, block and room, seats, whether it can be booked, how many items it holds, and how many need attention. **Find a lab, room or custodian** narrows the list.
+**Labs & stores** lists the college's own stores: each one's keeper, block and room, how many items it holds, and how many need attention.
 
-![Labs & stores — the whole college](img/adaa/02-labs.jpg)
+![Labs & stores — the college's stores](img/adaa/02-labs.jpg)
 
-**Add a lab or store.**
+**Add a store.**
 
-1. Click **+ Add a lab or store**.
-2. Choose **What kind of place** (Lab, Workshop, Studio, Store) and who it **Belongs to**: the college itself (a college store, a shared lab), or one of its departments.
-3. Give its **Name** and details: **Block**, **Room**, **Seats**, **Purpose** (for a store: its **Level**, college or department).
-4. Choose **Who runs it (its custodian)**: the list offers the people who work in the unit you chose.
-5. Save. The custodian is told, and records what it holds.
+1. Click **+ Add a store**.
+2. Give its **Name** (e.g. "CoEEC College Store — B508-R2") and details: its **Level** (**College store**), **Block** and **Room**.
+3. Choose **Its store keeper**. The list offers everyone who works in the college or its departments. Someone marked **becomes a custodian** isn't one yet: choosing them makes them one, so they can hold what the store keeps. You don't need People & roles for this.
+4. Save. The keeper is told ("You now keep …"), and records what the store holds. Changes in a store apply at once; they don't wait for a head.
 
-**On a place's page:** **Edit name and details**; **Change who runs it** (both custodians are told; everything in it goes with it); **Remove**, for an empty one.
+**On the store's page:** **Edit name and details**; **Change its store keeper** (both people are told; everything the store keeps goes with it); **Remove**, for an empty one.
 
-> **Good to know:** a department's head manages that department's places too. The Main Store is managed by Property Administration.
+> **Good to know:** you don't add labs, and you don't manage a department's places. Each department's head adds that department's labs (and any department store) and chooses who runs them. The ASTU Main Store is Property Administration's.
 
 ## 3. Resources, Insights and History
 

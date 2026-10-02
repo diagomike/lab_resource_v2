@@ -128,3 +128,14 @@ export async function headNodeIdsOf(userId: string): Promise<string[]> {
   const nodes = await prisma.orgNode.findMany({ where: { userId, active: true }, select: { id: true } });
   return nodes.map((n) => n.id);
 }
+
+/** The units under the posts this person holds (each post and everything below it) — the
+ *  reach of what a post holder may DO to people. Not `visibleNodeIds`: an office that
+ *  reads the whole university (Property Administration, procurement) still only acts
+ *  for its own office. */
+export async function postSubtreeIds(userId: string): Promise<string[]> {
+  const posts = await headNodeIdsOf(userId);
+  if (!posts.length) return [];
+  const rows = await prisma.orgClosure.findMany({ where: { ancestorId: { in: posts } }, select: { descendantId: true } });
+  return [...new Set(rows.map((r) => r.descendantId))];
+}

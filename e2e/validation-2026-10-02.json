@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-02T04:28:59.070Z",
+  "at": "2026-10-02T05:41:18.127Z",
   "results": [
     {
       "path": "P1",
@@ -387,13 +387,12 @@
     },
     {
       "path": "P12",
-      "check": "the ADAA is offered the department's custodians",
-      "ok": true,
-      "detail": "18"
+      "check": "the ADAA adds no labs (only the college's stores)",
+      "ok": true
     },
     {
       "path": "P12",
-      "check": "the ADAA adds a CSE lab",
+      "check": "the CSE head adds the lab",
       "ok": true
     },
     {
@@ -405,7 +404,23 @@
       "path": "P12",
       "check": "…and the bell has it, linking to the lab",
       "ok": true,
-      "detail": "/places/imuqgqsq11kbxu5"
+      "detail": "/places/imuqjbtc91kwetc"
+    },
+    {
+      "path": "P12",
+      "check": "the ADAA is offered the college's people — custodians, and others who would become one",
+      "ok": true,
+      "detail": "22"
+    },
+    {
+      "path": "P12",
+      "check": "the ADAA adds the college store with its keeper",
+      "ok": true
+    },
+    {
+      "path": "P12",
+      "check": "✉ the keeper hears they keep it",
+      "ok": true
     },
     {
       "path": "P12",
@@ -437,7 +452,7 @@
       "path": "P14",
       "check": "the edits are kept in the lab's changes",
       "ok": true,
-      "detail": "[{\"labItemId\":\"imuqgpw2r35t3vr\",\"labName\":\"Software Laboratory — B510-R8\"},{\"labItemId\":\"imuqgpw2r35t3vr\",\"labName\":\"Software Laboratory — B510-R8\"}]"
+      "detail": "[{\"labItemId\":\"imuqjapoc3545vi\",\"labName\":\"Software Laboratory — B510-R8\"},{\"labItemId\":\"imuqjapoc3545vi\",\"labName\":\"Software Laboratory — B510-R8\"}]"
     },
     {
       "path": "P14",
@@ -489,13 +504,13 @@
     },
     {
       "path": "M",
-      "check": "53 emailed links followed: a real screen, sign-in returns to it, it opens, the bell agrees",
+      "check": "56 emailed links followed: a real screen, sign-in returns to it, it opens, the bell agrees",
       "ok": true,
-      "detail": "{\"links\":53,\"failures\":0}"
+      "detail": "{\"links\":56,\"failures\":0}"
     },
     {
       "path": "M",
-      "check": "every link names its exact item (withdrawn notices and the needs/arrivals queues aside)",
+      "check": "every link names its exact item (withdrawn notices aside)",
       "ok": true,
       "detail": "[]"
     }

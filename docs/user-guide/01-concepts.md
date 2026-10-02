@@ -6,7 +6,7 @@
 
 Everything recorded is either a **place** or a **thing**.
 
-- A **place** is a **lab**, **workshop**, **studio** or **store**. Places are the top of the register: nothing holds them. They are added and managed **from above**: a department's head adds its labs, a college's ADAA its college labs and stores, Property Administration the Main Store. A custodian is **assigned** to a place; custodians never create one.
+- A **place** is a **lab**, **workshop**, **studio** or **store**. Places are the top of the register: nothing holds them. They are added and managed **from above**: a department's head adds its labs, a college's ADAA the college's stores (and chooses their store keepers), Property Administration the Main Store. A custodian is **assigned** to a place; custodians never create one.
 - A **thing** is everything else, and always sits inside a place, or inside another thing that is made of it.
 
 Things nest. A **lab** holds **workstations**. A workstation holds a **computer**, a **table** and a **chair**. The computer holds a **motherboard** (with **RAM** and **storage**), a **monitor**, a **keyboard** and so on.
@@ -72,7 +72,7 @@ Changing a detail's kind **converts** the values ("16 GB" becomes 16). Values th
 - **You can see the whole university.** Every member of staff can look at any unit's resources (**Resources → Whole university**), to find something and ask for it. **Mine** shows what you look after or manage.
 - **Who changes what:**
   - custodians record what is in their labs (through the lab's changes);
-  - heads, the ADAA and Property Administration manage places and choose their custodians;
+  - heads manage their department's places, the ADAA the college's stores, and Property Administration the Main Store — each choosing who runs them;
   - heads, deans, the AVP, the College Managing Director and Property Administration approve;
   - the store keeper loads and moves stock;
   - the system administrator sets things up and makes corrections.

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "mail:catch": "mailpit --smtp 127.0.0.1:2526 --listen 127.0.0.1:8026 --database .mailpit/mailpit.db",
     "build": "prisma generate && next build",
     "start": "next start",
     "test": "vitest run",

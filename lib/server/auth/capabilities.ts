@@ -9,7 +9,8 @@ import { prisma } from "../prisma";
  *
  * Who manages places (creates labs and stores, assigns their custodians):
  *  - a department's head: that department;
- *  - a college's dean and its ADAA: the college and every department under it;
+ *  - a college's dean: the college and every department under it;
+ *  - a college's ADAA: the college's own stores only (and who keeps them) — no labs;
  *  - Property Administration: the university itself (the Main Store);
  *  - the admin: everything.
  */
@@ -32,7 +33,7 @@ export async function capabilitiesOf(userId: string): Promise<CapabilitiesDto> {
   if (has("SYS_ADMIN")) {
     managesPlacesIn = (await prisma.orgNode.findMany({ where: { active: true }, select: { id: true } })).map((n) => n.id);
   } else {
-    const roots = new Set<string>([...deanOf, ...(adaaCollegeId ? [adaaCollegeId] : [])]);
+    const roots = new Set<string>(deanOf);
     const managed = new Set<string>(headOf);
     if (roots.size) {
       const below = await prisma.orgClosure.findMany({ where: { ancestorId: { in: [...roots] } }, select: { descendantId: true } });
@@ -58,6 +59,7 @@ export async function capabilitiesOf(userId: string): Promise<CapabilitiesDto> {
     officeCodes,
     adaaCollegeId,
     managesPlacesIn,
+    managesStoresIn: adaaCollegeId && !has("SYS_ADMIN") ? [adaaCollegeId] : [],
   };
 }
 

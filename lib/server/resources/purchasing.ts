@@ -284,7 +284,7 @@ export async function raiseNeed(actorId: string, fields: RaiseNeedFields): Promi
       `“${esc(input.reason)}”`,
       "Carry it into a purchase request, or decline it with a reason.",
     ],
-    path: "/purchasing?tab=needs",
+    path: paths.need(row.id),
     action: "Review the lab's needs",
   });
   return toNeedDto(row, await namesOf(replacesItemIds));
@@ -382,7 +382,7 @@ export async function declineNeed(actorId: string, needId: string, input: Declin
   await notify(need.raisedById, actorId, {
     subject: `Your need "${need.name}" was declined`,
     paragraphs: [`The head declined your need for <strong>${esc(need.name)}</strong> (× ${esc(String(need.qty))}).${quoted(input.note)}`],
-    path: "/purchasing?tab=needs",
+    path: paths.need(needId),
   });
   return (await toNeedDtos([row]))[0];
 }
@@ -815,7 +815,7 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
     await notify(await usersWithRole("PROPERTY_ADMIN"), actorId, {
       subject: `${dto.reference} has arrived at the main store`,
       paragraphs: [`${summary(dto)} has arrived. Record what came in under <strong>Purchasing → Arrivals</strong>, so the store keeper can load it into the store.`],
-      path: paths.arrivals(),
+      path: paths.arrived(dto.id),
     });
   }
   return dto;

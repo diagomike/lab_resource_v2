@@ -2,7 +2,7 @@
 import { get, post, patch, del, check, ev, db, done, uniq, nodeId, S } from "../lib";
 
 const SS = "S";
-const book = (a: string, b: Record<string, unknown>) => post(a, "/scheduling/bookings", { title: uniq("E2E booking"), ...b });
+const book = (a: string, b: Record<string, unknown>) => post(a, "/scheduling/bookings", { title: uniq("E2E booking"), onBehalfOfNote: "E2E practical group", ...b });
 const decide = (a: string, id: string, decision: "APPROVE" | "DECLINE", note?: string) => post(a, `/scheduling/bookings/${id}/decide`, { decision, note });
 const cancel = (a: string, id: string, note?: string) => post(a, `/scheduling/bookings/${id}/cancel`, { note });
 
@@ -20,26 +20,28 @@ async function main() {
   const chair = await db.item.findFirstOrThrow({ where: { id: { in: inRoom }, category: { key: "chair" } } });
 
   let staffReq = "";
-  await check(SS, "S-01", "staff request → REQUESTED; the room's custodian books a machine → CONFIRMED automatically", async () => {
+  await check(SS, "S-01", "another custodian's request → REQUESTED; the room's custodian books for someone → CONFIRMED (and must say who for)", async () => {
     const r1 = await book("staffSe", { itemIds: [room.id], date: "2026-10-05", start: "10:00", end: "12:00", onBehalfOfNote: "Sara T. (UGR/1234/13)" });
     staffReq = r1.body?.id;
+    const noWho = await book("custSe", { itemIds: [pcA.id], date: "2026-10-05", start: "13:00", end: "14:00", onBehalfOfNote: undefined });
     const r2 = await book("custSe", { itemIds: [pcA.id], date: "2026-10-05", start: "13:00", end: "14:00" });
-    return { ok: r1.status === 201 && r1.body.state === "REQUESTED" && r2.status === 201 && r2.body.state === "CONFIRMED", evidence: { staff: [r1.status, r1.body?.state], custodian: [r2.status, r2.body?.state] } };
+    return { ok: r1.status === 201 && r1.body.state === "REQUESTED" && noWho.status === 400 && r2.status === 201 && r2.body.state === "CONFIRMED", evidence: { request: [r1.status, r1.body?.state], custodianWithoutWho: noWho.status, custodian: [r2.status, r2.body?.state] } };
   });
 
-  await check(SS, "S-02", "refusals: student, non-bookable item, broken machine, past time, end before start", async () => {
+  // The admin's status edits apply at once (a custodian's are staged for the head).
+  await check(SS, "S-02", "refusals: someone who doesn't book, non-bookable item, broken machine, past time, end before start", async () => {
     const broken = computers[2];
-    await post("custSe", "/resources/items/changes", { kind: "setStatus", itemIds: [broken.id], value: "BROKEN" });
+    await post("admin", "/resources/items/changes", { kind: "setStatus", itemIds: [broken.id], value: "BROKEN" });
     const r = {
-      student: (await book("student", { itemIds: [room.id], date: "2026-10-05", start: "15:00", end: "16:00" })).status,
+      cannotBook: (await book("procurement", { itemIds: [room.id], date: "2026-10-05", start: "15:00", end: "16:00" })).status,
       nonBookableChair: (await book("staffSe", { itemIds: [chair.id], date: "2026-10-05", start: "15:00", end: "16:00" })).status,
       brokenMachine: (await book("staffSe", { itemIds: [broken.id], date: "2026-10-05", start: "15:00", end: "16:00" })).status,
       past: (await book("staffSe", { itemIds: [room.id], date: "2026-09-01", start: "10:00", end: "11:00" })).status,
       inverted: (await book("staffSe", { itemIds: [room.id], date: "2026-10-05", start: "16:00", end: "15:00" })).status,
       invalidDate: (await book("staffSe", { itemIds: [room.id], date: "2026-02-30", start: "10:00", end: "11:00" })).status,
     };
-    await post("custSe", "/resources/items/changes", { kind: "setStatus", itemIds: [broken.id], value: "WORKING" });
-    return { ok: r.student === 403 && [r.nonBookableChair, r.brokenMachine, r.past, r.inverted, r.invalidDate].every((s) => s === 400), evidence: r };
+    await post("admin", "/resources/items/changes", { kind: "setStatus", itemIds: [broken.id], value: "WORKING" });
+    return { ok: r.cannotBook === 403 && [r.nonBookableChair, r.brokenMachine, r.past, r.inverted, r.invalidDate].every((s) => s === 400), evidence: r };
   });
 
   await check(SS, "S-03", "hierarchical clash: room over a confirmed machine booking → 409; sibling machine free; back-to-back OK", async () => {
@@ -108,7 +110,7 @@ async function main() {
 
   await check(SS, "S-11", "H25 — a 10-year, 7-days-a-week class is accepted in one request (row explosion)", async () => {
     const t = Date.now();
-    const r = await post("custSe2", "/scheduling/series", { labItemId: (await db.item.findFirstOrThrow({ where: { name: "Software Laboratory — B509-R7" } })).id, title: "Forever class", weekdays: [1, 2, 3, 4, 5, 6, 7], startTimeLocal: "18:00", endTimeLocal: "19:00", startDate: "2026-10-01", endDate: "2036-09-30" });
+    const r = await post("custSe", "/scheduling/series", { labItemId: room.id, title: "Forever class", weekdays: [1, 2, 3, 4, 5, 6, 7], startTimeLocal: "18:00", endTimeLocal: "19:00", startDate: "2026-10-01", endDate: "2036-09-30" });
     const n = r.body?.id ? await db.reservation.count({ where: { seriesId: r.body.id } }) : 0;
     return { ok: r.status === 400, evidence: { status: r.status, body: r.status >= 400 ? r.body : undefined, rows: n, ms: Date.now() - t }, hypothesis: "H25" };
   });
@@ -129,9 +131,9 @@ async function main() {
 
   await check(SS, "S-14", "H24 — a confirmed booking survives the machine being marked BROKEN; nobody is told", async () => {
     const b = await book("custSe", { itemIds: [pcA.id], date: "2026-10-08", start: "10:00", end: "11:00" });
-    await post("custSe", "/resources/items/changes", { kind: "setStatus", itemIds: [pcA.id], value: "BROKEN" });
+    await post("admin", "/resources/items/changes", { kind: "setStatus", itemIds: [pcA.id], value: "BROKEN" });
     const row = await db.reservation.findUniqueOrThrow({ where: { id: b.body.id } });
-    await post("custSe", "/resources/items/changes", { kind: "setStatus", itemIds: [pcA.id], value: "WORKING" });
+    await post("admin", "/resources/items/changes", { kind: "setStatus", itemIds: [pcA.id], value: "WORKING" });
     return { ok: row.state !== "CONFIRMED", evidence: { bookingStateAfterBreak: row.state }, hypothesis: "H24" };
   });
 
@@ -143,12 +145,13 @@ async function main() {
     return { ok: live === 0 || notes.some((n: string) => /booking|reservation|class/i.test(n)), evidence: { liveFutureReservationsOnLabs: live, impactNotes: notes } };
   });
 
-  await check(SS, "S-16", "H12 — deleting a room silently deletes its confirmed bookings and class timetable", async () => {
+  // A room is added and removed on Labs & stores by its head (2026-10-01).
+  await check(SS, "S-16", "H12 — removing a room with confirmed bookings and a class timetable is refused, not silent", async () => {
     const labCat = await db.resourceCategory.findUniqueOrThrow({ where: { key: "lab" } });
-    const newRoom = (await post("custSe", "/resources/items/changes", { kind: "createItem", parentId: null, categoryId: labCat.id, count: 1, ownerOrgNodeId: se, custodianId: S.custSe.id, name: uniq("E2E Doomed Room") })).body.itemIds[0];
+    const newRoom = (await post("headSe", "/places", { categoryId: labCat.id, name: uniq("E2E Doomed Room"), ownerOrgNodeId: se, custodianId: S.custSe.id, props: { block: "509", room: "9" } })).body.id;
     const b = await book("custSe", { itemIds: [newRoom], date: "2026-10-09", start: "10:00", end: "11:00" });
     const s = await post("custSe", "/scheduling/series", { labItemId: newRoom, title: "Doomed class", weekdays: [2], startTimeLocal: "08:00", endTimeLocal: "09:00", startDate: "2026-10-13", endDate: "2026-11-24" });
-    const d = await post("custSe", "/resources/items/changes", { kind: "deleteItem", itemIds: [newRoom] });
+    const d = await del("headSe", `/places/${newRoom}`);
     const left = await db.reservation.count({ where: { OR: [{ id: b.body.id }, { seriesId: s.body.id }] } });
     const seriesLeft = await db.scheduleSeries.count({ where: { id: s.body.id } });
     return { ok: d.status >= 400, evidence: { booking: b.status, series: s.status, deleteRoom: d.status, reservationsLeft: left, seriesLeft }, hypothesis: "H12" };

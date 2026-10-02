@@ -129,12 +129,14 @@ async function main() {
     };
   });
 
-  await check(T, "T-11", "store handover: custodian cannot hand over; store keeper hands a table to SE → SE head approves → Girma accepts → owner SE, custodian Girma", async () => {
+  await check(T, "T-11", "store handover: custodian cannot hand over; store keeper hands a table to SE → SE head → Property Administration → Girma accepts → owner SE, custodian Girma", async () => {
     const table = await db.item.findFirstOrThrow({ where: { parentId: mainStore.id } });
     const byCustodian = await post("custSe", "/resources/transfers", pullBody([boards[1]], girmaLab.id, se, { transferOwnership: true, targetCustodianId: S.custSe.id }));
     const r = await post("storekeeper", "/resources/transfers", { input: { kind: "transferItem", itemIds: [table.id], transfer: { targetParentId: girmaLab.id, targetOrgNodeId: se, targetCustodianId: S.custSe.id, transferOwnership: true } } });
     const id = r.body?.request?.id;
     const d1 = id ? await decide("headSe", id, "APPROVE") : null;
+    const d1b = id ? await decide("propadmin", id, "APPROVE") : null; // every Main Store movement (2026-09-28)
+    void d1b;
     const d2 = id ? await decide("custSe", id, "APPROVE") : null;
     const after = await db.item.findUniqueOrThrow({ where: { id: table.id } });
     return { ok: byCustodian.status === 403 && d2?.body?.status === "APPLIED" && after.ownerOrgNodeId === se && after.custodianId === S.custSe.id && after.parentId === girmaLab.id, evidence: { custodianHandover: byCustodian.status, request: r.status, chain: (r.body?.request?.steps ?? []).map((s: any) => s.label), final: d2?.body?.status } };

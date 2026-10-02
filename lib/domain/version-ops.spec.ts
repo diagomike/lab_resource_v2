@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Category } from "./types";
-import { applyVersionOp, diffVersion, idealStats, VersionOpError, type LiveItem, type VItem } from "./version-ops";
+import { applyVersionOp, diffVersion, idealStats, rebaseUntouched, VersionOpError, type LiveItem, type VItem } from "./version-ops";
 
 const cat = (id: string, name: string, extra: Partial<Category> = {}): Category => ({
   id,
@@ -134,6 +134,30 @@ describe("diffVersion", () => {
     // A lab's direct child needs no place — the lab is the place.
     const top = applyVersionOp(base, { kind: "setStatus", itemIds: ["ws1"], value: "BROKEN" }, ctx).items;
     expect(diffVersion(top, current, baseIds, labels)[0].where).toBeUndefined();
+  });
+});
+
+describe("rebaseUntouched", () => {
+  const versions = Object.fromEntries(baseIds.map((id) => [id, 1]));
+  it("brings rows the custodian never touched up to date, so someone else's correction is not undone", () => {
+    // The custodian marks pc1 broken; meanwhile an admin renames chair 2 and the lab.
+    const edited = applyVersionOp(base, { kind: "setStatus", itemIds: ["pc1"], value: "BROKEN" }, ctx);
+    const rows = edited.items.map((r) => ({ ...r, touched: edited.touched.includes(r.id) }));
+    const now = current.map((l) => (l.id === "ch2" ? { ...l, name: "Chair (spare)", version: 2 } : l.id === "lab" ? { ...l, name: "B510-R8", version: 2 } : { ...l, version: 1 }));
+    const { rows: fresh, base: nextBase, refreshed } = rebaseUntouched(rows, now, versions);
+    expect(refreshed.sort()).toEqual(["ch2", "lab"]);
+    expect(nextBase).toMatchObject({ ch2: 2, lab: 2, pc1: 1 });
+    const diff = diffVersion(fresh, now, baseIds, labels);
+    expect(diff.map((d) => [d.name, d.lines[0]])).toEqual([["Computer", "Status: Working → Broken"]]);
+  });
+
+  it("leaves a row the custodian touched as it is — a conflict there stays a conflict", () => {
+    const edited = applyVersionOp(base, { kind: "setName", itemIds: ["ch2"], value: "Chair (mine)" }, ctx);
+    const rows = edited.items.map((r) => ({ ...r, touched: edited.touched.includes(r.id) }));
+    const now = current.map((l) => (l.id === "ch2" ? { ...l, name: "Chair (theirs)", version: 2 } : { ...l, version: 1 }));
+    const { rows: fresh, refreshed } = rebaseUntouched(rows, now, versions);
+    expect(refreshed).toEqual([]);
+    expect(fresh.find((r) => r.id === "ch2")?.name).toBe("Chair (mine)");
   });
 });
 

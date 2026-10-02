@@ -129,7 +129,7 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
     // (head of a unit with departments beneath) may name any department in their
     // subtree; the default stays their own node.
     if (input.homeNodeId && input.homeNodeId !== ownNodeId) {
-      const reach = await scope.visibleNodeIds(actorUserId);
+      const reach = await scope.postSubtreeIds(actorUserId);
       if (!reach.includes(input.homeNodeId)) throw new HttpError(403, "You may only add personnel to a unit within your own department tree");
       homeNodeId = input.homeNodeId;
     } else {
@@ -220,8 +220,9 @@ async function assertMayManageStaff(actorUserId: string, actorRoles: RoleKind[],
   if (target.id === actorUserId) throw new HttpError(403, "You cannot manage your own account this way.");
   const headNodeIds = await scope.headNodeIdsOf(actorUserId);
   if (!headNodeIds.length) throw new HttpError(403, "Only an admin or a department head may do this.");
-  const visible = await scope.visibleNodeIds(actorUserId);
-  if (!target.homeNodeId || !visible.includes(target.homeNodeId)) {
+  // What they may DO reaches the units under their post — not everything they can read.
+  const reach = await scope.postSubtreeIds(actorUserId);
+  if (!target.homeNodeId || !reach.includes(target.homeNodeId)) {
     throw new HttpError(403, "You may only manage people in your own department.");
   }
   const occupiesANode = await prisma.orgNode.findFirst({ where: { userId: target.id }, select: { id: true } });
@@ -353,7 +354,7 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
     // F-018: the list shows everyone in a head's whole subtree, so the action must reach
     // the same set (it used to compare against the head's own node only and 403 a dean).
     const headNodeIds = await scope.headNodeIdsOf(actorUserId);
-    const reach = headNodeIds.length ? await scope.visibleNodeIds(actorUserId) : [];
+    const reach = headNodeIds.length ? await scope.postSubtreeIds(actorUserId) : [];
     if (!user.homeNodeId || !reach.includes(user.homeNodeId)) {
       throw new HttpError(403, "You may only resend invitations within your own department");
     }
