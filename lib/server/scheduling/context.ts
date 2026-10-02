@@ -21,13 +21,18 @@ type Client = Tx | typeof prisma;
 export const LIVE_STATES: ReservationState[] = ["REQUESTED", "HELD", "CONFIRMED"];
 export const BLOCKING_STATES: ReservationState[] = ["HELD", "CONFIRMED"];
 
-/** Custodians book (their own rooms and machines for someone, or ask for another's),
- *  heads ask for rooms, and outsiders come through the public portal. */
-const BOOKING_ROLES: RoleKind[] = ["SYS_ADMIN", "MANAGER", "CUSTODIAN"];
+/** Who books (2026-10-02, by product direction): custodians (their own rooms and
+ *  machines for someone, or asking for another's), a department's head (by holding the
+ *  post, not the MANAGER label, which deans, the AVP and the CMD also carry), the ADAA
+ *  and Property Administration. Outsiders come through the portal. */
+const BOOKING_ROLES: RoleKind[] = ["SYS_ADMIN", "CUSTODIAN", "ADAA", "PROPERTY_ADMIN"];
 
 export async function assertMayBook(userId: string): Promise<void> {
   const roles = await scope.rolesOf(userId);
-  if (!roles.some((r) => BOOKING_ROLES.includes(r))) throw new HttpError(403, "Bookings are made by custodians and heads. Ask the room’s custodian.");
+  if (roles.some((r) => BOOKING_ROLES.includes(r))) return;
+  const headsDepartment = await prisma.orgNode.count({ where: { userId, active: true, kind: "DEPARTMENT" } });
+  if (headsDepartment) return;
+  throw new HttpError(403, "Bookings are made by custodians, department heads, the ADAA and Property Administration. Ask the room's custodian.");
 }
 
 export interface TreeRow {

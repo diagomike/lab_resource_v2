@@ -86,12 +86,15 @@ export const CapabilitiesDto = z.object({
   officeCodes: z.array(z.string()),
   /** The college an ADAA answers for. */
   adaaCollegeId: z.string().nullable(),
-  /** Units whose labs and stores this person creates and manages (heads, deans,
-   *  Property Administration for the university's Main Store, the admin for all). */
+  /** Units whose labs and stores this person creates and manages (heads, Property
+   *  Administration for the university's Main Store, the admin for all). Not deans. */
   managesPlacesIn: z.array(z.string()),
   /** Units whose STORES (only) this person creates and manages, choosing each one's store
    *  keeper — the ADAA, for their college. */
   managesStoresIn: z.array(z.string()),
+  /** Units whose labs and stores this person may hand to another custodian ("Change who
+   *  runs it"): every unit they manage places in, plus the ADAA's whole college. */
+  assignsPeopleIn: z.array(z.string()),
 });
 export type CapabilitiesDto = z.infer<typeof CapabilitiesDto>;
 

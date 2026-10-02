@@ -118,8 +118,8 @@ export function PeopleTable({
           const p = row.original;
           return (
             <div className="flex items-center gap-6 justify-end">
-              {p.status !== "DISABLED" && p.status === "INVITED" && <Button onClick={() => onResendInvite(p)}>Resend invite</Button>}
-              {showManage && (
+              {p.status === "INVITED" && (showManage || p.manageable) && <Button onClick={() => onResendInvite(p)}>Resend invite</Button>}
+              {(isAdmin || (showManage && p.manageable)) && (
                 <Button variant="primary" onClick={() => onManage(p)}>
                   Manage
                 </Button>
@@ -130,7 +130,7 @@ export function PeopleTable({
       }),
     ];
     return cols;
-  }, [showManage, onManage, onResendInvite]);
+  }, [showManage, isAdmin, onManage, onResendInvite]);
 
   const table = useTable({
     features,

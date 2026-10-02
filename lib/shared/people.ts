@@ -32,8 +32,18 @@ export const PersonDto = z.object({
   createdAt: z.string(),
   /** Notification emails reach this person (User.emailNotifications). */
   emailNotifications: z.boolean(),
+  /** The viewer may manage this person (set by the people list). */
+  manageable: z.boolean().optional(),
 });
 export type PersonDto = z.infer<typeof PersonDto>;
+
+/** What the people screen lets this person do: units to home someone in, roles to give. */
+export const PeopleReachDto = z.object({
+  units: z.array(z.object({ id: z.string(), name: z.string() })),
+  roles: z.array(RoleKindSchema),
+  defaultHome: z.string().nullable(),
+});
+export type PeopleReachDto = z.infer<typeof PeopleReachDto>;
 
 /**
  * Creates the User row (status INVITED, no password yet) and fires the invitation email in

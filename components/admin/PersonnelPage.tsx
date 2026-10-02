@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SortingState } from "@tanstack/react-table";
-import type { OrgNodeDto, PersonDto, RoleKind } from "@/lib/shared";
+import type { OrgNodeDto, PeopleReachDto, PersonDto, RoleKind } from "@/lib/shared";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { PeopleTable } from "@/components/people/PeopleTable";
@@ -33,15 +33,19 @@ const ALL_ROLE_KINDS: RoleKind[] = [
   "STORE_KEEPER",
   "EXTERNAL",
 ];
-const MANAGER_INVITABLE: RoleKind[] = ["CUSTODIAN"];
 
 export default function PersonnelPage() {
   const { user, me } = useAuth();
   const isAdmin = (user?.roles ?? []).includes("SYS_ADMIN");
   // Occupancy, not the MANAGER role (F-017 of the 2026-09-15 campaign) — a head who
   // occupies a node manages their own staff (F-014) even without that role label.
-  const isHead = Boolean(me?.scope?.isOccupant);
-  const canManageStaff = isAdmin || isHead;
+  // Who may add and manage people, and into which units with which roles, comes from
+  // the server (`/people/reach`): heads, the ADAA and Property Administration.
+  const [reach, setReach] = useState<PeopleReachDto | null>(null);
+  useEffect(() => {
+    api.get<PeopleReachDto>("/people/reach").then(setReach).catch(couldNotLoad("what you may manage", () => setReach(null)));
+  }, []);
+  const canManageStaff = isAdmin || Boolean(reach?.roles.length);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -90,26 +94,11 @@ export default function PersonnelPage() {
   }
   useEffect(reload, []);
   useEffect(() => {
-    if (isAdmin || isHead) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(couldNotLoad("the units", () => setNodes([])));
-  }, [isAdmin, isHead]);
+    if (isAdmin) api.get<OrgNodeDto[]>("/org/nodes").then(setNodes).catch(couldNotLoad("the units", () => setNodes([])));
+  }, [isAdmin]);
 
-  /** F-018: the units a head may add people into — the nodes they occupy plus everything beneath them
-   *  (the same subtree the server checks, `scope.visibleNodeIds`). Admins pick from the whole chart. */
-  const inviteNodes = useMemo(() => {
-    if (isAdmin) return nodes;
-    const reach = new Set(nodes.filter((n) => n.active && n.occupant?.id === user?.id).map((n) => n.id));
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const n of nodes) {
-        if (!n.active || reach.has(n.id)) continue;
-        if (n.parentIds.some((p) => reach.has(p))) {
-          reach.add(n.id);
-          grew = true;
-        }
-      }
-    }
-    return nodes.filter((n) => n.active && reach.has(n.id));
-  }, [nodes, isAdmin, user?.id]);
+  /** The units this person may add people into — the same set the server checks. */
+  const inviteNodes = useMemo(() => (isAdmin ? nodes.filter((n) => n.active).map((n) => ({ id: n.id, name: n.name })) : (reach?.units ?? [])), [nodes, isAdmin, reach]);
 
   async function deactivate(p: PersonDto) {
     if (!confirm(`Deactivate ${p.name}? They will no longer be able to sign in.`)) return;
@@ -183,13 +172,14 @@ export default function PersonnelPage() {
     <Screen>
       {error && <ErrorNote>{error}</ErrorNote>}
       <Panel
-        title={isAdmin ? "Personnel register" : "Your department's people"}
-        actions={<Button variant="primary" onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "Add personnel"}</Button>}
+        title={isAdmin ? "Personnel register" : "People"}
+        actions={canManageStaff ? <Button variant="primary" onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "Add personnel"}</Button> : undefined}
       >
         {showForm && (
           <PersonForm
             isAdmin={isAdmin}
             nodes={inviteNodes}
+            roles={isAdmin ? ALL_ROLE_KINDS : (reach?.roles ?? [])}
             onDone={(inviteUrl) => {
               setShowForm(false);
               setInviteLink(inviteUrl);
@@ -262,6 +252,7 @@ export default function PersonnelPage() {
           person={managing}
           nodes={nodes}
           isAdmin={isAdmin}
+          givableRoles={isAdmin ? ALL_ROLE_KINDS : (reach?.roles ?? [])}
           isSelf={managing.id === user?.id}
           onClose={() => setManageId(null)}
           onSaveRoles={(roles) => updateRoles(managing.id, roles)}
@@ -370,6 +361,7 @@ function PersonManageModal({
   person,
   nodes,
   isAdmin,
+  givableRoles,
   isSelf,
   onClose,
   onSaveRoles,
@@ -383,6 +375,8 @@ function PersonManageModal({
   person: PersonDto;
   nodes: OrgNodeDto[];
   isAdmin: boolean;
+  /** The roles the viewer may give. */
+  givableRoles: RoleKind[];
   isSelf: boolean;
   onClose: () => void;
   onSaveRoles: (roles: RoleKind[]) => void;
@@ -398,10 +392,9 @@ function PersonManageModal({
   const [emailsOn, setEmailsOn] = useState(person.emailNotifications);
   useEffect(() => setEmailsOn(person.emailNotifications), [person.emailNotifications]);
   const rolesDirty = JSON.stringify([...roleDraft].sort()) !== JSON.stringify([...person.roles].sort());
-  // A head sees and may only ever set CUSTODIAN — the server enforces the
-  // identical floor (F-014 of the 2026-09-15 campaign); this just keeps the UI from
-  // offering a control that would only 403.
-  const editableRoles = isAdmin ? ALL_ROLE_KINDS : MANAGER_INVITABLE;
+  // Only the roles the viewer may give (a head and the ADAA: custodian; Property
+  // Administration: store keeper too). The server enforces the same floor.
+  const editableRoles = givableRoles;
 
   function toggleRole(r: RoleKind) {
     if (isSelf && r === "SYS_ADMIN") return;
@@ -636,22 +629,23 @@ function SignInHelp({ person, onError }: { person: PersonDto; onError: (m: strin
 function PersonForm({
   isAdmin,
   nodes,
+  roles: selectableRoles,
   onDone,
   onError,
 }: {
   isAdmin: boolean;
-  nodes: OrgNodeDto[];
+  nodes: Array<{ id: string; name: string }>;
+  /** The roles this person may give. */
+  roles: RoleKind[];
   onDone: (inviteUrl: string) => void;
   onError: (m: string) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [roles, setRoles] = useState<RoleKind[]>(isAdmin ? [] : ["CUSTODIAN"]);
+  const [roles, setRoles] = useState<RoleKind[]>(isAdmin || selectableRoles.length !== 1 ? [] : selectableRoles);
   const [homeNodeId, setHomeNodeId] = useState("");
   const [busy, setBusy] = useState(false);
-
-  const selectableRoles = isAdmin ? ALL_ROLE_KINDS : MANAGER_INVITABLE;
 
   function toggleRole(r: RoleKind) {
     setRoles((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
@@ -696,12 +690,12 @@ function PersonForm({
         </label>
         {(isAdmin || nodes.length > 1) && (
           <label className="block">
-            <span className="text-11 uppercase tracking-wider text-dim font-semibold">Home department{isAdmin ? " (optional)" : ""}</span>
+            <span className="text-11 uppercase tracking-wider text-dim font-semibold">Works in{isAdmin ? " (optional)" : ""}</span>
             <select value={homeNodeId} onChange={(e) => setHomeNodeId(e.target.value)} className="mt-4 w-full bg-panel border border-border2 rounded-2 h-26 px-6 text-11.5 outline-none focus:border-accent">
-              <option value="">–</option>
+              <option value="">{isAdmin ? "–" : "Your own unit"}</option>
               {nodes.map((n) => (
                 <option key={n.id} value={n.id}>
-                  {n.name} ({n.kind})
+                  {n.name}
                 </option>
               ))}
             </select>

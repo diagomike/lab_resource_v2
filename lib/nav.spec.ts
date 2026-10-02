@@ -16,6 +16,7 @@ const NONE: CapabilitiesDto = {
   adaaCollegeId: null,
   managesPlacesIn: [],
   managesStoresIn: [],
+  assignsPeopleIn: [],
 };
 
 function facts(roles: RoleKind[], caps: Partial<CapabilitiesDto> = {}): NavFacts {
@@ -29,6 +30,8 @@ const PEOPLE: Record<string, NavFacts> = {
   head: facts(["MANAGER"], { headOf: ["cse"], managesPlacesIn: ["cse"] }),
   adaa: facts(["ADAA"], { isAdaa: true, adaaCollegeId: "coeec", managesStoresIn: ["coeec"] }),
   avp: facts(["MANAGER"], { isAvp: true }),
+  dean: facts(["MANAGER"], { deanOf: ["coeec"] }),
+  cmd: facts(["MANAGER"], { officeCodes: ["CMD"] }),
   propertyAdmin: facts(["PROPERTY_ADMIN"], { isPropertyAdmin: true, managesPlacesIn: ["astu"] }),
   procurement: facts(["PROCUREMENT"], { isProcurement: true }),
   storeKeeper: facts(["STORE_KEEPER"], { isStoreKeeper: true }),
@@ -66,11 +69,21 @@ describe("the sidebar shows each person what they use (the plan's matrix)", () =
     expect(keys(PEOPLE.head)).not.toContain("admin-org-structure");
   });
 
-  it("the ADAA manages the college's stores and categories, and reads Insights and History: no bookings or buying", () => {
+  it("the ADAA manages the college's stores, people and categories, books, and reads Insights and History: no buying", () => {
     const k = keys(PEOPLE.adaa);
-    expect(k).toEqual(expect.arrayContaining(["places", "categories", "dashboard", "change-log"]));
-    expect(k).not.toContain("schedule");
+    expect(k).toEqual(expect.arrayContaining(["places", "categories", "dashboard", "change-log", "schedule", "admin-people"]));
     expect(k).not.toContain("purchasing");
+  });
+
+  it("deans, the AVP and the CMD don't book; the CMD doesn't see outside requests", () => {
+    for (const f of [PEOPLE.dean, PEOPLE.avp, PEOPLE.cmd]) expect(keys(f)).not.toContain("schedule");
+    expect(keys(PEOPLE.dean)).toContain("external-requests");
+    expect(keys(PEOPLE.avp)).toContain("external-requests");
+    expect(keys(PEOPLE.cmd)).not.toContain("external-requests");
+  });
+
+  it("Property Administration books and manages the store staff", () => {
+    expect(keys(PEOPLE.propertyAdmin)).toEqual(expect.arrayContaining(["schedule", "admin-people", "places"]));
   });
 
   it("procurement buys and nothing else; the store keeper runs stores and arrivals", () => {

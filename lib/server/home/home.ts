@@ -36,7 +36,7 @@ async function waitingFor(userId: string, caps: CapabilitiesDto): Promise<Array<
   const heads = caps.headOf.length > 0;
   const [transfer, labCommit, purchase, booking, categoryChange, needs, arrivals, loads, outside] = await Promise.all([
     safe(0, async () => (await transfers.listForActor(userId, "inbox")).length),
-    safe(0, async () => (heads || caps.deanOf.length ? (await labVersions.listForActor(userId, "inbox")).length : 0)),
+    safe(0, async () => (heads || caps.isPropertyAdmin || caps.officeCodes.includes("PROP") ? (await labVersions.listForActor(userId, "inbox")).length : 0)),
     safe(0, async () => (await purchasing.listForActor(userId, "inbox")).length),
     safe(0, async () => (runsLabs || heads ? (await listBookings(userId, "inbox")).length : 0)),
     safe(0, () => governance.waitingCount(userId)),

@@ -86,15 +86,15 @@ function DraftTab({ states, focusItem, onChanged }: { states: LabStatesDto; focu
   const commit = states.commits.find((c) => c.targetKind === "VISIBLE" && c.status === "PENDING");
   return (
     <VersionPanel
-      title="Changes: the lab with what you've changed"
-      explain="Mark what broke, went for maintenance or was used up; rename, add or remove things. Nothing changes in the register until you send these and the department head approves. Then it all applies at once."
+      title="Changes: the place with what you've changed"
+      explain={`Mark what broke, went for maintenance or was used up; rename, add or remove things. Nothing changes in the register until you send these and ${states.lab.approverLabel} approves. Then it all applies at once.`}
       states={states}
       version={draft}
       kind="draft"
       commit={commit}
       focusItem={focusItem}
       onChanged={onChanged}
-      emptyText="No changes yet. Edit the lab here or in Resources, then send the changes to the head."
+      emptyText={`No changes yet. Edit here or in Resources, then send the changes to ${states.lab.approverLabel}.`}
       compareLabel="Compared with the lab as it is"
       removedFrom={states.current}
     />
@@ -141,7 +141,7 @@ function VersionPanel({
       await api.post(`/resources/labs/${labId}/versions/${kind}/${a}`);
       setConfirm(null);
       const said: Partial<Record<typeof a, string>> = {
-        submit: "Sent to the head for approval. You'll be told when they decide.",
+        submit: `Sent to ${states.lab.approverLabel} for approval. You'll be told when they decide.`,
         withdraw: "Taken back. You can keep editing.",
         discard: "Your unsent changes were discarded.",
         refresh: "Started again from what is in the lab now.",
@@ -180,7 +180,7 @@ function VersionPanel({
           {version?.status === "EDITING" && states.canEdit && (
             <>
               <Button variant="primary" disabled={busy || version.diff.length === 0} onClick={() => action("submit")}>
-                Send to the head
+                Send to {states.lab.approverLabel}
               </Button>
               <Button disabled={busy} onClick={() => setConfirm("refresh")}>
                 Start again from the lab
@@ -209,7 +209,7 @@ function VersionPanel({
       ) : (
         <>
           <div className="px-14 py-9 border-b border-border flex flex-wrap items-center gap-8 text-11">
-            <Tag tone={version.status === "SUBMITTED" ? "warn" : "accent"}>{version.status === "SUBMITTED" ? "Waiting for the head" : "Not sent yet"}</Tag>
+            <Tag tone={version.status === "SUBMITTED" ? "warn" : "accent"}>{version.status === "SUBMITTED" ? `Waiting for ${states.lab.approverLabel}` : "Not sent yet"}</Tag>
             <span className="text-dim">
               by {version.createdByName} · updated {new Date(version.updatedAt).toLocaleString()}
             </span>

@@ -11,12 +11,13 @@ import { applyChange } from "./mutate";
 /**
  * Places — labs, workshops, studios and stores: static, managed from above.
  *
- * Who manages a unit's places (capabilities.ts `managesPlacesIn`): its head; for a
- * college and its departments, the dean; for the university (the Main Store), Property
- * Administration; the admin everywhere. The college's ADAA manages the college's own
- * STORES only (`managesStoresIn`) and chooses each one's store keeper. They create the
- * place, keep its details (block, room, seats…) and assign its custodian — a custodian
- * never creates a lab; they are assigned to one and run what is inside it.
+ * Who manages a unit's places (capabilities.ts `managesPlacesIn`): its head; for the
+ * university (the Main Store), Property Administration; the admin everywhere. The
+ * college's ADAA creates the college's own STORES (`managesStoresIn`), and may change
+ * who runs any lab or store in the college and its departments (`assignsPeopleIn`).
+ * Deans don't run places. Managers create the place, keep its details (block, room,
+ * seats…) and assign its custodian — a custodian never creates a lab; they are
+ * assigned to one and run what is inside it.
  *
  * A store's keeper may be anyone who works in the unit: choosing someone who holds no
  * custodian role yet gives them the CUSTODIAN role (what lets a person hold custody), so
@@ -46,11 +47,22 @@ function mayManage(caps: Caps, ownerOrgNodeId: string, isStore: boolean): boolea
   return caps.managesPlacesIn.includes(ownerOrgNodeId) || (isStore && caps.managesStoresIn.includes(ownerOrgNodeId));
 }
 
+/** May hand the place to another custodian: its managers, and the college's ADAA. */
+function mayAssign(caps: Caps, ownerOrgNodeId: string, isStore: boolean): boolean {
+  return mayManage(caps, ownerOrgNodeId, isStore) || caps.assignsPeopleIn.includes(ownerOrgNodeId);
+}
+
 async function assertCanManagePlace(actorId: string, ownerOrgNodeId: string, isStore: boolean): Promise<void> {
   const caps = await capabilitiesOf(actorId);
   if (mayManage(caps, ownerOrgNodeId, isStore)) return;
   if (!isStore && caps.managesStoresIn.includes(ownerOrgNodeId)) throw new HttpError(403, "The ADAA adds the college's stores; labs are added by each department's head.");
-  throw new HttpError(403, "Labs and stores are managed by the unit's head, the college's ADAA (its stores), or Property Administration for the Main Store.");
+  throw new HttpError(403, "Labs and stores are managed by the department's head, the college's ADAA (its stores), or Property Administration for the Main Store.");
+}
+
+async function assertCanAssign(actorId: string, ownerOrgNodeId: string, isStore: boolean): Promise<void> {
+  const caps = await capabilitiesOf(actorId);
+  if (mayAssign(caps, ownerOrgNodeId, isStore)) return;
+  throw new HttpError(403, "Who runs a lab or store is chosen by the department's head, the college's ADAA, or Property Administration for the Main Store.");
 }
 
 async function isStoreKind(categoryId: string): Promise<boolean> {
@@ -98,6 +110,7 @@ function toDto(row: PlaceRow, counts: Map<string, { items: number; attention: nu
     needsAttention: c.attention,
     draftStatus: row.labVersions[0]?.status ?? null,
     canManage: mayManage(caps, row.ownerOrgNodeId, row.category.key === "store"),
+    canAssign: mayAssign(caps, row.ownerOrgNodeId, row.category.key === "store"),
     isMine: row.custodianId === actorId,
     version: row.version,
   };
@@ -111,6 +124,7 @@ export async function listPlaces(actorId: string): Promise<PlaceDto[]> {
       { custodianId: actorId },
       ...(caps.managesPlacesIn.length ? [{ ownerOrgNodeId: { in: caps.managesPlacesIn } }] : []),
       ...(caps.managesStoresIn.length ? [{ ownerOrgNodeId: { in: caps.managesStoresIn }, category: { key: "store" } }] : []),
+      ...(caps.assignsPeopleIn.length ? [{ ownerOrgNodeId: { in: caps.assignsPeopleIn } }] : []),
     ],
   });
   const counts = await countsFor(rows.map((r) => r.id));
@@ -145,7 +159,7 @@ export async function placeOptions(actorId: string): Promise<PlaceOptionsDto> {
  *  it or below it (for the university itself — the Main Store — the store keepers). A
  *  college or department STORE may be kept by anyone who works there. */
 export async function custodianCandidates(actorId: string, ownerOrgNodeId: string, isStore = false): Promise<PlaceCustodianDto[]> {
-  await assertCanManagePlace(actorId, ownerOrgNodeId, isStore);
+  await assertCanAssign(actorId, ownerOrgNodeId, isStore);
   const owner = await prisma.orgNode.findUnique({ where: { id: ownerOrgNodeId }, select: { kind: true } });
   const below = (await prisma.orgClosure.findMany({ where: { ancestorId: ownerOrgNodeId }, select: { descendantId: true } })).map((r) => r.descendantId);
   const people = await prisma.user.findMany({
@@ -198,7 +212,7 @@ export async function createPlace(actorId: string, input: CreatePlaceInput): Pro
     subject: isStore ? `You now keep ${place.name}` : `You now run ${place.name}`,
     paragraphs: [
       isStore
-        ? `You are the store keeper of <strong>${esc(place.name)}</strong> (${esc(place.ownerOrgNodeName)}). Record what it holds; your changes in the store apply at once.`
+        ? `You are the store keeper of <strong>${esc(place.name)}</strong> (${esc(place.ownerOrgNodeName)}). Record what it holds; your changes go to Property Administration for approval.`
         : `You are the custodian of <strong>${esc(place.name)}</strong> (${esc(kind.name)}, ${esc(place.ownerOrgNodeName)}). Add what it holds, and your changes go to the head for approval.`,
     ],
     path: `/places/${id}`,
@@ -225,7 +239,10 @@ async function heldWithPlace(placeId: string, custodianId: string, ownerOrgNodeI
 
 export async function updatePlace(actorId: string, placeId: string, input: UpdatePlaceInput): Promise<PlaceDto> {
   const before = await getPlace(actorId, placeId);
-  await assertCanManagePlace(actorId, before.ownerOrgNodeId, before.isStore);
+  const editsDetails = (input.name !== undefined && input.name !== before.name) || Object.keys(input.props ?? {}).length > 0;
+  // Changing only who runs it is the ADAA's too; the name and details stay the managers'.
+  if (editsDetails) await assertCanManagePlace(actorId, before.ownerOrgNodeId, before.isStore);
+  else await assertCanAssign(actorId, before.ownerOrgNodeId, before.isStore);
   const run = (change: ItemChangeInput) => applyChange(actorId, change, { asPlaceManager: true });
 
   if (input.name !== undefined && input.name !== before.name) await run({ kind: "setName", itemIds: [placeId], value: input.name });
@@ -235,7 +252,7 @@ export async function updatePlace(actorId: string, placeId: string, input: Updat
   }
   if (input.custodianId && input.custodianId !== before.custodianId) {
     await assertCandidate(actorId, before.ownerOrgNodeId, input.custodianId, before.isStore);
-    if (before.draftStatus === "SUBMITTED") throw new HttpError(409, `${before.name} has changes waiting for the head. Decide them before handing the place over.`);
+    if (before.draftStatus === "SUBMITTED") throw new HttpError(409, `${before.name} has changes waiting for approval. Decide them before handing the place over.`);
     const moving = [placeId, ...(await heldWithPlace(placeId, before.custodianId, before.ownerOrgNodeId))];
     await run({ kind: "setCustodian", itemIds: moving, value: input.custodianId, ...(input.note ? { note: input.note } : {}) } as ItemChangeInput);
     const after = await getPlace(actorId, placeId);

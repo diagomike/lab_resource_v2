@@ -2,7 +2,7 @@
 
 *You run the ASTU Main Store.* When a purchase arrives, Property Administration records what came in as an **import record**; you **load** it into the store, so every unit exists as a record in your custody. Then you **move it** to the labs it was bought for.
 
-Read [Getting started](00-getting-started.md) first. You see the register university-wide, and you are custodian of everything in the Main Store. Your changes in the store apply at once.
+Read [Getting started](00-getting-started.md) first. **Resources → Mine** shows the stores you keep and what is in them; **Whole university** shows everything. You are custodian of everything in the Main Store. Your changes to what the store holds (a status, a name, a detail) collect in the store's **Changes**, and **Property Administration** approves them, just as a head approves a lab's. Loading a delivery and moving stock out are their own approved steps and apply as they are approved.
 
 | Task | Section |
 |---|---|

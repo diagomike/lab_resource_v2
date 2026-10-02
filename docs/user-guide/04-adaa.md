@@ -30,11 +30,15 @@ Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.
 1. Click **+ Add a store**.
 2. Give its **Name** (e.g. "CoEEC College Store B508-R2") and details: its **Level** (**College store**), **Block** and **Room**.
 3. Choose **Its store keeper**. The list offers everyone who works in the college or its departments. Someone marked **becomes a custodian** isn't one yet: choosing them makes them one, so they can hold what the store keeps. You don't need People & roles for this.
-4. Save. The keeper is told ("You now keep …"), and records what the store holds. Changes in a store apply at once; they don't wait for a head.
+4. Save. The keeper is told ("You now keep …"), and records what the store holds. A store's changes are approved by Property Administration.
 
 **On the store's page:** **Edit name and details**; **Change its store keeper** (both people are told; everything the store keeps goes with it); **Remove**, for an empty one.
 
-> **Good to know:** you don't add labs, and you don't manage a department's places. Each department's head adds that department's labs (and any department store) and chooses who runs them. The ASTU Main Store is Property Administration's.
+**Who runs a lab.** You can also **Change who runs it** on any lab or store of the college's departments, for example when a custodian leaves.
+
+**Your people.** **People & roles** lets you invite custodians into the college and its departments, change their roles, and help them sign in.
+
+> **Good to know:** you don't add labs or edit a department's places. Each department's head adds that department's labs (and any department store). The ASTU Main Store is Property Administration's.
 
 ## 3. Resources, Insights and History
 

@@ -43,7 +43,9 @@ export async function defaultModeFor(userId: string): Promise<ScopeMode> {
   // to be able to disagree (a role edit leaving someone occupying a node they no
   // longer formally carry MANAGER for, or vice versa).
   const heads = await orgScope.headNodeIdsOf(userId);
-  if (roles.includes("CUSTODIAN") && !heads.length) return "MY_CUSTODY";
+  // A store keeper's own view is the stores they keep and what is in them (2026-10-02);
+  // the whole university is one switch away, like everyone's.
+  if ((roles.includes("CUSTODIAN") || roles.includes("STORE_KEEPER")) && !heads.length) return "MY_CUSTODY";
   return "ORG_SUBTREE";
 }
 

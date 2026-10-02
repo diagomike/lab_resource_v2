@@ -163,7 +163,7 @@ describe("F-019: a double-submitted invite is a 400 for the loser, never a 500",
   });
 });
 
-describe("F-018: a dean's invite and resend reach the whole subtree they can see", () => {
+describe("who manages people (2026-10-02): heads, the ADAA and Property Administration; not deans", () => {
   async function tree() {
     const org = await import("../org/org");
     const college = await makeNode("f18-college", 1);
@@ -171,56 +171,55 @@ describe("F-018: a dean's invite and resend reach the whole subtree they can see
     const dept = await org.create({ name: `${testKey}-f18-dept-${userCounter++}`, level: 2, kind: "DEPARTMENT", parentIds: [college] });
     createdNodeIds.push(dept.id);
     const outsideCollege = await makeNode("f18-outside", 1);
+    await prisma.orgNode.update({ where: { id: outsideCollege }, data: { kind: "COLLEGE" } });
     const deanId = await makeUser("f18-dean", ["MANAGER"]);
     await prisma.orgNode.update({ where: { id: college }, data: { userId: deanId } });
-    return { deanId, college, dept: dept.id, outsideCollege };
+    const adaaId = await makeUser("f18-adaa", ["ADAA"]);
+    await prisma.user.update({ where: { id: adaaId }, data: { homeNodeId: college } });
+    return { deanId, adaaId, college, dept: dept.id, outsideCollege };
   }
 
-  it("a dean may resend an invitation for a department below them, but not for another college's", async () => {
-    const { deanId, dept, outsideCollege } = await tree();
+  it("a dean manages nobody: no invitations, no resends", async () => {
+    const { deanId, dept } = await tree();
     const inDept = await makeUser("f18-invitee-in", ["CUSTODIAN"], "INVITED");
     await prisma.user.update({ where: { id: inDept }, data: { homeNodeId: dept } });
-    const outside = await makeUser("f18-invitee-out", ["CUSTODIAN"], "INVITED");
-    await prisma.user.update({ where: { id: outside }, data: { homeNodeId: outsideCollege } });
-
-    await expect(people.resendInvite(deanId, ["MANAGER"], inDept)).resolves.toHaveProperty("inviteUrl");
-    await expect(people.resendInvite(deanId, ["MANAGER"], outside)).rejects.toMatchObject({ status: 403 });
+    await expect(people.resendInvite(deanId, ["MANAGER"], inDept)).rejects.toMatchObject({ status: 403 });
+    await expect(people.create(deanId, ["MANAGER"], { name: "F18 Staff", email: `${testKey}-f18-dean@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: dept })).rejects.toMatchObject({ status: 403 });
   });
 
-  it("a dean may invite into a department in their subtree, and is refused outside it", async () => {
-    const { deanId, dept, outsideCollege } = await tree();
-    const made = await people.create(deanId, ["MANAGER"], { name: "F18 Staff", email: `${testKey}-f18-new@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: dept });
+  it("the ADAA invites custodians into their college's departments and resends there; refused outside it", async () => {
+    const { adaaId, dept, outsideCollege } = await tree();
+    const made = await people.create(adaaId, ["ADAA"], { name: "F18 Staff", email: `${testKey}-f18-new@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: dept });
     createdUserIds.push(made.id);
     expect(made.homeNodeId).toBe(dept);
+    await expect(people.resendInvite(adaaId, ["ADAA"], made.id)).resolves.toHaveProperty("inviteUrl");
     await expect(
-      people.create(deanId, ["MANAGER"], { name: "F18 Out", email: `${testKey}-f18-out@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: outsideCollege }),
+      people.create(adaaId, ["ADAA"], { name: "F18 Out", email: `${testKey}-f18-out@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: outsideCollege }),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      people.create(adaaId, ["ADAA"], { name: "F18 Keeper", email: `${testKey}-f18-keeper@astu.edu.et`, roles: ["STORE_KEEPER"], homeNodeId: dept }),
     ).rejects.toMatchObject({ status: 403 });
   });
 });
 
-describe("an office that reads the whole university still acts only for itself", () => {
-  it("Property Administration's occupant can't invite into, resend for, or manage a department's people", async () => {
-    const office = await makeNode("pa-office", 1);
-    await prisma.orgNode.update({ where: { id: office }, data: { kind: "OFFICE" } });
-    await prisma.orgClosure.create({ data: { ancestorId: office, descendantId: office, depth: 0 } });
+describe("Property Administration manages the store staff, not departments' people", () => {
+  it("invites and manages store keepers; refused a department's custodians", async () => {
     const dept = await makeNode("pa-dept", 2);
     const paId = await makeUser("pa", ["PROPERTY_ADMIN"]);
-    await prisma.orgNode.update({ where: { id: office }, data: { userId: paId } });
     const invitee = await makeUser("pa-dept-invitee", ["CUSTODIAN"], "INVITED");
     const staffer = await makeUser("pa-dept-staff", ["CUSTODIAN"]);
-    await prisma.user.updateMany({ where: { id: { in: [invitee, staffer] } }, data: { homeNodeId: dept } });
-    try {
-      await expect(people.create(paId, ["PROPERTY_ADMIN"], { name: "PA Out", email: `${testKey}-pa-out@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: dept })).rejects.toMatchObject({ status: 403 });
-      await expect(people.resendInvite(paId, ["PROPERTY_ADMIN"], invitee)).rejects.toMatchObject({ status: 403 });
-      await expect(people.setEmailNotifications(paId, ["PROPERTY_ADMIN"], staffer, false)).rejects.toMatchObject({ status: 403 });
-      // Into its own office is fine.
-      const own = await people.create(paId, ["PROPERTY_ADMIN"], { name: "PA Clerk", email: `${testKey}-pa-own@astu.edu.et`, roles: ["CUSTODIAN"] });
-      createdUserIds.push(own.id);
-      expect(own.homeNodeId).toBe(office);
-    } finally {
-      await prisma.orgNode.update({ where: { id: office }, data: { userId: null } });
-      await prisma.orgClosure.deleteMany({ where: { ancestorId: office } });
-    }
+    const keeper = await makeUser("pa-keeper", ["STORE_KEEPER"]);
+    await prisma.user.updateMany({ where: { id: { in: [invitee, staffer, keeper] } }, data: { homeNodeId: dept } });
+    await expect(people.create(paId, ["PROPERTY_ADMIN"], { name: "PA Out", email: `${testKey}-pa-out@astu.edu.et`, roles: ["CUSTODIAN"], homeNodeId: dept })).rejects.toMatchObject({ status: 403 });
+    await expect(people.resendInvite(paId, ["PROPERTY_ADMIN"], invitee)).rejects.toMatchObject({ status: 403 });
+    await expect(people.setEmailNotifications(paId, ["PROPERTY_ADMIN"], staffer, false)).rejects.toMatchObject({ status: 403 });
+    // A store keeper, wherever they work, is theirs to manage.
+    await expect(people.setEmailNotifications(paId, ["PROPERTY_ADMIN"], keeper, false)).resolves.toMatchObject({ emailNotifications: false });
+    // A new store keeper lands at the university by default.
+    const own = await people.create(paId, ["PROPERTY_ADMIN"], { name: "PA Keeper", email: `${testKey}-pa-own@astu.edu.et`, roles: ["STORE_KEEPER"] });
+    createdUserIds.push(own.id);
+    const university = await prisma.orgNode.findFirstOrThrow({ where: { kind: "UNIVERSITY", active: true } });
+    expect(own.homeNodeId).toBe(university.id);
   });
 });
 

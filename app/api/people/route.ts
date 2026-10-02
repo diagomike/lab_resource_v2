@@ -5,13 +5,12 @@ import { errorResponse } from "@/lib/server/http-error";
 import { requireSession, requireRole } from "@/lib/server/auth/session";
 import { list, create } from "@/lib/server/people/people";
 
-/** GET's own, slightly wider gate than POST's: PROPERTY_ADMIN never invites people,
- *  but does need the read-only directory to assign a PERSON-specific access view
- *  (Track 1's AccessViewsPage) — a name/role list, not an invite capability. */
+/** The directory, for whoever manages people: heads (the MANAGER label is a pre-filter
+ *  only; the list itself follows reach), the ADAA and Property Administration. */
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession(request);
-    requireRole(user, ["SYS_ADMIN", "MANAGER", "PROPERTY_ADMIN"]);
+    requireRole(user, ["SYS_ADMIN", "MANAGER", "PROPERTY_ADMIN", "ADAA"]);
     const rows = await list(user.id, user.roles);
     return NextResponse.json<PersonDto[]>(rows, { status: 200 });
   } catch (err) {

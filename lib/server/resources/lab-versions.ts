@@ -25,6 +25,7 @@ import { toDomainCategoryMap } from "./adapt";
 import { storage } from "./storage";
 import { esc, notify, quoted } from "../mail/notify";
 import { paths } from "@/lib/paths";
+import { findOffice, PROPERTY_OFFICE } from "../org/offices";
 
 /**
  * A lab's changes: Current and Draft (the pure rules live in lib/domain/version-ops.ts).
@@ -120,9 +121,30 @@ async function assertCanEditLab(actorId: string, labItemId: string): Promise<voi
   }
 }
 
-async function currentHeadOf(ownerOrgNodeId: string): Promise<{ id: string; name: string } | null> {
-  const node = await prisma.orgNode.findUnique({ where: { id: ownerOrgNodeId }, select: { user: { select: { id: true, name: true } } } });
-  return node?.user ?? null;
+/**
+ * Who decides a place's changes (2026-10-02, by product direction): a department's lab,
+ * its head; every store, and any place a college or the university owns, Property
+ * Administration (the PROP office's occupant). A vacant post blocks: nobody decides.
+ */
+interface Decider {
+  id: string | null;
+  name: string | null;
+  /** "the head" or "Property Administration", for the screens and emails. */
+  label: string;
+}
+
+async function deciderOf(labItemId: string): Promise<Decider> {
+  const lab = await prisma.item.findUnique({
+    where: { id: labItemId },
+    select: { category: { select: { key: true } }, ownerOrg: { select: { kind: true, user: { select: { id: true, name: true } } } } },
+  });
+  if (!lab) return { id: null, name: null, label: "the head" };
+  if (lab.category.key !== "store" && lab.ownerOrg.kind === "DEPARTMENT") {
+    return { id: lab.ownerOrg.user?.id ?? null, name: lab.ownerOrg.user?.name ?? null, label: "the head" };
+  }
+  const office = await findOffice(PROPERTY_OFFICE);
+  const occupant = office?.occupantId ? await prisma.user.findUnique({ where: { id: office.occupantId }, select: { id: true, name: true } }) : null;
+  return { id: occupant?.id ?? null, name: occupant?.name ?? null, label: "Property Administration" };
 }
 
 // ── Copying a lab into a version ─────────────────────────────────────────
@@ -168,7 +190,7 @@ async function createVersion(tx: Tx, labItemId: string, kind: LabVersionKind, ac
 async function ensureEditable(tx: Tx, labItemId: string, kind: KindArg, actorId: string): Promise<LabVersion & { items: VersionItem[] }> {
   const existing = await tx.labVersion.findUnique({ where: { labItemId_kind: { labItemId, kind } }, include: { items: true } });
   if (existing) {
-    if (existing.status === "SUBMITTED") throw new HttpError(409, "This lab's changes are waiting for the department head. Take them back to keep editing.");
+    if (existing.status === "SUBMITTED") throw new HttpError(409, "These changes are waiting for approval. Take them back to keep editing.");
     return existing;
   }
   await createVersion(tx, labItemId, kind, actorId, { live: await loadLive(labItemId, tx) });
@@ -293,7 +315,7 @@ export async function discardVersion(actorId: string, labItemId: string, kind: K
   await assertCanEditLab(actorId, labItemId);
   const v = await loadVersion(labItemId, kind);
   if (!v) return;
-  if (v.status === "SUBMITTED") throw new HttpError(409, "It's waiting for the department head. Withdraw it first.");
+  if (v.status === "SUBMITTED") throw new HttpError(409, "It's waiting for approval. Take it back first.");
   await prisma.labVersion.delete({ where: { id: v.id } });
 }
 
@@ -303,7 +325,7 @@ export async function refreshDraft(actorId: string, labItemId: string): Promise<
   await assertCanEditLab(actorId, labItemId);
   await prisma.$transaction(async (tx) => {
     const v = await tx.labVersion.findUnique({ where: { labItemId_kind: { labItemId, kind: "DRAFT" } } });
-    if (v?.status === "SUBMITTED") throw new HttpError(409, "It's waiting for the department head. Withdraw it first.");
+    if (v?.status === "SUBMITTED") throw new HttpError(409, "It's waiting for approval. Take it back first.");
     if (v) await tx.labVersion.delete({ where: { id: v.id } });
     await createVersion(tx, labItemId, "DRAFT", actorId, { live: await loadLive(labItemId, tx) });
   });
@@ -360,7 +382,7 @@ export async function submitVersion(actorId: string, labItemId: string, kind: Ki
   await assertCanEditLab(actorId, labItemId);
   const v = await loadVersion(labItemId, kind);
   if (!v) throw new HttpError(400, "There is nothing to submit yet.");
-  if (v.status === "SUBMITTED") throw new HttpError(409, "Already waiting for the department head.");
+  if (v.status === "SUBMITTED") throw new HttpError(409, "Already waiting for approval.");
   const [live, categories] = await Promise.all([loadLive(labItemId), loadCategories()]);
   const diff = await diffFor(v, live, categories);
   if (!diff.length) throw new HttpError(400, "There are no changes to send yet.");
@@ -370,9 +392,9 @@ export async function submitVersion(actorId: string, labItemId: string, kind: Ki
       data: { labItemId, targetKind: "VISIBLE", requesterId: actorId, versionId: v.id, summary: summaryOf(diff) as Prisma.InputJsonValue },
     });
   });
-  const dto = await getRequest(actorId, request.id, lab.ownerOrgNodeId);
-  const head = await currentHeadOf(lab.ownerOrgNodeId);
-  await notify(head?.id, actorId, {
+  const dto = await getRequest(actorId, request.id, true);
+  const decider = await deciderOf(labItemId);
+  await notify(decider.id, actorId, {
     subject: `${lab.name}: changes are waiting for your approval`,
     paragraphs: [
       `${esc(dto.requesterName)} sent the changes for <strong>${esc(lab.name)}</strong> (${diff.length} change${diff.length === 1 ? "" : "s"}).`,
@@ -411,18 +433,20 @@ export async function decideCommit(actorId: string, requestId: string, decision:
         : { subject: `${dto.labName}: your changes were sent back`, text: "They are back with you to change and send again." };
   await notify(dto.requesterId, actorId, {
     subject: outcome.subject,
-    paragraphs: [`${esc(dto.decidedByName ?? "The department head")} decided the changes for <strong>${esc(dto.labName)}</strong>. ${outcome.text}${quoted(dto.resolution)}`],
+    paragraphs: [`${esc(dto.decidedByName ?? "The approver")} decided the changes for <strong>${esc(dto.labName)}</strong>. ${outcome.text}${quoted(dto.resolution)}`],
     path: dto.status === "APPLIED" ? `/places/${dto.labItemId}` : `/places/${dto.labItemId}?tab=draft`,
   });
   return dto;
 }
 
 async function decideCommitNow(actorId: string, requestId: string, decision: "APPROVE" | "REJECT", note?: string): Promise<LabCommitRequestDto> {
-  const request = await prisma.labCommitRequest.findUnique({ where: { id: requestId }, include: { lab: { select: { ownerOrgNodeId: true } } } });
+  const request = await prisma.labCommitRequest.findUnique({ where: { id: requestId } });
   if (!request) throw new HttpError(404, "Request not found");
   if (request.status !== "PENDING") throw new HttpError(409, "This request has already been decided.");
-  const head = await currentHeadOf(request.lab.ownerOrgNodeId);
-  if (!head || head.id !== actorId) throw new HttpError(403, "You are not this lab's department head. You may not decide this request.");
+  const decider = await deciderOf(request.labItemId);
+  if (!decider.id || decider.id !== actorId) {
+    throw new HttpError(403, `These changes are decided by ${decider.label}${decider.name ? ` (${decider.name})` : ", whose post is vacant"}. You may not decide them.`);
+  }
   const version = request.versionId ? await prisma.labVersion.findUnique({ where: { id: request.versionId }, include: { items: true } }) : null;
   if (!version) throw new HttpError(409, "The version this request covers no longer exists.");
 
@@ -430,7 +454,7 @@ async function decideCommitNow(actorId: string, requestId: string, decision: "AP
   if (decision === "REJECT") {
     await prisma.$transaction([
       prisma.labCommitRequest.update({ where: { id: requestId }, data: { status: "REJECTED", ...decided, resolution: note ?? null } }),
-      prisma.labVersion.update({ where: { id: version.id }, data: { status: "EDITING", rejectionNote: note?.trim() || "Sent back by the department head." } }),
+      prisma.labVersion.update({ where: { id: version.id }, data: { status: "EDITING", rejectionNote: note?.trim() || `Sent back by ${decider.label}.` } }),
     ]);
     return getRequest(actorId, requestId);
   }
@@ -561,6 +585,8 @@ const OP_KINDS = new Set(["createItem", "setName", "setStatus", "setQuantity", "
  */
 export async function stageFromRegister(actorId: string, input: ItemChangeInput, opts?: { dryRun?: boolean }): Promise<ItemChangeResultDto | null> {
   if (input.kind === "transferItem" || input.kind === "addImage" || input.kind === "removeImage") return null;
+  // Custody and units are Property Administration's records, changed directly (mutate.ts).
+  if (input.kind === "setCustodian" || input.kind === "setOwnerOrg" || input.kind === "setCurrentOrg") return null;
   if (input.kind === "createItem" && !input.parentId) return null; // a new place is nobody's draft
   const targets =
     input.kind === "createItem" ? [input.parentId!] : input.kind === "moveInTree" ? [...input.itemIds, ...(input.value ? [input.value] : [])] : input.itemIds;
@@ -579,15 +605,12 @@ export async function stageFromRegister(actorId: string, input: ItemChangeInput,
   // A change to the place itself (its name, its details, removing it) is the place
   // manager's, not part of anyone's draft of its contents.
   if (input.kind !== "createItem" && targets.some((t) => rootIds.includes(t))) return null;
-  const roots = await prisma.item.findMany({
-    where: { id: { in: rootIds } },
-    select: { id: true, name: true, category: { select: { key: true } }, custodian: { select: { roles: { select: { kind: true } } } } },
-  });
-  // A store — the store category, or a place the store keeper runs — is worked directly.
-  const isStore = (r: (typeof roots)[number]) => r.category.key === "store" || r.custodian.roles.some((x) => x.kind === "STORE_KEEPER");
-  const drafted = roots.filter((r) => !isStore(r));
-  if (!drafted.length) return null; // everything touched sits in a store
-  if (drafted.length !== 1 || rootIds.length !== 1) throw new HttpError(400, "Changes are collected one lab at a time: change one lab's items at a time.");
+  // Every place's contents change through its Changes (2026-10-02: stores too, decided
+  // by Property Administration, `deciderOf`). Loads from an import record and transfers
+  // apply through their own approved paths, never here.
+  const drafted = await prisma.item.findMany({ where: { id: { in: rootIds } }, select: { id: true, name: true } });
+  if (!drafted.length) return null;
+  if (drafted.length !== 1 || rootIds.length !== 1) throw new HttpError(400, "Changes are collected one place at a time: change one lab's or store's items at a time.");
   if (!OP_KINDS.has(input.kind) || (input.kind === "moveInTree" && !input.value)) {
     throw new HttpError(403, `Custody, ownership and moves out of ${drafted[0].name} go through a move (transfer), not the lab's changes.`);
   }
@@ -676,7 +699,7 @@ async function versionDto(v: Awaited<ReturnType<typeof loadVersion>>, live: Pris
 export async function getLabStates(actorId: string, labItemId: string): Promise<LabStatesDto> {
   const lab = await loadLab(labItemId);
   await scope.assertMaySeeLabAggregate(actorId, labItemId);
-  const [live, categories, draft, head] = await Promise.all([loadLive(labItemId), loadCategories(), loadVersion(labItemId, "DRAFT"), currentHeadOf(lab.ownerOrgNodeId)]);
+  const [live, categories, draft, head] = await Promise.all([loadLive(labItemId), loadCategories(), loadVersion(labItemId, "DRAFT"), deciderOf(labItemId)]);
   const commits = await prisma.labCommitRequest.findMany({ where: { labItemId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true } });
   return {
     lab: {
@@ -686,13 +709,14 @@ export async function getLabStates(actorId: string, labItemId: string): Promise<
       ownerOrgNodeName: lab.ownerOrg.name,
       custodianId: lab.custodianId,
       custodianName: lab.custodian.name,
-      headName: head?.name ?? null,
+      headName: head.name,
+      approverLabel: head.label,
     },
     canEdit: await canEditLab(actorId, labItemId),
-    isHead: head?.id === actorId,
+    isHead: !!head.id && head.id === actorId,
     current: treeNodes(live.map((l) => ({ ...toLive(l), sourceItemId: l.id, critical: l.critical })), categories),
     draft: await versionDto(draft, live, categories),
-    commits: await Promise.all(commits.map((c) => getRequest(actorId, c.id, lab.ownerOrgNodeId))),
+    commits: await Promise.all(commits.map((c) => getRequest(actorId, c.id, true))),
   };
 }
 
@@ -755,15 +779,16 @@ export async function unsentDrafts(actorId: string): Promise<Array<{ labItemId: 
 
 // ── Requests ─────────────────────────────────────────────────────────────
 
-export async function getRequest(actorId: string, requestId: string, knownOwner?: string): Promise<LabCommitRequestDto> {
+/** `checked`: the caller already established that the actor may read this place. */
+export async function getRequest(actorId: string, requestId: string, checked = false): Promise<LabCommitRequestDto> {
   const r = await prisma.labCommitRequest.findUnique({
     where: { id: requestId },
     include: { requester: { select: { name: true } }, decidedBy: { select: { name: true } }, lab: { select: { name: true, ownerOrgNodeId: true } } },
   });
   if (!r) throw new HttpError(404, "Request not found");
-  const head = await currentHeadOf(knownOwner ?? r.lab.ownerOrgNodeId);
-  if (!knownOwner) {
-    const allowed = actorId === r.requesterId || actorId === head?.id || (await scope.isSysAdmin(actorId)) || (await scope.canSeeItem(actorId, r.labItemId));
+  const head = await deciderOf(r.labItemId);
+  if (!checked) {
+    const allowed = actorId === r.requesterId || actorId === head.id || (await scope.isSysAdmin(actorId)) || (await scope.canSeeItem(actorId, r.labItemId));
     if (!allowed) throw new HttpError(404, "Resource not found");
   }
   return {
@@ -782,7 +807,7 @@ export async function getRequest(actorId: string, requestId: string, knownOwner?
     decidedAt: r.decidedAt ? r.decidedAt.toISOString() : null,
     resolution: r.resolution,
     createdAt: r.createdAt.toISOString(),
-    canDecide: r.status === "PENDING" && head?.id === actorId,
+    canDecide: r.status === "PENDING" && !!head.id && head.id === actorId,
   };
 }
 
@@ -793,12 +818,17 @@ export async function listForActor(actorId: string, box: "inbox" | "mine"): Prom
     const rows = await prisma.labCommitRequest.findMany({ where: { requesterId: actorId }, orderBy: { createdAt: "desc" }, take: 50, select: { id: true } });
     return Promise.all(rows.map((r) => getRequest(actorId, r.id)));
   }
-  const headed = await prisma.orgNode.findMany({ where: { userId: actorId }, select: { id: true } });
+  // A department head decides their department's labs; Property Administration's
+  // occupant every store and every place a college or the university owns.
+  const headed = await prisma.orgNode.findMany({ where: { userId: actorId, active: true }, select: { id: true, kind: true } });
   if (!headed.length) return [];
-  const rows = await prisma.labCommitRequest.findMany({
-    where: { status: "PENDING", lab: { ownerOrgNodeId: { in: headed.map((n) => n.id) } } },
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-  });
+  const office = await findOffice(PROPERTY_OFFICE);
+  const decidesProperty = !!office && office.occupantId === actorId;
+  const departments = headed.filter((n) => n.kind === "DEPARTMENT").map((n) => n.id);
+  const or: Prisma.LabCommitRequestWhereInput[] = [];
+  if (departments.length) or.push({ lab: { ownerOrgNodeId: { in: departments }, category: { key: { not: "store" } } } });
+  if (decidesProperty) or.push({ lab: { OR: [{ category: { key: "store" } }, { ownerOrg: { kind: { not: "DEPARTMENT" } } }] } });
+  if (!or.length) return [];
+  const rows = await prisma.labCommitRequest.findMany({ where: { status: "PENDING", OR: or }, orderBy: { createdAt: "asc" }, select: { id: true } });
   return Promise.all(rows.map((r) => getRequest(actorId, r.id)));
 }

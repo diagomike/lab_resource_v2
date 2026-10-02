@@ -111,11 +111,16 @@ export const LabStatesDto = z.object({
     ownerOrgNodeName: z.string(),
     custodianId: z.string(),
     custodianName: z.string(),
+    /** Who decides this place's changes, by name (null: the post is vacant). */
     headName: z.string().nullable(),
+    /** Who decides, in words: "the head" for a department's lab, "Property
+     *  Administration" for every store and for places a college or the university owns. */
+    approverLabel: z.string(),
   }),
   /** The caller is this lab's custodian (or the admin) and may edit its versions. */
   canEdit: z.boolean(),
-  /** The caller is the lab's department head and decides its commits. */
+  /** The caller decides this place's changes (its department head, or Property
+   *  Administration for a store). */
   isHead: z.boolean(),
   current: z.array(LabTreeNodeDto),
   draft: LabVersionDto.nullable(),

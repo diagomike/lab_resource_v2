@@ -451,7 +451,7 @@ export function AddModal({
       return;
     }
     const staged = r.result.staged;
-    if (staged) toast.success(`Added to ${staged.labName}'s changes, not sent to the head yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+    if (staged) toast.success(`Added to ${staged.labName}'s changes, not sent yet`, { href: `/places/${staged.labItemId}?tab=draft`, linkLabel: "My changes" });
     else toast.success(preview.names.length === 1 ? `Added ${preview.names[0]}` : `Added ${preview.names.length} resources`);
     onCreated();
     onClose();

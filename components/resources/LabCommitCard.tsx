@@ -14,7 +14,7 @@ const STATUS_TONE: Record<string, "warn" | "good" | "bad" | "neutral"> = {
   CANCELLED: "neutral",
   STALE: "bad",
 };
-const STATUS_TEXT: Record<string, string> = { PENDING: "Waiting for the head", APPLIED: "Approved", REJECTED: "Sent back", CANCELLED: "Withdrawn", STALE: "Couldn't apply" };
+const STATUS_TEXT: Record<string, string> = { PENDING: "Waiting for approval", APPLIED: "Approved", REJECTED: "Sent back", CANCELLED: "Withdrawn", STALE: "Couldn't apply" };
 const KIND_LINE: Record<string, string> = { changed: "text-text", added: "text-good", removed: "text-bad" };
 
 /**
@@ -95,7 +95,7 @@ export function LabCommitCard({ request, onDecided, showLabLink = true }: { requ
             </Button>
           </>
         )}
-        {request.status === "PENDING" && !request.canDecide && <span className="text-11 text-faint">Waiting on {request.labName}&apos;s department head.</span>}
+        {request.status === "PENDING" && !request.canDecide && <span className="text-11 text-faint">Waiting for approval (the department head, or Property Administration for a store).</span>}
         {showLabLink && (
           <Link href={`/places/${request.labItemId}?tab=draft`} className="ml-auto text-11 text-accent hover:underline">
             Open the lab →

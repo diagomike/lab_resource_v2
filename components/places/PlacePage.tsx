@@ -96,7 +96,8 @@ function PlaceInner({ id }: { id: string }) {
           <div className="flex-1 min-w-[220px]">
             <h2 className="text-15 font-semibold">{place.name}</h2>
             <div className="text-11 text-dim mt-2">
-              {place.categoryName} · {place.ownerOrgNodeName} · run by <strong className="text-text font-medium">{place.isMine ? "you" : place.custodianName}</strong> · head{" "}
+              {place.categoryName} · {place.ownerOrgNodeName} · run by <strong className="text-text font-medium">{place.isMine ? "you" : place.custodianName}</strong> · changes approved by{" "}
+              {states.lab.approverLabel === "the head" ? "the head, " : "Property Administration, "}
               {states.lab.headName ?? <span className="text-warn">vacant</span>}
             </div>
           </div>
@@ -123,14 +124,16 @@ function PlaceInner({ id }: { id: string }) {
             ))}
           </dl>
         )}
-        {place.canManage && (
+        {(place.canManage || place.canAssign) && (
           <div className="flex flex-wrap items-center gap-8 pt-8 border-t border-border">
-            <Button onClick={() => setEditing("details")}>Edit name and details</Button>
+            {place.canManage && <Button onClick={() => setEditing("details")}>Edit name and details</Button>}
             <Button onClick={() => setEditing("custodian")}>{place.isStore ? "Change its store keeper" : "Change who runs it"}</Button>
-            <Button variant="danger" disabled={place.itemCount > 0} onClick={() => setEditing("remove")}>
-              Remove
-            </Button>
-            {place.itemCount > 0 && <span className="text-11 text-dim">A place can be removed once it is empty.</span>}
+            {place.canManage && (
+              <Button variant="danger" disabled={place.itemCount > 0} onClick={() => setEditing("remove")}>
+                Remove
+              </Button>
+            )}
+            {place.canManage && place.itemCount > 0 && <span className="text-11 text-dim">A place can be removed once it is empty.</span>}
           </div>
         )}
       </section>

@@ -32,6 +32,8 @@ export const PlaceDto = z.object({
   draftStatus: LabVersionStatusSchema.nullable(),
   /** The caller manages this place (its details, its custodian). */
   canManage: z.boolean(),
+  /** May change who runs it (the place's managers, and the college's ADAA). */
+  canAssign: z.boolean(),
   /** The caller runs this place (they are its custodian). */
   isMine: z.boolean(),
   version: z.number().int(),

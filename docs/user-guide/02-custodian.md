@@ -63,7 +63,7 @@ Click an item's **name** to open its details: its parts (**Contains**), its stat
 
 ## 4. Change something in your lab
 
-1. Open the item in **Resources** (click its name), then click **Change this…** Or tick several rows and use the bar that appears: **Set status…**, **Edit details…**, **Put inside…**, and more under **More…**
+1. Open the item in **Resources** (click its name). Its name, quantity and details are edited right there. **Change this…** offers the rest that is yours: **Status**, **Position** (somewhere else inside your lab) and **Delete**. Or tick several rows and use the bar that appears: **Set status…**, **Edit details…**, **Put inside…**, and more under **More…**
 2. Choose what changes, such as the **Status** (*Broken*, say), add a reason, and confirm.
 
 ![Change → Status](img/custodian/05-change.jpg)
@@ -75,7 +75,7 @@ Click an item's **name** to open its details: its parts (**Contains**), its stat
 **Working in the lab itself.** You can also edit directly on **My changes**: set a status from the drop-down, **rename**, **+ add** inside something, or **✕** remove it.
 
 > **Good to know**
-> - **Custody, ownership** and moves **out of the lab** aren't lab changes: they are moves (section 10).
+> - **Custody, the owning unit and the current unit** are Property Administration's records, and moves **out of the lab** are moves (section 10). Neither is a lab change.
 > - A detail the category requires must be filled in when you add something. Items the system creates for you (from the store, for example) are never refused for a missing detail.
 
 ## 5. Send your changes
@@ -85,7 +85,7 @@ Click an item's **name** to open its details: its parts (**Contains**), its stat
 
 ![My changes: what it changes](img/custodian/06-my-changes.jpg)
 
-3. Click **Send to the head**. The lab now shows **Waiting for the head**, and your head is told.
+3. Click **Send to the head**. The lab now shows **Waiting for the head**, and your head is told. (A store's changes go to **Property Administration** instead: the button reads **Send to Property Administration**.)
 
 **Take back to edit** brings them back if you need to change something first. **Discard changes** throws them away. **Start again from the lab** replaces them with a fresh copy of the lab as it is now. Neither changes the register.
 
@@ -150,6 +150,8 @@ Booking requests also appear in **Approvals** and on **Home**.
 **Accepting a handover.** When the store keeper sends new stock to your lab, you're told it's coming. Once your head and Property Administration approve, it waits for you on **Home** and in **Approvals**: click **Accept into my custody** when it's in your hands.
 
 **Giving something back.** Tick it in **Resources** and click **Return to store…** Your head and Property Administration approve, and the store keeper accepts it.
+
+**Returning a loan.** Something you borrowed sits in your lab but stays the other unit's. Open it and click **Return to owner…**: the place it came from is offered first. Nobody else on your side needs to agree; the owner's custodian confirms it arrived. The lender can also **Ask for it back…**; then it waits for you to let it go.
 
 ## 11. Outside requests
 

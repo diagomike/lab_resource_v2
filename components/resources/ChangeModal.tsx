@@ -13,6 +13,12 @@ import { toast } from "@/components/toast";
 
 type ChangeKind = "setStatus" | "setCustodian" | "setOwnerOrg" | "setCurrentOrg" | "moveInTree" | "deleteItem";
 
+/** Who sees which tab (2026-10-02): a custodian changes what state it is in, where it
+ *  sits inside their place, or removes it; custody and units are Property
+ *  Administration's records (mutate.ts refuses them to anyone else). */
+const CUSTODIAN_KINDS: ChangeKind[] = ["setStatus", "moveInTree", "deleteItem"];
+const PROPERTY_KINDS: ChangeKind[] = ["setCustodian", "setOwnerOrg", "setCurrentOrg"];
+
 const KINDS: Array<{ kind: ChangeKind; label: string; blurb: string }> = [
   { kind: "setStatus", label: "Status", blurb: "Report this as broken, under maintenance, lost or back in service." },
   { kind: "setCustodian", label: "Custody", blurb: "Hand day-to-day responsibility to another member of staff." },
@@ -79,21 +85,27 @@ export function ChangeModal({
   onDone: (staged?: ItemChangeResultDto["staged"]) => void;
   initialKind?: ChangeKind;
 }) {
-  const [kind, setKind] = useState<ChangeKind>(initialKind);
-  const [value, setValue] = useState(() => currentValueFor(initialKind, item));
+  const { user } = useAuth();
+  const isAdmin = Boolean(user?.roles.includes("SYS_ADMIN"));
+  const isPropertyAdmin = Boolean(user?.roles.includes("PROPERTY_ADMIN"));
+  const isKeeper = Boolean(user?.roles.some((r) => r === "CUSTODIAN" || r === "STORE_KEEPER"));
+  const allowed = KINDS.filter((k) => isAdmin || (isPropertyAdmin && PROPERTY_KINDS.includes(k.kind)) || (isKeeper && CUSTODIAN_KINDS.includes(k.kind)));
+  const firstKind = allowed.some((k) => k.kind === initialKind) ? initialKind : (allowed[0]?.kind ?? "setStatus");
+  const [kind, setKind] = useState<ChangeKind>(firstKind);
+  const [value, setValue] = useState(() => currentValueFor(firstKind, item));
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [moveTargets, setMoveTargets] = useState<ContainerOptionDto[]>([]);
   const [people, setPeople] = useState<PersonSummaryDto[]>([]);
   const options = useEditOptions();
-  const { user } = useAuth();
+  // A Property Administration record change must say why (kept in History).
+  const needsReason = PROPERTY_KINDS.includes(kind) && !isAdmin;
 
   // A custodian's edit to something in a lab joins the lab's changes, which the head
   // approves (mutate.ts / lab-versions.ts); the store and the admin edit directly. Say
   // so on the button, so nobody is told "apply" for something that waits for the head.
-  const isAdmin = Boolean(user?.roles.includes("SYS_ADMIN"));
-  const stages = !item.inStore && !isAdmin && (kind === "setStatus" || kind === "moveInTree" || kind === "deleteItem");
+  const stages = !isAdmin && (kind === "setStatus" || kind === "moveInTree" || kind === "deleteItem");
 
   // Custody can go to anyone eligible, not only people who already custody something
   // in the loaded register — the forest-derived list alone could never offer a newly
@@ -175,7 +187,7 @@ export function ChangeModal({
             : { kind, itemIds: [item.id], value, note: note.trim() || undefined, expectedVersions };
       const result = await api.post<ItemChangeResultDto>("/resources/items/changes", input);
       if (result?.staged) {
-        toast.success(`Added to ${result.staged.labName}'s changes, not sent to the head yet`, { href: `/places/${result.staged.labItemId}?tab=draft`, linkLabel: "My changes" });
+        toast.success(`Added to ${result.staged.labName}'s changes, not sent yet`, { href: `/places/${result.staged.labItemId}?tab=draft`, linkLabel: "My changes" });
       } else {
         toast.success(kind === "deleteItem" ? `Removed ${item.name}` : `Saved ${item.name}`);
       }
@@ -189,8 +201,8 @@ export function ChangeModal({
 
   return (
     <Modal title={`Change "${item.name}"`} onClose={onClose} width="520px" dirty={!!note.trim() || value !== currentValueFor(kind, item)}>
-      <div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
-        {KINDS.map((k) => (
+      <div className={`grid gap-4 ${allowed.length > 3 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-3"}`}>
+        {allowed.map((k) => (
           <button
             key={k.kind}
             type="button"
@@ -237,7 +249,7 @@ export function ChangeModal({
 
       <label className="flex flex-col gap-4">
         <span className="text-11 font-medium">
-          Reason <span className="text-faint">(optional)</span>
+          Reason {needsReason ? <span className="text-faint">(required: kept in its history)</span> : <span className="text-faint">(optional)</span>}
         </span>
         <input
           value={note}
@@ -251,12 +263,12 @@ export function ChangeModal({
 
       {stages && (
         <div className="text-11 text-dim bg-soft border border-accent rounded-2 px-8 py-6">
-          This joins the lab&apos;s changes. Send them to the department head when you&apos;re done. The register changes once the head approves.
+          This joins {item.inStore ? "the store" : "the lab"}&apos;s changes. Send them for approval when you&apos;re done ({item.inStore ? "Property Administration" : "the department head"}). The register changes once they approve.
         </div>
       )}
 
       <div className="flex items-center gap-8">
-        <Button variant={kind === "deleteItem" ? "danger" : "primary"} onClick={submit} disabled={busy || unchanged || (kind !== "deleteItem" && !value)}>
+        <Button variant={kind === "deleteItem" ? "danger" : "primary"} onClick={submit} disabled={busy || unchanged || (kind !== "deleteItem" && !value) || (needsReason && !note.trim())}>
           {busy ? "Working…" : stages ? (kind === "deleteItem" ? "Add the removal to the lab's changes" : "Add to the lab's changes") : kind === "deleteItem" ? "Delete" : "Confirm & apply"}
         </Button>
         <Button onClick={onClose} disabled={busy}>

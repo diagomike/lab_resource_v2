@@ -1,5 +1,7 @@
 import "server-only";
+import { roleKinds } from "@/lib/shared";
 import type {
+  PeopleReachDto,
   CreatePersonInput,
   CreatePersonResultDto,
   DeactivateResultDto,
@@ -18,14 +20,74 @@ import { HttpError } from "../http-error";
 import * as scope from "../org/scope";
 import * as mail from "../mail/mail";
 import { generateToken, hashToken } from "../auth/token";
+import { capabilitiesOf } from "../auth/capabilities";
+import { findOffice, PROPERTY_OFFICE } from "../org/offices";
 
 const INVITATION_TTL_DAYS = 7;
 const PASSWORD_RESET_TTL_HOURS = 2;
 // Renamed from WEB_ORIGIN — see auth.ts's own note.
 const APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:3000";
-/** A MANAGER inviting into their own department may only bring in the people who actually
- *  do hands-on work there — never another manager, and never a university-wide office. */
-const MANAGER_INVITABLE_ROLES: RoleKind[] = ["CUSTODIAN"];
+/**
+ * Who a non-admin may bring in and manage (2026-10-02, by product direction: "only the
+ * department head, the ADAA and Property Admin manage personnel"):
+ *  - a department's head: the department and what is under it, CUSTODIAN;
+ *  - the ADAA: their college and its departments, CUSTODIAN;
+ *  - Property Administration: the store staff, STORE_KEEPER (anyone holding it, and new
+ *    keepers homed at the university), and the Property Administration office's own
+ *    custodians.
+ * Deans, the AVP, the CMD and other office holders manage nobody. Nobody but the admin
+ * touches a post holder or an admin-only role.
+ */
+export interface StaffReach {
+  /** Units people may be homed in by this person. */
+  homes: string[];
+  /** Roles this person may give. */
+  roles: RoleKind[];
+  /** Where a new person lands when no unit is chosen. */
+  defaultHome: string | null;
+  /** May manage any store keeper, wherever they are homed. */
+  storeKeepers: boolean;
+}
+
+export async function staffReachOf(actorUserId: string): Promise<StaffReach | null> {
+  const caps = await capabilitiesOf(actorUserId);
+  const homes = new Set<string>();
+  const roles = new Set<RoleKind>();
+  let defaultHome: string | null = null;
+  const subtree = async (ids: string[]) => (await prisma.orgClosure.findMany({ where: { ancestorId: { in: ids } }, select: { descendantId: true } })).map((r) => r.descendantId);
+
+  if (caps.headOf.length) {
+    for (const id of await subtree(caps.headOf)) homes.add(id);
+    roles.add("CUSTODIAN");
+    defaultHome = caps.headOf[0];
+  }
+  if (caps.isAdaa && caps.adaaCollegeId) {
+    for (const id of await subtree([caps.adaaCollegeId])) homes.add(id);
+    roles.add("CUSTODIAN");
+    defaultHome ??= caps.adaaCollegeId;
+  }
+  let storeKeepers = false;
+  if (caps.isPropertyAdmin) {
+    storeKeepers = true;
+    roles.add("STORE_KEEPER");
+    roles.add("CUSTODIAN");
+    const university = await prisma.orgNode.findFirst({ where: { kind: "UNIVERSITY", active: true }, select: { id: true } });
+    const office = await findOffice(PROPERTY_OFFICE);
+    if (office) for (const id of await subtree([office.id])) homes.add(id);
+    if (university) homes.add(university.id);
+    defaultHome ??= university?.id ?? office?.id ?? null;
+  }
+  if (!roles.size) return null;
+  return { homes: [...homes], roles: [...roles], defaultHome, storeKeepers };
+}
+
+/** May this person manage that one? (Not themselves, not a post holder, only roles
+ *  they could give, and inside their reach.) */
+function reaches(reach: StaffReach, target: { homeNodeId: string | null; roles: { kind: RoleKind }[] }): boolean {
+  if (target.roles.some((r) => !reach.roles.includes(r.kind))) return false;
+  if (reach.storeKeepers && target.roles.some((r) => r.kind === "STORE_KEEPER")) return true;
+  return Boolean(target.homeNodeId && reach.homes.includes(target.homeNodeId));
+}
 
 /**
  * SYS_ADMIN sees everyone. A MANAGER sees everyone reachable from their own scope — the
@@ -48,7 +110,25 @@ export async function list(actorUserId: string, actorRoles: RoleKind[]): Promise
   });
 
   const latestInviteByEmail = await latestInviterByEmail(rows.map((r) => r.emailLower));
-  return rows.map((r) => toDto(r, latestInviteByEmail.get(r.emailLower) ?? null));
+  // Which rows this person may manage, so the page offers Manage only where it works.
+  const reach = isAdmin ? null : await staffReachOf(actorUserId);
+  return rows.map((r) => ({
+    ...toDto(r, latestInviteByEmail.get(r.emailLower) ?? null),
+    manageable: isAdmin || Boolean(reach && r.id !== actorUserId && !r.orgNode && reaches(reach, { homeNodeId: r.homeNodeId, roles: r.roles.map((x) => ({ kind: x.kind as RoleKind })) })),
+  }));
+}
+
+/** What the people screen offers this person: the units they may home someone in, and
+ *  the roles they may give (everything, for the admin). */
+export async function reachFor(actorUserId: string, actorRoles: RoleKind[]): Promise<PeopleReachDto> {
+  if (actorRoles.includes("SYS_ADMIN")) {
+    const units = await prisma.orgNode.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: [{ level: "asc" }, { name: "asc" }] });
+    return { units, roles: [...roleKinds], defaultHome: null };
+  }
+  const reach = await staffReachOf(actorUserId);
+  if (!reach) return { units: [], roles: [], defaultHome: null };
+  const units = await prisma.orgNode.findMany({ where: { id: { in: reach.homes }, active: true }, select: { id: true, name: true }, orderBy: [{ level: "asc" }, { name: "asc" }] });
+  return { units, roles: reach.roles, defaultHome: reach.defaultHome };
 }
 
 /** Most recent inviter's name per email, batched in one query rather than N+1 — list()
@@ -112,28 +192,19 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
   let nodeId = input.nodeId ?? null;
 
   if (!isAdmin) {
-    // Occupancy decides who may act as a head, not the MANAGER role label (F-017 of
-    // the 2026-09-15 campaign) — `scope.ownNodeId` alone is too wide for this check
-    // (it also resolves a plain custodian's or staff member's homeNodeId, who
-    // occupy nothing); `headNodeIdsOf` is genuinely "do they hold a post".
-    const headNodeIds = await scope.headNodeIdsOf(actorUserId);
-    if (!headNodeIds.length) {
-      throw new HttpError(403, "Only an admin or a department head may add personnel");
-    }
-    const ownNodeId = headNodeIds[0];
-    if (roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r))) {
-      throw new HttpError(403, `A department head may only add ${MANAGER_INVITABLE_ROLES.join(" or ")} personnel`);
-    }
-    // A head assigns people INTO their own reach, never elsewhere, and never hands out
-    // node occupancy — that stays an admin-only act (see assignNode). F-018: a dean
-    // (head of a unit with departments beneath) may name any department in their
-    // subtree; the default stays their own node.
-    if (input.homeNodeId && input.homeNodeId !== ownNodeId) {
-      const reach = await scope.postSubtreeIds(actorUserId);
-      if (!reach.includes(input.homeNodeId)) throw new HttpError(403, "You may only add personnel to a unit within your own department tree");
+    // Occupancy and role facts decide (capabilities.ts), never the MANAGER label alone
+    // (F-017 of the 2026-09-15 campaign) — see `staffReachOf` for who reaches whom.
+    const reach = await staffReachOf(actorUserId);
+    if (!reach) throw new HttpError(403, "People are added by the department's head, the college's ADAA, or Property Administration (store staff).");
+    const refused = roles.filter((r) => !reach.roles.includes(r));
+    if (refused.length) throw new HttpError(403, `You may give only these roles: ${reach.roles.map(roleWords).join(", ")}. Ask the system administrator for ${refused.map(roleWords).join(", ")}.`);
+    // People go INTO the actor's reach, never elsewhere, and never into a post — that
+    // stays an admin-only act (see assignNode).
+    if (input.homeNodeId) {
+      if (!reach.homes.includes(input.homeNodeId)) throw new HttpError(403, "Choose a unit inside your own department, college or office.");
       homeNodeId = input.homeNodeId;
     } else {
-      homeNodeId = ownNodeId;
+      homeNodeId = reach.defaultHome;
     }
     nodeId = null;
   }
@@ -218,19 +289,16 @@ export async function create(actorUserId: string, actorRoles: RoleKind[], input:
 async function assertMayManageStaff(actorUserId: string, actorRoles: RoleKind[], target: { id: string; homeNodeId: string | null; roles: { kind: RoleKind }[] }): Promise<void> {
   if (actorRoles.includes("SYS_ADMIN")) return;
   if (target.id === actorUserId) throw new HttpError(403, "You cannot manage your own account this way.");
-  const headNodeIds = await scope.headNodeIdsOf(actorUserId);
-  if (!headNodeIds.length) throw new HttpError(403, "Only an admin or a department head may do this.");
-  // What they may DO reaches the units under their post — not everything they can read.
-  const reach = await scope.postSubtreeIds(actorUserId);
-  if (!target.homeNodeId || !reach.includes(target.homeNodeId)) {
-    throw new HttpError(403, "You may only manage people in your own department.");
-  }
+  const reach = await staffReachOf(actorUserId);
+  if (!reach) throw new HttpError(403, "People are managed by the department's head, the college's ADAA, or Property Administration (store staff).");
   const occupiesANode = await prisma.orgNode.findFirst({ where: { userId: target.id }, select: { id: true } });
-  if (occupiesANode) throw new HttpError(403, "You may not manage someone who occupies a post on the org chart.");
-  if (target.roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r.kind))) {
-    throw new HttpError(403, `You may only manage ${MANAGER_INVITABLE_ROLES.join(" or ")} personnel.`);
-  }
+  if (occupiesANode) throw new HttpError(403, "You may not manage someone who holds a post on the org chart. Ask the system administrator.");
+  // What they may DO reaches their own department, college or the store staff — not
+  // everything they can read.
+  if (!reaches(reach, target)) throw new HttpError(403, `You may manage only ${reach.roles.map(roleWords).join(" and ")} accounts in your own department, college or office.`);
 }
+
+const roleWords = (r: RoleKind) => (r === "STORE_KEEPER" ? "store keeper" : r === "CUSTODIAN" ? "custodian" : r.toLowerCase().replace(/_/g, " "));
 
 /** F-016 of the 2026-09-15 campaign — with a single administrator, as in a fresh
  *  production bootstrap, losing the last active SYS_ADMIN locks everyone out of Org
@@ -264,8 +332,10 @@ export async function updateRoles(actorUserId: string, actorRoles: RoleKind[], i
   const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");
   await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
-  if (!actorRoles.includes("SYS_ADMIN") && input.roles.some((r) => !MANAGER_INVITABLE_ROLES.includes(r))) {
-    throw new HttpError(403, `A department head may only set ${MANAGER_INVITABLE_ROLES.join(" or ")} roles.`);
+  if (!actorRoles.includes("SYS_ADMIN")) {
+    const reach = await staffReachOf(actorUserId);
+    const refused = input.roles.filter((r) => !reach?.roles.includes(r));
+    if (refused.length) throw new HttpError(403, `You may give only these roles: ${(reach?.roles ?? []).map(roleWords).join(", ")}.`);
   }
   // F-016 of the 2026-09-15 campaign: assertMayManageStaff returns early for a
   // SYS_ADMIN actor (an admin may otherwise manage anyone), which meant an admin
@@ -351,12 +421,11 @@ export async function resendInvite(actorUserId: string, actorRoles: RoleKind[], 
   if (user.passwordHash) throw new HttpError(400, "This person has already registered");
 
   if (!actorRoles.includes("SYS_ADMIN")) {
-    // F-018: the list shows everyone in a head's whole subtree, so the action must reach
-    // the same set (it used to compare against the head's own node only and 403 a dean).
-    const headNodeIds = await scope.headNodeIdsOf(actorUserId);
-    const reach = headNodeIds.length ? await scope.postSubtreeIds(actorUserId) : [];
-    if (!user.homeNodeId || !reach.includes(user.homeNodeId)) {
-      throw new HttpError(403, "You may only resend invitations within your own department");
+    // The same reach as managing them (`staffReachOf`).
+    const reach = await staffReachOf(actorUserId);
+    const roles = await prisma.userRole.findMany({ where: { userId: id }, select: { kind: true } });
+    if (!reach || !reaches(reach, { homeNodeId: user.homeNodeId, roles: roles.map((r) => ({ kind: r.kind as RoleKind })) })) {
+      throw new HttpError(403, "You may resend invitations only to people in your own department, college or office.");
     }
   }
 

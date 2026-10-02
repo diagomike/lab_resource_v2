@@ -7,7 +7,6 @@ import { instantiateMany, newId } from "@/lib/domain/instantiate";
 import { allocateNames, findNameClash } from "@/lib/domain/naming";
 import type { Category } from "@/lib/domain/types";
 import * as scope from "./scope";
-import * as orgScope from "../org/scope";
 import { validatePropWrite } from "./category-props";
 import { assertNoCollision, assertValidCustomKey, validateCustomPropValue } from "./custom-props";
 import { toDomainCategoryMap } from "./adapt";
@@ -176,6 +175,19 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viaAppr
     if (places) throw new HttpError(403, "A lab's or store's own name, details and custodian are changed on Labs & stores by the unit's head.");
   }
 
+  if (input.kind === "setCustodian" || input.kind === "setOwnerOrg" || input.kind === "setCurrentOrg") {
+    // Who answers for a resource, which unit owns it and which holds it are Property
+    // Administration's records (2026-10-02, by product direction): it changes them
+    // directly, saying why (kept in History). Custodians move things by asking (Move to
+    // another place, Request to my lab), never by editing these.
+    const roles = await scope.rolesOf(actorId);
+    if (!roles.includes("PROPERTY_ADMIN")) {
+      throw new HttpError(403, "Custody, the owning unit and the current unit are changed by Property Administration. To move something, use \"Move to another place\" or ask for it with \"Request to my lab\".");
+    }
+    if (!input.note?.trim()) throw new HttpError(400, "Say why: the reason is kept in the resource's history.");
+    return;
+  }
+
   if (input.kind !== "transferItem") {
     // Only custodians and the store keeper change resources (2026-09-22: "the head
     // manages personnel and approves"). Custody alone isn't enough since 2026-09-28: a
@@ -232,32 +244,6 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viaAppr
     return;
   }
 
-
-  if (input.kind === "setOwnerOrg" || input.kind === "setCurrentOrg") {
-    // F-022 of the 2026-09-15 campaign: moving an item between units — who owns it,
-    // or merely who currently holds it — is exactly what the transfer/handover chain
-    // exists to decide (`pol-owner-any`/`pol-current-any` already say so; nothing
-    // read them before this fix). SYS_ADMIN already returned above; everyone else
-    // uses `requestTransfer`, never this direct door.
-    throw new HttpError(403, "Moving a resource between units goes through Transfer, not a direct edit: see Approvals.");
-  }
-
-  if (input.kind === "setCustodian") {
-    // Direct custody handoff is allowed only to someone whose own reach already
-    // covers the item's owning unit — an ordinary same-department reassignment
-    // (or a head/global role receiving it). Handing custody to a stranger
-    // department (a different custodian who has no standing there at all) is a
-    // handover, which goes through the approvals chain instead (F-022, F-024).
-    await scope.assertCanMutate(actorId, input.itemIds);
-    // Eligibility itself is already checked above, before the SYS_ADMIN exemption.
-    const items = await prisma.item.findMany({ where: { id: { in: input.itemIds } }, select: { ownerOrgNodeId: true } });
-    const ownerNodeIds = [...new Set(items.map((i) => i.ownerOrgNodeId))];
-    const targetReach = new Set(await orgScope.visibleNodeIds(input.value));
-    if (ownerNodeIds.some((id) => !targetReach.has(id))) {
-      throw new HttpError(403, "Handing custody to another unit goes through Transfer, not a direct edit: see Approvals.");
-    }
-    return;
-  }
 
   if (input.kind === "createItem") {
     if (input.parentId) {

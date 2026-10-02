@@ -22,6 +22,12 @@ Your scope is the **entire university**: **Resources**, **Insights** and **Histo
 
 The university's Main Store is yours to manage in **Labs & stores**: its details, and **Change who runs it** to choose its store keeper. You can add another store at the university level with **+ Add a lab or store** (kind **Store**, level **Main**).
 
+**Store changes.** A store keeper's changes to what a store holds (a status, a name, a detail, something added or removed) come to you in **Approvals**, the same way a lab's come to its head. Approving applies them; returning them sends them back with your reason.
+
+**Custody and units.** Who answers for a resource, which unit owns it and which holds it are your records. Open any resource in **Resources** and click **Change custody or unit…**: choose the new custodian, owning unit or current unit, and say why (the reason is kept in its history). It applies at once.
+
+**Store staff.** **People & roles** lets you invite store keepers, change their roles and help them sign in.
+
 ## 3. Import records
 
 When procurement marks a purchase **Arrived at the main store**, you're told, and **Home** shows **Arrivals to record**. In **Purchasing → Arrivals**, **Record an import**:

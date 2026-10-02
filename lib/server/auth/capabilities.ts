@@ -9,10 +9,11 @@ import { prisma } from "../prisma";
  *
  * Who manages places (creates labs and stores, assigns their custodians):
  *  - a department's head: that department;
- *  - a college's dean: the college and every department under it;
- *  - a college's ADAA: the college's own stores only (and who keeps them) — no labs;
+ *  - a college's ADAA: the college's own stores (creates them), and who runs any lab or
+ *    store in the college and its departments (`assignsPeopleIn`);
  *  - Property Administration: the university itself (the Main Store);
  *  - the admin: everything.
+ * Deans do not (2026-10-02, by product direction): they approve, they don't run places.
  */
 export async function capabilitiesOf(userId: string): Promise<CapabilitiesDto> {
   const [user, occupied] = await Promise.all([
@@ -33,17 +34,18 @@ export async function capabilitiesOf(userId: string): Promise<CapabilitiesDto> {
   if (has("SYS_ADMIN")) {
     managesPlacesIn = (await prisma.orgNode.findMany({ where: { active: true }, select: { id: true } })).map((n) => n.id);
   } else {
-    const roots = new Set<string>(deanOf);
     const managed = new Set<string>(headOf);
-    if (roots.size) {
-      const below = await prisma.orgClosure.findMany({ where: { ancestorId: { in: [...roots] } }, select: { descendantId: true } });
-      for (const r of below) managed.add(r.descendantId);
-    }
     if (has("PROPERTY_ADMIN")) {
       const university = await prisma.orgNode.findFirst({ where: { kind: "UNIVERSITY", active: true }, select: { id: true } });
       if (university) managed.add(university.id);
     }
     managesPlacesIn = [...managed];
+  }
+
+  const assigns = new Set(managesPlacesIn);
+  if (adaaCollegeId && !has("SYS_ADMIN")) {
+    const below = await prisma.orgClosure.findMany({ where: { ancestorId: adaaCollegeId }, select: { descendantId: true } });
+    for (const r of below) assigns.add(r.descendantId);
   }
 
   return {
@@ -60,6 +62,7 @@ export async function capabilitiesOf(userId: string): Promise<CapabilitiesDto> {
     adaaCollegeId,
     managesPlacesIn,
     managesStoresIn: adaaCollegeId && !has("SYS_ADMIN") ? [adaaCollegeId] : [],
+    assignsPeopleIn: [...assigns],
   };
 }
 

@@ -5208,3 +5208,31 @@ its model that make porting it as-is the wrong move.
     read the new column.
   - **Checks:** `tsc` clean, 610/610 tests, `next build` clean; on the production build (:3200) sign-in with an
     unknown email shows the new message, and a category's name shows once.
+- **2026-10-03 (feedback round, R2: who does what)**
+  - **Bookings, Outside requests, People & roles follow posts and roles, not the MANAGER label** (`lib/nav.ts`,
+    `scheduling/context.ts assertMayBook`): bookings are for custodians, a department's head, the ADAA, Property
+    Administration and the admin; deans, the AVP and the CMD don't book; the CMD no longer sees Outside requests.
+  - **Places:** deans no longer manage places (`capabilitiesOf`). New `assignsPeopleIn`: the ADAA may **change who
+    runs** any lab or store in the college (not edit or create labs); `PlaceDto.canAssign`; the place page shows each
+    button to who may use it.
+  - **People:** `people.staffReachOf` — a head (their department, CUSTODIAN), the ADAA (their college, CUSTODIAN),
+    Property Administration (store keepers anywhere, its office's custodians; new keepers homed at the university).
+    Deans and other office holders manage nobody. `GET /api/people/reach` drives the invite form's units and roles;
+    the list marks `manageable` rows. Specs rewritten (`people.spec`).
+  - **Store keeper's "Mine"** is the stores they keep (`defaultModeFor` → MY_CUSTODY).
+  - **Store changes go to Property Administration:** every place's contents are edited through its Changes
+    (stores no longer apply directly); `lab-versions.deciderOf` — a department's lab: its head; every store and any
+    college/university place: the PROP office's occupant. Inbox, notices, `approverLabel` ("Send to Property
+    Administration"). Import loads bypass the draft (approved by their own record).
+  - **Change this:** custodians and store keepers get Status, Position, Delete; Custody, Ownership and Current
+    unit are Property Administration's (Inspector → "Change custody or unit…", applies at once, reason required);
+    anyone else gets a 403 that says to use Move / Request to my lab. The old F-022 direct custody path is gone.
+  - **Return to owner, either side:** `approvals.returnTarget` + `GET /api/resources/transfers/return-target`
+    (the place it came from, from the loan's structural snapshot, then the owner's places); new
+    `ReturnToOwnerModal`. The borrower's own release is skipped; the owner's custodian confirms receipt. The
+    lender's button reads "Ask for it back…".
+  - New spec `lib/server/resources/roles-2026-10.spec.ts` (6, DB-backed). Guide: custodian, store keeper, ADAA,
+    Property Admin, dean/AVP chapters; Help rebuilt.
+  - **Checks:** `tsc` clean, 618/618, `next build` clean; on :3200 as Property Admin: Bookings and People & roles in
+    the sidebar, people reach = store keeper/custodian at the university and PROP office, "Change custody or unit…"
+    on a loaned item opens with only the three record tabs and a required reason.

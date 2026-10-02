@@ -998,3 +998,38 @@ export async function listForActor(actorId: string, box: "inbox" | "mine"): Prom
   const dtos = await Promise.all(pending.map(toDto));
   return dtos.filter((d) => d.steps.some((s) => s.status === "PENDING" && s.approverId === actorId));
 }
+
+// ── Returning a borrowed resource to its owner ────────────────────────────────────
+
+/**
+ * Where something on loan goes back to: either side of the loan may send it home (the
+ * lender asks for it back; the borrower, who runs the place it sits in, returns it on
+ * their own, and their own release is then skipped). The suggestion is the place it
+ * came from, read off the applied loan's snapshot, when that place still belongs to
+ * the owner; the options are the owning unit's places.
+ */
+export async function returnTarget(actorId: string, itemId: string): Promise<{ suggested: { id: string; name: string } | null; options: Array<{ id: string; name: string }>; side: "LENDER" | "BORROWER" }> {
+  const item = await prisma.item.findUnique({ where: { id: itemId }, select: { id: true, ownerOrgNodeId: true, currentOrgNodeId: true, deletedAt: true } });
+  if (!item || item.deletedAt) throw new HttpError(404, "Resource not found");
+  if (item.ownerOrgNodeId === item.currentOrgNodeId) throw new HttpError(400, "This resource isn't on loan: it already sits with its owning unit.");
+  const lender = await mayWrite(actorId, [itemId]);
+  const borrower = !lender && (await scope.custodyItemIdsOf(actorId)).includes(itemId);
+  if (!lender && !borrower) throw new HttpError(403, "Only its own custodian (to ask for it back) or the custodian of the place holding it (to return it) can send it home.");
+
+  const [loan] = await prisma.$queryRaw<{ snapshot: Prisma.JsonValue }[]>`
+    SELECT "structuralSnapshot" AS snapshot FROM "ChangeRequest"
+    WHERE status = 'APPLIED' AND (payload->'itemIds') @> jsonb_build_array(${itemId}::text)
+    ORDER BY "createdAt" DESC LIMIT 1
+  `;
+  const fromParent = (loan?.snapshot as Record<string, { parentId?: string | null }> | null)?.[itemId]?.parentId ?? null;
+  const origin = fromParent
+    ? await prisma.item.findFirst({ where: { id: fromParent, deletedAt: null, currentOrgNodeId: item.ownerOrgNodeId }, select: { id: true, name: true } })
+    : null;
+  const places = await prisma.item.findMany({
+    where: { parentId: null, deletedAt: null, currentOrgNodeId: item.ownerOrgNodeId, category: { isPlace: true } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  const options = origin && !places.some((p) => p.id === origin.id) ? [origin, ...places] : places;
+  return { suggested: origin, options, side: lender ? "LENDER" : "BORROWER" };
+}

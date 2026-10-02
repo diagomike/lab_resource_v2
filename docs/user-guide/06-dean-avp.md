@@ -20,6 +20,8 @@ Anything waiting for you sits above it as small cards (*2 Outside requests*, *1 
 
 ![The AVP's Home: Insights, with what waits for you above](img/approvers/00-avp-home.jpg)
 
+> Deans, the AVP and the CMD approve; they don't run labs, book rooms or manage people. Those belong to department heads, the ADAA and Property Administration.
+
 ## 1. Purchase requests
 
 A department head compiles a request, and it climbs the chain: **head → dean → College Managing Director → AVP → Procurement Office**. When it reaches your step, you get an email ("PR-2026-… is waiting for your approval"), and it appears in **Approvals → Waiting for me**. The CMD decides after the dean and before the AVP; the AVP's approval is the last before the order goes to Procurement.

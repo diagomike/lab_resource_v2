@@ -14,6 +14,7 @@ import { StatusChip } from "./StatusChip";
 import { ItemImageGallery } from "./ItemImages";
 import { TransferModal } from "./TransferModal";
 import { PullTransferModal } from "./PullTransferModal";
+import { ReturnToOwnerModal } from "./ReturnToOwnerModal";
 import Link from "next/link";
 import { usePendingMarkers } from "@/lib/register/usePendingMarkers";
 import { ChangeModal } from "./ChangeModal";
@@ -84,6 +85,7 @@ export function Inspector({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [pullOpen, setPullOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
   /** Set when this panel's own last edit went into the lab's Draft (the department
    *  uses drafts) instead of the register. */
@@ -91,6 +93,7 @@ export function Inspector({
   const { markers, refresh: refreshMarkers } = usePendingMarkers();
   const { user } = useAuth();
   const canHandOver = Boolean(user?.roles.some((r) => r === "STORE_KEEPER" || r === "SYS_ADMIN"));
+  const isPropertyAdmin = Boolean(user?.roles.includes("PROPERTY_ADMIN"));
 
   /** `quiet` — a refresh after this panel's own save: keep showing the current item
    *  until the new one arrives instead of blanking to a skeleton (the "whole page
@@ -307,6 +310,12 @@ export function Inspector({
                 <span className="text-11 text-faint">Held by {item.custodianName} · {item.ownerOrgNodeName}</span>
               </div>
             )}
+            {isPropertyAdmin && item.parentId !== null && (
+              <div className="pt-4 border-t border-border flex items-center gap-8">
+                <Button onClick={() => setChangeOpen(true)}>Change custody or unit…</Button>
+                <span className="text-11 text-faint">Property Administration&apos;s records: who answers for it, who owns it, who holds it.</span>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -352,7 +361,7 @@ export function Inspector({
             )}
             {stagedIn && (
               <div className="text-11 bg-soft border border-accent rounded-2 px-8 py-6">
-                Added to <strong>{stagedIn.labName}</strong>&apos;s changes (not sent yet). The register changes once the department head approves.{" "}
+                Added to <strong>{stagedIn.labName}</strong>&apos;s changes (not sent yet). The register changes once they are approved.{" "}
                 <Link href={`/places/${stagedIn.labItemId}?tab=draft&item=${item.id}`} className="text-accent hover:underline">
                   Review and send →
                 </Link>
@@ -412,7 +421,7 @@ export function Inspector({
                   </span>
                 </EditField>
               </div>
-              <p className="text-11 text-faint mt-6">Use "Change this…" below to hand off custody, ownership, current unit or position.</p>
+              <p className="text-11 text-faint mt-6">Custody and units are Property Administration&apos;s records. To move something elsewhere, use &quot;Move to another place…&quot; or ask for it with &quot;Request to my lab&quot;.</p>
             </div>
 
             {category && category.fields.length > 0 && (
@@ -545,18 +554,12 @@ export function Inspector({
                 Change this…
               </Button>
               {canHandOver && <Button onClick={() => setTransferOpen(true)}>Move to another place…</Button>}
-              {/* On loan (owner ≠ current unit) and this account is its own custodian —
-                  the lender's side of the 2026-09-20 return flow (F-039). Reuses the
-                  same PullTransferModal/`/resources/transfers` call the pull button
-                  does: the server tells the two apart structurally (destination lands
-                  back inside the item's own owning unit), no separate endpoint needed.
-                  The host's own side of a return is server-supported already but has
-                  no destination picker here yet — a disclosed UI trim, not a gap: the
-                  host cannot write anywhere in the owner's unit, so this same
-                  container picker (scoped to what the ACTOR may write) would show
-                  nothing useful for them regardless. */}
-              {item.ownerOrgNodeId !== item.currentOrgNodeId && item.custodianId === user?.id && (
-                <Button onClick={() => setPullOpen(true)}>Return to owner…</Button>
+              {/* On loan (owner ≠ current unit): its own custodian asks for it back; the
+                  custodian of the place holding it returns it on their own (F-039, and
+                  2026-10-02). The server tells the two sides apart and builds the chain;
+                  the modal offers the place it came from first. */}
+              {item.ownerOrgNodeId !== item.currentOrgNodeId && (
+                <Button onClick={() => setReturnOpen(true)}>{item.custodianId === user?.id ? "Ask for it back…" : "Return to owner…"}</Button>
               )}
             </div>
           </>
@@ -573,6 +576,18 @@ export function Inspector({
             onChanged();
             refreshMarkers();
             load({ quiet: true });
+          }}
+        />
+      )}
+
+      {returnOpen && item && (
+        <ReturnToOwnerModal
+          itemId={item.id}
+          label={`"${item.name}"`}
+          onClose={() => setReturnOpen(false)}
+          onDone={() => {
+            setReturnOpen(false);
+            onChanged();
           }}
         />
       )}
