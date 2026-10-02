@@ -1,185 +1,139 @@
 # Department head
 
-*You head a department. You don't edit resources yourself: your custodians do. You **approve** what they propose, turn the department's needs into **purchase requests**, and look after your **people**.* Most heads are also staff, so the [Staff chapter](04-staff.md) applies too.
+*You head a department. Your custodians keep the labs' records; you **approve** their changes, decide **which labs exist and who runs them**, turn the labs' needs into **purchase requests**, look after your department's **categories**, and your **people**.*
 
 Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.md) first.
 
 | Task | Section |
 |---|---|
-| See your department at a glance | [1. Your dashboard and register](#1-your-dashboard-and-register) |
-| Approve or send back a lab's update or ideal | [2. Decide lab updates and ideals](#2-decide-lab-updates-and-ideals) |
-| See who changed what | [3. The change log](#3-the-change-log) |
-| Answer the department's needs | [4. Open needs](#4-open-needs) |
-| Compile a purchase request | [5. Compile a purchase request](#5-compile-a-purchase-request) |
-| Withdraw a request | [6. Withdraw a request](#6-withdraw-a-request) |
-| Invite someone, or help them sign in | [7. Your people](#7-your-people) |
-| Revise a request that was sent back | [8. When a request is sent back](#8-when-a-request-is-sent-back) |
-| Approve new stock for your labs | [9. Approve a handover](#9-approve-a-handover) |
-| Answer an outside institution's request | [10. External requests](#10-external-requests) |
-
+| See what's waiting for you | [1. Your Home](#1-your-home) |
+| Approve or send back a lab's changes | [2. Decide lab changes](#2-decide-lab-changes) |
+| Add a lab, change who runs it | [3. Labs & stores](#3-labs--stores) |
+| Answer the labs' needs | [4. The labs' needs](#4-the-labs-needs) |
+| Build a purchase request | [5. Build a purchase request](#5-build-a-purchase-request) |
+| A request was sent back | [6. When a request is sent back](#6-when-a-request-is-sent-back) |
+| Decide moves into or out of your department | [7. Moves and handovers](#7-moves-and-handovers) |
+| Approve changes to your department's categories | [8. Categories](#8-categories) |
+| Invite someone, or help them sign in | [9. Your people](#9-your-people) |
+| See who changed what; your department in charts | [10. History and Insights](#10-history-and-insights) |
+| Answer an outside institution's request | [11. Outside requests](#11-outside-requests) |
 
 ---
 
-## 1. Your dashboard and register
+## 1. Your Home
 
-**Dashboard** shows your whole department: every lab, its condition and where the problems are. The scope panel (1) reads **My unit and below**.
+**Home** puts what waits for you first: labs' changes to approve, transfers, purchase requests, category changes, and **needs to build into a purchase request**. The **Next step** banner points at the one that has waited longest. **At a glance** shows your department: how many labs and items, how many work, and how many need attention.
 
-![Dashboard — your department](img/head/01-dashboard.jpg)
+![Your Home](img/head/01-home.jpg)
 
-**Register** shows every lab in your department, read-only for you: there is no **Add resources**, no **Change this…** and no bulk bar. Your custodians keep the records, and you approve them.
+## 2. Decide lab changes
 
-![The register, read-only](img/head/15-register-read-only.jpg)
+When a custodian sends a lab's changes, you're told, and they appear in **Approvals → Waiting for me** (and on **Home**). The card lists exactly what they change: *Monitor in Workstation 03 › Computer · Status: Working → Broken*, with the custodian's reasons.
 
-## 2. Decide lab updates and ideals
+![Lab changes waiting for you](img/head/02-lab-changes.jpg)
 
-When a custodian submits a lab's **Draft** (an update of what broke, was renamed, added or removed) or an **Ideal** proposal (what the lab should hold), it comes to you.
+- **Approve** applies every change at once, credited to the custodian. If anything in the register changed since they started, nothing is applied, and it goes back to them as **couldn't be applied**.
+- **Send back**, with a reason. The custodian sees it on the lab, changes what you asked, and sends again. Nothing in the register changes.
 
-1. Open **Lab states**. Each lab shows what is waiting: **draft submitted**, **ideal submitted**, **ideal set**, **no ideal**.
+> **Good to know:** only a lab's own department head decides its changes. Use the kind chips (**Lab changes**, **Transfers**, **Purchases**…) at the top of **Approvals** to see one kind at a time.
 
-![Lab states: every lab, with what is waiting](img/head/02-lab-states-pending.jpg)
+## 3. Labs & stores
 
-2. Or open **Approvals → Lab commits** to see everything waiting on you in one place. Each card lists exactly what it changes: *Monitor in Workstation 03 › Computer · Status: Working → Broken*, with the custodian's reason in quotes.
+Your department's labs are yours to manage. Open **Labs & stores**: every lab and store your department owns, with its custodian, block and room, seats, whether it can be booked, how many items it holds and how many need attention.
 
-![Lab commits waiting for you](img/head/03-approvals-lab-commits.jpg)
+![Labs & stores](img/head/03-labs.jpg)
 
-### Send it back
+**Add a lab.**
 
-If something isn't right, click **Send back** and give a reason. The custodian sees it on the draft, revises and resubmits. Nothing in the register changes.
+1. Click **+ Add a lab or store**.
+2. Choose **What kind of place** (Lab, Workshop, Studio, Store) and who it **Belongs to** (your department).
+3. Give its **Name** and details: **Block**, **Room**, **Seats**, **Purpose**.
+4. Choose **Who runs it (its custodian)** from your department's custodians.
+5. Save. The custodian is told, and records what it holds.
 
-![Send back with a reason](img/head/04-send-back.jpg)
+![Add a lab](img/head/04-add-lab.jpg)
 
-### Approve
+**On a lab's page:**
 
-1. Click **Approve** on the card.
+- **Edit name and details** changes its name, block, room, seats or purpose;
+- **Change who runs it** hands the lab, and everything in it, to another custodian. Both of them are told; add a reason if you like. A lab with changes waiting for you must be decided first;
+- **Remove** is offered only for an empty lab.
 
-   ![Approve the ideal](img/head/05-approve-ideal.jpg)
+## 4. The labs' needs
 
-2. Confirm. You can add an optional note.
+Your custodians ask for what their labs need (**Ask for something**). Needs aren't purchases: they wait for you. Open **Purchasing → Lab needs**. **The labs' needs** lists them **by lab**, essential needs first, each with who asked, how many, how much it matters, the specification and why.
 
-   ![Confirm](img/head/06-approve-ideal-confirm.jpg)
+![The labs' needs](img/head/05-needs.jpg)
 
-- **An approved Draft** applies to the live register in one step, **credited to the custodian**. If anything in the register changed since the draft was copied, nothing is applied, and it goes back to the custodian as **stale**.
-- **An approved Ideal** becomes the lab's target. The lab's badge reads **ideal set**, and purchasing now measures the lab against it. The register itself doesn't change.
+- Tick the needs to buy, then **Build a request from N needs** (section 5).
+- **Decline**, with a reason (*not this budget year*). The custodian is told why.
 
-![Approve the revised draft](img/head/07-approve-draft.jpg)
+**Broken or lost — not asked for yet** shows what is broken or lost in your labs that nobody has asked to replace, so nothing gets forgotten.
 
-![After approval: ideal set](img/head/08-lab-states-after.jpg)
+## 5. Build a purchase request
 
-> **Good to know:** only a lab's own department head decides its drafts and ideals. Another manager can't, and neither can the dean.
+1. From the needs (section 4), or **Purchasing → Requests → Build a purchase request**.
+2. The request opens already filled: a **Title**, and one line per kind of item, with quantities added up across the needs you chose and a justification naming the labs (*Chair × 13 — Software Laboratory — B508-R13 (13): 13 Chair items: all broken*). Edit anything; **+ Add a line** for something else.
+3. Under **Supporting documents**, attach the scanned approval minutes, letters of authority or quotations (PDF, a photo or scan, or .xlsx; up to 4 MB each).
+4. Click **Send for approval**. The request gets a reference (**PR-2026-…**) and starts its chain: **dean → College Managing Director → AVP → Procurement Office**. Your own step is done by sending it.
 
-## 3. The change log
+![The request, filled from the labs' needs](img/head/06-build.jpg)
 
-**Change log** lists every applied change in your department: when, which item, what changed from and to, **by whom** and **why**. Edits from an approved draft appear under the **custodian's** name, with the reason they gave.
-
-![Change log — credited to the custodian](img/head/09-change-log.jpg)
-
-## 4. Open needs
-
-Anyone in your department (staff, custodians) can **raise a need**: "a projector for B510-R8". Needs aren't purchases. They wait for you.
-
-1. Open **Purchasing**. Under **Compile a purchase request**, **Open needs in this unit** lists each need with who raised it, when and why.
-
-![Open needs in your unit](img/head/10-open-needs.jpg)
-
-2. For each one:
-   - **Add to request** carries it into the request you're compiling (section 5). The person who raised it can then follow the request.
-   - **Decline…** asks for a reason, which the person who raised it sees, then **Decline need**.
-
-![Decline with a reason](img/head/11-decline-need.jpg)
-
-## 5. Compile a purchase request
-
-1. In **Purchasing → Compile a purchase request**, give it a **Title**.
-2. Click **Compute from labs' ideal vs current**. For every category your labs' approved ideals include, you see:
-   - **Ideal** and **Current**;
-   - **Gap**;
-   - **Not working**;
-   - **To buy**: exactly what the next step will order. It never counts a part twice: a missing workstation is one *Workstation Setup*, and its computer, monitor and parts come with it. Replacements are for items that failed themselves (broken or lost). An impaired computer is mended by replacing its broken part.
-   - **By lab**: open it to see which labs are short.
-
-![Purchasables: what your labs need](img/head/12-purchasables.jpg)
-
-3. Leave **Include replacements for items that are broken or lost** ticked (or untick it), then click **Fill request lines**.
-4. Check and edit the lines: name, quantity, unit, category, an estimated unit cost, and justification. Each line's justification already explains itself: ideal vs current, and which labs need it (all of them by name when there are a few, the largest three when there are many). Use **+ Add line** for anything else, and **Add to request** for open needs.
-
-![Request lines, filled — edit before submitting](img/head/13-request-lines.jpg)
-
-5. Under **Supporting documents**, click **Attach minutes or letters** and choose the scanned approval minutes, stamped letters of authority, quotations, and so on. Each file uploads as soon as you choose it; click **×** to remove one before you submit. See [Attaching documents](#attaching-documents) for what's accepted.
-6. Click **Submit for approval**. The request gets a reference (**PR-2026-…**) and starts its chain: **your step is already done** (you raised it) → **dean** → **AVP** → **College Managing Director** → **Procurement Office**. Each card shows who it's waiting on.
-
-![Submitted: the approval chain](img/head/14-request-submitted.jpg)
+**Your requests** shows where each one is (*Awaiting approval — waiting on CoEEC Dean*), and the order stages after approval. The custodians whose needs you carried can follow it too.
 
 > **Good to know**
-> - Serialized items (computers, chairs…) are ordered in whole units. A quantity like 2.5 is refused.
-> - Anyone in your department can follow the request's stage. Only roles that may see costs see the estimated costs.
+> - Items counted one by one (computers, chairs…) are ordered in whole units.
+> - While a request is being approved, **Withdraw this request** stops it, and its needs reopen. Once the order is placed, only procurement can cancel it.
+> - Every file sent with a request stays on its record, visible to everyone who can follow the request.
 
-### Attaching documents
+## 6. When a request is sent back
 
-Every card shows a **Documents** list: each file, who sent it, and with which action (submitting, approving, sending back, rejecting). Anyone who can follow the request can open them; nobody else can, even with the link.
+If an approver sends your request back, you're told, and it shows **Sent back for revision** with their note under **Purchasing → Requests**. Click **Edit & resubmit**, change what was asked, and **Resubmit**. The chain starts again at the dean.
 
-- **Accepted:** PDF; a photo or scan (JPEG, PNG, WebP); an Excel workbook (**.xlsx**). Macro-enabled workbooks (.xlsm), old .xls/.doc files and password-protected files are refused.
-- **Size:** up to **4 MB a file**, **5 files** with one action, and **20 files / 25 MB** on one request over its whole life.
-- **Photos shrink themselves.** A phone photo of a letter is resized and saved as a JPEG before it uploads, usually a few hundred KB.
-- **PDFs don't.** If a scan is over 4 MB, scan again at **150–200 dpi** (grayscale for plain text), or split a long document into parts. A one-page letter at 200 dpi is well under 1 MB.
-- **The same file twice** on one request is refused, even under a different name.
-- **Once sent, a file is part of the request's record** and can't be removed. A file you uploaded but never sent is removed when you cancel the form, or after 12 hours.
-- Emails say which documents came with a request or decision, but don't carry the files: open the request in the app to read them.
+## 7. Moves and handovers
 
-## 6. Withdraw a request
+Moves into or out of your department come to you in **Approvals**:
 
-While a request is still being approved, **Withdraw this request** stops it. It asks you to confirm first, and any needs carried into it reopen, so they can go into another request. Once procurement has placed the order, only procurement can cancel it, with a note.
+- **another unit asks for one of your resources** (a loan or a permanent transfer): you approve as the owning head;
+- **one of your custodians asks for something**: you approve as the receiving head;
+- **the store keeper hands new stock to one of your labs**: you approve first, then Property Administration, then the custodian accepts it;
+- **a custodian returns something to the store**: you approve, then Property Administration, then the store keeper accepts it.
 
-![Withdraw — confirm first](img/head/16-withdraw-request.jpg)
+A **permanent transfer** goes on to the College Managing Director after the heads (and to Property Administration when it crosses colleges); a **loan** ends with you.
 
-## 7. Your people
+Bookings of your labs are decided by each lab's **custodian**, not by you.
+
+## 8. Categories
+
+Categories belong to the department that made them, and you are their head.
+
+- When a custodian **adds a category**, or adds to one, it applies at once, and you're told, with a link. Open it to adjust it, or remove it if it isn't needed.
+- A change that **alters what items already hold** waits for you: **Categories** shows **Waiting for your approval** at the top, and it's in **Approvals** too. The card says what it changes and how many items it reaches. **Approve**, or **Not approved** with a note.
+- Your own changes of that kind apply after the same review.
+- A change that would alter **another department's** items goes on from you to the administrator and Property Administration. Usually a separate category for your department is better: the editor offers **Make a copy for my department**.
+
+## 9. Your people
 
 **People & roles** lists your department's people.
 
-![Your department's people](img/head/17-people.jpg)
+- **Add personnel** invites someone into your department as a **custodian**. They get an email with a registration link, and you get a copyable link in case the email doesn't arrive.
+- **Manage** on a person lets you switch their **email notifications** on or off, and offers **sign-in help**: **Email reset link**, **Set temporary password** (shown once, to give them directly), or **Copy invite link** for someone who hasn't accepted yet.
 
-- **Add personnel** invites someone into your department as a **custodian** or **staff**. They get an email with a registration link, and you get a copyable invite link in case the email doesn't arrive.
+Other roles (another head, the store keeper, procurement, the ADAA) are set by the system administrator.
 
-  ![Invite someone into your department](img/head/18-invite.jpg)
+## 10. History and Insights
 
-- **Manage** on a person lets you switch their **email notifications** on or off (the CSE ARAs start with them off), for your department's people only.
-- **Manage** on a person offers **sign-in help**, for your department's people only:
-  - **Email reset link** sends them a password reset;
-  - **Set temporary password** shows a one-time password to give them directly, which they must change at their next sign-in;
-  - **Copy invite link** is for someone who hasn't accepted yet.
+**History** lists every applied change in your department: when, which item, what changed from and to, **by whom** and **why**. Changes you approved appear under the **custodian's** name, with their reasons.
 
-Roles beyond custodian and staff, such as another head, the store keeper or procurement, are set by the system administrator.
+**Insights** shows the condition of everything in your department, in charts: what works, what doesn't, and where the problems are.
 
-## 8. When a request is sent back
+## 11. Outside requests
 
-If an approver (the dean, say) sends your request back, it shows **Sent back for revision**, with their note, in **Purchasing → My requests**.
+When your dean sends an outside institution's request to your department, you're told, and it appears in **Outside requests**, with what they asked for (rooms, or a sample analysis on a machine) and on which dates.
 
-![Sent back for revision](img/head/19-sent-back.jpg)
-
-Click **Edit & resubmit**, change what was asked (lines, quantities, justifications), attach anything that was asked for (the documents already on the request stay), then **Resubmit**. The chain starts again at the dean, and the history keeps the note and your revision.
-
-![Edit and resubmit](img/head/20-revise.jpg)
-
-## 9. Approve a handover
-
-When the store keeper hands stock over to one of your labs (after a purchase arrives, for example), or issues something to one of your staff, you approve it first. Then Property Administration approves it, and the lab's custodian (or the member of staff) accepts it. Things issued to your staff sit in your department's **Staff holdings**, which you answer for; you can send them back to the store with **Return to store…** in the Register. Open **Approvals → Transfers**. The card names the items and the destination lab.
-
-![A handover into your department](img/head/21-approve-handover.jpg)
-
-**Approve**, or **Reject** with a reason. Nothing moves until everyone on the chain has said yes.
-
-Transfers between units come to you too: as the owning head when another unit asks for one of your resources, and as the receiving head when one of your custodians asks for something. A **permanent transfer** goes on to the College Managing Director after the heads (and to Property Administration when it crosses colleges); a **loan** ends with you.
-
-Bookings of your labs are decided by each lab's **custodian**, not by you. You can see them, but they don't wait on you.
-
-## 10. External requests
-
-When your dean sends an outside institution's request to your department, you are emailed and it appears in **External requests**, with what they asked for (rooms or labs, or a sample analysis on a machine) and on which dates.
-
-1. Click **Ask custodians…** on your department's line. Say what each custodian should hold — "B510-R8, mornings", "the XRD" — for as many labs as it takes. Leave the others empty. They're emailed.
-2. Each custodian holds slots and reports back (**Held** or **Can't**, with a reason). The line shows how many slots each has held.
-3. When everyone has answered, click **Send to the dean…** and give:
-   - a link to your **cost breakdown** (a spreadsheet) and **your department's amount** in ETB;
-   - the **contact persons** the requester should call once they have paid — name, role, phone (and email). The requester sees them only after the AVP confirms the payment.
+1. Click **Ask custodians…** on your department's line. Say what each custodian should hold: "B510-R8, mornings", "the XRD".
+2. Each custodian holds slots and reports back (**Held** or **Can't**, with a reason).
+3. When everyone has answered, click **Send to the dean…** with a link to your **cost breakdown**, **your department's amount** in ETB, and the **contact persons** the requester should call once they have paid.
 4. Or **Decline…**, with a reason, if your department can't host it; anything held for it is released.
 
-The dean approves your answer or sends it back with a note (then answer again). The dean sends the college's answer to the AVP, who quotes the requester. Once the payment is confirmed, the held slots become bookings and you're told.
+The dean approves your answer or sends it back with a note. Once the payment is confirmed, the held slots become bookings and you're told.

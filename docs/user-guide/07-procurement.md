@@ -2,7 +2,7 @@
 
 *You run the Procurement Office.* Every purchase request ends its approval chain with you. After your approval you own the order: you place it, find the supplier, and follow it until it reaches the Main Store.
 
-Read [Getting started](00-getting-started.md) first. Your **scope is university-wide**, so the **Dashboard** and **Register** (its **Whole university** view) cover every unit.
+Read [Getting started](00-getting-started.md) first. Your **scope is university-wide**, so **Resources** covers every unit.
 
 | Task | Section |
 |---|---|
@@ -15,15 +15,15 @@ Read [Getting started](00-getting-started.md) first. Your **scope is university-
 
 ## 1. Approve a request
 
-A request reaches you after the head, the dean, the College Managing Director and the AVP. It appears in **Approvals → Purchasing**, the same card the other approvers see ([Dean, AVP and CMD](06-dean-avp.md#1-purchase-requests)). **Approve** (with a note), **Reject** or **Send back for revision**.
+A request reaches you after the head, the dean, the College Managing Director and the AVP. It appears in **Approvals**, the same card the other approvers see ([Dean, AVP and CMD](06-dean-avp.md#1-purchase-requests)). **Approve** (with a note), **Reject** or **Send back for revision**.
 
 ![Approve, with a note](img/approvers/05-procurement-approve.jpg)
 
-Your approval completes the chain. The request moves to **Order placed on EGP** and appears in your **Pipeline**.
+Your approval completes the chain. The request moves to **Order placed on EGP** and appears under **On order** in **Purchasing → Requests**.
 
 ## 2. Your pipeline
 
-**Purchasing → Pipeline** lists every approved order that hasn't reached the store yet.
+**Purchasing → Requests → On order — where each one is** lists every approved order that hasn't reached the store yet.
 
 ![Your pipeline: an order to move along](img/procurement/01-pipeline.jpg)
 
@@ -38,14 +38,13 @@ Each card shows the current stage and what it means ("Procurement has placed the
 
 ![Advance, with a note](img/procurement/02-advance.jpg)
 
-Every stage is timestamped in the request's history with your note: "Supplier selected on EGP: …", "Dispatched from Addis; expected in 5 days." The department and its staff follow along on their **Purchase request status**. They see stages, not costs.
+Every stage is timestamped in the request's history with your note: "Supplier selected on EGP: …", "Dispatched from Addis; expected in 5 days." The department and its custodians follow along on their **Purchasing → Requests**. They see stages, not costs.
 
 ## 3. Cancel an order
 
-Once an order has been placed, only procurement can cancel it. Use **Cancel this order…** on the pipeline card, and give a note: it's required, because the department needs to know why. You can attach the letter behind it too (the supplier's withdrawal, say). Any needs carried into the request reopen for the department.
+Once an order has been placed, only procurement can cancel it. Use **Cancel this order…** on the order's card, and give a note: it's required, because the department needs to know why. You can attach the letter behind it too (the supplier's withdrawal, say). Any needs carried into the request reopen for the department.
 
 ## 4. University-wide view
 
-Your dashboard covers every department, office and store: useful for seeing what's broken across campus before a purchasing round.
+**Resources → Whole university**, filtered by **Status**, shows what is broken across campus before a purchasing round; **Export** saves it as a spreadsheet.
 
-![University-wide dashboard](img/procurement/03-dashboard.jpg)

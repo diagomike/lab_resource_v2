@@ -2,19 +2,19 @@
 
 *You are a college dean, the Academic Vice President (AVP), or the College Managing Director (CMD).* Purchase requests pass through your step in their approval chain: a dean's for their college's departments, the CMD's and the AVP's for every department. The **CMD** also approves every **permanent transfer** of a resource from one unit to another. Requests from **outside institutions** come down the same line: the AVP sends them to colleges, each dean to departments, and the answers come back up the same way.
 
-Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.md) first. Like everyone, you can browse the **Dashboard** and the **Register** (switch it to **Whole university** to look beyond your own units). The dean sees their college, the AVP the whole university. The CMD's office sits beside the AVP's and Procurement's on the org chart, so their work happens in **Approvals**.
+Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.md) first. Like everyone, you can browse **Resources** (switch it to **Whole university** to look beyond your own units) and **Insights**. The dean sees their college, the AVP the whole university. The CMD's office sits beside the AVP's and Procurement's on the org chart, so their work happens in **Approvals**.
 
 | Task | Section |
 |---|---|
 | Approve, reject or send back a purchase request | [1. Purchase requests](#1-purchase-requests) |
 | *(CMD)* Approve a permanent transfer | [2. Permanent transfers (CMD)](#2-permanent-transfers-cmd) |
-| Handle an outside institution's request | [3. External requests](#3-external-requests) |
+| Handle an outside institution's request | [3. Outside requests](#3-outside-requests) |
 
 ---
 
 ## 1. Purchase requests
 
-A department head compiles a request, and it climbs the chain: **head → dean → College Managing Director → AVP → Procurement Office**. When it reaches your step, you get an email ("PR-2026-… is waiting for your approval"), and it appears in **Approvals → Purchasing** under **Routed to me**. The CMD decides after the dean and before the AVP; the AVP's approval is the last before the order goes to Procurement.
+A department head compiles a request, and it climbs the chain: **head → dean → College Managing Director → AVP → Procurement Office**. When it reaches your step, you get an email ("PR-2026-… is waiting for your approval"), and it appears in **Approvals → Waiting for me**. The CMD decides after the dean and before the AVP; the AVP's approval is the last before the order goes to Procurement.
 
 ![A purchase request waiting for you](img/approvers/01-purchase-card.jpg)
 
@@ -37,7 +37,7 @@ Sending back, with a note:
 
 ![Send back for revision, with a note](img/approvers/02-send-back.jpg)
 
-Each answer's dialog also has **Attach** (minutes or a letter). Use it to send the document you're relying on with your decision: approving minutes, say, or when rejecting, the letter or circular that sets the constraint the request doesn't meet. It stays on the request's **Documents** with your name and decision, and the head's email lists it. Files follow the same rules as the head's ([Attaching documents](03-department-head.md#attaching-documents)): PDF, photo or scan, or .xlsx, up to 4 MB each and 5 at a time.
+Each answer's dialog also has **Attach** (minutes or a letter). Use it to send the document you're relying on with your decision: approving minutes, say, or when rejecting, the letter or circular that sets the constraint the request doesn't meet. It stays on the request's **Documents** with your name and decision, and the head's email lists it. Files follow the same rules as the head's ([Attaching documents](03-department-head.md#5-build-a-purchase-request)): PDF, photo or scan, or .xlsx, up to 4 MB each and 5 at a time.
 
 > **Good to know**
 > - Only the person holding the step decides it, and only in turn: the AVP can't approve before the CMD has. If a post is vacant, the chain shows *(vacant)* until the administrator assigns someone.
@@ -46,11 +46,11 @@ Each answer's dialog also has **Attach** (minutes or a letter). Use it to send t
 
 ## 2. Permanent transfers (CMD)
 
-A custodian who asks for another unit's resource chooses **Loan** (it stays the other unit's) or **Permanent transfer** (it becomes their unit's, in their custody). A permanent transfer always comes to you after both department heads; when it leaves its college, **Property Administration** approves after you. It appears in **Approvals → Transfers**, titled *Permanent transfer: …*, with the whole chain on the card. **Approve** moves it on; **Reject** ends it with your reason. Loans never come to you.
+A custodian who asks for another unit's resource chooses **Loan** (it stays the other unit's) or **Permanent transfer** (it becomes their unit's, in their custody). A permanent transfer always comes to you after both department heads; when it leaves its college, **Property Administration** approves after you. It appears in **Approvals**, titled *Permanent transfer: …*, with the whole chain on the card. **Approve** moves it on; **Reject** ends it with your reason. Loans never come to you.
 
-## 3. External requests
+## 3. Outside requests
 
-Outside institutions sign up on the portal and ask for **rooms or labs** (a workshop, a training) or a **sample analysis** on one of the university's machines ([Public portal chapter](11-external-portal.md)). Each request travels the university's line of communication and back. **External requests** shows the request (the institution, contact, dates, purpose, what they need, the samples, the **official letter**) and, under **Line of communication**, every college and department on it with its status and what it has answered.
+Outside institutions sign up on the portal and ask for **rooms or labs** (a workshop, a training) or a **sample analysis** on one of the university's machines ([Public portal chapter](11-external-portal.md)). Each request travels the university's line of communication and back. **Outside requests** shows the request (the institution, contact, dates, purpose, what they need, the samples, the **official letter**) and, under **Line of communication**, every college and department on it with its status and what it has answered.
 
 ![An outside institution's request](img/approvers/06-external-request.jpg)
 

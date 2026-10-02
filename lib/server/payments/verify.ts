@@ -12,6 +12,7 @@ import { PAYABLE, actorOf, avpUserId, event, getForActor, isAvp, paidSantimOf, r
 import { esc, etb, mailRequester, mailStaff, portalUrl } from "../external/mail";
 import { enabledProviders, receiverConfig } from "./config";
 import { verifier, type Receipt } from "./verifier";
+import { paths } from "@/lib/paths";
 
 /**
  * Track 8 — payment verification and confirmation
@@ -191,7 +192,7 @@ async function submitForReview(requestId: string, requestRef: string, claimKey: 
   const avp = await avpUserId();
   if (avp) {
     const to = await prisma.user.findUnique({ where: { id: avp }, select: { email: true } });
-    await mailStaff(to?.email, `Payment to check for ${requestRef}`, [`The requester says they paid ${esc(etb(input.amountSantim))} through ${esc(PROVIDER_INPUT[input.provider].label)}, reference ${esc(reference)}, and asked for it to be checked by hand.`], "/external-requests");
+    await mailStaff(to?.email, `Payment to check for ${requestRef}`, [`The requester says they paid ${esc(etb(input.amountSantim))} through ${esc(PROVIDER_INPUT[input.provider].label)}, reference ${esc(reference)}, and asked for it to be checked by hand.`], paths.outside(requestId));
   }
   return { outcome: "PENDING_REVIEW", reason: null, unavailable: false, tracking: await requesterView(requestId) };
 }
@@ -266,7 +267,7 @@ async function afterPayment(requestId: string, status: ExternalRequestStatus, am
     ], { href: portalUrl(requestId), label: "View your request" });
     const avp = await avpUserId();
     const to = avp ? await prisma.user.findUnique({ where: { id: avp }, select: { email: true } }) : null;
-    await mailStaff(to?.email, `${row.reference} is paid — confirm the payment`, [`${esc(row.organizationName)} has paid ${esc(etb(paid))}. Check the receipt, then confirm the payment: that books the held slots and gives them their contact persons.`], "/external-requests");
+    await mailStaff(to?.email, `${row.reference} is paid — confirm the payment`, [`${esc(row.organizationName)} has paid ${esc(etb(paid))}. Check the receipt, then confirm the payment: that books the held slots and gives them their contact persons.`], paths.outside(row.id));
     return;
   }
   await mailRequester(await requesterEmail(row), `Payment received for ${row.reference}`, [
@@ -397,7 +398,7 @@ async function mailConfirmation(requestId: string, outcome: Confirmation, lineag
     ]);
     const avp = await avpUserId();
     const to = avp ? await prisma.user.findUnique({ where: { id: avp }, select: { email: true } }) : null;
-    await mailStaff(to?.email, `${row.reference} is paid but a slot was lost`, [outcome.conflicts.map(esc).join("<br>"), "Have a custodian hold a replacement slot, then confirm the booking again — or decline and arrange a refund."], "/external-requests");
+    await mailStaff(to?.email, `${row.reference} is paid but a slot was lost`, [outcome.conflicts.map(esc).join("<br>"), "Have a custodian hold a replacement slot, then confirm the booking again — or decline and arrange a refund."], paths.outside(row.id));
   }
 
   // Each lab's custodian (the nearest one up the tree), once, with that lab's slots.
@@ -411,18 +412,22 @@ async function mailConfirmation(requestId: string, outcome: Confirmation, lineag
     }
     return null;
   };
-  const byCustodian = new Map<string, string[]>();
+  // Each custodian's notice opens the calendar of (the first of) their labs it booked.
+  const byCustodian = new Map<string, { labItemId: string; lines: string[] }>();
   for (const c of outcome.confirmed) {
     const custodian = custodianOf(c.labItemId);
-    if (custodian) byCustodian.set(custodian, [...(byCustodian.get(custodian) ?? []), `${esc(c.labName)} · ${esc(c.when)}`]);
+    if (!custodian) continue;
+    const entry = byCustodian.get(custodian) ?? { labItemId: c.labItemId, lines: [] };
+    entry.lines.push(`${esc(c.labName)} · ${esc(c.when)}`);
+    byCustodian.set(custodian, entry);
   }
-  for (const [custodianId, lines] of byCustodian) {
+  for (const [custodianId, { labItemId, lines }] of byCustodian) {
     const user = await prisma.user.findUnique({ where: { id: custodianId }, select: { email: true } });
-    await mailStaff(user?.email, `Booking confirmed on your calendar — ${row.reference}`, [`${esc(row.organizationName)} has paid. These slots are now confirmed bookings:`, lines.join("<br>")], "/schedule");
+    await mailStaff(user?.email, `Booking confirmed on your calendar — ${row.reference}`, [`${esc(row.organizationName)} has paid. These slots are now confirmed bookings:`, lines.join("<br>")], paths.calendar(labItemId));
   }
   if (outcome.scheduled) {
     for (const a of row.assignments) {
-      await mailStaff(a.orgNode.user?.email, `${row.reference} is paid and booked`, [`${esc(row.organizationName)} has paid ${esc(etb(row.quoteAmountSantim ?? 0))}; the held slots are now confirmed bookings.`], "/external-requests");
+      await mailStaff(a.orgNode.user?.email, `${row.reference} is paid and booked`, [`${esc(row.organizationName)} has paid ${esc(etb(row.quoteAmountSantim ?? 0))}; the held slots are now confirmed bookings.`], paths.outside(row.id));
     }
   }
 }

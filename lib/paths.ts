@@ -17,6 +17,8 @@ export const paths = {
   arrivals: () => "/purchasing?tab=arrivals",
   requests: () => "/purchasing?tab=requests",
   calendar: (labId: string) => `/schedule?lab=${labId}`,
+  /** An outside institution's request, opened on Outside requests. */
+  outside: (requestId: string) => `/external-requests?focus=${requestId}`,
   home: () => "/home",
 };
 

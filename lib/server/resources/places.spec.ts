@@ -107,6 +107,25 @@ afterAll(async () => {
 
 const newLab = (name: string, ownerOrgNodeId = deptId, custodian = custodianId) => ({ categoryId: labCat, name, ownerOrgNodeId, custodianId: custodian, props: { room: "B510-R8" } });
 
+describe("the ADAA's reach", () => {
+  it("is the whole college — not just the ADAA office they sit in", async () => {
+    const orgScope = await import("../org/scope");
+    const officeId = await makeNode("adaa-office", "OFFICE", 2, collegeId);
+    const officeAdaa = await makeUser("adaa-in-office", ["ADAA"], officeId);
+    await prisma.orgNode.update({ where: { id: officeId }, data: { userId: officeAdaa } });
+    try {
+      for (const who of [adaaId, officeAdaa]) {
+        const seen = await orgScope.visibleNodeIds(who);
+        expect(seen).toEqual(expect.arrayContaining([collegeId, deptId]));
+        expect(seen).not.toContain(otherDeptId);
+        expect(await orgScope.ownNodeId(who)).toBe(collegeId);
+      }
+    } finally {
+      await prisma.orgNode.update({ where: { id: officeId }, data: { userId: null } });
+    }
+  });
+});
+
 describe("who creates labs and stores", () => {
   it("the department's head creates a lab and assigns its custodian, who is told", async () => {
     const mark = sent.length;

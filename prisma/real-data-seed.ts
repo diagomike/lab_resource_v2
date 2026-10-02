@@ -123,7 +123,7 @@ export const REAL_CATEGORY_SPECS: CategorySpec[] = [
     key: "expired-chemical-container",
     name: "Chemical Container (Expired Inventory)",
     iconKey: "TestTubes",
-    group: "Chemical",
+    group: "Chemicals & consumables",
     countingMode: "BULK",
     unit: "containers",
     impairRule: "ANY_CRITICAL",

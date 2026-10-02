@@ -36,15 +36,20 @@ describe("Help: who reads which chapter", () => {
     expect(roleChapters(me(["MANAGER"], { kind: "OFFICE", code: "CMD" }))).toEqual(["dean-avp"]);
   });
 
-  it("the offices, the ICT post, and the admin", () => {
+  it("the ADAA, the offices, and the admin", () => {
+    expect(roleChapters(me(["ADAA"], { kind: "OFFICE", code: "ADAA-COEEC" }))).toEqual(["adaa"]);
     expect(roleChapters(me(["PROCUREMENT"], { kind: "OFFICE", code: "PROC" }))).toEqual(["procurement"]);
     expect(roleChapters(me(["STORE_KEEPER"]))).toEqual(["store-keeper"]);
-    expect(roleChapters(me(["MANAGER"], { kind: "OFFICE", code: "ICT" }))).toEqual(["ict-maintenance"]);
+    // An office post with no chapter of its own (the ICT office) reads the general chapters.
+    expect(roleChapters(me(["MANAGER"], { kind: "OFFICE", code: "ICT" }))).toEqual([]);
     expect(helpChaptersFor(me(["SYS_ADMIN"]), ALL).size).toBe(ALL.length);
   });
 
   it("the top-bar Help opens the section for this screen and this role", () => {
-    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["MANAGER"], { kind: "DEPARTMENT" }), ALL))).toBe("/help?c=head#head--5-compile-a-purchase-request");
+    expect(helpHrefFor("/purchasing", helpChaptersFor(me(["MANAGER"], { kind: "DEPARTMENT" }), ALL))).toBe("/help?c=head#head--4-the-labs-needs");
+    expect(helpHrefFor("/places", helpChaptersFor(me(["ADAA"]), ALL))).toBe("/help?c=adaa#adaa--2-labs--stores");
+    expect(helpHrefFor("/places", helpChaptersFor(me(["CUSTODIAN"]), ALL))).toBe("/help?c=custodian#custodian--2-your-labs");
+    expect(helpHrefFor("/home", helpChaptersFor(me(["SYS_ADMIN"]), ALL))).toBe("/help?c=system-admin#system-admin--1-home");
     expect(helpHrefFor("/purchasing", helpChaptersFor(me(["STORE_KEEPER"]), ALL))).toBe("/help?c=store-keeper#store-keeper--1-load-an-import-record");
     expect(helpHrefFor("/approvals", helpChaptersFor(me(["MANAGER"], { kind: "OFFICE", code: "CMD" }), ALL))).toBe("/help?c=dean-avp#dean-avp--1-purchase-requests");
     expect(helpHrefFor("/nowhere", helpChaptersFor(me(["CUSTODIAN"]), ALL))).toBe("/help");

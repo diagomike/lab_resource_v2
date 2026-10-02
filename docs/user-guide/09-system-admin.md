@@ -1,179 +1,100 @@
 # System administrator
 
-*You set LRMS up and keep it running: the org chart, the people and their roles, the categories resources are filed under, and who sees what.* You can also correct any record directly. Your edits apply straight away, even in departments that use drafts.
+*You set LRMS up and keep it running: the organisation, the people and their roles, and the categories resources are filed under.* You can also correct any record directly; your edits apply at once.
 
 Read [Getting started](00-getting-started.md) and [How LRMS thinks](01-concepts.md) first.
 
 | Task | Section |
 |---|---|
-| Where to start | [1. Overview](#1-overview) |
-| Build the org chart | [2. Org structure](#2-org-structure) |
+| Where to start; what's loose | [1. Home](#1-home) |
+| Build the organisation | [2. Organisation](#2-organisation) |
 | Invite people, set roles, help them sign in | [3. People & roles](#3-people--roles) |
 | Define kinds of resources | [4. Categories](#4-categories) |
-| Decide who sees what | [5. Access views](#5-access-views) |
-| Fix a record, audit a change | [6. Corrections and the change log](#6-corrections-and-the-change-log) |
+| Fix a record, audit a change | [5. Corrections and History](#5-corrections-and-history) |
 
 ---
 
-## 1. Overview
+## 1. Home
 
-**Administration → Overview** counts the org nodes, the vacant ones (no head assigned), the people, and those who haven't finished registering. **Get started** lists the four setup steps in the order they depend on each other.
+Your **Home** adds **Loose ends**: posts nobody holds (a department without a head), labs and stores whose custodian can't run them (their account is retired, or they no longer hold the custodian role), people with no role, and invitations not yet accepted. Each line opens the screen where you fix it.
 
-![Administration overview](img/admin/07-overview.jpg)
+![Your Home, with loose ends](img/admin/01-home.jpg)
 
-## 2. Org structure
+## 2. Organisation
 
-**Org structure** draws the reporting hierarchy: university → colleges → departments, and offices such as Procurement, the College Managing Director or ICT Maintenance. Use **Graph** for the map, or **Cards** (easier on a phone).
+**Organisation** draws the structure: the university, its colleges and their departments, and offices such as Procurement, Property Administration, the College Managing Director, ICT and each college's ADAA office. Use **Graph** for the map, or **Cards** (easier on a phone).
 
-> **Two offices the purchase chain looks for.** Purchase requests are routed to the **Procurement Office** (code `PROC`) and, just before it, the **College Managing Director** (code `CMD`). Keep those codes when you rename either office. If the CMD office is **vacant**, requests wait at its step, shown as *(vacant)*, until you assign someone. If it's **deactivated**, new requests skip it and go from the AVP straight to Procurement. Requests already in the chain keep the steps they started with.
+![Organisation](img/admin/02-organisation.jpg)
 
-![Org structure](img/admin/08-org-structure.jpg)
+> **Two offices the purchase chain looks for.** Purchase requests are routed to the **Procurement Office** (code `PROC`) and, before the AVP, the **College Managing Director** (code `CMD`). Keep those codes when you rename either office. If the CMD office is **vacant**, requests wait at its step, shown as *(vacant)*, until you assign someone. If it's **deactivated**, new requests skip it.
 
-**Create a node.** Click **+ New node** and enter:
-- **Name**;
-- **Level**: 0 is the university, 1 a college or office, 2 a department;
-- **Kind**: University, College, Department or Office;
-- an optional **Code**;
-- its **Parent(s)** on the level above. A department can belong to two colleges.
+**Add a unit.** Click **+ New unit** and enter its **Name**, its **Kind** (University, College, Department or Office), an optional **Code**, and what it **Sits under**. A department can sit under two colleges; units it sits under must be side by side in the structure. Its place in the structure follows from what it sits under; you never type a level. Then click **Create unit**.
 
-Then click **Create node**.
-
-![Create an office node](img/admin/10-org-new-node.jpg)
-
-**Inspect a node.** Click it on the map. The panel lets you:
+**A unit's details.** Click it on the map. You can:
 - rename it, change its kind or code;
 - assign or change its **head** from existing people, or **invite someone new and assign them here** in one step;
-- redraw its parents;
-- turn **drafts** on or off: *"Custodians here draft changes for head approval before they go visible"*;
+- change what it **Sits under**. A unit with nothing under it moves freely; one with units under it can only move to a place at the same depth (move its sub-units first otherwise);
 - **Deactivate** or **Delete** it.
 
-![Inspect a node](img/admin/09-org-node.jpg)
-
-> **Good to know:** changes with real consequences (a new or removed head, a change of kind, deactivating or deleting) ask you to confirm first. Assigning a head emails them. Two active departments can't share a name, whatever the capitalisation.
+> **Good to know:** changes with real consequences (a new or removed head, a change of kind, deactivating or deleting) ask you to confirm first. Assigning a head emails them. Two active units can't share a name.
 
 ## 3. People & roles
 
-**People & roles** lists everyone: roles, status (active, invited, disabled) and department. Search it, or filter by role or status. Personal email addresses are masked in these screenshots.
+**People & roles** lists everyone: roles, status (active, invited, disabled) and unit. Search it, or filter by role or status.
 
-![People & roles](img/admin/01-people-list.jpg)
+![People & roles](img/admin/03-people.jpg)
 
 ### Invite someone
 
 1. Click **Add personnel**.
-2. Enter their **full name** (1) and **email**, optionally a phone, and their **home department** (2).
-3. Pick their **roles** (3). Roles stack: a lab custodian is usually *custodian + staff*, and a head *manager + staff*.
-4. Click **Send invitation** (4).
-
-![Invite form](img/admin/02-invite-form.jpg)
-
-They get an email with a registration link, and you get the link to copy, in case the email doesn't arrive.
-
-![Invitation sent, with a copyable link](img/admin/03-invite-sent.jpg)
+2. Enter their **full name** and **email**, optionally a phone, and their **home unit**.
+3. Pick their **roles**. Roles stack: a head who also runs a lab is *Head of a unit + Lab custodian*.
+4. Click **Send invitation**. They get an email with a registration link, and you get the link to copy in case the email doesn't arrive.
 
 | Role | What it's for |
 |---|---|
-| **sys admin** | This chapter: setup and corrections |
-| **property admin** | University-wide categories and access views ([Property admin](10-property-admin.md)) |
-| **procurement** | The Procurement Office ([Procurement](07-procurement.md)) |
-| **manager** | Heads a node (a department head, a dean, the AVP, the College Managing Director) |
-| **custodian** | Accountable for labs or stores ([Lab custodian](02-custodian.md)) |
-| **staff** | Teaching and research staff ([Staff](04-staff.md)) |
-| **student** | [Student](05-student.md) |
-| **store keeper** | The Main Store ([Store keeper](08-store-keeper.md)) |
-| **external** | Someone outside the university |
+| **System administrator** | This chapter: setup and corrections |
+| **Property Administration** | The Main Store, arrivals, movements in and out of the store, university-wide categories ([Property administrator](10-property-admin.md)) |
+| **Procurement** | The Procurement Office ([Procurement](07-procurement.md)) |
+| **Head of a unit** | Heads a unit: a department head, a dean, the AVP, the College Managing Director. What they head is the unit they **occupy** |
+| **Associate Dean, Academic Affairs** | A college's ADAA: manages the college's labs and stores ([ADAA](04-adaa.md)). Home them in the college or its ADAA office |
+| **Lab custodian** | Runs labs or stores ([Lab custodian](02-custodian.md)) |
+| **Store keeper** | The Main Store ([Store keeper](08-store-keeper.md)) |
+| **Outside requester** | An institution outside the university; they sign up themselves on the portal |
 
 ### Manage a person
 
-**Manage** opens a person's record:
-- **Roles**: tick or untick, then **Save roles** (1);
-- **Occupies node** (2): make them a node's head;
-- **Home department**;
-- **Email notifications**: whether approval and outcome emails reach them (the same switch they have on their Profile). The CSE ARAs start with it off;
-- **Sign-in help** (3);
-- **Deactivate** (4): retire the account.
-
-![Manage a person](img/admin/04-manage-person.jpg)
-
-The **Email notifications** switch in Manage:
-
-![Switch someone's notification emails](img/admin/26-email-notifications.jpg)
+**Manage** opens a person's record: their **roles**, the unit they **occupy** (to make them its head), their **home unit**, **email notifications**, **sign-in help** and **Deactivate**.
 
 **Sign-in help:**
 - **Copy invite link**, for someone who hasn't registered yet. It issues a fresh link and emails it too; the old link stops working.
 - **Email reset link**: they get a reset email. You never see the link.
 - **Set temporary password**: confirm first, then the password is shown **once**, for you to give them directly. They're signed out everywhere and must choose their own at the next sign-in.
 
-![Confirm temporary password](img/admin/05-temp-password-confirm.jpg)
-
-![Temporary password shown once](img/admin/06-temp-password-shown.jpg)
-
 Department heads get the same sign-in help for their own department's people.
 
 ## 4. Categories
 
-A **category** is a kind of resource (Lab, Computer, Chair, Chemical…). It decides what details the resource records and how it behaves. **Categories** lists them, grouped, with how many resources each holds. Click one to edit it, or **+ New category**.
+A **category** is a kind of resource (Lab, Computer, Chair, Chemical or reagent…). **Categories** lists them by group; **Find a category** searches them. Click one to open it, or **+ Add a category**.
 
-![Categories](img/admin/20-categories.jpg)
+![The category editor](img/admin/04-category.jpg)
 
 Each category sets:
-- **Icon, Name, Stable key, Group**;
-- **Counted as**: individual units (a computer) or a bulk quantity (a chemical in mL);
-- **When its parts break**: how a broken part affects this item:
-  - **Any critical**: one critical part down impairs it, e.g. a computer;
-  - **All critical**: only when every critical part is down, e.g. redundant switches in a rack;
-  - **Never**: e.g. a lab isn't broken because one PC is.
+- **What it is**: a **place** (a lab, workshop, studio or store, which sits at the top) or a **thing** (which goes inside a place, or inside a thing that *comes with* it);
+- **Icon**, **Name**, **Group**, and **What it is for**;
+- **Counted as**: one by one (a computer) or a quantity in a unit (a chemical in mL);
+- **Details to record**: each detail's name, its **Kind of value** (Text, Number, Choice, Yes / no, or Date; text can be long), an **Example** shown as a hint ("e.g. 64-17-5"), and whether it is required. **+ A common detail…** adds Manufacturer, Model, Serial no., Asset tag, Year acquired, Calibration due, Expiry or CAS no. in one pick;
+- **Comes with**: the parts a new one is created with (a Workstation Setup's computer, table and chair);
+- under **More options**: **If a needed part fails** (whether a failed part puts it out of order), **Booking** (not bookable, a bookable room, or bookable equipment) and **On the public portal**.
 
-  ![When its parts break](img/admin/21-category-impairment.jpg)
+**Review before saving.** **Review changes** says what happens to the items the change reaches before anything is saved: values that convert to a new kind, values that can't (kept on their item as an extra detail, unless you choose to erase them), options in use that need a new home, and what to fill in when a detail becomes required.
 
-- **Placement**: whether it can be top-level (a Lab, a Store), and which categories it may sit inside.
-- **Scheduling and the public portal**:
-  - **Not bookable**;
-  - **Bookable room**: booking it claims everything inside;
-  - **Bookable equipment**: a machine booked on its own, inside a room.
+**Who decides.** Your changes, and Property Administration's, apply directly. Departments look after their own categories (custodians add, their head approves changes that alter existing items, see [Department head → Categories](03-department-head.md#8-categories)). A department's change that reaches **other departments' items** comes to you after their head, then goes to Property Administration: it appears in **Approvals** and at the top of **Categories**. Approve it, or say no with a note (often: make a separate category instead).
 
-  It also sets whether the portal shows the university-wide count of working items. The portal shows counts only, never where the items are.
+The kinds of **place** (Lab, Workshop, Studio, Store) are kept by you and Property Administration only.
 
-  ![Make labs bookable, and listed on the portal](img/admin/22-category-booking.jpg)
+## 5. Corrections and History
 
-- **Fields**: the details it records, such as brand, size or serial number, with their types and options. You can also set its **template**: the parts a new one comes with, such as a Workstation Setup's computer, table and chair.
+You can change any resource directly: its status, custody, ownership, position or details. Your edits apply at once and are logged under your name. Use this for setup and corrections; day-to-day changes belong to the custodians, so the head's approval stays meaningful.
 
-**Review before saving.** **Review changes** lists the consequences, e.g. "reaches 36 existing items". Add a reason if you like, then **Apply changes**.
-
-![Review the consequences, then apply](img/admin/23-category-review.jpg)
-
-**A new category.** Type in the icon picker to find an icon ("projector").
-
-![Pick an icon by typing](img/admin/24-icon-picker.jpg)
-
-![A new category](img/admin/25-new-category.jpg)
-
-## 5. Access views
-
-By default everyone sees their own scope: custodians their custody, heads their unit and below. An **access view** gives a person or a role a different window:
-
-| Setting | Options |
-|---|---|
-| **Which resources** | University-wide; My unit and below; In my custody; Selected units |
-| **Assigned to** | Everyone; a role; named people. A person entry outranks a role entry |
-| **Can edit** | Unticked = *look but do not touch* |
-
-Views widen what someone *sees*, never what they may *change*: a view can't give write access a role doesn't already have.
-
-**Example: the ICT Maintenance Office.** The ICT maintenance officer is Staff in their own office. To let them see every department's devices without being able to change anything:
-
-1. Click **+ Add view** and name it "ICT maintenance — every department".
-2. Set **Which resources** to **University-wide** (1).
-3. Click **+ Person** and choose the officer (2).
-4. Untick **Can edit** (3), then click **Save** (4).
-
-![A read-only, university-wide view for one person](img/admin/11-access-view-ict.jpg)
-
-![Access views](img/admin/12-access-views-list.jpg)
-
-The officer's sidebar then shows **◎ University-wide**, with the view in its **Access view** picker. See the [ICT maintenance chapter](12-ict-maintenance.md).
-
-## 6. Corrections and the change log
-
-You can change any resource directly: its status, custody, ownership, position or details. Your edits apply at once, even in a drafts department, and are logged under your name. Use this for setup and corrections. Day-to-day changes belong to the custodians, so the head's approval stays meaningful.
-
-**Change log** shows every applied change across the university: when, which item, what changed from and to, who, and why. Filter it by kind, category or text to audit anything.
+**History** shows every applied change across the university: when, which item, what changed from and to, who, and why. Filter it to audit anything.

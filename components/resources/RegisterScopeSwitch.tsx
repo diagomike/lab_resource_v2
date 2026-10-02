@@ -5,7 +5,7 @@ import type { RoleKind } from "@/lib/shared";
 
 /** Who may look across the whole university — the exact set
  *  `assertCanBrowseUniversity` permits (lib/server/resources/scope.ts). */
-export const WHOLE_UNIVERSITY_ROLES: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "STORE_KEEPER", "CUSTODIAN"];
+export const WHOLE_UNIVERSITY_ROLES: RoleKind[] = ["SYS_ADMIN", "PROPERTY_ADMIN", "PROCUREMENT", "MANAGER", "ADAA", "STORE_KEEPER", "CUSTODIAN"];
 
 export function mayBrowseUniversity(roles: RoleKind[] | undefined): boolean {
   return !!roles?.some((r) => WHOLE_UNIVERSITY_ROLES.includes(r));

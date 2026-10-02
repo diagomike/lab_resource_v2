@@ -1,5 +1,5 @@
 /**
- * Validates the 2026-09-28 approval-line round end to end, through the app's own HTTP API
+ * Validates the approval lines (2026-09-28) and the UX-flow round (2026-10-01) end to end, through the app's own HTTP API
  * on :3100 against the E2E clone (lrms_v2_e2e) with the mail sink running — never by
  * writing the database, except the one-off admin configuration in `setup()` (booking modes
  * and the public catalog, which the walkthrough's Act 1 does by hand). Staff sessions are
@@ -16,14 +16,21 @@
  *   P2 import from the PR      Property Admin records it (✉ keeper) → keeper loads (over-load refused) → PR closes
  *   P3 standalone EGP import   recorded → loaded
  *   P4 store → a lab           receiving head → Property Admin → custodian accepts
- *   P5 store → a person        Staff holdings; head → Property Admin → the person accepts; head returns it
+ *   P5 needs feed purchasing   custodian asks (✉ head, badge) → head declines one (✉) → builds a request from the other
  *   P6 request from the store  keeper → receiving head → Property Admin → receipt
  *   P7 return to the store     owning head → Property Admin → keeper accepts
  *   P8 permanent transfers     same college: … → CMD; across colleges: … → CMD → Property Admin
  *   P9 loan                    unchanged: no CMD, no Property Admin; the owner stays
  *   P10 external (rooms)       sign up → verify → request → AVP → dean → head → 2 custodians → back up → quote → pay → AVP confirms
  *   P11 external (sample)      a machine held instead of a room
- * Writes e2e/validation-2026-09-28.json and prints a PASS/FAIL line per check.
+ *   P12 places from above      an invited custodian; the ADAA adds a lab for them (✉); custodians and other
+ *                              departments' heads can't; the head changes who runs it (✉ both)
+ *   P13 categories             a custodian's new category applies at once (✉ head); a change to data it
+ *                              holds waits for the head, then converts the values
+ *   P14 a lab's changes        staged in the lab's changes, not the register → sent (✉ head) → approved (✉)
+ *   M  the mail tour           every emailed link: a real screen, the exact item, sign-in returns to it,
+ *                              it opens for the person it was sent to, and the bell has the same notice
+ * Writes e2e/validation-2026-10-02.json and prints a PASS/FAIL line per check.
  */
 import fs from "node:fs";
 import { PrismaClient } from "@prisma/client";
@@ -283,33 +290,6 @@ async function movements() {
   const chairAfter = await db.item.findUniqueOrThrow({ where: { id: chair.id } });
   check("P4", "applied: owner CSE, custodian Ali, in his lab", p4done.status === "APPLIED" && chairAfter.ownerOrgNodeId === cse.id && chairAfter.custodianId === aliUser.id && chairAfter.parentId === aliLab.id);
 
-  // P5 — store → a person (a lecturer invited through the app), then back to the store.
-  const lecturerEmail = "mt.lecturer@example.org";
-  await post(ADMIN, "/people", { name: "MT Lecturer", email: lecturerEmail, roles: ["CUSTODIAN"], homeNodeId: cse.id });
-  const inviteToken = lastBodyTo(lecturerEmail).match(/accept-invite\?token=([\w-]+)/)?.[1];
-  await call("anon", "POST", "/auth/register", { token: inviteToken, name: "MT Lecturer", password: "astu1234-lecturer" }).catch(async () => {
-    const res = await fetch(`${BASE}/auth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: inviteToken, name: "MT Lecturer", password: "astu1234-lecturer" }) });
-    if (!res.ok) throw new Error(`register → ${res.status}`);
-  });
-  const lecturer = await db.user.findUniqueOrThrow({ where: { emailLower: lecturerEmail } });
-  check("P5", "the lecturer registered through the invitation", lecturer.status === "ACTIVE");
-  const laptop = await db.item.findFirstOrThrow({ where: { parentId: store.id, name: { startsWith: "Laptop" }, deletedAt: null } });
-  m = mark();
-  const p5 = await transfer(KEEPER, { itemIds: [laptop.id], transfer: { targetParentId: "", targetOrgNodeId: "", targetCustodianId: null, transferOwnership: true, issueToUserId: lecturer.id } });
-  const holdings = await db.item.findFirst({ where: { parentId: null, ownerOrgNodeId: cse.id, category: { key: "staff-holdings" }, deletedAt: null } });
-  check("P5", "Staff holdings — CSE created, the head answers for it", !!holdings && holdings.name === `Staff holdings — ${cse.name}` && holdings.custodianId === (await node("CSE")).userId, holdings?.name);
-  check("P5", "chain: head → Property Admin → the lecturer accepts", JSON.stringify(p5.request.steps.map((s: any) => [s.selector, s.approverName])) === JSON.stringify([["TARGET_HEAD", "CSE Department Head"], ["NODE_OCCUPANT", "Property Administrator"], ["TARGET_CUSTODIAN", "MT Lecturer"]]), approvers(p5.request));
-  check("P5", "✉ the lecturer hears it is coming", mailed(m, lecturerEmail, /Coming to you from the store/));
-  await walkTransfer(p5.request.id);
-  const laptopAfter = await db.item.findUniqueOrThrow({ where: { id: laptop.id } });
-  check("P5", "applied: in Staff holdings, the lecturer is custodian", laptopAfter.parentId === holdings?.id && laptopAfter.custodianId === lecturer.id);
-  check("P5", "the lecturer can't edit it (asks instead)", await refused(403, () => post(lecturerEmail, "/resources/items/changes", { input: { kind: "setStatus", itemIds: [laptop.id], value: "BROKEN" } })) || await refused(403, () => post(lecturerEmail, "/resources/items/changes", { kind: "setStatus", itemIds: [laptop.id], value: "BROKEN" })));
-  const back = await transfer(HEAD, { itemIds: [laptop.id], transfer: { targetParentId: store.id, targetOrgNodeId: "", targetCustodianId: null } });
-  check("P5", "the head returns it: lecturer → Property Admin → keeper", back.request.movement === "TO_STORE" && JSON.stringify(approvers(back.request)) === JSON.stringify(["Current custodian (MT Lecturer)", "Property Administration (Property Administrator)", "Receiving custodian accepts (Main Store Keeper)"]), approvers(back.request));
-  await walkTransfer(back.request.id);
-  const laptopHome = await db.item.findUniqueOrThrow({ where: { id: laptop.id } });
-  check("P5", "back in the Main Store, owned by the university", laptopHome.parentId === store.id && laptopHome.ownerOrgNodeId === store.ownerOrgNodeId);
-
   // P6 — Ali asks for a table from the store.
   const table = await db.item.findFirstOrThrow({ where: { parentId: store.id, category: { key: "table" }, deletedAt: null } });
   const p6 = await transfer(ALI, { itemIds: [table.id], transfer: { targetParentId: aliLab.id, targetOrgNodeId: "", targetCustodianId: null } });
@@ -356,6 +336,202 @@ async function movements() {
   await walkTransfer(p9.request.id);
   const rackAfter = await db.item.findUniqueOrThrow({ where: { id: rack.id } });
   check("P9", "the owner stays CSE, custody stays with Ali", rackAfter.ownerOrgNodeId === cse.id && rackAfter.custodianId === aliUser.id && rackAfter.currentOrgNodeId === chem.id);
+}
+
+// ── P5: needs feed purchasing ───────────────────────────────────────────────
+
+async function needs() {
+  const aliLab = await labOf(ALI);
+  const cse = await node("CSE");
+  let m = mark();
+  const wanted = await post<any>(ALI, "/resources/needs", { labItemId: aliLab.id, name: "Soldering station", qty: 3, unit: "pcs", priority: "ESSENTIAL", kind: "NEW", reason: "The embedded systems practical has 3 benches without one", spec: "Temperature-controlled, 60 W" });
+  check("P5", "✉ the head hears what the lab needs", mailed(m, HEAD, `${aliLab.name} needs Soldering station`));
+  const counts = await get<any>(HEAD, "/home/counts");
+  check("P5", "the head's Purchasing badge counts it", counts.purchasing >= 1, counts);
+  const home = await get<any>(HEAD, "/home");
+  check("P5", "the head's Home names a next step about it", /need/i.test(JSON.stringify(home.nextStep ?? null)), home.nextStep);
+  const unwanted = await post<any>(ALI, "/resources/needs", { labItemId: aliLab.id, name: "Projector screen", qty: 1, priority: "NICE_TO_HAVE", kind: "NEW", reason: "Nice for presentations" });
+  check("P5", "a custodian can't decline a need", await refused(403, () => post(ALI, `/resources/needs/${unwanted.id}/decline`, { note: "no" })));
+  m = mark();
+  await post(HEAD, `/resources/needs/${unwanted.id}/decline`, { note: "Not this budget year" });
+  check("P5", "✉ the custodian hears it was declined", mailed(m, ALI, `Your need "Projector screen" was declined`));
+  const open = await get<any[]>(HEAD, `/resources/needs?node=${cse.id}`);
+  check("P5", "the head sees the open need, with its lab", open.some((n) => n.id === wanted.id && n.labItemId === aliLab.id), open.map((n) => n.name));
+  const pr = await post<any>(HEAD, "/resources/purchase-requests", {
+    title: "Validation: soldering stations",
+    orgNodeId: cse.id,
+    lines: [{ name: "Soldering station", qty: 3, unit: "pcs", estimatedUnitCost: 4200, fromNeedIds: [wanted.id] }],
+  });
+  const mine = await get<any[]>(ALI, "/resources/needs");
+  const after = mine.find((n) => n.id === wanted.id);
+  check("P5", "the need is carried into the request", after?.status === "CARRIED", after?.status);
+  check("P5", "the declined one stays declined", mine.find((n) => n.id === unwanted.id)?.status === "DECLINED");
+  check("P5", "the request was built", typeof pr.reference === "string" || typeof pr.id === "string", pr.stage);
+}
+
+// ── P12: places are managed from above ──────────────────────────────────────
+
+const NEWBIE = "mt.custodian@example.org";
+const ADAA = "adaa.coeec@astu.edu.et";
+
+async function places() {
+  const cse = await node("CSE");
+  const labKind = await catId("lab");
+  // A custodian invited through the app, who registers from the emailed link.
+  await post(ADMIN, "/people", { name: "MT Custodian", email: NEWBIE, roles: ["CUSTODIAN"], homeNodeId: cse.id });
+  const inviteToken = lastBodyTo(NEWBIE).match(/accept-invite\?token=([\w-]+)/)?.[1];
+  const reg = await fetch(`${BASE}/auth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: inviteToken, name: "MT Custodian", password: "astu1234-custodian" }) });
+  const newbie = await db.user.findUniqueOrThrow({ where: { emailLower: NEWBIE } });
+  check("P12", "the invited custodian registered through the emailed link", reg.ok && newbie.status === "ACTIVE", reg.status);
+
+  const place = { categoryId: labKind, name: "Validation Robotics Lab — B510-R30", ownerOrgNodeId: cse.id, custodianId: newbie.id, props: { block: "510", room: "30", seats: 24, purpose: "Robotics practicals" } };
+  check("P12", "a custodian can't add a lab", await refused(403, () => post(ALI, "/places", place)));
+  check("P12", "another department's head can't add one in CSE", await refused(403, () => post(CHEM_HEAD, "/places", place)));
+  const offered = await get<any[]>(ADAA, `/places/custodians?unit=${cse.id}`);
+  check("P12", "the ADAA is offered the department's custodians", offered.some((u) => u.id === newbie.id), offered.length);
+  let m = mark();
+  const lab = await post<any>(ADAA, "/places", place);
+  check("P12", "the ADAA adds a CSE lab", lab.name === place.name && lab.custodianId === newbie.id);
+  check("P12", "✉ the custodian hears they run it", mailed(m, NEWBIE, `You now run ${place.name}`));
+  const note = await db.notification.findFirst({ where: { userId: newbie.id, title: `You now run ${place.name}` } });
+  check("P12", "…and the bell has it, linking to the lab", note?.path === `/places/${lab.id}`, note?.path);
+  const aliUser = await db.user.findUniqueOrThrow({ where: { emailLower: ALI } });
+  m = mark();
+  await call(HEAD, "PATCH", `/places/${lab.id}`, { custodianId: aliUser.id, note: "Ali runs the robotics practicals this term" });
+  check("P12", "the head changes who runs it: ✉ both people", mailed(m, ALI, `You now run ${place.name}`) && mailed(m, NEWBIE, `${place.name} has a new custodian`));
+  check("P12", "a custodian can't rename the place", await refused(403, () => call(ALI, "PATCH", `/places/${lab.id}`, { name: "Renamed by the custodian" })));
+}
+
+// ── P13 + P14: categories, and a lab's changes ──────────────────────────────
+
+const reading = (over: Record<string, unknown> = {}) => ({ key: "reading", label: "Reading", type: "TEXT", options: [], summary: false, longText: false, required: false, sortOrder: 0, ...over });
+
+async function categoriesAndLabChanges() {
+  // Ali's first lab by name — the robotics lab P12 handed him sorts after it.
+  const aliLab = await labOf(ALI);
+  const groups = await get<any[]>(ALI, "/resources/category-groups");
+  let m = mark();
+  const cat = await post<any>(ALI, "/resources/categories", { name: "Validation Bench Meter", iconKey: "Box", groupId: groups[0].id, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: false, templateChildren: [], fields: [reading()] });
+  check("P13", "a custodian's new category applies at once, looked after by CSE", cat.stewardName === "Computer Science and Engineering", cat.stewardName);
+  check("P13", "✉ the head is told it was added", mailed(m, HEAD, /added the category Validation Bench Meter$/));
+  check("P13", "a custodian can't make a place category", await refused(403, () => post(ALI, "/resources/categories", { name: "Validation Hall", iconKey: "Box", groupId: groups[0].id, countingMode: "SERIALIZED", impairRule: "NEVER", isPlace: true, templateChildren: [], fields: [] })));
+
+  // P14 — the custodian's edits go into the lab's changes, not straight into the register.
+  const computer = await db.item.findFirstOrThrow({ where: { category: { key: "computer" }, status: "WORKING", deletedAt: null, parent: { parentId: aliLab.id } } });
+  const staged = await post<any>(ALI, "/resources/items/changes", { kind: "setStatus", itemIds: [computer.id], value: "BROKEN", note: "No display" });
+  const meterAdd = await post<any>(ALI, "/resources/items/changes", { kind: "createItem", parentId: aliLab.id, categoryId: cat.id, count: 1, name: "Bench meter", props: { reading: "16" } });
+  check("P14", "the edits are kept in the lab's changes", staged.staged?.labItemId === aliLab.id && meterAdd.staged?.labItemId === aliLab.id, [staged.staged, meterAdd.staged]);
+  const still = await db.item.findUniqueOrThrow({ where: { id: computer.id } });
+  check("P14", "the register is unchanged until the head approves", still.status === "WORKING");
+  m = mark();
+  const sent = await post<any>(ALI, `/resources/labs/${aliLab.id}/versions/draft/submit`);
+  check("P14", "✉ the head is asked to decide", mailed(m, HEAD, `${aliLab.name}: changes are waiting for your approval`));
+  check("P14", "only the lab's head may decide", await refused(403, () => post(CHEM_HEAD, `/resources/lab-commits/${sent.id}/decide`, { decision: "APPROVE" })));
+  m = mark();
+  const decided = await post<any>(HEAD, `/resources/lab-commits/${sent.id}/decide`, { decision: "APPROVE", note: "validated" });
+  const now = await db.item.findUniqueOrThrow({ where: { id: computer.id } });
+  const meter = await db.item.findFirst({ where: { parentId: aliLab.id, categoryId: cat.id, deletedAt: null } });
+  check("P14", "approved: the register now has both changes", decided.status === "APPLIED" && now.status === "BROKEN" && !!meter, [decided.status, now.status, !!meter]);
+  check("P14", "✉ the custodian hears they were approved", mailed(m, ALI, `${aliLab.name}: your changes were approved`));
+
+  // P13 again — a change to values the category already holds waits for the head.
+  const fresh = await get<any>(ALI, `/resources/categories/${cat.id}`);
+  m = mark();
+  const saved = await call<any>(ALI, "PATCH", `/resources/categories/${cat.id}`, { expectedVersion: fresh.version, fields: [reading({ type: "NUMBER" })] });
+  check("P13", "retyping a detail that holds values waits for the head", saved.status === "PENDING" && saved.category.fields[0].type === "TEXT", [saved.status, saved.category.fields[0].type]);
+  check("P13", "✉ the head is asked", mailed(m, HEAD, "A change to Validation Bench Meter is waiting for your approval"));
+  m = mark();
+  const approved = await post<any>(HEAD, `/resources/category-changes/${saved.change.id}/decide`, { approve: true });
+  const meterAfter = await db.item.findUniqueOrThrow({ where: { id: meter!.id } });
+  check("P13", "approved: the value is converted, not erased", approved.status === "APPROVED" && (meterAfter.props as Record<string, unknown>).reading === 16, [(meterAfter.props as Record<string, unknown>).reading]);
+  check("P13", "✉ the custodian hears it was approved", mailed(m, ALI, "Your change to Validation Bench Meter was approved"));
+}
+
+// ── M: the mail tour — follow every emailed link ────────────────────────────
+
+const ORIGIN = "http://localhost:3100";
+/** Workspace screens a notice may open (app/(workspace)). */
+const SCREENS = new Set(["home", "register", "places", "schedule", "approvals", "purchasing", "external-requests", "categories", "dashboard", "change-log", "admin", "me"]);
+
+function bodyOf(n: string): string {
+  const eml = fs.readFileSync(`e2e/mail/${n}.eml`, "utf8");
+  const qp = eml.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  const b64 = [...eml.matchAll(/\r?\n\r?\n([A-Za-z0-9+/=\r\n]{40,})/g)].map((x) => Buffer.from(x[1].replace(/\s/g, ""), "base64").toString("utf8")).join("\n");
+  return `${qp}\n${b64}`;
+}
+
+/** Does the id a link names exist? */
+async function exists(kind: string, id: string): Promise<boolean> {
+  const find: Record<string, () => Promise<unknown>> = {
+    transfer: () => db.changeRequest.findUnique({ where: { id } }),
+    "lab-commit": () => db.labCommitRequest.findUnique({ where: { id } }),
+    purchase: () => db.purchaseRequest.findUnique({ where: { id } }),
+    booking: () => db.reservation.findUnique({ where: { id } }),
+    "category-change": () => db.categoryChange.findUnique({ where: { id } }),
+    place: () => db.item.findUnique({ where: { id } }),
+    category: () => db.resourceCategory.findUnique({ where: { id } }),
+    external: () => db.externalRequest.findUnique({ where: { id } }),
+  };
+  return !!(await (find[kind] ?? (async () => null))());
+}
+
+async function mailTour(fromMark: number) {
+  const seen = new Set<string>();
+  let links = 0;
+  const generic: string[] = [];
+  for (const mail of since(fromMark)) {
+    const to = mail.to[0]?.replace(/[<>]/g, "").trim().toLowerCase();
+    const hrefs = [...bodyOf(mail.n).matchAll(/href="([^"]+)"/g)].map((x) => x[1].replace(/&amp;/g, "&")).filter((h) => h.startsWith(ORIGIN));
+    for (const href of hrefs) {
+      const url = new URL(href);
+      const screen = url.pathname.split("/")[1];
+      if (!SCREENS.has(screen)) continue; // the portal, an invitation, a reset: public pages with their own tokens
+      const target = `${url.pathname}${url.search}`;
+      if (seen.has(`${to} ${target}`)) continue;
+      seen.add(`${to} ${target}`);
+      links++;
+      const label = `“${mail.subject}” → ${target}`;
+
+      // The exact item: every id the link names must exist.
+      const ids: Array<[string, string]> = [];
+      const focus = url.searchParams.get("focus");
+      if (focus?.includes(":")) ids.push(focus.split(":") as [string, string]);
+      else if (screen === "external-requests" && focus) ids.push(["external", focus]);
+      if (screen === "places" && url.pathname.split("/")[2]) ids.push(["place", url.pathname.split("/")[2]]);
+      if (screen === "schedule" && url.searchParams.get("lab")) ids.push(["place", url.searchParams.get("lab")!]);
+      if (screen === "categories" && url.searchParams.get("id")) ids.push(["category", url.searchParams.get("id")!]);
+      if (screen === "categories" && url.searchParams.get("change")) ids.push(["category-change", url.searchParams.get("change")!]);
+      if (!ids.length) generic.push(label);
+      const missing: string[] = [];
+      for (const [kind, id] of ids) if (!(await exists(kind, id))) missing.push(`${kind}:${id}`);
+      if (missing.length) check("M", `link names a real item: ${label}`, false, missing);
+
+      // Signed out, it goes to sign-in and comes back to exactly this page.
+      const out = await fetch(href, { redirect: "manual" });
+      const loc = out.headers.get("location") ?? "";
+      const next = loc ? new URL(loc, ORIGIN).searchParams.get("next") : null;
+      // Compared decoded: `focus=purchase%3Aid` and `focus=purchase:id` are the same link.
+      const back = next ? new URL(next, ORIGIN) : null;
+      const same = !!back && back.pathname === url.pathname && JSON.stringify([...back.searchParams]) === JSON.stringify([...url.searchParams]);
+      if (!(out.status >= 300 && out.status < 400 && same)) check("M", `signed out, sign-in keeps the link: ${label}`, false, [out.status, loc]);
+
+      // Signed in as the person it was sent to, the screen opens.
+      const user = await db.user.findUnique({ where: { emailLower: to }, include: { roles: true } });
+      if (!user || user.roles.some((r) => r.kind === "EXTERNAL")) continue;
+      const res = await fetch(href, { headers: { cookie: `lrms_session=${await sessionOf(to)}` }, redirect: "manual" });
+      if (res.status !== 200) check("M", `opens for ${to}: ${label}`, false, res.status);
+
+      // The bell has the same notice, pointing at the same place.
+      const bell = await db.notification.findFirst({ where: { userId: user.id, path: target } });
+      if (!bell) check("M", `the bell has it too: ${label}`, false, to);
+    }
+  }
+  const failures = results.filter((r) => r.path === "M" && !r.ok).length;
+  check("M", `${links} emailed links followed: a real screen, sign-in returns to it, it opens, the bell agrees`, links > 20 && failures === 0, { links, failures });
+  // Withdrawn notices have nothing left to open, and the lab needs and arrivals tabs are
+  // the item's own short queue; anything else should name its item.
+  const unexpected = generic.filter((g) => !/withdrawn/i.test(g) && !/→ \/purchasing\?tab=(needs|arrivals)$/.test(g));
+  check("M", "every link names its exact item (withdrawn notices and the needs/arrivals queues aside)", unexpected.length === 0, unexpected);
 }
 
 // ── P10–P11: external requests ──────────────────────────────────────────────
@@ -507,11 +683,16 @@ async function external() {
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const start = mark();
   await setup();
   for (const [name, fn] of [
     ["purchase and imports", purchaseAndImports],
+    ["needs", needs],
     ["movements", movements],
     ["external requests", external],
+    ["places", places],
+    ["categories and lab changes", categoriesAndLabChanges],
+    ["mail tour", () => mailTour(start)],
   ] as const) {
     try {
       await fn();
@@ -519,7 +700,7 @@ async function main() {
       check(name, "ran to the end", false, e instanceof Error ? e.message : String(e));
     }
   }
-  fs.writeFileSync("e2e/validation-2026-09-28.json", JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
+  fs.writeFileSync("e2e/validation-2026-10-02.json", JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
   if (failed.length) process.exitCode = 1;

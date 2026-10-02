@@ -31,6 +31,7 @@ import { equipmentOf, writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, portalUrl } from "./mail";
 import { PROVIDER_INPUT } from "@/lib/domain/payment-receipt";
 import { enabledProviders } from "../payments/config";
+import { paths } from "@/lib/paths";
 
 /**
  * External requests — Track 7, reworked 2026-09-28 to the university's own line of
@@ -292,7 +293,7 @@ export async function submitRequest(
     ],
     { href: portalUrl(created.id), label: `Follow request ${created.reference}` },
   );
-  await mailStaff(await emailOf(await avpUserId()), `New external request ${created.reference}`, [`${esc(input.organizationName)} has asked for ${input.kind === "SAMPLE_ANALYSIS" ? "a sample analysis" : "university resources"}: ${esc(input.purpose.slice(0, 300))}`], "/external-requests");
+  await mailStaff(await emailOf(await avpUserId()), `New external request ${created.reference}`, [`${esc(input.organizationName)} has asked for ${input.kind === "SAMPLE_ANALYSIS" ? "a sample analysis" : "university resources"}: ${esc(input.purpose.slice(0, 300))}`], paths.outside(created.id));
   return created;
 }
 
@@ -715,7 +716,7 @@ export async function forward(userId: string, id: string, input: ForwardExternal
       n.user?.email,
       `External request ${row.reference} for ${n.name}`,
       [`${esc(row.organizationName)} has asked the university for ${row.kind === "SAMPLE_ANALYSIS" ? "a sample analysis on a machine" : "rooms or labs"}. Send it on to the departments of your college that can host it — or decline it for the college.`, input.note ? `Note: ${esc(input.note)}` : ""].filter(Boolean),
-      "/external-requests",
+      paths.outside(row.id),
     );
   }
   return getForActor(userId, id);
@@ -751,7 +752,7 @@ export async function forwardToDepartments(userId: string, collegeAssignmentId: 
         `${esc(college.request.organizationName)} has asked for ${college.request.kind === "SAMPLE_ANALYSIS" ? "a sample analysis" : "rooms or labs"}. Ask your custodians to hold what is needed on the requested dates, then send the dean the booked rooms, the cost breakdown and the contact persons — or decline.`,
         input.note ? `Note from the dean: ${esc(input.note)}` : "",
       ].filter(Boolean),
-      "/external-requests",
+      paths.outside(college.request.id),
     );
   }
   return getForActor(userId, college.requestId);
@@ -786,7 +787,7 @@ export async function assignCustodians(userId: string, departmentAssignmentId: s
         `Your head asks you to hold <strong>${esc(t.want)}</strong> for ${esc(dept.request.organizationName)} on the dates they asked for.${input.note ? ` Note: ${esc(input.note)}` : ""}`,
         "Hold the slots under <strong>External requests</strong>, then mark your part done — or say you can't.",
       ],
-      "/external-requests",
+      paths.outside(dept.request.id),
     );
   }
   return getForActor(userId, dept.requestId);
@@ -848,7 +849,7 @@ export async function finishTask(userId: string, taskId: string, input: FinishTa
     await emailOf(task.assignment.orgNode.userId),
     `${task.custodian.name} ${input.outcome === "DONE" ? "has held" : "can't hold"} ${task.want} — ${task.assignment.request.reference}`,
     [input.note ? esc(input.note) : "No note.", "When every custodian has answered, send the dean the booked rooms, the cost breakdown and the contact persons."],
-    "/external-requests",
+    paths.outside(task.assignment.request.id),
   );
   return getForActor(userId, task.assignment.requestId);
 }
@@ -890,7 +891,7 @@ export async function submitDepartment(userId: string, departmentAssignmentId: s
     await emailOf(dept.parent?.orgNode.userId ?? (await avpUserId())),
     `${dept.orgNode.name} answered ${dept.request.reference}`,
     [`${holds} slot${holds === 1 ? "" : "s"} held, ${esc(etb(input.amountSantim))}.${input.note ? ` ${esc(input.note)}` : ""}`, "Approve it, or send it back to the head."],
-    "/external-requests",
+    paths.outside(dept.request.id),
   );
   return getForActor(userId, dept.requestId);
 }
@@ -918,7 +919,7 @@ export async function reviewAssignment(userId: string, assignmentId: string, inp
     await event(tx, a.requestId, actor, approve ? "ANSWER_APPROVED" : "ANSWER_RETURNED", [a.orgNode.name, input.note].filter(Boolean).join(" · "));
   });
   if (!approve) {
-    await mailStaff(await emailOf(a.orgNode.userId), `${a.request.reference} was sent back to ${a.orgNode.name}`, [input.note ? esc(input.note) : "No note.", "Revise the answer and submit it again."], "/external-requests");
+    await mailStaff(await emailOf(a.orgNode.userId), `${a.request.reference} was sent back to ${a.orgNode.name}`, [input.note ? esc(input.note) : "No note.", "Revise the answer and submit it again."], paths.outside(a.request.id));
   }
   return getForActor(userId, a.requestId);
 }
@@ -939,7 +940,7 @@ export async function submitCollege(userId: string, collegeAssignmentId: string,
     await tx.externalRequestAssignment.update({ where: { id: college.id }, data: { status: "SUBMITTED", amountSantim: total, note: input.note || null, decidedById: userId, decidedAt: new Date() } });
     await event(tx, college.requestId, actor, "COLLEGE_SUBMITTED", [college.orgNode.name, etb(total), input.note].filter(Boolean).join(" · "));
   });
-  await mailStaff(await emailOf(await avpUserId()), `${college.orgNode.name} answered ${college.request.reference}`, [`${esc(etb(total))} across its departments.${input.note ? ` ${esc(input.note)}` : ""}`, "Approve it, or send it back to the dean."], "/external-requests");
+  await mailStaff(await emailOf(await avpUserId()), `${college.orgNode.name} answered ${college.request.reference}`, [`${esc(etb(total))} across its departments.${input.note ? ` ${esc(input.note)}` : ""}`, "Approve it, or send it back to the dean."], paths.outside(college.request.id));
   return getForActor(userId, college.requestId);
 }
 
@@ -957,7 +958,7 @@ export async function declineAssignment(userId: string, assignmentId: string, in
     await releaseHolds(tx, a.requestId, "CANCELLED", nodeIds);
     await event(tx, a.requestId, actor, a.level === "COLLEGE" ? "COLLEGE_DECLINED" : "DEPARTMENT_DECLINED", [a.orgNode.name, input.note].filter(Boolean).join(" · "));
   });
-  await mailStaff(await emailOf(a.parent?.orgNode.userId ?? (await avpUserId())), `${a.orgNode.name} declined its part of ${a.request.reference}`, [esc(input.note)], "/external-requests");
+  await mailStaff(await emailOf(a.parent?.orgNode.userId ?? (await avpUserId())), `${a.orgNode.name} declined its part of ${a.request.reference}`, [esc(input.note)], paths.outside(a.request.id));
   return getForActor(userId, a.requestId);
 }
 

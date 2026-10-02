@@ -143,6 +143,21 @@ by 3 hours).
 
 ## Current state
 
+**As of 2026-10-02 (branch `feat/ux-flow`, the UX-flow round P0–P6 —
+`docs/decisions/2026-10-01-ux-flow-plan.md`):** five jobs (know what we have, share it, buy
+what's missing, book it, outside access). Everyone lands on **Home** (next step, waiting for
+you, unfinished, your requests, due soon, the bell). Places (labs, workshops, studios, stores)
+are added from above — the head, the college's **ADAA**, Property Admin for the Main Store —
+and custodians are assigned to them; a custodian's edits always go into the lab's changes for
+the head. Categories belong to the department that made them (changes to data wait for the
+head). Every notice links to its exact item. Roles: SYS_ADMIN, PROPERTY_ADMIN, PROCUREMENT,
+MANAGER (head/dean/AVP/CMD by the post held), ADAA, CUSTODIAN, STORE_KEEPER, EXTERNAL.
+**Dev seed (reseeded 2026-10-02):** ASTU → five colleges (CoEEC, CoMCME, CoCEA, CoANS,
+CoHSS) with an `adaa.<college>@astu.edu.et` each, their departments, the CMD/PROC/PROP/ICT
+offices; the 125-category ASTU catalogue; CSE's 31 labs with block/room/seats; ChemE's
+machines with 36 photos and chemicals; the Main Store. Password `astu1234`. The paragraphs
+below are older history.
+
 One `npm run dev` at the repo root (Next.js, Turbopack) — there is no
 second process any more; the old NestJS API and Vite dev server are gone.
 Postgres db `lrms_v2`.
@@ -5025,3 +5040,41 @@ its model that make porting it as-is the wrong move.
     Organisation as admin (no level input, plain headings).
   - **Left for P6:** the e2e suites still post `level` / call `change-level` (O-org O-09) and use STAFF/STUDENT;
     help guides; the dev reseed (still waiting on the user's go-ahead).
+
+- **2026-10-02 (UX-flow round, P6: the reseed, the guide, e2e — and the round's hand-off)**
+  - **Picked up** from the session that ran out of tokens right after `npm run help:build` (it had reseeded
+    `lrms_v2` with the user's yes, rewritten the guide, retaken the screenshots and rendered the appendix diagrams,
+    all uncommitted); finished here.
+  - **Reseed of `lrms_v2`** (backup `backups/lrms_v2-2026-10-02-before-p6-reseed.dump`): 9,685 items, 36 photos,
+    167 categories, 39 places, 5 colleges with their ADAA accounts; ChemE's 105 items (32 with photos) survived.
+    The resource seed's expired-chemicals category still named the old group "Chemical" — fixed.
+  - **ADAA fixes found walking the app as the CoEEC ADAA:** reach was the ADAA office (1 unit) instead of the
+    college — `reachRootNodeId` now returns the college for an ADAA and `/auth/me` takes its scope from it (spec in
+    `places.spec.ts`); the ADAA can now switch Resources to the whole university (`WHOLE_UNIVERSITY_ROLES`).
+  - **The guide** (`docs/user-guide`): rewritten for the remaining roles — Welcome, Getting started (Home, the bell),
+    How LRMS thinks, custodian, head, **ADAA (new)**, dean/AVP/CMD, procurement, store keeper, admin, Property Admin,
+    portal, appendix. Staff, Student and ICT chapters removed with their roles. 35 screenshots retaken on the
+    reseeded DB by a Playwright script (the sister app's Playwright, signed in per role, emails masked); 110 stale
+    images removed; the appendix's 5 Mermaid diagrams re-rendered. Help: 13 chapters, 88 sections.
+  - **Help audience** (`lib/help/audience.ts`): the ADAA reads the ADAA chapter; each screen's Help link points at
+    the new sections, office chapters first (only their readers can see them, so they never shadow anyone).
+  - **Notices that still opened a list:** every outside-request notice (14 call sites) now opens that request
+    (`paths.outside(id)` → `/external-requests?focus=<id>`; the page selects it instead of the newest), and
+    "Booking confirmed on your calendar" opens that lab's calendar.
+  - **e2e** (`e2e/validate-approval-lines.ts`, on the `lrms_v2_e2e` clone + mail sink, :3100): P5 (store → a person)
+    removed with Staff holdings; new P5 needs feed purchasing, P12 places from above (invite → ADAA adds a lab →
+    custodian told, bell links to it; custodians and other heads refused; head changes who runs it), P13 categories
+    (custodian's new category applies at once; a retype of held values waits for the head, then converts 16 →
+    16), P14 a lab's changes (staged, not in the register → sent → approved), and **M, the mail tour**: every
+    emailed link of the run (53) names a real item, survives sign-in (`?next=`), opens for its recipient, and has
+    the same notice under the bell. **93/93** (`e2e/validation-2026-10-02.json`). The tour uses the e2e SMTP sink,
+    which does what Mailpit would.
+  - **Checks:** `tsc` clean, 593/593 tests, `help:build` and `next build` clean; browser: a signed-out
+    `/external-requests?focus=` link → sign-in → back to that request (not the newest).
+  - **Hand-off — open items for the user:**
+    - The Needs and Arrivals notices open their tab, not the one line (the tour allows these two queues).
+    - The ADAA has no People & roles yet (the server lets only heads and the admin manage people).
+    - The older `e2e/suites/*` still post `level`, call `change-level` and use STAFF/STUDENT; they need the same
+      pass the validator got before they run again.
+    - Mailpit for `npm run dev` (`.env.development.local`) is not set up; use the `dev-nomail` launch config.
+    - Nothing is merged: `master` and production (Neon/Vercel) are untouched; `feat/ux-flow` holds P0–P6.

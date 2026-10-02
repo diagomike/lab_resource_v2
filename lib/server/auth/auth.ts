@@ -254,8 +254,10 @@ export async function me(user: { id: string; roles: RoleKind[] }): Promise<MeCon
   // with `scope: null` despite having genuine reach, so the client and the server
   // disagreed about which unit that person acts for. This aligns them; it grants no
   // reach that scope.ts was not already granting.
+  // (An ADAA's is their college — scope.ts decides, so this reads the same answer.)
   const occupied = row.orgNode;
-  const node = occupied ?? (row.homeNodeId ? await prisma.orgNode.findUnique({ where: { id: row.homeNodeId } }) : null);
+  const rootId = await scope.ownNodeId(user.id);
+  const node = rootId ? await prisma.orgNode.findUnique({ where: { id: rootId } }) : null;
 
   // A leaf is a node with no children of its own — a department, in practice. It is
   // computed rather than stored because adding a child under a department must

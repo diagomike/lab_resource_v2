@@ -1,2 +1,2 @@
 // Written by scripts/build-help.mjs — do not edit.
-export const HELP_CONTENT_URL = "/help/content.json?v=cacdece5d7";
+export const HELP_CONTENT_URL = "/help/content.json?v=8b75675ffb";

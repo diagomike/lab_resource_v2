@@ -1,0 +1,503 @@
+{
+  "at": "2026-10-02T04:28:59.070Z",
+  "results": [
+    {
+      "path": "P1",
+      "check": "ladder is dean → CMD → AVP → procurement",
+      "ok": true,
+      "detail": "[\"College — College of Electrical Engineering and Computing\",\"College Managing Director\",\"University — Adama Science and Technology University\",\"Procurement Office\"]"
+    },
+    {
+      "path": "P1",
+      "check": "✉ CMD is next after the dean",
+      "ok": true
+    },
+    {
+      "path": "P1",
+      "check": "the AVP can't decide before the CMD",
+      "ok": true
+    },
+    {
+      "path": "P1",
+      "check": "✉ AVP is next after the CMD",
+      "ok": true
+    },
+    {
+      "path": "P1",
+      "check": "approved → Order placed",
+      "ok": true,
+      "detail": "ORDER_PLACED"
+    },
+    {
+      "path": "P1",
+      "check": "arrived at the main store",
+      "ok": true,
+      "detail": "IN_STORE"
+    },
+    {
+      "path": "P1",
+      "check": "✉ Property Admin (not the store keeper) is told it arrived",
+      "ok": true
+    },
+    {
+      "path": "P2",
+      "check": "the store keeper can't record an import",
+      "ok": true
+    },
+    {
+      "path": "P2",
+      "check": "IMP reference",
+      "ok": true,
+      "detail": "IMP-2026-001"
+    },
+    {
+      "path": "P2",
+      "check": "✉ the store keeper is told to load it",
+      "ok": true
+    },
+    {
+      "path": "P2",
+      "check": "recording more than was ordered is refused",
+      "ok": true
+    },
+    {
+      "path": "P2",
+      "check": "loading more than arrived is refused",
+      "ok": true
+    },
+    {
+      "path": "P2",
+      "check": "import LOADED and the PR CLOSED",
+      "ok": true,
+      "detail": "[\"LOADED\",\"CLOSED\"]"
+    },
+    {
+      "path": "P2",
+      "check": "✉ the head is told it is in the store",
+      "ok": true
+    },
+    {
+      "path": "P2",
+      "check": "2 desktops are now items in the Main Store",
+      "ok": true,
+      "detail": "2"
+    },
+    {
+      "path": "P3",
+      "check": "standalone EGP import recorded and loaded",
+      "ok": true,
+      "detail": "[\"EGP\",\"LOADED\"]"
+    },
+    {
+      "path": "P5",
+      "check": "✉ the head hears what the lab needs",
+      "ok": true
+    },
+    {
+      "path": "P5",
+      "check": "the head's Purchasing badge counts it",
+      "ok": true,
+      "detail": "{\"approvals\":0,\"purchasing\":1,\"places\":0,\"outside\":0,\"unread\":6}"
+    },
+    {
+      "path": "P5",
+      "check": "the head's Home names a next step about it",
+      "ok": true,
+      "detail": "{\"title\":\"A need from your labs is waiting to be bought\",\"body\":\"Choose the ones to build into a purchase request.\",\"path\":\"/purchasing?tab=needs\",\"action\":\"Build a request\"}"
+    },
+    {
+      "path": "P5",
+      "check": "a custodian can't decline a need",
+      "ok": true
+    },
+    {
+      "path": "P5",
+      "check": "✉ the custodian hears it was declined",
+      "ok": true
+    },
+    {
+      "path": "P5",
+      "check": "the head sees the open need, with its lab",
+      "ok": true,
+      "detail": "[\"Soldering station\"]"
+    },
+    {
+      "path": "P5",
+      "check": "the need is carried into the request",
+      "ok": true,
+      "detail": "CARRIED"
+    },
+    {
+      "path": "P5",
+      "check": "the declined one stays declined",
+      "ok": true
+    },
+    {
+      "path": "P5",
+      "check": "the request was built",
+      "ok": true,
+      "detail": "APPROVING"
+    },
+    {
+      "path": "P4",
+      "check": "chain: receiving head → Property Admin → custodian accepts",
+      "ok": true,
+      "detail": "[\"Receiving head — Computer Science and Engineering (CSE Department Head)\",\"Property Administration (Property Administrator)\",\"Receiving custodian accepts (Ali Kibret Muhamed)\"]"
+    },
+    {
+      "path": "P4",
+      "check": "✉ the receiving head, and the custodian it's for",
+      "ok": true
+    },
+    {
+      "path": "P4",
+      "check": "Procurement is not on it",
+      "ok": true
+    },
+    {
+      "path": "P4",
+      "check": "applied: owner CSE, custodian Ali, in his lab",
+      "ok": true
+    },
+    {
+      "path": "P6",
+      "check": "request from the store: keeper → CSE head → Property Admin → receipt",
+      "ok": true,
+      "detail": "[\"Current custodian (Main Store Keeper)\",\"Receiving head — Computer Science and Engineering (CSE Department Head)\",\"Property Administration (Property Administrator)\",\"Confirm receipt (Ali Kibret Muhamed)\"]"
+    },
+    {
+      "path": "P6",
+      "check": "given, not lent: owner CSE, custodian Ali",
+      "ok": true
+    },
+    {
+      "path": "P7",
+      "check": "return to the store: CSE head → Property Admin → keeper accepts",
+      "ok": true,
+      "detail": "[\"Head — Computer Science and Engineering (CSE Department Head)\",\"Property Administration (Property Administrator)\",\"Receiving custodian accepts (Main Store Keeper)\"]"
+    },
+    {
+      "path": "P7",
+      "check": "owned by the university, in the keeper's custody",
+      "ok": true
+    },
+    {
+      "path": "P8",
+      "check": "same college: Ali → CSE head (once) → CMD → receipt",
+      "ok": true,
+      "detail": "[\"Current custodian (Ali Kibret Muhamed)\",\"Head — Computer Science and Engineering (CSE Department Head)\",\"College Managing Director (College Managing Director (CMD))\",\"Confirm receipt (Yohannes Alemu)\"]"
+    },
+    {
+      "path": "P8",
+      "check": "custody moved to Yohannes (same owning department)",
+      "ok": true
+    },
+    {
+      "path": "P8",
+      "check": "across colleges: … → ChemE head → CMD → Property Admin → receipt",
+      "ok": true,
+      "detail": "[\"Current custodian (Ali Kibret Muhamed)\",\"Head — Computer Science and Engineering (CSE Department Head)\",\"Receiving head — Chemical Engineering (Head, Chemical Engineering)\",\"College Managing Director (College Managing Director (CMD))\",\"Property Administration (Property Administrator)\",\"Confirm receipt (Hanna Bekele)\"]"
+    },
+    {
+      "path": "P8",
+      "check": "ownership moved to ChemE, custody to Hanna",
+      "ok": true
+    },
+    {
+      "path": "P9",
+      "check": "loan: custodian → owning head → receiving head → receipt; no CMD, no Property Admin",
+      "ok": true,
+      "detail": "[\"Current custodian (Ali Kibret Muhamed)\",\"Head — Computer Science and Engineering (CSE Department Head)\",\"Receiving head — Chemical Engineering (Head, Chemical Engineering)\",\"Confirm receipt (Hanna Bekele)\"]"
+    },
+    {
+      "path": "P9",
+      "check": "the owner stays CSE, custody stays with Ali",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ outside.requester@example.org gets a confirmation link",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "sign-in refused before the email is confirmed",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "the link confirms the account",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "the requester signs in with their password",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ requester and AVP told it arrived",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "a staff account can't read the requester's page",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the dean gets it from the AVP",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the CSE head gets it from the dean",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ each custodian asked",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "Ali may hold his own lab only",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "the head can't answer while a custodian hasn't",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the head hears from both custodians",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the dean gets the department's answer",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the AVP gets the college's answer",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "the AVP can quote, suggested from the approved department",
+      "ok": true,
+      "detail": "[true,1250000]"
+    },
+    {
+      "path": "P10",
+      "check": "✉ the requester gets the quote",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "requester sees the breakdown, bank details and the held room — no contacts yet",
+      "ok": true,
+      "detail": "{\"breakdown\":[{\"departmentName\":\"Computer Science and Engineering\",\"amountSantim\":1250000,\"sheetUrl\":\"https://docs.google.com/spreadsheets/d/validation\"}],\"bookings\":[{\"place\":\"Software Laboratory — B510-R8\",\"date\":\"2026-10-22\",\"start\":\"09:00\",\"end\":\"12:00\",\"confirmed\":false}]}"
+    },
+    {
+      "path": "P10",
+      "check": "verified payment → PAID, waiting for the AVP",
+      "ok": true,
+      "detail": "[\"VERIFIED\",\"PAID\"]"
+    },
+    {
+      "path": "P10",
+      "check": "✉ the AVP is asked to confirm the payment",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "a head can't confirm the payment",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "the AVP confirms → SCHEDULED, contacts revealed",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ requester (with contacts), custodian and head",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "the confirmation email lists the contact persons",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "requester now sees the booked room and who to call",
+      "ok": true,
+      "detail": "{\"bookings\":[{\"place\":\"Software Laboratory — B510-R8\",\"date\":\"2026-10-22\",\"start\":\"09:00\",\"end\":\"12:00\",\"confirmed\":true}],\"contacts\":[{\"departmentName\":\"Computer Science and Engineering\",\"people\":[{\"name\":\"Ali Kibret Muhamed\",\"role\":\"Lab responsible, B510-R8\",\"phone\":\"+251911123456\"},{\"name\":\"CSE Department Office\",\"phone\":\"+251221100000\"}]}]}"
+    },
+    {
+      "path": "P10",
+      "check": "✉ the dean gets it from the AVP",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the CSE head gets it from the dean",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ each custodian asked",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the dean gets the department's answer",
+      "ok": true
+    },
+    {
+      "path": "P10",
+      "check": "✉ the AVP gets the college's answer",
+      "ok": true
+    },
+    {
+      "path": "P11",
+      "check": "the requester sees the machine held, in its lab",
+      "ok": true,
+      "detail": "[{\"place\":\"Computer — Software Laboratory — B510-R8\",\"date\":\"2026-10-24\",\"start\":\"09:00\",\"end\":\"11:00\",\"confirmed\":false}]"
+    },
+    {
+      "path": "P12",
+      "check": "the invited custodian registered through the emailed link",
+      "ok": true,
+      "detail": "201"
+    },
+    {
+      "path": "P12",
+      "check": "a custodian can't add a lab",
+      "ok": true
+    },
+    {
+      "path": "P12",
+      "check": "another department's head can't add one in CSE",
+      "ok": true
+    },
+    {
+      "path": "P12",
+      "check": "the ADAA is offered the department's custodians",
+      "ok": true,
+      "detail": "18"
+    },
+    {
+      "path": "P12",
+      "check": "the ADAA adds a CSE lab",
+      "ok": true
+    },
+    {
+      "path": "P12",
+      "check": "✉ the custodian hears they run it",
+      "ok": true
+    },
+    {
+      "path": "P12",
+      "check": "…and the bell has it, linking to the lab",
+      "ok": true,
+      "detail": "/places/imuqgqsq11kbxu5"
+    },
+    {
+      "path": "P12",
+      "check": "the head changes who runs it: ✉ both people",
+      "ok": true
+    },
+    {
+      "path": "P12",
+      "check": "a custodian can't rename the place",
+      "ok": true
+    },
+    {
+      "path": "P13",
+      "check": "a custodian's new category applies at once, looked after by CSE",
+      "ok": true,
+      "detail": "Computer Science and Engineering"
+    },
+    {
+      "path": "P13",
+      "check": "✉ the head is told it was added",
+      "ok": true
+    },
+    {
+      "path": "P13",
+      "check": "a custodian can't make a place category",
+      "ok": true
+    },
+    {
+      "path": "P14",
+      "check": "the edits are kept in the lab's changes",
+      "ok": true,
+      "detail": "[{\"labItemId\":\"imuqgpw2r35t3vr\",\"labName\":\"Software Laboratory — B510-R8\"},{\"labItemId\":\"imuqgpw2r35t3vr\",\"labName\":\"Software Laboratory — B510-R8\"}]"
+    },
+    {
+      "path": "P14",
+      "check": "the register is unchanged until the head approves",
+      "ok": true
+    },
+    {
+      "path": "P14",
+      "check": "✉ the head is asked to decide",
+      "ok": true
+    },
+    {
+      "path": "P14",
+      "check": "only the lab's head may decide",
+      "ok": true
+    },
+    {
+      "path": "P14",
+      "check": "approved: the register now has both changes",
+      "ok": true,
+      "detail": "[\"APPLIED\",\"BROKEN\",true]"
+    },
+    {
+      "path": "P14",
+      "check": "✉ the custodian hears they were approved",
+      "ok": true
+    },
+    {
+      "path": "P13",
+      "check": "retyping a detail that holds values waits for the head",
+      "ok": true,
+      "detail": "[\"PENDING\",\"TEXT\"]"
+    },
+    {
+      "path": "P13",
+      "check": "✉ the head is asked",
+      "ok": true
+    },
+    {
+      "path": "P13",
+      "check": "approved: the value is converted, not erased",
+      "ok": true,
+      "detail": "[16]"
+    },
+    {
+      "path": "P13",
+      "check": "✉ the custodian hears it was approved",
+      "ok": true
+    },
+    {
+      "path": "M",
+      "check": "53 emailed links followed: a real screen, sign-in returns to it, it opens, the bell agrees",
+      "ok": true,
+      "detail": "{\"links\":53,\"failures\":0}"
+    },
+    {
+      "path": "M",
+      "check": "every link names its exact item (withdrawn notices and the needs/arrivals queues aside)",
+      "ok": true,
+      "detail": "[]"
+    }
+  ]
+}

@@ -17,6 +17,8 @@ import { prisma } from "../prisma";
  *      item to judge a purchase, so both are global by definition rather than by edges.
  *   2. Occupying an org node (a department head, a dean) — reach is that node plus
  *      everything below it, read straight out of the precomputed closure.
+ *   2b. The ADAA (Associate Dean of Academic Affairs) — reach is their whole COLLEGE,
+ *      whether they occupy the college's ADAA office or are simply homed in it.
  *   3. A homeNodeId (a custodian or instructor who works in a department without heading
  *      it) — reach is that node's closure too. Without this, a custodian occupies nothing
  *      and would see zero assets, which is not a narrow scope, it is a broken one: they
@@ -44,12 +46,21 @@ export async function visibleNodeIds(userId: string): Promise<string[]> {
 }
 
 /** Occupancy first, homeNodeId second. Never both — occupying a node already implies
- *  reach from there, and a department head's home department is the node they occupy. */
+ *  reach from there, and a department head's home department is the node they occupy.
+ *  An ADAA reaches from their college (the nearest college at or above that node). */
 async function reachRootNodeId(userId: string): Promise<string | null> {
-  const occupied = await prisma.orgNode.findUnique({ where: { userId }, select: { id: true } });
-  if (occupied) return occupied.id;
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { homeNodeId: true } });
-  return user?.homeNodeId ?? null;
+  const [occupied, user] = await Promise.all([
+    prisma.orgNode.findUnique({ where: { userId }, select: { id: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { homeNodeId: true, roles: { select: { kind: true } } } }),
+  ]);
+  const start = occupied?.id ?? user?.homeNodeId ?? null;
+  if (!start || !user?.roles.some((r) => r.kind === "ADAA")) return start;
+  const college = await prisma.orgClosure.findFirst({
+    where: { descendantId: start, ancestor: { kind: "COLLEGE", active: true } },
+    orderBy: { depth: "asc" },
+    select: { ancestorId: true },
+  });
+  return college?.ancestorId ?? start;
 }
 
 export async function canSeeNode(userId: string, nodeId: string): Promise<boolean> {

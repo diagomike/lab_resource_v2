@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { ClashDto, ExternalAssignmentDto, ExternalContactDto, ExternalRequestDto, ExternalRequestSummaryDto, ExternalTaskDto } from "@/lib/shared";
 import { addDays, instantToCivil } from "@/lib/domain/civil-time";
 import { api, ApiError } from "@/lib/api";
@@ -805,16 +806,26 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
 }
 
 export default function ExternalRequestsPage() {
+  return (
+    <Suspense fallback={<Screen><Panel title="Requests"><PanelLoading rows={4} /></Panel></Screen>}>
+      <Requests />
+    </Suspense>
+  );
+}
+
+function Requests() {
+  // `?focus=<id>` (a notice, Home) opens that request rather than the newest.
+  const focus = useSearchParams().get("focus");
   const [rows, setRows] = useState<ExternalRequestSummaryDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(focus);
 
   const load = useCallback(() => {
     api
       .get<ExternalRequestSummaryDto[]>("/external-requests")
       .then((list) => {
         setRows(list);
-        setSelected((s) => s ?? list[0]?.id ?? null);
+        setSelected((s) => (s && list.some((r) => r.id === s) ? s : (list[0]?.id ?? null)));
       })
       .catch((e) => setError(message(e, "Could not load requests")));
   }, []);

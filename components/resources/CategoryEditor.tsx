@@ -918,13 +918,13 @@ function FieldsEditor({
               {f.type === "NUMBER" && (
                 <label className="w-[90px]">
                   <FieldLabel>Unit</FieldLabel>
-                  <input value={f.unit} placeholder="GB" onChange={(e) => onUpdate(f.uid, { unit: e.target.value })} className={inputCls} />
+                  <input value={f.unit} placeholder="e.g. MHz" onChange={(e) => onUpdate(f.uid, { unit: e.target.value })} className={inputCls} />
                 </label>
               )}
               {(f.type === "TEXT" || f.type === "NUMBER") && (
                 <label className="w-[150px]">
                   <FieldLabel>Example (optional)</FieldLabel>
-                  <input value={f.hint} placeholder="e.g. 64-17-5" onChange={(e) => onUpdate(f.uid, { hint: e.target.value })} className={inputCls} />
+                  <input value={f.hint} placeholder="A hint shown when filling it in" onChange={(e) => onUpdate(f.uid, { hint: e.target.value })} className={inputCls} />
                 </label>
               )}
             </div>
