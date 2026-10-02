@@ -46,6 +46,7 @@ type PrismaModule = typeof import("../prisma");
 
 let purchasing: PurchasingModule;
 let imports: ImportsModule;
+let procurements: typeof import("./procurements");
 let attachments: AttachmentsModule;
 let categories: CategoriesModule;
 let prisma: PrismaModule["prisma"];
@@ -134,6 +135,7 @@ function compileInput(orgNodeId: string, over: Partial<{ title: string; lines: u
 beforeAll(async () => {
   purchasing = await import("./purchasing");
   imports = await import("./imports");
+  procurements = await import("./procurements");
   attachments = await import("./purchase-attachments");
   categories = await import("./categories");
   ({ prisma } = await import("../prisma"));
@@ -218,7 +220,9 @@ afterAll(async () => {
   for (const f of files) await attachmentStorage.remove(f.storageKey);
   await prisma.purchaseAttachment.deleteMany({ where: { id: { in: files.map((f) => f.id) } } });
   // Import records first: their lines hold the test categories and their creators are test users.
-  await prisma.importRecord.deleteMany({ where: { id: { in: createdImportIds } } });
+  await prisma.importRecord.deleteMany({ where: { OR: [{ id: { in: createdImportIds } }, { createdById: { in: createdUserIds } }] } });
+  // Procurements started by the test procurement office (their lines, links and events cascade).
+  await prisma.procurement.deleteMany({ where: { createdById: { in: createdUserIds } } });
   // Stock loaded into a test store that a failed assertion never got to record.
   const strays = await prisma.item.findMany({ where: { parentId: { in: createdItemIds } }, select: { id: true } });
   createdItemIds.push(...strays.map((i) => i.id).filter((id) => !createdItemIds.includes(id)));
@@ -385,8 +389,9 @@ describe("compilePurchaseRequest: the org chart as the ladder", () => {
       expect(await mailedTo(procurementUserId, mark)).toEqual([`${result.reference} is waiting for your approval`]);
       mark = sent.length;
       const done = await purchasing.decideStep(procurementUserId, result.id, "APPROVE");
-      expect(done.stage).toBe("ORDER_PLACED");
-      expect(await mailedTo(deptHeadId, mark)).toEqual([`${result.reference} is approved`]);
+      expect(done.stage).toBe("WITH_PROCUREMENT");
+      // Procurement's approval starts the purchase: the head hears that, once.
+      expect(await mailedTo(deptHeadId, mark)).toEqual([`${done.procurement!.reference}: procurement started buying your request`]);
     });
   });
 
@@ -516,15 +521,16 @@ describe("decideStep: vacancy, handoff, reject, revise", () => {
     expect(resubmitted.steps).toHaveLength(4);
   });
 
-  it("the full happy path settles at ORDER_PLACED once every remaining step approves: dept head, dean, AVP, then Procurement", async () => {
+  it("the full happy path settles with procurement once every remaining step approves: dept head, dean, AVP, then Procurement", async () => {
     const { requestId, collegeHeadId, universityHeadId } = await setUpChain("happy");
     let decided = await purchasing.decideStep(collegeHeadId, requestId, "APPROVE");
     expect(decided.stage).toBe("APPROVING"); // still waiting on the university/AVP and Procurement steps
     decided = await purchasing.decideStep(universityHeadId, requestId, "APPROVE");
     expect(decided.stage).toBe("APPROVING"); // still waiting on Procurement
     decided = await purchasing.decideStep(procurementUserId, requestId, "APPROVE");
-    expect(decided.stage).toBe("ORDER_PLACED");
-    expect(decided.history.some((h) => h.stage === "ORDER_PLACED")).toBe(true);
+    expect(decided.stage).toBe("WITH_PROCUREMENT");
+    expect(decided.history.some((h) => h.stage === "WITH_PROCUREMENT")).toBe(true);
+    expect(decided.procurement?.stage).toBe("PREPARING");
   });
 });
 
@@ -542,7 +548,7 @@ describe("cancelPurchaseRequest", () => {
     expect(req.stage).toBe("CANCELLED");
   });
 
-  it("F-047: the raiser cannot cancel after ORDER_PLACED: only procurement can, and only with a note", async () => {
+  it("F-047: the raiser cannot cancel once procurement has it: only procurement can, with a note, and not while a procurement buys it", async () => {
     const deptHeadId = await makeUser("f047-dept-head", ["MANAGER"]);
     const collegeHeadId = await makeUser("f047-college-head");
     const universityHeadId = await makeUser("f047-university-head");
@@ -555,9 +561,12 @@ describe("cancelPurchaseRequest", () => {
     await purchasing.decideStep(collegeHeadId, result.id, "APPROVE");
     await purchasing.decideStep(universityHeadId, result.id, "APPROVE");
     const decided = await purchasing.decideStep(procurementUserId, result.id, "APPROVE");
-    expect(decided.stage).toBe("ORDER_PLACED");
+    expect(decided.stage).toBe("WITH_PROCUREMENT");
 
     await expect(purchasing.cancelPurchaseRequest(deptHeadId, result.id)).rejects.toMatchObject({ status: 409 });
+    // A procurement is buying it: that is what procurement cancels or edits.
+    await expect(purchasing.cancelPurchaseRequest(procurementUserId, result.id, "No longer needed")).rejects.toMatchObject({ status: 409 });
+    await procurements.cancelProcurement(procurementUserId, decided.procurement!.id, { note: "Tender failed" });
 
     const outsiderId = await makeUser("f047-outsider");
     await expect(purchasing.cancelPurchaseRequest(outsiderId, result.id, "trying anyway")).rejects.toMatchObject({ status: 403 });
@@ -606,10 +615,11 @@ describe("cancelPurchaseRequest", () => {
   });
 });
 
-describe("the reporting pipeline and receiving", () => {
+describe("procurement and receiving", () => {
   /** Walks a fresh request all the way to ORDER_PLACED via real decisions — the
    *  compiling head's own step self-skips, so college dean → university/AVP →
-   *  Procurement are the three that actually have to approve. */
+   *  Procurement are the three that actually have to approve. Procurement's approval
+   *  starts a procurement for it; placing that on EGP puts the request at ORDER_PLACED. */
   async function setUpAtOrderPlaced(prefix: string, lines?: unknown[]) {
     const deptHeadId = await makeUser(`${prefix}-dept-head`, ["MANAGER"]);
     const collegeHeadId = await makeUser(`${prefix}-college-head`);
@@ -624,36 +634,79 @@ describe("the reporting pipeline and receiving", () => {
     await purchasing.decideStep(collegeHeadId, result.id, "APPROVE");
     await purchasing.decideStep(universityHeadId, result.id, "APPROVE");
     const settled = await purchasing.decideStep(procurementUserId, result.id, "APPROVE");
-    expect(settled.stage).toBe("ORDER_PLACED");
-    return { requestId: result.id, deptId, lineId: result.lines[0].id };
+    expect(settled.stage).toBe("WITH_PROCUREMENT");
+    expect(settled.procurement?.reference).toMatch(/^PROC-\d{4}-\d{3}$/);
+    const procurementId = settled.procurement!.id;
+    const placed = await procurements.moveProcurement(procurementUserId, procurementId, { stage: "PLACED_ON_EGP", egpReference: `EGP-${prefix}` });
+    expect(placed.stage).toBe("PLACED_ON_EGP");
+    expect((await purchasing.getRequest(procurementUserId, result.id)).stage).toBe("ORDER_PLACED");
+    return { requestId: result.id, deptId, lineId: result.lines[0].id, procurementId };
   }
 
-  it("advanceStage walks the four pipeline stages in order, PROCUREMENT-only, and refuses past the end", async () => {
-    const { requestId } = await setUpAtOrderPlaced("pipeline");
+  it("the procurement moves forward freely, procurement-only; its request follows it", async () => {
+    const { requestId, procurementId } = await setUpAtOrderPlaced("pipeline");
     const nonProcId = await makeUser("pipeline-non-proc");
-    await expect(purchasing.advanceStage(nonProcId, requestId, {})).rejects.toMatchObject({ status: 403 });
+    await expect(procurements.moveProcurement(nonProcId, procurementId, { stage: "BUYER_FOUND" })).rejects.toMatchObject({ status: 403 });
+    await expect(procurements.moveProcurement(procurementUserId, procurementId, { stage: "PREPARING" })).rejects.toMatchObject({ status: 409 });
 
-    let req = await purchasing.advanceStage(procurementUserId, requestId, {});
-    expect(req.stage).toBe("BUYER_FOUND");
-    req = await purchasing.advanceStage(procurementUserId, requestId, {});
-    expect(req.stage).toBe("ON_DELIVERY");
-    req = await purchasing.advanceStage(procurementUserId, requestId, {});
-    expect(req.stage).toBe("IN_STORE");
-    await expect(purchasing.advanceStage(procurementUserId, requestId, {})).rejects.toMatchObject({ status: 400 });
+    // Straight from placed to on delivery: a later stage in one move.
+    let proc = await procurements.moveProcurement(procurementUserId, procurementId, { stage: "ON_DELIVERY" });
+    expect((await purchasing.getRequest(procurementUserId, requestId)).stage).toBe("ON_DELIVERY");
+    proc = await procurements.moveProcurement(procurementUserId, procurementId, { stage: "ARRIVED", arrived: [{ lineId: proc.lines[0].id, qty: 2 }] });
+    expect(proc.lines[0].arrivedQty).toBe(2);
+    expect(proc.events.at(-1)?.lineChanges).toEqual(["Balance: 3 bought, 2 came (Unit)"]);
+    expect((await purchasing.getRequest(procurementUserId, requestId)).stage).toBe("IN_STORE");
+    await expect(procurements.moveProcurement(procurementUserId, procurementId, { stage: "CLOSED" })).rejects.toMatchObject({ status: 409 });
 
     const receivingId = await makeUser("pipeline-receiving-keeper", ["STORE_KEEPER"]);
-    const receiving = await purchasing.listForActor(receivingId, "receiving");
-    expect(receiving.map((r) => r.id)).toContain(requestId);
+    expect((await purchasing.listForActor(receivingId, "receiving")).map((r) => r.id)).toContain(requestId);
     await expect(purchasing.listForActor(nonProcId, "pipeline")).rejects.toMatchObject({ status: 403 });
-    await expect(purchasing.listForActor(receivingId, "pipeline")).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("one procurement buys several requests, its lines are edited with a reason, and shrinking a line tells the raiser", async () => {
+    const a = await setUpAtOrderPlaced("combine-a");
+    const deptHeadId = await makeUser("combine-b-dept-head", ["MANAGER"]);
+    const collegeHeadId = await makeUser("combine-b-college-head");
+    const universityHeadId = await makeUser("combine-b-university-head");
+    const { universityId, collegeId, deptId } = await makeChain("combine-b", deptHeadId);
+    await setHead(collegeId, collegeHeadId);
+    await setHead(universityId, universityHeadId);
+    const b = await purchasing.compilePurchaseRequest(deptHeadId, compileInput(deptId, { lines: [{ name: "Chair", qty: 40, unit: "Unit", fromNeedIds: [] }] }));
+    createdRequestIds.push(b.id);
+    await purchasing.decideStep(collegeHeadId, b.id, "APPROVE");
+    await purchasing.decideStep(universityHeadId, b.id, "APPROVE");
+    // Already placed: a request can't join it any more; a new one is started instead.
+    await expect(purchasing.decideStep(procurementUserId, b.id, "APPROVE", undefined, [], a.procurementId)).rejects.toMatchObject({ status: 409 });
+    expect((await purchasing.getRequest(procurementUserId, b.id)).stage).toBe("APPROVING"); // nothing was decided
+
+    // Started on its own, with a second request joining while it is being prepared.
+    const started = await purchasing.decideStep(procurementUserId, b.id, "APPROVE");
+    const proc = await procurements.getProcurement(procurementUserId, started.procurement!.id);
+    expect(proc.lines.map((l) => [l.name, l.qty, l.purchaseReference])).toEqual([["Chair", 40, b.reference]]);
+    expect(await procurements.waitingRequests(procurementUserId).then((w) => w.map((r) => r.id))).not.toContain(b.id);
+
+    const mark = sent.length;
+    const edited = await procurements.editLines(procurementUserId, proc.id, { lines: [{ ...proc.lines[0], qty: 32 }], reason: "Only 32 in the tender" });
+    expect(edited.events.at(-1)?.lineChanges).toEqual(["Chair: 40 → 32 Unit"]);
+    expect(await mailedTo(deptHeadId, mark)).toEqual([`${proc.reference}: less will be bought than you asked for`]);
+  });
+
+  it("a standalone EGP purchase needs its EGP number and its lines; while preparing, requests join it", async () => {
+    await expect(procurements.startProcurement(procurementUserId, { requestIds: [], egpReference: "EGP-77", lines: [] })).rejects.toMatchObject({ status: 400 });
+    await expect(procurements.startProcurement(procurementUserId, { requestIds: [], lines: [{ name: "Toner", qty: 10 }] })).rejects.toMatchObject({ status: 400 });
+    const solo = await procurements.startProcurement(procurementUserId, { requestIds: [], egpReference: "EGP-77", lines: [{ name: "Toner", qty: 10, unitCost: 1200 }] });
+    expect([solo.stage, solo.requests.length, solo.total]).toEqual(["PREPARING", 0, 12000]);
+
+    const edited = await procurements.editLines(procurementUserId, solo.id, { lines: [{ id: solo.lines[0].id, name: "Toner", qty: 8, unitCost: 1200 }, { name: "Paper", qty: 50 }], reason: "Only 8 in stock" });
+    expect(edited.events.at(-1)?.lineChanges).toEqual(["Toner: 10 → 8", "+ Paper: 50"]);
+    const cancelled = await procurements.cancelProcurement(procurementUserId, solo.id, { note: "Bought locally instead" });
+    expect(cancelled.stage).toBe("CANCELLED");
   });
 
   /** Walks a fresh request on to IN_STORE, with a store the keeper holds. */
   async function setUpInStore(prefix: string, lines?: unknown[], bulk = false) {
     const at = await setUpAtOrderPlaced(prefix, lines);
-    await purchasing.advanceStage(procurementUserId, at.requestId, {});
-    await purchasing.advanceStage(procurementUserId, at.requestId, {});
-    await purchasing.advanceStage(procurementUserId, at.requestId, {}); // now IN_STORE
+    await procurements.moveProcurement(procurementUserId, at.procurementId, { stage: "ARRIVED" }); // the request is now IN_STORE
     const keeperId = await makeUser(`${prefix}-keeper`, ["STORE_KEEPER"]);
     const propertyId = await makeUser(`${prefix}-property`, ["PROPERTY_ADMIN"]);
     const storeItem = await prisma.item.create({
@@ -671,8 +724,12 @@ describe("the reporting pipeline and receiving", () => {
     return { ...at, keeperId, propertyId, storeId: storeItem.id };
   }
 
+  /** Records what arrived from the procurement buying the request (each request line
+   *  mapped to the procurement line that bought it). */
   async function record(propertyId: string, requestId: string, lines: Array<{ name: string; categoryId: string; qty: number; purchaseLineId?: string; spec?: string }>) {
-    const dto = await imports.createImport(propertyId, { source: "PURCHASE_REQUEST", purchaseRequestId: requestId, lines });
+    const link = await prisma.procurementRequest.findFirstOrThrow({ where: { purchaseRequestId: requestId }, include: { procurement: { include: { lines: true } } } });
+    const mapped = lines.map(({ purchaseLineId, ...l }) => ({ ...l, procurementLineId: link.procurement.lines.find((p) => p.purchaseLineId === purchaseLineId)?.id }));
+    const dto = await imports.createImport(propertyId, { source: "PROCUREMENT", procurementId: link.procurementId, lines: mapped });
     createdImportIds.push(dto.id);
     return dto;
   }
@@ -683,14 +740,31 @@ describe("the reporting pipeline and receiving", () => {
     return rows;
   }
 
+  it("Property Administration records the procurement's arrival (never above what came); loading it all closes the procurement and its request", async () => {
+    const s = await setUpInStore("proc-import");
+    const proc = await procurements.getProcurement(procurementUserId, s.procurementId);
+    const line = { name: "Balance", categoryId: serializedCategoryId, procurementLineId: proc.lines[0].id };
+    await expect(imports.createImport(s.propertyId, { source: "PROCUREMENT", procurementId: s.procurementId, lines: [{ ...line, qty: 4 }] })).rejects.toMatchObject({ status: 409 });
+    const rec = await imports.createImport(s.propertyId, { source: "PROCUREMENT", procurementId: s.procurementId, lines: [{ ...line, qty: 3 }] });
+    createdImportIds.push(rec.id);
+    expect([rec.procurementReference, rec.egpReference, rec.lines[0].purchaseLineId]).toEqual([proc.reference, "EGP-proc-import", s.lineId]);
+
+    const mark = sent.length;
+    await imports.loadImportLine(s.keeperId, rec.id, { lineId: rec.lines[0].id, qty: 3, storeParentId: s.storeId });
+    await itemsIn(s.storeId);
+    expect((await procurements.getProcurement(procurementUserId, s.procurementId)).stage).toBe("CLOSED");
+    const req = await purchasing.getRequest(procurementUserId, s.requestId);
+    expect([req.stage, req.lines[0].receivedQty]).toEqual(["CLOSED", 3]);
+    const raiser = (await prisma.purchaseRequest.findUniqueOrThrow({ where: { id: s.requestId } })).raisedById;
+    expect(await mailedTo(raiser, mark)).toEqual([`${proc.reference} is in the store`]);
+  });
+
   it("arrival at the store tells Property Administration, who records it; only they may", async () => {
     const at = await setUpAtOrderPlaced("arrival-mail");
     const propertyId = await makeUser("arrival-mail-property", ["PROPERTY_ADMIN"]);
-    await purchasing.advanceStage(procurementUserId, at.requestId, {});
-    await purchasing.advanceStage(procurementUserId, at.requestId, {});
     const mark = sent.length;
-    const inStore = await purchasing.advanceStage(procurementUserId, at.requestId, {});
-    expect(await mailedTo(propertyId, mark)).toEqual([`${inStore.reference} has arrived at the main store`]);
+    const arrived = await procurements.moveProcurement(procurementUserId, at.procurementId, { stage: "ARRIVED" });
+    expect(await mailedTo(propertyId, mark)).toEqual([`${arrived.reference} has arrived at the main store`]);
     expect((await purchasing.listForActor(propertyId, "receiving")).map((r) => r.id)).toContain(at.requestId);
 
     const keeperId = await makeUser("arrival-mail-keeper", ["STORE_KEEPER"]);
@@ -730,7 +804,7 @@ describe("the reporting pipeline and receiving", () => {
     req = await purchasing.getRequest(s.keeperId, s.requestId);
     expect([req.stage, req.lines[0].receivedQty]).toEqual(["CLOSED", 3]);
     expect(await itemsIn(s.storeId)).toHaveLength(3);
-    expect(await mailedTo(req.raisedById, mark)).toEqual([`${req.reference} is in the store`]);
+    expect(await mailedTo(req.raisedById, mark)).toEqual([`${req.procurement!.reference} is in the store`]);
   });
 
   it("an import (BULK) loads one item holding the quantity, via the ordinary setQuantity path", async () => {
@@ -842,7 +916,7 @@ describe("history and visibility: every send-back is kept, everyone involved can
     await purchasing.decideStep(avpId, compiled.id, "APPROVE");
     const final = await purchasing.decideStep(procurementUserId, compiled.id, "APPROVE", "Budget line confirmed");
 
-    expect(final.stage).toBe("ORDER_PLACED");
+    expect(final.stage).toBe("WITH_PROCUREMENT");
     expect(final.history.map((h) => [h.stage, h.byId])).toEqual([
       ["APPROVING", deptHeadId], // submitted
       ["REVISING", deanId],
@@ -853,7 +927,8 @@ describe("history and visibility: every send-back is kept, everyone involved can
       ["APPROVING", deanId],
       ["APPROVING", avpId],
       ["APPROVING", procurementUserId],
-      ["ORDER_PLACED", procurementUserId],
+      ["WITH_PROCUREMENT", procurementUserId], // every approval in
+      ["WITH_PROCUREMENT", procurementUserId], // procurement started buying it
     ]);
     expect(final.history[1].note).toMatch(/^(?!Sent back).+: Reduce computers by 2$/);
     expect(final.history[4].note).toMatch(/Add unit costs$/);

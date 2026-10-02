@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ContainerOptionDto, CreateImportInput, ImportRecordDto, PurchaseRequestDto, ResourceCategoryDto } from "@/lib/shared";
+import type { ContainerOptionDto, CreateImportInput, ImportRecordDto, ProcurementDto, PurchaseRequestDto, ResourceCategoryDto } from "@/lib/shared";
 import { PURCHASE_UNITS } from "@/lib/shared";
 import { TreePicker, containerTreeOptions } from "@/components/TreePicker";
 import { api, ApiError } from "@/lib/api";
@@ -9,6 +9,7 @@ import { Panel, ErrorNote, Button, Tag } from "@/components/ui";
 import { PanelLoading } from "@/components/states";
 import { couldNotLoad } from "@/components/toast";
 import { FOCUS_ROW, useScrollToFocus } from "@/lib/use-focus-row";
+import { useHomeCounts } from "@/lib/home-counts";
 
 const inputCls = "h-24 px-6 rounded-2 border border-border2 bg-panel text-11";
 const labelCls = "text-10.5 uppercase tracking-label text-faint";
@@ -16,7 +17,8 @@ const labelCls = "text-10.5 uppercase tracking-label text-faint";
 const STATUS_TONE: Record<ImportRecordDto["status"], "warn" | "good" | "neutral"> = { OPEN: "warn", LOADED: "good", CANCELLED: "neutral" };
 const STATUS_LABEL: Record<ImportRecordDto["status"], string> = { OPEN: "To load", LOADED: "Loaded", CANCELLED: "Cancelled" };
 
-type DraftLine = { key: string; name: string; categoryId: string; qty: string; unit: string; spec: string; purchaseLineId?: string };
+type DraftLine = { key: string; name: string; categoryId: string; qty: string; unit: string; spec: string; purchaseLineId?: string; procurementLineId?: string };
+type Source = "PROCUREMENT" | "PURCHASE_REQUEST" | "EGP";
 
 let keySeq = 0;
 const newKey = () => `l${++keySeq}`;
@@ -24,9 +26,10 @@ const blankLine = (): DraftLine => ({ key: newKey(), name: "", categoryId: "", q
 
 /**
  * Import records — how bought goods reach the Main Store (lib/server/resources/
- * imports.ts). Property Administration records what actually arrived, from a purchase
- * request at "Arrived at the main store" or standalone for an EGP purchase; the store
- * keeper loads the store from each record, line by line. Procurement follows along.
+ * imports.ts). Property Administration records what actually arrived: from a
+ * procurement that arrived (its counts to start from), from an older purchase request
+ * that arrived without one, or standalone for an EGP purchase; the store keeper loads
+ * the store from each record, line by line. Procurement follows along.
  */
 export function ImportsPanel({
   categories,
@@ -34,6 +37,7 @@ export function ImportsPanel({
   canLoad,
   focusImportId = null,
   focusRequestId = null,
+  focusProcurementId = null,
 }: {
   categories: ResourceCategoryDto[];
   canRecord: boolean;
@@ -42,12 +46,16 @@ export function ImportsPanel({
   focusImportId?: string | null;
   /** An arrived purchase request a link named — chosen in "record what arrived". */
   focusRequestId?: string | null;
+  /** An arrived procurement a link named — chosen in "record what arrived". */
+  focusProcurementId?: string | null;
 }) {
   const [records, setRecords] = useState<ImportRecordDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { refresh: refreshCounts } = useHomeCounts();
 
   function load() {
     setError(null);
+    refreshCounts();
     api
       .get<ImportRecordDto[]>("/resources/imports")
       .then(setRecords)
@@ -58,7 +66,7 @@ export function ImportsPanel({
 
   return (
     <>
-      {canRecord && <RecordImport categories={categories} records={records ?? []} onCreated={load} focusRequestId={focusRequestId} />}
+      {canRecord && <RecordImport categories={categories} records={records ?? []} onCreated={load} focusRequestId={focusRequestId} focusProcurementId={focusProcurementId} />}
       {error && <ErrorNote>{error}</ErrorNote>}
       <Panel title="Import records" actions={<span className="text-11 text-faint">{canLoad ? "Load what arrived into the store" : "What arrived, and whether it is in the store yet"}</span>}>
         {records === null ? (
@@ -82,9 +90,23 @@ export function ImportsPanel({
 
 // ── Recording what arrived (Property Administration) ─────────────────────────────
 
-function RecordImport({ categories, records, onCreated, focusRequestId }: { categories: ResourceCategoryDto[]; records: ImportRecordDto[]; onCreated: () => void; focusRequestId: string | null }) {
-  const [source, setSource] = useState<"PURCHASE_REQUEST" | "EGP">("PURCHASE_REQUEST");
+function RecordImport({
+  categories,
+  records,
+  onCreated,
+  focusRequestId,
+  focusProcurementId,
+}: {
+  categories: ResourceCategoryDto[];
+  records: ImportRecordDto[];
+  onCreated: () => void;
+  focusRequestId: string | null;
+  focusProcurementId: string | null;
+}) {
+  const [source, setSource] = useState<Source>(focusRequestId ? "PURCHASE_REQUEST" : "PROCUREMENT");
   const [arrived, setArrived] = useState<PurchaseRequestDto[] | null>(null);
+  const [arrivedProcurements, setArrivedProcurements] = useState<ProcurementDto[] | null>(null);
+  const [procurementId, setProcurementId] = useState("");
   const [requestId, setRequestId] = useState("");
   const [egpReference, setEgpReference] = useState("");
   const [supplier, setSupplier] = useState("");
@@ -96,9 +118,53 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
   useEffect(() => {
     api
       .get<PurchaseRequestDto[]>("/resources/purchase-requests?box=receiving")
-      .then(setArrived)
+      // A request bought through a procurement is recorded from the procurement.
+      .then((rows) => setArrived(rows.filter((r) => !r.procurement || r.procurement.stage === "CANCELLED")))
       .catch(couldNotLoad("what has arrived", () => setArrived([])));
+    api
+      .get<ProcurementDto[]>("/resources/procurements")
+      .then((rows) => setArrivedProcurements(rows.filter((p) => p.stage === "ARRIVED" && (!p.importRecord || p.importRecord.status === "CANCELLED"))))
+      .catch(couldNotLoad("the procurements that arrived", () => setArrivedProcurements([])));
   }, [records.length]);
+
+  /** Already recorded per procurement line, on records that aren't cancelled. */
+  const recordedFromProcurement = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const r of records) {
+      if (r.status === "CANCELLED") continue;
+      for (const l of r.lines) if (l.procurementLineId) out.set(l.procurementLineId, (out.get(l.procurementLineId) ?? 0) + l.qty);
+    }
+    return out;
+  }, [records]);
+
+  /** A procurement that arrived: its lines with the counts procurement recorded,
+   *  less what is already recorded; the EGP number and supplier come with it. */
+  function chooseProcurement(id: string) {
+    setProcurementId(id);
+    const p = arrivedProcurements?.find((x) => x.id === id);
+    if (!p) {
+      setLines([blankLine()]);
+      return;
+    }
+    setEgpReference(p.egpReference ?? "");
+    setSupplier(p.supplier ?? "");
+    const left = p.lines
+      .map((l) => ({ l, left: (l.arrivedQty ?? l.qty) - (recordedFromProcurement.get(l.id) ?? 0) }))
+      .filter((x) => x.left > 0)
+      .map(({ l, left }) => ({ key: newKey(), name: l.name, categoryId: l.categoryId ?? "", qty: String(left), unit: l.unit ?? "pcs", spec: l.spec ?? "", procurementLineId: l.id }));
+    setLines(left.length ? left : [blankLine()]);
+  }
+
+  // "PROC-… has arrived" names the procurement: it starts chosen, with its counts.
+  const preselectedProcurement = useRef(false);
+  const procurementFocused = !!focusProcurementId && arrivedProcurements?.some((p) => p.id === focusProcurementId) === true;
+  useEffect(() => {
+    if (!procurementFocused || preselectedProcurement.current) return;
+    preselectedProcurement.current = true;
+    setSource("PROCUREMENT");
+    chooseProcurement(focusProcurementId!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [procurementFocused]);
 
   /** Already recorded per purchase line, on records that aren't cancelled. */
   const recorded = useMemo(() => {
@@ -137,7 +203,10 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
 
   const update = (key: string, patch: Partial<DraftLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
-  const ready = lines.length > 0 && lines.every((l) => l.name.trim() && l.categoryId && Number(l.qty) > 0) && (source === "EGP" ? egpReference.trim() : requestId);
+  const ready =
+    lines.length > 0 &&
+    lines.every((l) => l.name.trim() && l.categoryId && Number(l.qty) > 0) &&
+    (source === "EGP" ? egpReference.trim() : source === "PROCUREMENT" ? procurementId : requestId);
 
   async function submit() {
     setBusy(true);
@@ -146,6 +215,7 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
       const input: CreateImportInput = {
         source,
         ...(source === "PURCHASE_REQUEST" ? { purchaseRequestId: requestId } : {}),
+        ...(source === "PROCUREMENT" ? { procurementId } : {}),
         egpReference: egpReference.trim() || undefined,
         supplier: supplier.trim() || undefined,
         note: note.trim() || undefined,
@@ -156,10 +226,12 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
           unit: l.unit || undefined,
           spec: l.spec.trim() || undefined,
           ...(source === "PURCHASE_REQUEST" && l.purchaseLineId ? { purchaseLineId: l.purchaseLineId } : {}),
+          ...(source === "PROCUREMENT" && l.procurementLineId ? { procurementLineId: l.procurementLineId } : {}),
         })),
       };
       await api.post("/resources/imports", input);
       setRequestId("");
+      setProcurementId("");
       setEgpReference("");
       setSupplier("");
       setNote("");
@@ -177,24 +249,39 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
       <Panel title="Record an import" actions={<span className="text-11 text-faint">What a purchase actually delivered: the store loads from this</span>}>
       <div className="p-12 flex flex-col gap-10">
         <div className="flex items-center gap-4">
-          {(["PURCHASE_REQUEST", "EGP"] as const).map((s) => (
+          {(["PROCUREMENT", "PURCHASE_REQUEST", "EGP"] as const).map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => {
                 setSource(s);
                 setRequestId("");
+                setProcurementId("");
                 setLines([blankLine()]);
               }}
               style={{ background: source === s ? "var(--accent)" : "var(--panel2)", color: source === s ? "#fff" : "var(--dim)" }}
               className="border-0 text-11 font-medium px-9 py-4 rounded-2"
             >
-              {s === "PURCHASE_REQUEST" ? "From a purchase request" : "Standalone EGP purchase"}
+              {s === "PROCUREMENT" ? "From a procurement" : s === "PURCHASE_REQUEST" ? "From an older purchase request" : "Standalone EGP purchase"}
             </button>
           ))}
         </div>
 
         <div className="flex flex-wrap items-end gap-8">
+          {source === "PROCUREMENT" ? (
+            <label className="flex flex-col gap-3">
+              <span className={labelCls}>Arrived procurement</span>
+              <select value={procurementId} onChange={(e) => chooseProcurement(e.target.value)} className={`${inputCls} min-w-[280px]`}>
+                <option value="">{arrivedProcurements === null ? "Loading…" : arrivedProcurements.length ? "Choose…" : "No procurement has arrived"}</option>
+                {(arrivedProcurements ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.reference} · {p.title}
+                    {p.requests.length ? ` · ${p.requests.map((r) => r.reference).join(", ")}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {source === "PURCHASE_REQUEST" ? (
             <label className="flex flex-col gap-3">
               <span className={labelCls}>Arrived purchase request</span>
@@ -218,7 +305,7 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
           </label>
         </div>
 
-        {(source === "EGP" || requestId) && (
+        {(source === "EGP" || requestId || procurementId) && (
           <div className="flex flex-col gap-6">
             {lines.map((l) => (
               <div key={l.key} className="flex flex-wrap items-end gap-8">
@@ -256,6 +343,7 @@ function RecordImport({ categories, records, onCreated, focusRequestId }: { cate
                   <input value={l.spec} onChange={(e) => update(l.key, { spec: e.target.value })} className={`${inputCls} w-[220px]`} />
                 </label>
                 {l.purchaseLineId && <span className="text-10.5 text-faint pb-4">on the request</span>}
+                {l.procurementLineId && <span className="text-10.5 text-faint pb-4">as procurement recorded it</span>}
                 <button type="button" className="text-11 text-faint pb-4" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} disabled={lines.length === 1}>
                   Remove
                 </button>
@@ -348,7 +436,11 @@ function ImportCard({ record, canLoad, canRecord, onChanged }: { record: ImportR
         <div>
           <div className="text-11.5 font-medium">
             {record.reference} ·{" "}
-            {record.source === "PURCHASE_REQUEST" ? `for ${record.purchaseReference ?? "a purchase request"}${record.purchaseOrgNodeName ? ` (${record.purchaseOrgNodeName})` : ""}` : `EGP ${record.egpReference}`}
+            {record.source === "PURCHASE_REQUEST"
+              ? `for ${record.purchaseReference ?? "a purchase request"}${record.purchaseOrgNodeName ? ` (${record.purchaseOrgNodeName})` : ""}`
+              : record.source === "PROCUREMENT"
+                ? `for ${record.procurementReference ?? "a procurement"}${record.egpReference ? ` · EGP ${record.egpReference}` : ""}`
+                : `EGP ${record.egpReference}`}
             {record.supplier ? ` · ${record.supplier}` : ""}
           </div>
           <div className="text-11 text-dim">

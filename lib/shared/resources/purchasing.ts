@@ -186,6 +186,8 @@ export const PurchaseRequestDto = z.object({
    *  outside APPROVING (a request that never left DRAFT, or one already
    *  settled/rejected/revised, has no live chain to show). */
   steps: z.array(ChainStepDto),
+  /** The procurement buying it (the live one, else the latest), once procurement started it. */
+  procurement: z.object({ id: z.string(), reference: z.string(), stage: z.string() }).nullable(),
 });
 export type PurchaseRequestDto = z.infer<typeof PurchaseRequestDto>;
 
@@ -220,6 +222,9 @@ export const DecidePurchaseInput = z.object({
   note: z.string().optional(),
   /** A letter or minutes the approver cites; kept on the request's history. */
   attachmentIds: z.array(z.string()).max(5).default([]),
+  /** Procurement starting the purchase: add it to this procurement (still being
+   *  prepared) instead of starting a new one. */
+  procurementId: z.string().optional(),
 });
 export type DecidePurchaseInput = z.infer<typeof DecidePurchaseInput>;
 

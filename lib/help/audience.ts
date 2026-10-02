@@ -54,14 +54,14 @@ const SCREEN_SECTIONS: Array<[string, string[]]> = [
   // The office chapters come first: only the people in that office (and the admin) read
   // them, so they never shadow someone else's section.
   ["/home", ["system-admin--1-home", "property-admin--1-university-wide-view", "adaa--1-your-home", "head--1-your-home", "custodian--1-your-home", "getting-started--5-home"]],
-  ["/register", ["system-admin--5-corrections-and-history", "property-admin--1-university-wide-view", "procurement--4-university-wide-view", "store-keeper--2-move-stock-to-a-lab", "adaa--3-resources-insights-and-history", "custodian--3-resources", "getting-started--7-find-your-way-around"]],
+  ["/register", ["system-admin--5-corrections-and-history", "property-admin--1-university-wide-view", "procurement--6-university-wide-view", "store-keeper--2-move-stock-to-a-lab", "adaa--3-resources-insights-and-history", "custodian--3-resources", "getting-started--7-find-your-way-around"]],
   ["/places", ["property-admin--2-the-main-store", "adaa--2-the-colleges-stores", "head--3-labs--stores", "custodian--2-your-labs", "concepts--places-and-the-things-inside-them"]],
   ["/schedule", ["custodian--8-bookings-of-your-labs", "custodian--9-weekly-classes"]],
-  ["/approvals", ["property-admin--4-approving-movements", "procurement--1-approve-a-request", "dean-avp--1-purchase-requests", "head--2-decide-lab-changes", "custodian--10-moving-things", "appendix--who-approves-what"]],
+  ["/approvals", ["property-admin--4-approving-movements", "procurement--1-start-the-purchase", "dean-avp--1-purchase-requests", "head--2-decide-lab-changes", "custodian--10-moving-things", "appendix--who-approves-what"]],
   ["/purchasing", ["property-admin--3-import-records", "procurement--2-your-pipeline", "store-keeper--1-load-an-import-record", "head--4-the-labs-needs", "custodian--7-ask-for-something", "dean-avp--1-purchase-requests"]],
   ["/external-requests", ["dean-avp--3-outside-requests", "head--11-outside-requests", "custodian--11-outside-requests"]],
   ["/categories", ["system-admin--4-categories", "property-admin--5-categories", "adaa--4-categories", "head--8-categories", "custodian--12-categories", "concepts--categories-belong-to-the-department-that-made-them"]],
-  ["/dashboard", ["property-admin--1-university-wide-view", "procurement--4-university-wide-view", "adaa--3-resources-insights-and-history", "head--10-history-and-insights", "getting-started--7-find-your-way-around"]],
+  ["/dashboard", ["property-admin--1-university-wide-view", "procurement--6-university-wide-view", "adaa--3-resources-insights-and-history", "head--10-history-and-insights", "getting-started--7-find-your-way-around"]],
   ["/change-log", ["system-admin--5-corrections-and-history", "adaa--3-resources-insights-and-history", "head--10-history-and-insights"]],
   ["/admin/org-structure", ["system-admin--2-organisation"]],
   ["/admin/people", ["system-admin--3-people--roles", "head--9-your-people"]],

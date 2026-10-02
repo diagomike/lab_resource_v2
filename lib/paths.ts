@@ -22,6 +22,10 @@ export const paths = {
   /** One import record, highlighted on the Arrivals tab. */
   importRecord: (importId: string) => `/purchasing?tab=arrivals&import=${importId}`,
   requests: () => "/purchasing?tab=requests",
+  /** One procurement, opened on Purchasing → Procurement. */
+  procurement: (procurementId: string) => `/purchasing?tab=procurement&procurement=${procurementId}`,
+  /** A procurement that arrived, chosen in Arrivals' "record what arrived". */
+  procurementArrived: (procurementId: string) => `/purchasing?tab=arrivals&procurement=${procurementId}`,
   calendar: (labId: string) => `/schedule?lab=${labId}`,
   /** An outside institution's request, opened on Outside requests. */
   outside: (requestId: string) => `/external-requests?focus=${requestId}`,

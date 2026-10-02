@@ -1,7 +1,6 @@
 import "server-only";
 import { Prisma, type PurchaseStep as PrismaPurchaseStep } from "@prisma/client";
 import type {
-  AdvancePurchaseInput,
   ChainStepDto,
   CompilePurchaseInput,
   DeclineNeedInput,
@@ -396,6 +395,7 @@ const requestInclude = {
   lines: { include: { answeredNeeds: { select: { id: true } } } },
   events: { orderBy: { at: "asc" }, include: { by: { select: { name: true } }, attachments: attachments.eventAttachmentsInclude } },
   steps: { orderBy: { order: "asc" } },
+  procurements: { include: { procurement: { select: { id: true, reference: true, stage: true, createdAt: true } } } },
 } satisfies Prisma.PurchaseRequestInclude;
 
 type RequestRow = Prisma.PurchaseRequestGetPayload<{ include: typeof requestInclude }>;
@@ -481,6 +481,11 @@ async function toRequestDto(row: RequestRow, showCost: boolean): Promise<Purchas
     })),
     feedback: row.feedback,
     steps,
+    procurement: (() => {
+      const all = row.procurements.map((p) => p.procurement).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const pick = all.find((p) => p.stage !== "CANCELLED") ?? all[0];
+      return pick ? { id: pick.id, reference: pick.reference, stage: pick.stage } : null;
+    })(),
   };
 }
 
@@ -666,7 +671,16 @@ export async function decideStep(
   decision: "APPROVE" | "REJECT" | "REVISE",
   note?: string,
   attachmentIds?: string[],
+  /** Procurement starting the purchase: add it to this procurement instead of a new one. */
+  procurementId?: string,
 ): Promise<PurchaseRequestDto> {
+  // Adding it to a procurement: checked before anything is decided, so a refusal leaves
+  // the request exactly as it was.
+  if (procurementId) {
+    const target = await prisma.procurement.findUnique({ where: { id: procurementId }, select: { reference: true, stage: true } });
+    if (!target) throw new HttpError(404, "That procurement no longer exists.");
+    if (target.stage !== "PREPARING") throw new HttpError(409, `${target.reference} is already placed. Start a new procurement for this request instead.`);
+  }
   // Serialised per request (F-040's own closing note: "apply the same pattern to
   // purchasing decideStep"): before this, an APPROVE and a REVISE by the same
   // approver on the same step, fired together, both passed the stage/step check and
@@ -726,6 +740,15 @@ export async function decideStep(
     }
   });
 
+  // The procurement office's approval IS starting the purchase (2026-10-02): a new
+  // procurement for it, or added to one still being prepared.
+  const settled = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, select: { stage: true } });
+  if (settled?.stage === FIRST_PIPELINE_STAGE && decision === "APPROVE" && canRunPipeline(await loadPerson(actorId))) {
+    const procurements = await import("./procurements");
+    if (procurementId) await procurements.addRequests(actorId, procurementId, { requestIds: [requestId] });
+    else await procurements.startProcurement(actorId, { requestIds: [requestId] });
+  }
+
   const dto = await loadDto(requestId, actorId);
   const cited = documentsSentWith(dto);
   if (dto.stage === "APPROVING") await tellNextApprover(dto, actorId);
@@ -736,7 +759,7 @@ export async function decideStep(
       `${summary(dto)} was sent back to you. Edit it and resubmit; the approval chain starts again.${quoted(note)}`,
       ...cited,
     ]);
-  else if (dto.stage === FIRST_PIPELINE_STAGE)
+  else if (dto.stage === FIRST_PIPELINE_STAGE && !dto.procurement)
     await tellRaiser(dto, actorId, `${dto.reference} is approved`, [`${summary(dto)} passed every approval and is with procurement: <strong>${STAGE_LABEL[dto.stage]}</strong>.`]);
   return dto;
 }
@@ -764,6 +787,8 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string, 
     const person = await loadPerson(actorId);
     if (!canRunPipeline(person)) throw new HttpError(403, "Only the person who raised this request, or procurement, may cancel it.");
     if (!note?.trim()) throw new HttpError(400, "A note is required when procurement cancels a placed order.");
+    const buying = await prisma.procurementRequest.findFirst({ where: { purchaseRequestId: requestId, procurement: { stage: { notIn: ["CANCELLED"] } } }, select: { procurement: { select: { reference: true } } } });
+    if (buying) throw new HttpError(409, `${request.reference} is being bought through ${buying.procurement.reference}. Edit what that procurement buys, or cancel it, first.`);
   }
 
   await prisma.$transaction(async (tx) => {
@@ -792,36 +817,6 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string, 
   }
 }
 
-/** The reporting pipeline: ORDER_PLACED → BUYER_FOUND → ON_DELIVERY → IN_STORE. A
- *  record, not a decision — nobody approves these, procurement just reports
- *  progress. */
-export async function advanceStage(actorId: string, requestId: string, input: AdvancePurchaseInput): Promise<PurchaseRequestDto> {
-  const person = await loadPerson(actorId);
-  if (!canRunPipeline(person)) throw new HttpError(403, "Only procurement may advance the pipeline.");
-
-  const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId } });
-  if (!request) throw new HttpError(404, "Request not found");
-  const next = nextStage(request.stage);
-  if (!next) throw new HttpError(400, `"${request.stage}" cannot be advanced further.`);
-
-  await prisma.$transaction([
-    prisma.purchaseRequest.update({ where: { id: requestId }, data: { stage: next } }),
-    prisma.purchaseEvent.create({ data: { purchaseId: requestId, byId: actorId, stage: next, note: input.note ?? null } }),
-  ]);
-  const dto = await loadDto(requestId, actorId);
-  await tellRaiser(dto, actorId, `${dto.reference}: ${STAGE_LABEL[next]}`, [`${summary(dto)} moved on: <strong>${STAGE_LABEL[next]}</strong>.${quoted(input.note)}`]);
-  if (next === "IN_STORE") {
-    // Property Administration records what actually came (the import record); the
-    // store keeper loads the store from that record — never straight off the request.
-    await notify(await usersWithRole("PROPERTY_ADMIN"), actorId, {
-      subject: `${dto.reference} has arrived at the main store`,
-      paragraphs: [`${summary(dto)} has arrived. Record what came in under <strong>Purchasing → Arrivals</strong>, so the store keeper can load it into the store.`],
-      path: paths.arrived(dto.id),
-    });
-  }
-  return dto;
-}
-
 /**
  * Goods reach the register through an import record now (lib/server/resources/
  * imports.ts): Property Administration records what arrived, the store keeper loads
@@ -830,8 +825,10 @@ export async function advanceStage(actorId: string, requestId: string, input: Ad
  * and tells the raiser — called by the import loader after each load.
  */
 export async function closeIfFullyReceived(requestId: string, actorId: string): Promise<boolean> {
-  const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, include: { lines: true } });
+  const request = await prisma.purchaseRequest.findUnique({ where: { id: requestId }, include: { lines: true, procurements: { select: { procurement: { select: { stage: true } } } } } });
   if (!request || request.stage !== "IN_STORE") return false;
+  // Bought through a procurement: it closes with the procurement (procurements.ts).
+  if (request.procurements.some((p) => p.procurement.stage !== "CANCELLED")) return false;
   const complete = request.lines.every((l) => l.receivedQty !== null && dec(l.receivedQty)! >= dec(l.qty)!);
   if (!complete) return false;
   await prisma.$transaction([
@@ -961,7 +958,7 @@ export async function assertCanReadRequest(actorId: string, requestId: string): 
   if (!visible) throw new HttpError(404, "Resource not found");
 }
 
-const PIPELINE_STAGES = ["ORDER_PLACED", "BUYER_FOUND", "ON_DELIVERY", "IN_STORE"] as const;
+const PIPELINE_STAGES = ["WITH_PROCUREMENT", "ORDER_PLACED", "BUYER_FOUND", "ON_DELIVERY", "IN_STORE"] as const;
 
 /** `"inbox"` — every request at `APPROVING` whose current step's live-resolved
  *  approver is this actor. `"mine"` — every request this actor raised, any status.

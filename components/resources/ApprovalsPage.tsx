@@ -9,6 +9,7 @@ import type {
   ClashDto,
   LabCommitRequestDto,
   PurchaseAttachmentDto,
+  ProcurementDto,
   PurchaseRequestDto,
   ReservationDto,
   CategoryChangeDto,
@@ -256,15 +257,40 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
   const canDecide = request.stage === "APPROVING" && currentStep?.approverId === viewerId;
   const words = purchaseWords(request.steps);
   const back = sendBackWords(request.raisedByName);
+  // The last step is the procurement office's: approving starts the purchase, in a new
+  // procurement or one still being prepared.
+  const startsPurchase = canDecide && !request.steps.some((s) => s.status === "WAITING");
+  const [preparing, setPreparing] = useState<ProcurementDto[]>([]);
+  const [into, setInto] = useState("");
+  useEffect(() => {
+    if (confirming !== "APPROVE" || !startsPurchase) return;
+    api
+      .get<ProcurementDto[]>("/resources/procurements")
+      .then((rows) => setPreparing(rows.filter((p) => p.stage === "PREPARING")))
+      .catch(() => setPreparing([]));
+  }, [confirming, startsPurchase]);
 
   async function decide(decision: "APPROVE" | "REJECT" | "REVISE") {
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note || undefined, attachmentIds: files.map((f) => f.id) });
+      const result = await api.post<PurchaseRequestDto>(`/resources/purchase-requests/${request.id}/decide`, {
+        decision,
+        note: note || undefined,
+        attachmentIds: files.map((f) => f.id),
+        ...(decision === "APPROVE" && into ? { procurementId: into } : {}),
+      });
       setConfirming(null);
       setNote("");
       setFiles([]);
+      if (decision === "APPROVE" && result.procurement) {
+        toast.success(`${request.reference} is being bought through ${result.procurement.reference}`, {
+          href: `/purchasing?tab=procurement&procurement=${result.procurement.id}`,
+          linkLabel: "Open the procurement",
+        });
+        onDecided();
+        return;
+      }
       toast.success(decision === "APPROVE" ? `Approved ${request.reference}` : decision === "REJECT" ? `Rejected ${request.reference}` : `${request.reference} sent back for revision`);
       onDecided();
     } catch (e) {
@@ -332,6 +358,20 @@ function PurchaseRequestCard({ request, viewerId, onDecided }: { request: Purcha
                     ? `It stops here. ${request.raisedByName} is told, and any lab needs it carried are open again.`
                     : back.means}
               </span>
+              {confirming === "APPROVE" && startsPurchase && (
+                <label className="flex flex-col gap-4 text-11">
+                  <span className="text-dim">Buy it through</span>
+                  <select value={into} onChange={(e) => setInto(e.target.value)} className="h-24 px-6 rounded-2 border border-border2 bg-panel text-11 outline-none focus:border-accent">
+                    <option value="">A new procurement</option>
+                    {preparing.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.reference} · {p.title} (still being prepared)
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-faint">You edit what exactly is bought, and move it along, on Purchasing → Procurement.</span>
+                </label>
+              )}
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}

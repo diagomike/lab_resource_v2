@@ -19,6 +19,7 @@ import { purchaseWords, sendBackWords } from "@/lib/domain/decision-words";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useHomeCounts } from "@/lib/home-counts";
+import { ProcurementPanel } from "./ProcurementPanel";
 import { Panel, Screen, ErrorNote, Button, Tag, ConfirmDialog, Tabs } from "@/components/ui";
 import { PanelLoading, InlineError } from "@/components/states";
 import { ImportsPanel } from "./ImportsPanel";
@@ -49,6 +50,7 @@ const STAGE_TONE: Record<PurchaseRequestDto["stage"], "warn" | "good" | "bad" | 
   DRAFT: "neutral",
   APPROVING: "warn",
   REVISING: "warn",
+  WITH_PROCUREMENT: "accent",
   ORDER_PLACED: "accent",
   BUYER_FOUND: "accent",
   ON_DELIVERY: "accent",
@@ -900,8 +902,12 @@ function RequestCard({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note.trim() || undefined, attachmentIds: files.map((f) => f.id) });
-      toast.success(decision === "APPROVE" ? `Approved ${request.reference}` : decision === "REJECT" ? `Rejected ${request.reference}` : `${request.reference} sent back for revision`);
+      const result = await api.post<PurchaseRequestDto>(`/resources/purchase-requests/${request.id}/decide`, { decision, note: note.trim() || undefined, attachmentIds: files.map((f) => f.id) });
+      if (decision === "APPROVE" && result.procurement) {
+        toast.success(`${request.reference} is being bought through ${result.procurement.reference}`, { href: `/purchasing?tab=procurement&procurement=${result.procurement.id}`, linkLabel: "Open it" });
+      } else {
+        toast.success(decision === "APPROVE" ? `Approved ${request.reference}` : decision === "REJECT" ? `Rejected ${request.reference}` : `${request.reference} sent back for revision`);
+      }
       setNote("");
       setFiles([]);
       onChanged();
@@ -939,21 +945,6 @@ function RequestCard({
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not cancel this request");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function advance() {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post(`/resources/purchase-requests/${request.id}/advance`, { note: note.trim() || undefined });
-      toast.success(`${request.reference} moved on. ${request.raisedByName} was told.`);
-      setNote("");
-      onChanged();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not advance this request");
     } finally {
       setBusy(false);
     }
@@ -1101,20 +1092,18 @@ function RequestCard({
           onCancel={() => setConfirmWithdraw(false)}
         />
       )}
-      {canRunPipeline && !isFinished(request.stage) && request.stage !== "APPROVING" && request.stage !== "REVISING" && (
-        <ProcurementCancel busy={busy} onCancel={cancel} />
-      )}
-
-      {showAdvance && (
-        <div className="pt-4 border-t border-border flex flex-wrap items-center justify-between gap-8">
-          <span className="text-11 text-dim">{STAGE_HELP[request.stage]}</span>
-          <div className="flex items-center gap-8">
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" className={`${inputCls} min-w-[200px]`} />
-            <Button variant="primary" onClick={advance} disabled={busy}>
-              Advance
-            </Button>
-          </div>
+      {/* Bought through a procurement: where it stands, and a link to it. Cancelling a
+          request procurement is buying is done on the procurement itself. */}
+      {request.procurement && (
+        <div className="pt-4 border-t border-border flex flex-wrap items-center gap-8 text-11">
+          <span className="text-dim">{STAGE_HELP[request.stage]}</span>
+          <a href={`/purchasing?tab=procurement&procurement=${request.procurement.id}`} className="text-accent hover:underline">
+            Bought through {request.procurement.reference} →
+          </a>
         </div>
+      )}
+      {canRunPipeline && request.stage === "WITH_PROCUREMENT" && (!request.procurement || request.procurement.stage === "CANCELLED") && (
+        <ProcurementCancel busy={busy} onCancel={cancel} />
       )}
 
     </div>
@@ -1235,7 +1224,7 @@ function RequestListPanel({
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type Section = "needs" | "requests" | "arrivals";
+type Section = "needs" | "requests" | "procurement" | "arrivals";
 
 /**
  * Purchasing, in three sections:
@@ -1267,10 +1256,17 @@ function PurchasingInner() {
   const seesArrivals = canRecordImports || canLoadStore || roles.includes("PROCUREMENT");
   const seesNeeds = isCustodian || !!headsUnit;
 
-  const sections: Section[] = [...(seesNeeds ? (["needs"] as const) : []), "requests", ...(seesArrivals ? (["arrivals"] as const) : [])];
+  // Procurement runs procurements; Property Administration and the store follow them.
+  const seesProcurement = canRunPipeline || canRecordImports || canLoadStore;
+  const sections: Section[] = [
+    ...(seesNeeds ? (["needs"] as const) : []),
+    "requests",
+    ...(seesProcurement ? (["procurement"] as const) : []),
+    ...(seesArrivals ? (["arrivals"] as const) : []),
+  ];
   // Each person lands where their work starts: custodians and heads on the labs' needs,
   // the store and Property Administration on arrivals, everyone else on requests.
-  const fallback: Section = seesNeeds ? "needs" : (canLoadStore || canRecordImports) && !canRunPipeline ? "arrivals" : "requests";
+  const fallback: Section = seesNeeds ? "needs" : canRunPipeline ? "procurement" : canLoadStore || canRecordImports ? "arrivals" : "requests";
   const requested = params.get("tab") as Section | null;
   // A notice names one line: `?need=` (Lab needs), `?import=` / `?request=` (Arrivals).
   const focusNeed = params.get("need");
@@ -1332,7 +1328,7 @@ function PurchasingInner() {
     const live = liveCounts?.tabs[`purchasing.${s}`];
     return {
       key: s,
-      label: s === "needs" ? "Lab needs" : s === "requests" ? "Requests" : "Arrivals",
+      label: s === "needs" ? "Lab needs" : s === "requests" ? "Requests" : s === "procurement" ? "Procurement" : "Arrivals",
       count: s === "needs" && headsUnit && openNeeds ? openNeeds.length : live?.action,
       following: live?.following,
     };
@@ -1399,9 +1395,6 @@ function PurchasingInner() {
           {headsUnit && (
             <RequestListPanel key={`mine-${refreshKey}`} title="Your requests" box="mine" viewerId={user.id} categories={categories} emptyLabel="You haven't sent a purchase request yet." canRunPipeline={canRunPipeline} />
           )}
-          {canRunPipeline && (
-            <RequestListPanel key={`pipeline-${refreshKey}`} title="On order: where each one is" box="pipeline" viewerId={user.id} categories={categories} emptyLabel="Nothing is on order right now." showAdvance canRunPipeline />
-          )}
           <RequestListPanel
             key={`tracking-${refreshKey}`}
             title={headsUnit ? "Other requests involving your unit" : "Purchase requests you follow"}
@@ -1415,7 +1408,19 @@ function PurchasingInner() {
         </>
       )}
 
-      {section === "arrivals" && <ImportsPanel key={`imports-${refreshKey}`} categories={categories} canRecord={canRecordImports} canLoad={canLoadStore} focusImportId={focusImport} focusRequestId={focusRequest} />}
+      {section === "procurement" && <ProcurementPanel key={`procurement-${refreshKey}`} categories={categories} canRun={canRunPipeline} focusId={params.get("procurement")} />}
+
+      {section === "arrivals" && (
+        <ImportsPanel
+          key={`imports-${refreshKey}`}
+          categories={categories}
+          canRecord={canRecordImports}
+          canLoad={canLoadStore}
+          focusImportId={focusImport}
+          focusRequestId={focusRequest}
+          focusProcurementId={params.get("procurement")}
+        />
+      )}
     </Screen>
   );
 }

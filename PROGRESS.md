@@ -5273,3 +5273,48 @@ its model that make porting it as-is the wrong move.
     calibrated, 51 without (no item held a value). **Neon will need it too** after the migration.
   - **Checks:** `tsc` clean, 624 tests, build clean; on :3200 the filter bar offers Calibration / Calibration due in
     (days); Analytical balance has a 6-month cycle and "Last calibrated".
+- **2026-10-03 (feedback round, R4: procurement as a process)**
+  - **Model** (migrations `20261003020000_procurements`, `20261003030000_import_procurement_line`, applied to `lrms_v2`):
+    `Procurement` (PROC-YYYY-NNN, EGP number, supplier, stage PREPARING → PLACED_ON_EGP → BUYER_FOUND → ON_DELIVERY →
+    ARRIVED → CLOSED, or CANCELLED), `ProcurementRequest` (which requests it buys; none = standalone EGP),
+    `ProcurementLine` (qty, unit cost, the request line it buys, `arrivedQty`), `ProcurementEvent` (stage, note,
+    `lineChanges` in words); `PurchaseStage.WITH_PROCUREMENT`; `ImportSource.PROCUREMENT`, `ImportRecord.procurementId`,
+    `ImportLine.procurementLineId`. A data step wraps every request already ORDER_PLACED…IN_STORE in its own
+    procurement at the matching stage (none on dev; Neon will need it).
+  - **Pure `lib/domain/procurement.ts`** (spec): labels and help, `movableTo` (forward to any later stage; CLOSED only
+    by loading; nothing after ARRIVED/CANCELLED), `requestStageFor` (covered requests follow), `describeLineChanges`,
+    `describeArrival`.
+  - **Service `lib/server/resources/procurements.ts`** + routes `/api/resources/procurements` (GET list, POST start),
+    `/waiting`, `/[id]`, `/[id]/lines|move|requests|cancel`: start from requests or standalone (EGP number + lines),
+    add requests while preparing, edit lines with a reason (raisers whose lines shrink are told), move (EGP number
+    required from PLACED_ON_EGP; ARRIVED records counts, tells Property Administration), cancel before arrival
+    (requests back to waiting), `closeIfLoaded` (after the store keeper loads: procurement and its requests CLOSED,
+    raisers told once).
+  - **The ladder's last step starts the purchase:** settling now gives WITH_PROCUREMENT; procurement's approval
+    starts a new procurement, or adds to one still PREPARING (`DecidePurchaseInput.procurementId`, checked before
+    anything is decided). `PurchaseRequestDto.procurement`. `advanceStage` and its route are retired; a request a
+    live procurement buys can't be cancelled on its own, nor recorded as a request-sourced import.
+  - **Imports:** "From a procurement" (pre-filled with the arrival counts, EGP and supplier; capped at what came;
+    category checked), "From an older purchase request", "Standalone EGP purchase".
+  - **Screens:** Purchasing → **Procurement** tab (`components/resources/ProcurementPanel.tsx`): approved requests
+    waiting (tick several → Start buying, or Add to a preparing one), + Standalone EGP purchase, each procurement as a
+    timeline with dates, lines (asked vs bought vs came, totals), Move to (any later stage, EGP number, supplier,
+    note, arrival counts), Edit what is being bought (reason), Cancel, History. Approvals' last step offers "Buy it
+    through: a new procurement / PROC-… (still being prepared)"; toasts link to the procurement. Request cards link
+    "Bought through PROC-…". Home: "Approved requests to start buying" for procurement; counts for the tab.
+  - **Guide:** ch. 07 rewritten; 06, 10 and the appendix follow; Help anchors updated (91 sections). The appendix's
+    rendered flow SVG still shows the old stage names (re-render with the screenshots at the end).
+  - **Checks:** `tsc` clean, 631 tests (new: procurement domain 4; DB: combine/refuse-after-placed, standalone +
+    edit + cancel, stage moves + arrival counts, PA import from procurement capped, load closes procurement and
+    request with one notice), build clean. **Browser walk on :3200 (dev data, mail off):** the CSE head raised
+    PR-2026-002 (40 chairs) and PR-2026-003 (4 projectors); dean, CMD and AVP approved; procurement started
+    PROC-2026-001 from the first in Approvals and added the second to it; edited chairs 40 → 32 ("Only 32 chairs in
+    the tender"); placed on EGP (EGP-114/2026); moved straight to Arrived with 30 chairs; Property Admin's Arrivals
+    form came pre-filled (30 chairs, 4 projectors, EGP-114/2026) → IMP-2026-002; the store keeper loaded it into
+    the ASTU Main Store → PROC-2026-001 "In the store", both requests CLOSED, and the head's bell tells the whole
+    story. This data is left in dev.
+  - **Seen, not fixed:** twice the browser tab jumped to /home right after I switched test accounts with in-page
+    `fetch` logins; it looks tied to that switching (a request in flight gets a 401), not to anything a real user
+    does. Worth watching.
+  - **Left for the e2e pass:** `e2e/validate-approval-lines.ts`, `drive-cse-cycle.ts`, `stage-guide.ts` and
+    `suites/B-purchasing.ts` still call the retired `/advance`.

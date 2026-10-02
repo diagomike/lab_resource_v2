@@ -8,7 +8,7 @@ import { z } from "zod";
  * lib/server/resources/imports.ts.
  */
 
-export const ImportSourceSchema = z.enum(["PURCHASE_REQUEST", "EGP"]);
+export const ImportSourceSchema = z.enum(["PURCHASE_REQUEST", "EGP", "PROCUREMENT"]);
 export type ImportSource = z.infer<typeof ImportSourceSchema>;
 
 export const ImportStatusSchema = z.enum(["OPEN", "LOADED", "CANCELLED"]);
@@ -23,6 +23,8 @@ export const ImportLineInput = z.object({
   spec: z.string().trim().max(2000).optional(),
   /** The purchase-request line this answers — PURCHASE_REQUEST records only. */
   purchaseLineId: z.string().optional(),
+  /** The procurement line whose arrival this records — PROCUREMENT records only. */
+  procurementLineId: z.string().optional(),
 });
 export type ImportLineInput = z.infer<typeof ImportLineInput>;
 
@@ -30,13 +32,15 @@ export const CreateImportInput = z
   .object({
     source: ImportSourceSchema,
     purchaseRequestId: z.string().optional(),
+    procurementId: z.string().optional(),
     egpReference: z.string().trim().max(120).optional(),
     supplier: z.string().trim().max(200).optional(),
     note: z.string().trim().max(2000).optional(),
     lines: z.array(ImportLineInput).min(1).max(200),
   })
   .refine((v) => v.source !== "PURCHASE_REQUEST" || !!v.purchaseRequestId, { message: "Choose the purchase request these goods arrived for.", path: ["purchaseRequestId"] })
-  .refine((v) => v.source !== "EGP" || !!v.egpReference, { message: "Give the EGP purchase or contract number.", path: ["egpReference"] });
+  .refine((v) => v.source !== "EGP" || !!v.egpReference, { message: "Give the EGP purchase or contract number.", path: ["egpReference"] })
+  .refine((v) => v.source !== "PROCUREMENT" || !!v.procurementId, { message: "Choose the procurement these goods arrived for.", path: ["procurementId"] });
 export type CreateImportInput = z.infer<typeof CreateImportInput>;
 
 export const LoadImportLineInput = z.object({
@@ -60,6 +64,7 @@ export const ImportLineDto = z.object({
   unit: z.string().nullable(),
   spec: z.string().nullable(),
   purchaseLineId: z.string().nullable(),
+  procurementLineId: z.string().nullable(),
   loadedQty: z.number(),
   loadedAt: z.string().nullable(),
   loadedByName: z.string().nullable(),
@@ -73,6 +78,8 @@ export const ImportRecordDto = z.object({
   purchaseRequestId: z.string().nullable(),
   purchaseReference: z.string().nullable(),
   purchaseOrgNodeName: z.string().nullable(),
+  procurementId: z.string().nullable(),
+  procurementReference: z.string().nullable(),
   egpReference: z.string().nullable(),
   supplier: z.string().nullable(),
   note: z.string().nullable(),

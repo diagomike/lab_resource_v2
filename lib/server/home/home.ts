@@ -9,6 +9,7 @@ import { capabilitiesOf } from "../auth/capabilities";
 import * as transfers from "../resources/approvals";
 import * as labVersions from "../resources/lab-versions";
 import * as purchasing from "../resources/purchasing";
+import * as procurements from "../resources/procurements";
 import * as governance from "../resources/category-governance";
 import * as external from "../external/requests";
 import { listBookings } from "../scheduling/reservations";
@@ -35,17 +36,19 @@ const approvalsFor = (kind: WaitingKind) => `/approvals?kind=${kind}`;
 async function waitingFor(userId: string, caps: CapabilitiesDto): Promise<Array<{ kind: WaitingKind; count: number; path: string }>> {
   const runsLabs = caps.isCustodian || caps.isAdmin;
   const heads = caps.headOf.length > 0;
-  const [transfer, labCommit, purchase, booking, categoryChange, needs, arrivals, loads, outside] = await Promise.all([
+  const [transfer, labCommit, purchase, booking, categoryChange, needs, procure, arrivals, loads, outside] = await Promise.all([
     safe(0, async () => (await transfers.listForActor(userId, "inbox")).length),
     safe(0, async () => (heads || caps.isPropertyAdmin || caps.officeCodes.includes("PROP") ? (await labVersions.listForActor(userId, "inbox")).length : 0)),
     safe(0, async () => (await purchasing.listForActor(userId, "inbox")).length),
     safe(0, async () => (runsLabs || heads ? (await listBookings(userId, "inbox")).length : 0)),
     safe(0, () => governance.waitingCount(userId)),
     safe(0, () => (heads ? prisma.needLine.count({ where: { orgNodeId: { in: caps.headOf }, status: "OPEN" } }) : Promise.resolve(0))),
-    safe(0, () =>
+    safe(0, async () => (caps.isProcurement || caps.isAdmin ? (await procurements.waitingRequests(userId)).length : 0)),
+    safe(0, async () =>
       caps.isPropertyAdmin
-        ? prisma.purchaseRequest.count({ where: { stage: "IN_STORE", imports: { none: { status: { in: ["OPEN", "LOADED"] } } } } })
-        : Promise.resolve(0),
+        ? (await prisma.procurement.count({ where: { stage: "ARRIVED", imports: { none: { status: { in: ["OPEN", "LOADED"] } } } } })) +
+          (await prisma.purchaseRequest.count({ where: { stage: "IN_STORE", procurements: { none: {} }, imports: { none: { status: { in: ["OPEN", "LOADED"] } } } } }))
+        : 0,
     ),
     safe(0, () => (caps.isStoreKeeper ? prisma.importRecord.count({ where: { status: "OPEN" } }) : Promise.resolve(0))),
     safe(0, async () =>
@@ -61,6 +64,7 @@ async function waitingFor(userId: string, caps: CapabilitiesDto): Promise<Array<
     { kind: "loads", count: loads, path: paths.arrivals() },
     { kind: "arrivals", count: arrivals, path: paths.arrivals() },
     { kind: "needs", count: needs, path: paths.needs() },
+    { kind: "procure", count: procure, path: "/purchasing?tab=procurement" },
     { kind: "external", count: outside, path: "/external-requests" },
   ];
 }
@@ -257,7 +261,7 @@ async function followingFor(userId: string, caps: CapabilitiesDto) {
     safe([], () => listBookings(userId, "mine")),
     safe({ waiting: [], mine: [] }, () => governance.listChanges(userId)),
     safe([], () => (caps.isCustodian ? purchasing.listMyNeeds(userId) : Promise.resolve([]))),
-    safe([], () => (caps.isProcurement || caps.isAdmin ? purchasing.listForActor(userId, "pipeline") : Promise.resolve([]))),
+    safe(0, () => (caps.isProcurement || caps.isAdmin ? prisma.procurement.count({ where: { stage: { notIn: ["CLOSED", "CANCELLED"] } } }) : Promise.resolve(0))),
     safe(0, () => (caps.isPropertyAdmin ? prisma.importRecord.count({ where: { status: "OPEN" } }) : Promise.resolve(0))),
     safe([], async () => (caps.isAvp || heads || caps.deanOf.length || caps.isCustodian ? await external.listForActor(userId) : [])),
   ]);
@@ -268,7 +272,7 @@ async function followingFor(userId: string, caps: CapabilitiesDto) {
   const bookingsOpen = b.filter((r) => r.state === "REQUESTED").length;
   const categoryOpen = c.mine.filter((x) => x.status === "PENDING").length;
   const needsOpen = n.filter((x) => x.status === "OPEN" || (x.status === "CARRIED" && x.purchaseStage !== null && live(x.purchaseStage))).length;
-  const pipelineOpen = pipeline.filter((r) => live(r.stage)).length;
+  const pipelineOpen = pipeline;
   const outsideOpen = outside.filter((r) => OPEN_OUTSIDE.includes(r.status) && !r.waitingOnMe).length;
   return { transfersOpen, labOpen, purchasesOpen, bookingsOpen, categoryOpen, needsOpen, pipelineOpen, importsOpen, outsideOpen };
 }
@@ -287,7 +291,8 @@ export async function homeCounts(userId: string): Promise<HomeCountsDto> {
     "approvals.inbox": { action: sum(["transfer", "lab-commit", "purchase", "booking", "category-change"]), following: 0 },
     "approvals.mine": { action: 0, following: f.transfersOpen + f.labOpen + f.purchasesOpen + f.bookingsOpen + f.categoryOpen },
     "purchasing.needs": { action: sum(["needs"]), following: f.needsOpen },
-    "purchasing.requests": { action: 0, following: f.purchasesOpen + f.pipelineOpen },
+    "purchasing.requests": { action: 0, following: f.purchasesOpen },
+    "purchasing.procurement": { action: sum(["procure"]), following: f.pipelineOpen },
     "purchasing.arrivals": { action: sum(["arrivals", "loads"]), following: f.importsOpen },
     "places.changes": { action: drafts.length, following: f.labOpen },
     "bookings.requests": { action: sum(["booking"]), following: f.bookingsOpen },
@@ -299,7 +304,7 @@ export async function homeCounts(userId: string): Promise<HomeCountsDto> {
   return {
     areas: {
       approvals: area("approvals.inbox", "approvals.mine"),
-      purchasing: area("purchasing.needs", "purchasing.requests", "purchasing.arrivals"),
+      purchasing: area("purchasing.needs", "purchasing.requests", "purchasing.procurement", "purchasing.arrivals"),
       places: area("places.changes"),
       outside: { action: sum(["external"]), following: f.outsideOpen },
       bookings: area("bookings.requests"),

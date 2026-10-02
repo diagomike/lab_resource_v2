@@ -30,12 +30,13 @@ The university's Main Store is yours to manage in **Labs & stores**: its details
 
 ## 3. Import records
 
-When procurement marks a purchase **Arrived at the main store**, you're told, and **Home** shows **Arrivals to record**. In **Purchasing → Arrivals**, **Record an import**:
+When procurement marks a procurement **Arrived at the main store**, you're told, and **Home** shows **Arrivals to record**. In **Purchasing → Arrivals**, **Record an import**:
 
-- **From a purchase request**: choose the **Arrived purchase request** (opened from the "has arrived" notice, it is already chosen and marked). Its lines are filled in with what is still to come; correct them to what actually arrived: quantities, and the **model or serials** from the delivery documents. You can't record more than was ordered.
+- **From a procurement** (the usual case): choose the **Arrived procurement** (opened from the "has arrived" notice, it is already chosen). Its lines are filled in with the counts procurement recorded, its EGP number and supplier too. Check them against what is on the floor and the delivery documents, correct a count down if needed, and add the **model or serials**. You can't record more than procurement says came.
+- **From an older purchase request**: for a request that arrived without a procurement (before procurements existed). Its lines are filled in with what is still to come.
 - **Standalone EGP purchase**: for goods bought through EGP that never had an LRMS request. Give the **EGP number** and the supplier, and list what arrived.
 
-Click **Record import**. The store keeper is told and loads it into the store, line by line; **Import records** shows each line's progress. You can **cancel** a record nothing has been loaded from yet (with a reason) and record it again.
+Click **Record import**. The store keeper is told and loads it into the store, line by line; **Import records** shows each line's progress. When everything from a procurement is loaded, the procurement and the requests it bought reach **In the store**. You can **cancel** a record nothing has been loaded from yet (with a reason) and record it again.
 
 ![Purchasing → Arrivals](img/property-admin/01-arrivals.jpg)
 

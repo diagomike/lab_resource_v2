@@ -36,8 +36,9 @@ export const STAGE_LABEL: Record<PurchaseStage, string> = {
   DRAFT: "Draft",
   APPROVING: "Awaiting approval",
   REVISING: "Sent back for revision",
+  WITH_PROCUREMENT: "With procurement",
   ORDER_PLACED: "Order placed on EGP",
-  BUYER_FOUND: "Buyer found",
+  BUYER_FOUND: "Supplier found",
   ON_DELIVERY: "On delivery",
   IN_STORE: "Arrived at the main store",
   CLOSED: "Registered and closed",
@@ -49,6 +50,7 @@ export const STAGE_HELP: Record<PurchaseStage, string> = {
   DRAFT: "Only the raising unit can see and change this.",
   APPROVING: "With an approver. Nothing is ordered yet.",
   REVISING: "An approver asked for changes. Edit it and send it up again.",
+  WITH_PROCUREMENT: "Every approval is in. Procurement is preparing the purchase.",
   ORDER_PLACED: "Procurement has placed the order on the government portal.",
   BUYER_FOUND: "A supplier has been awarded the tender.",
   ON_DELIVERY: "Bought and on its way.",
@@ -184,8 +186,9 @@ export function nextStage(stage: PurchaseStage): PurchaseStage | null {
   return PIPELINE[at + 1] ?? null;
 }
 
-/** The stage an approved request enters. */
-export const FIRST_PIPELINE_STAGE: PurchaseStage = "ORDER_PLACED";
+/** The stage an approved request enters: procurement has it, and starts the purchase
+ *  (lib/domain/procurement.ts). From there it follows the procurement that buys it. */
+export const FIRST_PIPELINE_STAGE: PurchaseStage = "WITH_PROCUREMENT";
 
 export function isEditable(stage: PurchaseStage): boolean {
   return stage === "DRAFT" || stage === "REVISING";

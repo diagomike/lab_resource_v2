@@ -158,6 +158,7 @@ export const purchaseStages = [
   "DRAFT",
   "APPROVING",
   "REVISING",
+  "WITH_PROCUREMENT",
   "ORDER_PLACED",
   "BUYER_FOUND",
   "ON_DELIVERY",

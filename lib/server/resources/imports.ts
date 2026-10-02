@@ -57,6 +57,7 @@ async function nextReference(tx: Prisma.TransactionClient): Promise<string> {
 
 const include = {
   purchaseRequest: { select: { reference: true, orgNode: { select: { name: true } } } },
+  procurement: { select: { reference: true } },
   createdBy: { select: { name: true } },
   lines: { orderBy: { sortOrder: "asc" }, include: { category: { select: { name: true, countingMode: true } }, loadedBy: { select: { name: true } } } },
 } satisfies Prisma.ImportRecordInclude;
@@ -71,6 +72,8 @@ function toDto(row: Row): ImportRecordDto {
     purchaseRequestId: row.purchaseRequestId,
     purchaseReference: row.purchaseRequest?.reference ?? null,
     purchaseOrgNodeName: row.purchaseRequest?.orgNode.name ?? null,
+    procurementId: row.procurementId,
+    procurementReference: row.procurement?.reference ?? null,
     egpReference: row.egpReference,
     supplier: row.supplier,
     note: row.note,
@@ -87,6 +90,7 @@ function toDto(row: Row): ImportRecordDto {
       unit: l.unit,
       spec: l.spec,
       purchaseLineId: l.purchaseLineId,
+      procurementLineId: l.procurementLineId,
       loadedQty: dec(l.loadedQty) ?? 0,
       loadedAt: l.loadedAt?.toISOString() ?? null,
       loadedByName: l.loadedBy?.name ?? null,
@@ -118,6 +122,8 @@ export async function createImport(actorId: string, input: CreateImportInput): P
     const request = await prisma.purchaseRequest.findUnique({ where: { id: input.purchaseRequestId! }, include: { lines: true } });
     if (!request) throw new HttpError(404, "Purchase request not found");
     if (request.stage !== "IN_STORE") throw new HttpError(409, `${request.reference} hasn't arrived at the main store yet: procurement marks it "Arrived" first.`);
+    const buying = await prisma.procurementRequest.findFirst({ where: { purchaseRequestId: request.id, procurement: { stage: { not: "CANCELLED" } } }, select: { procurement: { select: { reference: true } } } });
+    if (buying) throw new HttpError(409, `${request.reference} was bought through ${buying.procurement.reference}: record the arrival from that procurement.`);
     const byId = new Map(request.lines.map((l) => [l.id, l]));
     // Already recorded on another (not cancelled) import, per purchase line.
     const earlier = await prisma.importLine.groupBy({
@@ -138,7 +144,34 @@ export async function createImport(actorId: string, input: CreateImportInput): P
       }
       recorded.set(ordered.id, next);
     }
-  } else if (input.lines.some((l) => l.purchaseLineId)) {
+  } else if (input.source === "PROCUREMENT") {
+    // What a procurement recorded as arrived: Property Administration checks the counts
+    // (they may correct them down, never above what procurement recorded) and each line
+    // carries the request line it was bought for.
+    const procurement = await prisma.procurement.findUnique({ where: { id: input.procurementId! }, include: { lines: true } });
+    if (!procurement) throw new HttpError(404, "Procurement not found");
+    if (procurement.stage !== "ARRIVED") throw new HttpError(409, `${procurement.reference} hasn't arrived at the main store yet: procurement marks it "Arrived" first.`);
+    const byId = new Map(procurement.lines.map((l) => [l.id, l]));
+    const earlier = await prisma.importLine.groupBy({
+      by: ["procurementLineId"],
+      where: { procurementLineId: { in: [...byId.keys()] }, record: { status: { not: "CANCELLED" } } },
+      _sum: { qty: true },
+    });
+    const recorded = new Map(earlier.map((e) => [e.procurementLineId!, dec(e._sum.qty) ?? 0]));
+    for (const line of input.lines) {
+      if (!line.procurementLineId) continue;
+      const bought = byId.get(line.procurementLineId);
+      if (!bought) throw new HttpError(400, `"${line.name}" is linked to a line that isn't on ${procurement.reference}.`);
+      if (bought.categoryId && bought.categoryId !== line.categoryId) throw new HttpError(400, `"${line.name}" was bought as a different category. Choose the category it was bought as.`);
+      const came = dec(bought.arrivedQty) ?? dec(bought.qty)!;
+      const next = (recorded.get(bought.id) ?? 0) + line.qty;
+      if (next > came) throw new HttpError(409, `Procurement recorded ${came} of "${bought.name}" arriving; ${came - (recorded.get(bought.id) ?? 0)} are left to record: refusing ${line.qty}.`);
+      recorded.set(bought.id, next);
+      line.purchaseLineId = bought.purchaseLineId ?? undefined;
+    }
+    input.egpReference = input.egpReference || procurement.egpReference || undefined;
+    input.supplier = input.supplier || procurement.supplier || undefined;
+  } else if (input.lines.some((l) => l.purchaseLineId || l.procurementLineId)) {
     throw new HttpError(400, "A standalone EGP record isn't linked to purchase-request lines.");
   }
 
@@ -151,6 +184,7 @@ export async function createImport(actorId: string, input: CreateImportInput): P
             reference: await nextReference(tx),
             source: input.source,
             purchaseRequestId: input.source === "PURCHASE_REQUEST" ? input.purchaseRequestId! : null,
+            procurementId: input.source === "PROCUREMENT" ? input.procurementId! : null,
             egpReference: input.egpReference || null,
             supplier: input.supplier || null,
             note: input.note || null,
@@ -163,6 +197,7 @@ export async function createImport(actorId: string, input: CreateImportInput): P
                 unit: l.unit || null,
                 spec: l.spec || null,
                 purchaseLineId: l.purchaseLineId ?? null,
+                procurementLineId: l.procurementLineId ?? null,
                 sortOrder: i,
               })),
             },
@@ -181,7 +216,7 @@ export async function createImport(actorId: string, input: CreateImportInput): P
   await notify(await usersWithRole("STORE_KEEPER"), actorId, {
     subject: `${dto.reference} is ready to load into the store`,
     paragraphs: [
-      `${esc(dto.createdByName)} recorded what arrived${dto.purchaseReference ? ` for <strong>${esc(dto.purchaseReference)}</strong>` : dto.egpReference ? ` (EGP ${esc(dto.egpReference)})` : ""}: ${dto.lines.length} line${dto.lines.length === 1 ? "" : "s"}.${quoted(dto.note)}`,
+      `${esc(dto.createdByName)} recorded what arrived${dto.purchaseReference ? ` for <strong>${esc(dto.purchaseReference)}</strong>` : dto.procurementReference ? ` for <strong>${esc(dto.procurementReference)}</strong>` : dto.egpReference ? ` (EGP ${esc(dto.egpReference)})` : ""}: ${dto.lines.length} line${dto.lines.length === 1 ? "" : "s"}.${quoted(dto.note)}`,
       "Load it into the store under <strong>Purchasing → Arrivals</strong>.",
     ],
     path: paths.importRecord(dto.id),
@@ -258,6 +293,10 @@ export async function loadImportLine(actorId: string, recordId: string, input: L
   const lines = await prisma.importLine.findMany({ where: { recordId } });
   if (lines.every((l) => (dec(l.loadedQty) ?? 0) >= dec(l.qty)!)) await prisma.importRecord.update({ where: { id: recordId }, data: { status: "LOADED" } });
   if (record.purchaseRequestId) await closeIfFullyReceived(record.purchaseRequestId, actorId);
+  if (record.procurementId) {
+    const { closeIfLoaded } = await import("./procurements");
+    await closeIfLoaded(record.procurementId, actorId);
+  }
 
   return load(recordId);
 }

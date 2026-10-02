@@ -41,7 +41,7 @@ flowchart LR
   N[Custodians ask for<br/>what their labs need] --> H[Head builds a request<br/>from the chosen needs]
   H --> DN[Dean] --> CMD[College Managing<br/>Director] --> AVP[AVP] --> P[Procurement]
   DN -. send back .-> H
-  P --> O[Order placed on EGP → Buyer found<br/>→ On delivery → Arrived]
+  P --> O[With procurement → Order placed on EGP → Supplier found<br/>→ On delivery → Arrived]
   O --> IR[Property Administration<br/>records the import]
   IR --> S[Store keeper loads it<br/>into the Main Store]
   S --> HO[Move to the lab]
@@ -122,7 +122,7 @@ flowchart LR
 |---|---|
 | **Awaiting approval** | In the chain; the card says who it's waiting on |
 | **Sent back for revision** | Back with the head, with the approver's note |
-| **Order placed on EGP → Buyer found → On delivery → Arrived at the main store** | Procurement's stages |
+| **With procurement → Order placed on EGP → Supplier found → On delivery → Arrived at the main store** | Procurement's stages: a request follows the procurement that buys it |
 | **Registered and closed** | Everything loaded into the store from its import record(s) |
 | **Rejected / Withdrawn** | Stopped; carried needs reopen |
 

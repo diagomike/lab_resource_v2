@@ -5,7 +5,7 @@
  * Pure: lib/server/home/home.ts gathers the facts.
  */
 
-export type WaitingKind = "transfer" | "lab-commit" | "purchase" | "booking" | "category-change" | "needs" | "arrivals" | "loads" | "external";
+export type WaitingKind = "transfer" | "lab-commit" | "purchase" | "booking" | "category-change" | "needs" | "procure" | "arrivals" | "loads" | "external";
 
 export interface WaitingFact {
   kind: WaitingKind;
@@ -32,7 +32,7 @@ export interface NextStep {
 
 /** Who waits longest on what: a lab's whole batch of changes and moves hold people up
  *  most; arrivals sitting in the store, then needs to build into a request, come after. */
-export const WAITING_ORDER: WaitingKind[] = ["lab-commit", "transfer", "booking", "purchase", "loads", "arrivals", "category-change", "external", "needs"];
+export const WAITING_ORDER: WaitingKind[] = ["lab-commit", "transfer", "booking", "purchase", "procure", "loads", "arrivals", "category-change", "external", "needs"];
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);
 
@@ -47,6 +47,7 @@ export const WAITING_LABEL: Record<WaitingKind, string> = {
   "category-change": "Category changes to approve",
   external: "Outside requests",
   needs: "Needs to build into a purchase request",
+  procure: "Approved requests to start buying",
 };
 
 function waitingStep(w: WaitingFact): NextStep {
@@ -70,6 +71,8 @@ function waitingStep(w: WaitingFact): NextStep {
       return { title: `${plural(n, "An outside request needs", "outside requests need")} you`, body: null, path: w.path, action: "Open" };
     case "needs":
       return { title: `${plural(n, "A need from your labs is", "needs from your labs are")} waiting to be bought`, body: "Choose the ones to build into a purchase request.", path: w.path, action: "Build a request" };
+    case "procure":
+      return { title: `${plural(n, "An approved request is", "approved requests are")} waiting to be bought`, body: "Start a procurement for them, alone or together.", path: w.path, action: "Start buying" };
   }
 }
 

@@ -19,7 +19,7 @@ export type NotificationsDto = z.infer<typeof NotificationsDto>;
 export const MarkNotificationsReadInput = z.object({ ids: z.array(z.string()).max(200).optional(), all: z.boolean().optional() });
 export type MarkNotificationsReadInput = z.infer<typeof MarkNotificationsReadInput>;
 
-export const waitingKinds = ["transfer", "lab-commit", "purchase", "booking", "category-change", "needs", "arrivals", "loads", "external"] as const;
+export const waitingKinds = ["transfer", "lab-commit", "purchase", "booking", "category-change", "needs", "procure", "arrivals", "loads", "external"] as const;
 export type WaitingKind = (typeof waitingKinds)[number];
 
 /** A kind of thing waiting for this person, counted, with where to act on it. */

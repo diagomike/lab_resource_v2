@@ -55,7 +55,7 @@ Each answer's dialog also has **Attach** (minutes or a letter). Use it to send t
 > **Good to know**
 > - Only the person holding the step decides it, and only in turn: the AVP can't approve before the CMD has. If a post is vacant, the chain shows *(vacant)* until the administrator assigns someone.
 > - A department under two colleges needs both deans.
-> - After the last approval, the request goes to the Procurement Office as **Order placed on EGP**. From then on, only procurement can cancel it, with a note.
+> - After the last approval, the request is **With procurement**, which starts the purchase (a procurement, often covering several requests) and moves it along: **Order placed on EGP → Supplier found → On delivery → Arrived at the main store → In the store**. From then on, only procurement can cancel it, with a note.
 
 ## 2. Permanent transfers (CMD)
 

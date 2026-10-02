@@ -108,6 +108,8 @@ model User {
   purchaseLinesReceived      PurchaseLine[]              @relation("PurchaseLineReceivedBy")
   purchaseEventsLogged       PurchaseEvent[]             @relation("PurchaseEventBy")
   importRecordsCreated       ImportRecord[]              @relation("ImportRecordCreatedBy")
+  procurementsCreated        Procurement[]               @relation("ProcurementCreatedBy")
+  procurementEventsLogged    ProcurementEvent[]          @relation("ProcurementEventBy")
   purchaseAttachments        PurchaseAttachment[]        @relation("PurchaseAttachmentUploadedBy")
   importLinesLoaded          ImportLine[]                @relation("ImportLineLoadedBy")
   purchaseStepsToApprove     PurchaseStep[]              @relation("PurchaseStepApprover")
@@ -464,6 +466,7 @@ model ResourceCategory {
   needLines        NeedLine[]
   purchaseLines    PurchaseLine[]
   importLines      ImportLine[]
+  procurementLines ProcurementLine[]
 
   @@index([groupId])
   @@index([active])
@@ -991,7 +994,10 @@ enum PurchaseStage {
   APPROVING
   /// Sent back by an approver with feedback, and editable again.
   REVISING
-  /// Approved; procurement is running it. These four are the reporting pipeline.
+  /// Every approval is in: procurement has it and is preparing the purchase (a
+  /// Procurement that covers it, still PREPARING, or none yet).
+  WITH_PROCUREMENT
+  /// Procurement is running it. These four mirror the procurement that covers it.
   ORDER_PLACED
   BUYER_FOUND
   ON_DELIVERY
@@ -1026,6 +1032,8 @@ model PurchaseRequest {
   events      PurchaseEvent[]
   steps       PurchaseStep[]
   imports     ImportRecord[]
+  /// The procurement(s) that buy it — at most one that isn't cancelled.
+  procurements ProcurementRequest[]
   /// Documents put on it with its submissions, decisions and cancellation.
   attachments PurchaseAttachment[]
 
@@ -1054,6 +1062,8 @@ model PurchaseLine {
   answeredNeeds NeedLine[]
   /// Import lines that brought this line's goods into the store.
   importLines   ImportLine[]
+  /// The procurement lines that buy it.
+  procurementLines ProcurementLine[]
 
   @@index([purchaseId])
 }
@@ -1135,6 +1145,8 @@ model PurchaseAttachment {
 enum ImportSource {
   PURCHASE_REQUEST
   EGP
+  /// What a procurement recorded as arrived (it may cover several requests, or none).
+  PROCUREMENT
 }
 
 enum ImportStatus {
@@ -1151,6 +1163,7 @@ model ImportRecord {
   reference         String       @unique
   source            ImportSource
   purchaseRequestId String?
+  procurementId     String?
   /// The EGP purchase or contract number, for a standalone record (or as a cross-reference).
   egpReference      String?
   supplier          String?
@@ -1161,11 +1174,103 @@ model ImportRecord {
   updatedAt         DateTime     @updatedAt
 
   purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  procurement     Procurement?     @relation(fields: [procurementId], references: [id], onDelete: SetNull)
   createdBy       User             @relation("ImportRecordCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   lines           ImportLine[]
 
   @@index([status])
   @@index([purchaseRequestId])
+  @@index([procurementId])
+}
+
+enum ProcurementStage {
+  /// Being put together: which requests it covers, what exactly will be bought.
+  PREPARING
+  PLACED_ON_EGP
+  BUYER_FOUND
+  ON_DELIVERY
+  /// At the main store, with the counts that came; Property Administration records it.
+  ARRIVED
+  /// Everything that arrived is loaded into the store.
+  CLOSED
+  CANCELLED
+}
+
+/// What procurement actually buys (2026-10-02): one EGP purchase, covering any number
+/// of approved purchase requests (or none: a standalone EGP purchase). Its lines start
+/// from the requests' lines and are edited as the purchase really goes (fewer found,
+/// more bought); its stage moves forward freely, and the requests it covers follow it.
+model Procurement {
+  id           String           @id @default(cuid())
+  /// PROC-2026-001
+  reference    String           @unique
+  title        String
+  egpReference String?
+  supplier     String?
+  stage        ProcurementStage @default(PREPARING)
+  createdById  String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  createdBy User                 @relation("ProcurementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  requests  ProcurementRequest[]
+  lines     ProcurementLine[]
+  events    ProcurementEvent[]
+  imports   ImportRecord[]
+
+  @@index([stage])
+}
+
+model ProcurementRequest {
+  procurementId     String
+  purchaseRequestId String
+
+  procurement     Procurement     @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+
+  @@id([procurementId, purchaseRequestId])
+  @@index([purchaseRequestId])
+}
+
+model ProcurementLine {
+  id             String    @id @default(cuid())
+  procurementId  String
+  name           String
+  categoryId     String?
+  qty            Decimal   @db.Decimal(18, 4)
+  unit           String?
+  unitCost       Decimal?  @db.Decimal(18, 4)
+  spec           String?
+  /// The purchase-request line it buys, when it came from one.
+  purchaseLineId String?
+  /// What came, recorded when the procurement reached ARRIVED.
+  arrivedQty     Decimal?  @db.Decimal(18, 4)
+  sortOrder      Int       @default(0)
+
+  procurement  Procurement       @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  category     ResourceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  purchaseLine PurchaseLine?     @relation(fields: [purchaseLineId], references: [id], onDelete: SetNull)
+  importLines  ImportLine[]
+
+  @@index([procurementId])
+  @@index([purchaseLineId])
+}
+
+/// The procurement's story: each stage reached and each edit of what is bought, with
+/// the line changes in words ("Chair: 412 → 380, only 380 found").
+model ProcurementEvent {
+  id            String           @id @default(cuid())
+  procurementId String
+  at            DateTime         @default(now())
+  byId          String
+  stage         ProcurementStage
+  note          String?
+  lineChanges   String[]         @default([])
+
+  procurement Procurement @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  by          User        @relation("ProcurementEventBy", fields: [byId], references: [id], onDelete: Restrict)
+
+  @@index([procurementId, at])
 }
 
 model ImportLine {
@@ -1178,6 +1283,8 @@ model ImportLine {
   /// Model, specification or serial numbers, as the delivery documents give them.
   spec           String?
   purchaseLineId String?
+  /// The procurement line whose arrival it records (PROCUREMENT records).
+  procurementLineId String?
   loadedQty      Decimal?  @db.Decimal(18, 4)
   loadedAt       DateTime?
   loadedById     String?
@@ -1186,6 +1293,7 @@ model ImportLine {
   record       ImportRecord     @relation(fields: [recordId], references: [id], onDelete: Cascade)
   category     ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   purchaseLine PurchaseLine?    @relation(fields: [purchaseLineId], references: [id], onDelete: SetNull)
+  procurementLine ProcurementLine? @relation(fields: [procurementLineId], references: [id], onDelete: SetNull)
   loadedBy     User?            @relation("ImportLineLoadedBy", fields: [loadedById], references: [id], onDelete: SetNull)
 
   @@index([recordId])
