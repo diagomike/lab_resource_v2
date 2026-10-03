@@ -462,9 +462,78 @@ describe("lab setups: the head books places, their custodians hold them (2026-10
     expect(dto.holdChecks).toEqual([{ reservationId: hold2.id, blocked: "COVERED", reason: expect.stringContaining("already held") }]);
     await expect(requests.answerHold(custodian2Id, hold2.id, { decision: "HOLD" })).rejects.toMatchObject({ status: 409 });
     await expect(requests.placeHold(custodian2Id, r.id, { itemIds: [lab2Id], date, start: "09:00", end: "12:00" })).rejects.toMatchObject({ status: 409 });
-    // Booking more stays open (as a spare); the unanswered request is withdrawn on sending up.
+    // Nothing is left to book: another place is asked only in place of a held one.
+    await expect(requests.requestHolds(headAId, deptId, { labIds: [lab2Id] })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("already held") });
+    // The unanswered request is withdrawn on sending up.
     dto = await requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100 });
     expect(dto.holds.find((h) => h.id === hold2.id)).toMatchObject({ state: "CANCELLED" });
     expect(dto.events.at(-1)?.note).toContain("1 unanswered hold request withdrawn");
+  });
+
+  it("replacing a held place: the head releases one and asks another", async () => {
+    const date = dayAhead(52);
+    const r = await submit({ windows: [{ date, start: "09:00", end: "12:00" }], lines: [], setups: [{ placeCategoryId: roomCategoryId, count: 1, needs: [] }] });
+    await requests.forward(avpId, r.id, { orgNodeIds: [college] });
+    const collegePart = (await requests.getForActor(deanId, r.id)).assignments.find((a) => a.level === "COLLEGE")!;
+    const deptId = (await requests.forwardToDepartments(deanId, collegePart.id, { orgNodeIds: [nodeA] })).assignments.find((a) => a.orgNodeId === nodeA)!.id;
+    let dto = await requests.requestHolds(headAId, deptId, { labIds: [labId] });
+    const hold1 = dto.holds.find((h) => h.labItemId === labId)!;
+    await requests.answerHold(custodianId, hold1.id, { decision: "HOLD" });
+    expect((await requests.bookablePlaces(headAId, deptId)).filter((p) => [labId, lab2Id].includes(p.id)).map((p) => [p.held, p.asked])).toEqual([
+      [true, true],
+      [false, false],
+    ]);
+
+    await expect(requests.requestHolds(headAId, deptId, { labIds: [lab2Id] })).rejects.toMatchObject({ status: 409 });
+    // Only a place held for this request, in the department, can be released.
+    await expect(requests.requestHolds(headAId, deptId, { labIds: [lab2Id], releaseLabIds: [lab2Id] })).rejects.toMatchObject({ status: 400 });
+    dto = await requests.requestHolds(headAId, deptId, { labIds: [lab2Id], releaseLabIds: [labId] });
+    expect(dto.holds.find((h) => h.id === hold1.id)?.state).toBe("CANCELLED");
+    expect(dto.coverage?.complete).toBe(false);
+    expect(dto.events.at(-1)?.note).toContain("released: Ext Lab");
+    // The released place's calendar is free again; the new one can be held.
+    await expect(reservations.createStaffBooking(custodianId, { itemIds: [labId], date, start: "10:00", end: "11:00", title: "Class", onBehalfOfNote: "A class" })).resolves.toBeTruthy();
+    const hold2 = dto.holds.find((h) => h.labItemId === lab2Id && h.state === "REQUESTED")!;
+    dto = await requests.answerHold(custodian2Id, hold2.id, { decision: "HOLD" });
+    expect(dto.coverage?.complete).toBe(true);
+  });
+});
+
+describe("packaged offers, and sending a closed request again (2026-10-03)", () => {
+  it("keeps the offer and headcount a request was built from; an unknown offer is refused", async () => {
+    const setups = [{ placeCategoryId: roomCategoryId, count: 2, needs: [{ categoryId: machineCategoryId, qty: 1 }] }];
+    await expect(requests.submitRequest(otherRequesterId, input({ lines: [], setups, offerKey: "PICNIC", peopleCount: 40 }) as never, { bytes: PDF, fileName: "l.pdf" }, null)).rejects.toMatchObject({ status: 400 });
+    const r = await submit({ windows: [{ date: dayAhead(60), start: "09:00", end: "12:00" }], lines: [], setups, offerKey: "TRAINING", peopleCount: 40 });
+    expect((await requests.viewForRequester(r.requesterId, r.id)).offer).toEqual({ key: "TRAINING", name: "Training", people: 40 });
+    expect((await requests.getForActor(avpId, r.id)).offer).toEqual({ key: "TRAINING", name: "Training", people: 40 });
+    // Without setups there is nothing an offer recommended: it isn't kept.
+    const plain = await submit({ windows: [{ date: dayAhead(61), start: "09:00", end: "12:00" }], offerKey: "EXAM", peopleCount: 10 });
+    expect((await requests.viewForRequester(plain.requesterId, plain.id)).offer).toBeNull();
+  });
+
+  it("a declined request is edited and sent again: once, by its own requester, keeping its letter", async () => {
+    const mine = await makeUser("req-again", ["EXTERNAL"]);
+    const first = await submit({ windows: [{ date: dayAhead(62), start: "09:00", end: "12:00" }] }, mine);
+    // Still open: nothing to send again.
+    expect((await requests.viewForRequester(mine, first.id)).canSendAgain).toBe(false);
+    await expect(requests.submitRequest(mine, input({ resubmitOf: first.id }) as never, null, null)).rejects.toMatchObject({ status: 409 });
+    await requests.closeRequest(avpId, first.id, { note: "Those dates are exam week. Choose another week." });
+    const closed = await requests.viewForRequester(mine, first.id);
+    expect([closed.status, closed.canSendAgain, closed.closingNote]).toEqual(["DECLINED", true, "Those dates are exam week. Choose another week."]);
+
+    // Someone else's request can't be sent again, and a letter is needed unless it is one.
+    await expect(requests.submitRequest(otherRequesterId, input({ resubmitOf: first.id }) as never, null, null)).rejects.toMatchObject({ status: 404 });
+    await expect(requests.submitRequest(mine, input() as never, null, null)).rejects.toMatchObject({ status: 400 });
+
+    const again = await requests.submitRequest(mine, input({ resubmitOf: first.id, windows: [{ date: dayAhead(70), start: "09:00", end: "12:00" }] }) as never, null, null);
+    createdRequests.push(again.id);
+    const fresh = await requests.viewForRequester(mine, again.id);
+    expect([fresh.status, fresh.resubmitOf, fresh.letterFileName]).toEqual(["SUBMITTED", { id: first.id, reference: first.reference }, "letter.pdf"]);
+    const avp = await requests.getForActor(avpId, again.id);
+    expect(avp.resubmitOf).toEqual({ id: first.id, reference: first.reference, closingNote: "Those dates are exam week. Choose another week." });
+    const old = await requests.viewForRequester(mine, first.id);
+    expect([old.canSendAgain, old.resubmittedAs, old.timeline.at(-1)?.label]).toEqual([false, { id: again.id, reference: again.reference }, "Edited and sent again"]);
+    // Only once.
+    await expect(requests.submitRequest(mine, input({ resubmitOf: first.id }) as never, null, null)).rejects.toMatchObject({ status: 409 });
   });
 });

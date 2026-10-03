@@ -159,10 +159,19 @@ async function assertCustodyLandsOnEligible(input: ItemChangeInput): Promise<voi
   if (input.kind === "createItem" && input.custodianId) await scope.assertEligibleCustodian(input.custodianId);
 }
 
+const CUSTODY_IS_PROPERTY_ADMINS =
+  "Custody, the owning unit and the current unit are changed by Property Administration. To move something, use \"Move to another place\" or ask for it with \"Request to my lab\".";
+
 async function assertAuthorized(actorId: string, input: ItemChangeInput, viaApprovalEngine?: boolean): Promise<void> {
+  const sysAdmin = await scope.isSysAdmin(actorId);
+  // Who may change custody at all comes before whether the person named could take it:
+  // a custodian trying it is told whose job it is, whoever they named (2026-10-03).
+  if (!sysAdmin && (input.kind === "setCustodian" || input.kind === "setOwnerOrg" || input.kind === "setCurrentOrg") && !(await scope.rolesOf(actorId)).includes("PROPERTY_ADMIN")) {
+    throw new HttpError(403, CUSTODY_IS_PROPERTY_ADMINS);
+  }
   await assertCustodyLandsOnEligible(input);
 
-  if (await scope.isSysAdmin(actorId)) return;
+  if (sysAdmin) return;
 
   // Places (labs, workshops, stores) are static and managed from above: the unit's
   // head, the college's ADAA or Property Administration create them, change their
@@ -181,9 +190,7 @@ async function assertAuthorized(actorId: string, input: ItemChangeInput, viaAppr
     // directly, saying why (kept in History). Custodians move things by asking (Move to
     // another place, Request to my lab), never by editing these.
     const roles = await scope.rolesOf(actorId);
-    if (!roles.includes("PROPERTY_ADMIN")) {
-      throw new HttpError(403, "Custody, the owning unit and the current unit are changed by Property Administration. To move something, use \"Move to another place\" or ask for it with \"Request to my lab\".");
-    }
+    if (!roles.includes("PROPERTY_ADMIN")) throw new HttpError(403, CUSTODY_IS_PROPERTY_ADMINS);
     if (!input.note?.trim()) throw new HttpError(400, "Say why: the reason is kept in the resource's history.");
     return;
   }

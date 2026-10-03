@@ -2,9 +2,10 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import type { PublicCatalogDto, SubmitExternalRequestResultDto } from "@/lib/shared";
+import type { PublicCatalogDto, PublicTrackingDto, SubmitExternalRequestResultDto } from "@/lib/shared";
+import { maxPeople, recommend, setupLine } from "@/lib/domain/external-offers";
 import { addDays, instantToCivil } from "@/lib/domain/civil-time";
-import { ApiError } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { loadPublicCatalog } from "@/lib/portal-catalog";
 import PortalChrome, { RequireRequester } from "@/components/portal/PortalChrome";
@@ -40,6 +41,11 @@ function RequestForm() {
   const [windows, setWindows] = useState<WindowDraft[]>([{ date: firstDate, start: "09:00", end: "17:00" }]);
   const [lines, setLines] = useState<LineDraft[]>([{ description: "", quantity: "1", categoryId: "" }]);
   const [setups, setSetups] = useState<SetupDraft[]>([]);
+  // A packaged offer: what they are holding and for how many people; it fills the labs below.
+  const [offerKey, setOfferKey] = useState("");
+  const [people, setPeople] = useState("");
+  // Editing a closed request (declined, expired, cancelled) to send it again.
+  const [earlier, setEarlier] = useState<PublicTrackingDto | null>(null);
   const [machineCategoryId, setMachineCategoryId] = useState("");
   const [sampleCount, setSampleCount] = useState("1");
   const [analysis, setAnalysis] = useState("");
@@ -54,6 +60,49 @@ function RequestForm() {
       .then(setCatalog)
       .catch(() => setCatalog(null));
   }, []);
+
+  // "Edit and send again": the closed request's details fill the form.
+  useEffect(() => {
+    const from = new URLSearchParams(window.location.search).get("from");
+    if (!from) return;
+    api
+      .get<PublicTrackingDto>(`/portal/requests/${from}`)
+      .then((r) => {
+        if (!r.canSendAgain) return;
+        setEarlier(r);
+        setKind(r.kind);
+        setOrganizationName(r.organizationName);
+        setContactName(r.contactName);
+        setContactEmail(r.contactEmail);
+        setContactPhone(r.contactPhone);
+        setPurpose(r.purpose);
+        setWindows(r.windows.map((w) => ({ date: w.date, start: w.start, end: w.end })));
+        setLines(r.lines.length ? r.lines.map((l) => ({ description: l.description, quantity: String(l.quantity), categoryId: "" })) : [{ description: "", quantity: "1", categoryId: "" }]);
+        setSetups(r.setups.map((s) => ({ placeCategoryId: s.placeCategoryId, count: String(s.count), needs: s.needs.map((n) => ({ categoryId: n.categoryId, qty: String(n.qty) })) })));
+        if (r.offer) {
+          setOfferKey(r.offer.key);
+          setPeople(r.offer.people ? String(r.offer.people) : "");
+        }
+        if (r.sample) {
+          setSampleCount(String(r.sample.sampleCount));
+          setAnalysis(r.sample.analysis);
+        }
+      })
+      .catch(() => setError("The request you wanted to send again could not be opened. You can still fill in a new one."));
+  }, []);
+
+  const offers = catalog?.offers ?? [];
+  const offer = offers.find((o) => o.key === offerKey) ?? null;
+  const headcount = Number(people);
+  const recommended = offer && people ? recommend(offer, headcount) : null;
+  /** Choosing an offer or changing the headcount fills the labs below with what it recommends. */
+  function applyOffer(key: string, count: string) {
+    setOfferKey(key);
+    setPeople(count);
+    const chosen = offers.find((o) => o.key === key);
+    const r = chosen && count ? recommend(chosen, Number(count)) : null;
+    if (r) setSetups([{ placeCategoryId: r.placeCategoryId, count: String(r.count), needs: r.needs.map((n) => ({ categoryId: n.categoryId, qty: String(n.qty) })) }]);
+  }
 
   const categories = catalog?.groups.flatMap((g) => g.categories) ?? [];
   const machines = categories.filter((c) => c.bookingMode === "EQUIPMENT");
@@ -78,8 +127,8 @@ function RequestForm() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!letter) return setError("Attach your official letter as a PDF.");
-    if (letter.size > MAX_LETTER_BYTES) return setError("The letter must be at most 4 MB.");
+    if (!letter && !earlier) return setError("Attach your official letter as a PDF.");
+    if (letter && letter.size > MAX_LETTER_BYTES) return setError("The letter must be at most 4 MB.");
     setBusy(true);
     try {
       const payload = {
@@ -92,6 +141,9 @@ function RequestForm() {
         website: website || undefined,
         windows,
         setups: kind === "FACILITY" && cleanSetups.length ? cleanSetups : undefined,
+        offerKey: kind === "FACILITY" && cleanSetups.length && offer ? offer.key : undefined,
+        peopleCount: kind === "FACILITY" && cleanSetups.length && offer && Number.isInteger(headcount) && headcount > 0 ? headcount : undefined,
+        resubmitOf: earlier?.id,
         lines:
           kind === "FACILITY" && !cleanSetups.length
             ? lines.map((l) => ({ description: l.description, quantity: Number(l.quantity) || 0, categoryId: l.categoryId || undefined }))
@@ -100,7 +152,7 @@ function RequestForm() {
       };
       const form = new FormData();
       form.set("payload", JSON.stringify(payload));
-      form.set("letter", letter);
+      if (letter) form.set("letter", letter);
       const res = await fetch("/api/portal/requests", { method: "POST", body: form, credentials: "include" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new ApiError(res.status, body.message ?? "Your request could not be sent.");
@@ -134,7 +186,15 @@ function RequestForm() {
 
   return (
     <PortalChrome>
-      <h1 className="text-19 font-semibold">New request</h1>
+      <h1 className="text-19 font-semibold">{earlier ? `Edit ${earlier.reference} and send it again` : "New request"}</h1>
+      {earlier && (
+        <div className="rounded-2 border border-border2 bg-panel px-14 py-10 text-11.5 flex flex-col gap-4">
+          <div>
+            <span className="font-mono font-semibold">{earlier.reference}</span> was closed{earlier.closingNote ? <>: <span className="text-bad">“{earlier.closingNote}”</span></> : "."}
+          </div>
+          <div className="text-dim">Everything you sent is filled in below. Change what is needed and send it: it goes to the university as a new request, linked to this one.</div>
+        </div>
+      )}
       <form onSubmit={submit} className="flex flex-col gap-14">
         <Panel title="What kind of request">
           <div className="px-14 py-12 flex flex-col gap-6">
@@ -235,6 +295,49 @@ function RequestForm() {
             )}
           </div>
         </Panel>
+
+        {kind === "FACILITY" && offers.length > 0 && (
+          <Panel title="What are you holding?">
+            <div className="px-14 py-12 flex flex-col gap-8">
+              <div className="text-11 text-dim">Choose what it is and say for how many people: the labs you need are worked out for you. You can still change them below.</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {offers.map((o) => (
+                  <label key={o.key} className={`flex items-start gap-8 rounded-2 border px-10 py-8 text-11.5 cursor-pointer ${offerKey === o.key ? "border-accent bg-soft" : "border-border2"}`}>
+                    <input type="radio" name="offer" checked={offerKey === o.key} onChange={() => applyOffer(o.key, people)} className="mt-3" />
+                    <span>
+                      <span className="font-medium">{o.name}</span>
+                      <span className="block text-11 text-faint">{o.summary}</span>
+                    </span>
+                  </label>
+                ))}
+                <label className={`flex items-start gap-8 rounded-2 border px-10 py-8 text-11.5 cursor-pointer ${offerKey === "" ? "border-accent bg-soft" : "border-border2"}`}>
+                  <input type="radio" name="offer" checked={offerKey === ""} onChange={() => setOfferKey("")} className="mt-3" />
+                  <span>
+                    <span className="font-medium">Something else</span>
+                    <span className="block text-11 text-faint">Describe the labs you need yourself, below.</span>
+                  </span>
+                </label>
+              </div>
+              {offer && (
+                <div className="flex flex-wrap items-center gap-8 text-11.5">
+                  <label className="flex items-center gap-6">
+                    <span className={labelClass}>For how many people</span>
+                    <input type="number" min={1} max={maxPeople(offer)} value={people} onChange={(e) => applyOffer(offer.key, e.target.value)} className={`${inputClass} !w-[110px]`} aria-label="For how many people" />
+                  </label>
+                  {recommended ? (
+                    <span>
+                      <span className={labelClass}>We recommend</span> <strong className="font-medium">{setupLine(recommended)}</strong>
+                    </span>
+                  ) : people ? (
+                    <span className="text-bad">Give a whole number of people, at most {maxPeople(offer)}. For more, send a second request.</span>
+                  ) : (
+                    <span className="text-faint">A {offer.placeCategoryName.toLowerCase()} here seats about {offer.seatsPerPlace}.</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </Panel>
+        )}
 
         {kind === "FACILITY" && (
           <Panel title="The labs you need">
@@ -346,13 +449,14 @@ function RequestForm() {
           <div className="px-14 py-12 flex flex-col gap-6">
             <input type="file" accept="application/pdf,.pdf" onChange={(e) => setLetter(e.target.files?.[0] ?? null)} className="text-11" />
             <span className="text-11 text-faint">A signed letter from your institution, as a PDF of at most 4 MB.</span>
+            {earlier && <span className="text-11 text-dim">The letter you sent with {earlier.reference} ({earlier.letterFileName}) is attached again, unless you choose a new one here.</span>}
           </div>
         </Panel>
 
         {error && <ErrorNote>{error}</ErrorNote>}
         <div>
           <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? "Sending…" : "Send request"}
+            {busy ? "Sending…" : earlier ? "Send it again" : "Send request"}
           </Button>
         </div>
       </form>

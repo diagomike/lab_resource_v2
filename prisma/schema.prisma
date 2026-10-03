@@ -1682,6 +1682,13 @@ model ExternalRequest {
   /// how many, and what each must have — [{placeCategoryId, count, needs: [{categoryId,
   /// qty}]}]. The department books places against it (lib/domain/external-coverage.ts).
   setups             Json?
+  /// The packaged offer the setups were recommended from (lib/domain/external-offers.ts:
+  /// EXAM, TRAINING, WORKSHOP) and for how many people (2026-10-03). Null: built by hand.
+  offerKey           String?
+  peopleCount        Int?
+  /// The closed request (declined, expired or cancelled) this one was edited from and
+  /// sent again as (2026-10-03).
+  resubmitOfId       String?
   /// The official letter (PDF), stored through the same StorageDriver as images.
   letterStorageKey   String
   letterFileName     String
@@ -1699,6 +1706,8 @@ model ExternalRequest {
   updatedAt          DateTime              @updatedAt
 
   requester    User?                       @relation("ExternalRequestRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  resubmitOf   ExternalRequest?            @relation("ExternalRequestResubmit", fields: [resubmitOfId], references: [id], onDelete: SetNull)
+  resubmissions ExternalRequest[]          @relation("ExternalRequestResubmit")
   windows      ExternalRequestWindow[]
   assignments  ExternalRequestAssignment[]
   events       ExternalRequestEvent[]
@@ -1709,6 +1718,7 @@ model ExternalRequest {
   @@index([requesterId])
   @@index([contactEmail, createdAt])
   @@index([submitterIpHash, createdAt])
+  @@index([resubmitOfId])
 }
 
 /// A date and time window the requester wants, stated in the venue's civil time.

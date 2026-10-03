@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const form = await request.formData().catch(() => null);
     if (!form) throw new HttpError(400, "Send the request as a form with a letter attached.");
     const letter = form.get("letter");
-    if (!(letter instanceof File) || letter.size === 0) throw new HttpError(400, "Attach the official letter as a PDF.");
+    const attached = letter instanceof File && letter.size > 0 ? letter : null;
 
     let payload: unknown;
     try {
@@ -45,8 +45,10 @@ export async function POST(request: NextRequest) {
       throw new HttpError(400, message, { message, issues: parsed.error.issues });
     }
 
+    // A request sent again keeps its letter unless a new one is attached.
+    if (!attached && !parsed.data.resubmitOf) throw new HttpError(400, "Attach the official letter as a PDF.");
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || undefined;
-    const result = await submitRequest(user.id, parsed.data, { bytes: Buffer.from(await letter.arrayBuffer()), fileName: letter.name }, hashIp(ip));
+    const result = await submitRequest(user.id, parsed.data, attached ? { bytes: Buffer.from(await attached.arrayBuffer()), fileName: attached.name } : null, hashIp(ip));
     return NextResponse.json<SubmitExternalRequestResultDto>(result, { status: 201 });
   } catch (err) {
     return errorResponse(err);

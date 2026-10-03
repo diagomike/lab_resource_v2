@@ -70,6 +70,21 @@ export const PublicCatalogDto = z.object({
   ),
   /** The kinds of things a lab setup can ask for in each place (names only). */
   setupKinds: z.array(z.object({ id: z.string(), name: z.string() })),
+  /** Packaged offers (lib/domain/external-offers.ts): the requester says what they are
+   *  holding and for how many people, and the labs to ask for are recommended. */
+  offers: z.array(
+    z.object({
+      key: z.string(),
+      name: z.string(),
+      summary: z.string(),
+      placeCategoryId: z.string(),
+      placeCategoryName: z.string(),
+      seatCategoryId: z.string(),
+      seatCategoryName: z.string(),
+      seatsPerPlace: z.number().int(),
+      perPlace: z.array(z.object({ categoryId: z.string(), categoryName: z.string(), qty: z.number().int() })),
+    }),
+  ),
   generatedAt: z.string(),
 });
 export type PublicCatalogDto = z.infer<typeof PublicCatalogDto>;
@@ -123,6 +138,12 @@ export const SubmitExternalRequestInput = z.object({
   windows: z.array(ExternalWindowInput).min(1, "Add at least one date.").max(10),
   /** FACILITY: the labs to build up (a setup or a line is needed; checked by the service). */
   setups: z.array(SetupInput).max(10).optional(),
+  /** The packaged offer the setups were recommended from, and for how many people. */
+  offerKey: z.string().max(40).optional(),
+  peopleCount: z.number().int().min(1, "Say for how many people.").max(100000).optional(),
+  /** Sending a closed request (declined, expired, cancelled) again, edited: its id. Its
+   *  letter is attached again unless a new one is sent. */
+  resubmitOf: z.string().optional(),
   // A FACILITY request needs a setup or a line (checked by the service); a sample analysis may list none.
   lines: z.array(ExternalRequestLineInput).max(30),
   /** Honeypot — a real person never fills this in. */
@@ -209,6 +230,12 @@ export const PublicPaymentDto = z.object({
 export type PublicPaymentDto = z.infer<typeof PublicPaymentDto>;
 
 /** What the requester sees of their own request, signed in to the portal. */
+/** The packaged offer a request was built from: "Training, for 40 people". */
+export const OfferChosenDto = z.object({ key: z.string(), name: z.string(), people: z.number().int().nullable() });
+export type OfferChosenDto = z.infer<typeof OfferChosenDto>;
+export const RequestRefDto = z.object({ id: z.string(), reference: z.string() });
+export type RequestRefDto = z.infer<typeof RequestRefDto>;
+
 export const PublicTrackingDto = z.object({
   id: z.string(),
   reference: z.string(),
@@ -222,6 +249,15 @@ export const PublicTrackingDto = z.object({
   windows: z.array(WindowDto),
   lines: z.array(LineDto),
   setups: z.array(SetupDto),
+  offer: OfferChosenDto.nullable(),
+  /** The request this one was sent again from, and the one it was sent again as. */
+  resubmitOf: RequestRefDto.nullable(),
+  resubmittedAs: RequestRefDto.nullable(),
+  /** Closed without being served (declined, expired, cancelled): it may be edited and sent again. */
+  canSendAgain: z.boolean(),
+  letterFileName: z.string(),
+  contactEmail: z.string(),
+  contactPhone: z.string(),
   quote: z
     .object({
       amountSantim: z.number().int(),
@@ -297,6 +333,9 @@ export type FinishTaskInput = z.infer<typeof FinishTaskInput>;
  *  to that place's custodian, for every date asked for. */
 export const RequestHoldsInput = z.object({
   labIds: z.array(z.string()).min(1, "Choose at least one place.").max(20),
+  /** Replacing: places held (or asked) for the request to release once the new ones are
+   *  asked. Needed when everything asked for is already held (2026-10-03). */
+  releaseLabIds: z.array(z.string()).max(20).optional(),
   note: z.string().trim().max(2000).optional(),
 });
 export type RequestHoldsInput = z.infer<typeof RequestHoldsInput>;
@@ -320,6 +359,8 @@ export const BookablePlaceDto = z.object({
   counts: z.array(z.object({ categoryId: z.string(), categoryName: z.string(), count: z.number().int() })),
   /** Already asked or held for this request. */
   asked: z.boolean(),
+  /** Held for this request now (what a replacement releases). */
+  held: z.boolean(),
   /** What it lacks of what each of the requester's labs must have ([] when it fits). Its
    *  custodian borrows that first: a place is held only when it fits (2026-10-03). */
   missing: z.array(z.object({ categoryName: z.string(), have: z.number().int(), need: z.number().int() })),
@@ -453,6 +494,10 @@ export const ExternalRequestDto = z.object({
   lines: z.array(LineDto),
   setups: z.array(SetupDto),
   /** How far the held places cover the setups, per date asked for (null: no setups). */
+  offer: OfferChosenDto.nullable(),
+  /** The declined (or expired, cancelled) request this one was sent again from. */
+  resubmitOf: RequestRefDto.extend({ closingNote: z.string().nullable() }).nullable(),
+  resubmittedAs: RequestRefDto.nullable(),
   coverage: z
     .object({
       complete: z.boolean(),

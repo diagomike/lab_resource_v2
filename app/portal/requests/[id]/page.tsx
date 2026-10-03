@@ -174,6 +174,12 @@ function RequestView({ id }: { id: string }) {
                   {w.date} · {w.start}–{w.end}
                 </div>
               ))}
+              {data.offer && (
+                <div>
+                  <span className="font-medium">{data.offer.name}</span>
+                  {data.offer.people ? `, for ${data.offer.people} people` : ""}
+                </div>
+              )}
               {data.setups.map((s, i) => (
                 <div key={`s${i}`}>
                   <span className="font-mono">{s.count} ×</span> {s.placeCategoryName}
@@ -188,6 +194,35 @@ function RequestView({ id }: { id: string }) {
               ))}
             </div>
           </Panel>
+
+          {(data.canSendAgain || data.resubmittedAs || data.resubmitOf) && (
+            <div className="flex flex-wrap items-center gap-10 text-11.5">
+              {data.canSendAgain && (
+                <>
+                  <Link href={`/portal/request?from=${data.id}`} className="inline-flex items-center h-28 px-12 rounded-2 bg-accent text-white font-medium">
+                    Edit and send again
+                  </Link>
+                  <span className="text-dim">Everything you sent is filled in for you: change what is needed and send it as a new request.</span>
+                </>
+              )}
+              {data.resubmittedAs && (
+                <span>
+                  Sent again as{" "}
+                  <Link href={`/portal/requests/${data.resubmittedAs.id}`} className="text-accent underline font-mono">
+                    {data.resubmittedAs.reference}
+                  </Link>
+                </span>
+              )}
+              {data.resubmitOf && (
+                <span className="text-dim">
+                  Edited from{" "}
+                  <Link href={`/portal/requests/${data.resubmitOf.id}`} className="text-accent underline font-mono">
+                    {data.resubmitOf.reference}
+                  </Link>
+                </span>
+              )}
+            </div>
+          )}
 
           {data.canCancel && (
             <div>

@@ -35,6 +35,7 @@ import * as scope from "./scope";
 import type { ScopeOverride } from "./scope";
 import { toDomainCategoryMap, toDomainItem } from "./adapt";
 import { z } from "zod";
+import { OFFERS, typicalSeats } from "@/lib/domain/external-offers";
 
 /**
  * Resource READS. Every query goes through a scoped "forest" — the whole
@@ -445,8 +446,45 @@ export async function publicCatalog(): Promise<PublicCatalogDto> {
     .filter((c) => !c.isPlace && present.has(c.id))
     .map((c) => ({ id: c.id, name: c.name }))
     .sort((a, b) => a.name.localeCompare(b.name));
+  // Packaged offers: each one's kinds found in the catalogue, and the seats a typical
+  // bookable place of its kind has (the median of what they hold, working).
+  const byKey = new Map(Object.values(forest.categories).map((c) => [c.key, c]));
+  const itemsById = new Map(forest.items.map((i) => [i.id, i]));
+  const rootOf = (id: string): string => {
+    let at = itemsById.get(id);
+    for (let guard = 0; at?.parentId && guard < 50; guard++) at = itemsById.get(at.parentId);
+    return at?.id ?? id;
+  };
+  const offers: PublicCatalogDto["offers"] = [];
+  for (const spec of OFFERS) {
+    const place = byKey.get(spec.placeKey);
+    const seat = byKey.get(spec.seatKey);
+    const extras = spec.perPlace.map((p) => ({ category: byKey.get(p.key), qty: p.qty }));
+    if (!place?.isPlace || !seat || extras.some((e) => !e.category) || !listed.some((c) => c.id === place.id && c.bookingMode === "ROOM")) continue;
+    const seats = new Map<string, number>();
+    for (const item of forest.items) {
+      if (item.parentId === null && item.categoryId === place.id && item.status === "WORKING") seats.set(item.id, seats.get(item.id) ?? 0);
+    }
+    for (const item of forest.items) {
+      if (item.categoryId !== seat.id || item.status !== "WORKING") continue;
+      const root = rootOf(item.id);
+      if (seats.has(root)) seats.set(root, seats.get(root)! + 1);
+    }
+    offers.push({
+      key: spec.key,
+      name: spec.name,
+      summary: spec.summary,
+      placeCategoryId: place.id,
+      placeCategoryName: place.name,
+      seatCategoryId: seat.id,
+      seatCategoryName: seat.name,
+      seatsPerPlace: typicalSeats([...seats.values()]),
+      perPlace: extras.map((e) => ({ categoryId: e.category!.id, categoryName: e.category!.name, qty: e.qty })),
+    });
+  }
   return {
     setupKinds,
+    offers,
     groups: [...groups.values()]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
       .map((g) => ({ name: g.name, categories: g.categories.sort((a, b) => rank(a.bookingMode) - rank(b.bookingMode) || a.name.localeCompare(b.name)) })),

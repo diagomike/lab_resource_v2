@@ -31,6 +31,7 @@ import { storage } from "../resources/storage";
 import * as scope from "../resources/scope";
 import { DEFAULT_TIME_ZONE, addDays, civilToInstant, instantToCivil, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
 import { coverageOf, shortfallLine, shortfallOf } from "@/lib/domain/external-coverage";
+import { OFFERS } from "@/lib/domain/external-offers";
 import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookingTarget, subtreeRows, toReservationDto, viewerOf } from "../scheduling/context";
 import { decideBooking, equipmentOf, writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, portalUrl } from "./mail";
@@ -167,7 +168,16 @@ const requestInclude = {
   },
   payments: { include: { reviewedBy: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
   reservations: { select: { id: true, labItemId: true, state: true, lab: { select: { ownerOrgNodeId: true, currentOrgNodeId: true } } } },
+  resubmitOf: { select: { id: true, reference: true, closingNote: true } },
+  resubmissions: { select: { id: true, reference: true }, orderBy: { createdAt: "desc" }, take: 1 },
 } satisfies Prisma.ExternalRequestInclude;
+
+/** Closed without being served: the requester may edit it and send it again (once). */
+const SEND_AGAIN: ExternalRequestStatus[] = ["DECLINED", "EXPIRED", "CANCELLED"];
+
+/** The packaged offer a request was built from, in words. */
+const offerOf = (row: { offerKey: string | null; peopleCount: number | null }) =>
+  row.offerKey ? { key: row.offerKey, name: OFFERS.find((o) => o.key === row.offerKey)?.name ?? row.offerKey, people: row.peopleCount } : null;
 
 type RequestRow = Prisma.ExternalRequestGetPayload<{ include: typeof requestInclude }>;
 type AssignmentRow = RequestRow["assignments"][number];
@@ -243,12 +253,32 @@ async function loadAssignment(id: string) {
 export async function submitRequest(
   requesterId: string,
   input: SubmitExternalRequestInput,
-  letter: { bytes: Buffer; fileName: string },
+  attached: { bytes: Buffer; fileName: string } | null,
   ipHash: string | null,
 ): Promise<SubmitExternalRequestResultDto> {
   if (input.website) throw new HttpError(400, "Your request could not be accepted.");
   const requester = await prisma.user.findUnique({ where: { id: requesterId }, include: { roles: true } });
   if (!requester || requester.status !== "ACTIVE" || !requester.roles.some((r) => r.kind === "EXTERNAL")) throw new HttpError(403, "Sign in with your requester account to send a request.");
+  // Sending a closed request again, edited (2026-10-03): their own, closed, and only once.
+  // Its letter is attached again unless a new one came with it.
+  const earlier = input.resubmitOf
+    ? await prisma.externalRequest.findUnique({
+        where: { id: input.resubmitOf },
+        select: { id: true, reference: true, status: true, requesterId: true, closingNote: true, letterStorageKey: true, letterFileName: true, resubmissions: { select: { reference: true }, take: 1 } },
+      })
+    : null;
+  if (input.resubmitOf) {
+    if (!earlier || earlier.requesterId !== requesterId) throw new HttpError(404, "The request you are sending again was not found.");
+    if (!SEND_AGAIN.includes(earlier.status)) throw new HttpError(409, `${earlier.reference} is still open, so it can't be sent again. Follow it on its own page.`);
+    if (earlier.resubmissions.length) throw new HttpError(409, `${earlier.reference} was already sent again as ${earlier.resubmissions[0].reference}.`);
+  }
+  if (!attached && !earlier) throw new HttpError(400, "Attach the official letter as a PDF.");
+  let letter = attached;
+  if (!letter) {
+    const kept = await storage.read(earlier!.letterStorageKey);
+    if (!kept) throw new HttpError(400, `The letter of ${earlier!.reference} is no longer on file. Attach it again as a PDF.`);
+    letter = { bytes: Buffer.from(kept), fileName: earlier!.letterFileName };
+  }
   if (letter.bytes.length > MAX_LETTER_BYTES) throw new HttpError(400, "The letter must be a PDF of at most 4 MB.");
   if (!isPdf(letter.bytes)) throw new HttpError(400, "The official letter must be a PDF file.");
   const setups = input.kind === "FACILITY" ? (input.setups ?? []) : [];
@@ -263,6 +293,9 @@ export async function submitRequest(
     }
   }
   if (input.kind === "SAMPLE_ANALYSIS" && !input.sample) throw new HttpError(400, "Describe your samples and the analysis you need.");
+  // The packaged offer the setups came from, kept so staff read "Training, for 40 people".
+  if (input.offerKey && !OFFERS.some((o) => o.key === input.offerKey)) throw new HttpError(400, "That offer isn't available. Choose one from the list, or build the labs yourself.");
+  const offerKey = setups.length && input.offerKey ? input.offerKey : null;
 
   const since = new Date(Date.now() - 86_400_000);
   const [mine, byIp] = await Promise.all([
@@ -315,6 +348,9 @@ export async function submitRequest(
               purpose: input.purpose,
               lines: lines as unknown as Prisma.InputJsonValue,
               setups: setups.length ? (setups as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+              offerKey,
+              peopleCount: offerKey ? (input.peopleCount ?? null) : null,
+              resubmitOfId: earlier?.id ?? null,
               letterStorageKey: storageKey,
               letterFileName: letter.fileName.slice(0, 200) || "letter.pdf",
               letterByteSize: letter.bytes.length,
@@ -322,7 +358,8 @@ export async function submitRequest(
               windows: { create: windows },
             },
           });
-          await tx.externalRequestEvent.create({ data: { requestId: row.id, actorLabel: "Requester", kind: "SUBMITTED" } });
+          await tx.externalRequestEvent.create({ data: { requestId: row.id, actorLabel: "Requester", kind: "SUBMITTED", note: earlier ? `Edited and sent again after ${earlier.reference}` : null } });
+          if (earlier) await tx.externalRequestEvent.create({ data: { requestId: earlier.id, actorLabel: "Requester", kind: "SENT_AGAIN", note: `Sent again as ${reference}` } });
           return { id: row.id, reference };
         });
         break;
@@ -346,12 +383,21 @@ export async function submitRequest(
     ],
     { href: portalUrl(created.id), label: `Follow request ${created.reference}` },
   );
-  await mailStaff(await emailOf(await avpUserId()), `New external request ${created.reference}`, [`${esc(input.organizationName)} has asked for ${input.kind === "SAMPLE_ANALYSIS" ? "a sample analysis" : "university resources"}: ${esc(input.purpose.slice(0, 300))}`], paths.outside(created.id));
+  await mailStaff(
+    await emailOf(await avpUserId()),
+    `New external request ${created.reference}`,
+    [
+      `${esc(input.organizationName)} has asked for ${input.kind === "SAMPLE_ANALYSIS" ? "a sample analysis" : "university resources"}: ${esc(input.purpose.slice(0, 300))}`,
+      ...(earlier ? [`They edited ${esc(earlier.reference)} and sent it again.${earlier.closingNote ? ` It was closed with: “${esc(earlier.closingNote)}”` : ""}`] : []),
+    ],
+    paths.outside(created.id),
+  );
   return created;
 }
 
 const PUBLIC_EVENT_LABEL: Record<string, string> = {
   SUBMITTED: "Request received",
+  SENT_AGAIN: "Edited and sent again",
   FORWARDED: "Sent to the colleges concerned",
   QUOTED: "Quote sent",
   PAYMENT_SUBMITTED: "Payment submitted for checking",
@@ -478,6 +524,13 @@ export async function requesterView(id: string): Promise<PublicTrackingDto> {
     windows: windowsOf(row.windows),
     lines: row.lines as unknown as Line[],
     setups: await setupDtos(storedSetups(row)),
+    offer: offerOf(row),
+    resubmitOf: row.resubmitOf ? { id: row.resubmitOf.id, reference: row.resubmitOf.reference } : null,
+    resubmittedAs: row.resubmissions[0] ?? null,
+    canSendAgain: SEND_AGAIN.includes(row.status) && !row.resubmissions.length,
+    letterFileName: row.letterFileName,
+    contactEmail: row.contactEmail,
+    contactPhone: row.contactPhone,
     quote: quoted
       ? {
           amountSantim: row.quoteAmountSantim!,
@@ -759,6 +812,9 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
     windows: windowsOf(row.windows),
     lines: row.lines as unknown as Line[],
     setups,
+    offer: offerOf(row),
+    resubmitOf: row.resubmitOf,
+    resubmittedAs: row.resubmissions[0] ?? null,
     coverage,
     holdChecks,
     letter: { fileName: row.letterFileName, byteSize: row.letterByteSize, url: `/api/external-requests/${row.id}/letter` },
@@ -1039,7 +1095,9 @@ export async function bookablePlaces(userId: string, departmentAssignmentId: str
   for (const s of setups) for (const n of s.needs) wanted.set(n.categoryId, n.categoryName);
   const counts = await countsByCategory(places.map((p) => p.id));
   const shortOf = (p: (typeof places)[number]) => shortfallOf(setups, p.categoryId, counts.get(p.id) ?? {}) ?? [];
-  const asked = new Set((await prisma.reservation.findMany({ where: { externalRequestId: dept.requestId, state: { in: ["REQUESTED", "HELD", "CONFIRMED"] } }, select: { labItemId: true } })).map((r) => r.labItemId));
+  const live = await prisma.reservation.findMany({ where: { externalRequestId: dept.requestId, state: { in: ["REQUESTED", "HELD", "CONFIRMED"] } }, select: { labItemId: true, state: true } });
+  const asked = new Set(live.map((r) => r.labItemId));
+  const held = new Set(live.filter((r) => r.state !== "REQUESTED").map((r) => r.labItemId));
   return places.map((p) => ({
     id: p.id,
     name: p.name,
@@ -1048,6 +1106,7 @@ export async function bookablePlaces(userId: string, departmentAssignmentId: str
     custodianName: p.custodian.name,
     counts: [...wanted.entries()].map(([categoryId, categoryName]) => ({ categoryId, categoryName, count: counts.get(p.id)?.[categoryId] ?? 0 })),
     asked: asked.has(p.id),
+    held: held.has(p.id),
     missing: shortOf(p).map((s) => ({ categoryName: s.categoryName, have: s.have, need: s.need })),
   }));
 }
@@ -1067,6 +1126,19 @@ export async function requestHolds(userId: string, departmentAssignmentId: strin
   if (refused.length) throw new HttpError(400, "Choose bookable places of your own department. Something from another department comes by loan: the custodian borrows it first.");
 
   const row = await loadRow(dept.requestId);
+  // Once everything asked for is held, another place is booked only in place of a held
+  // one (2026-10-03): the head names what to release.
+  const release = [...new Set(input.releaseLabIds ?? [])];
+  if (!release.length && (await coverageNow(row))?.coverage.complete) {
+    throw new HttpError(409, "Everything the requester asked for is already held. To use another place, replace a held one: choose which to release.");
+  }
+  const releasing = release.length
+    ? await prisma.reservation.findMany({
+        where: { externalRequestId: row.id, labItemId: { in: release }, state: { in: ["REQUESTED", "HELD"] }, lab: { OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] } },
+        select: { id: true, lab: { select: { name: true, custodian: { select: { email: true } } } } },
+      })
+    : [];
+  if (release.length && !releasing.length) throw new HttpError(400, "Choose a place held for this request in your department to release.");
   const wins = windowsOf(row.windows);
   const asked: string[] = [];
   const busy: string[] = [];
@@ -1087,10 +1159,26 @@ export async function requestHolds(userId: string, departmentAssignmentId: strin
   }
   if (!asked.length) throw new HttpError(409, busy.length ? `None could be asked: ${busy.join("; ")}` : "Those places are already asked or held for every date.");
   const actor = await actorOf(userId);
+  const releasedNames = [...new Set(releasing.map((h) => h.lab.name))];
   await prisma.$transaction(async (tx) => {
     if (dept.status === "PENDING") await tx.externalRequestAssignment.update({ where: { id: dept.id }, data: { status: "FORWARDED" } });
-    await event(tx, row.id, actor, "HOLDS_REQUESTED", [dept.orgNode.name, `${asked.length} asked`, busy.length ? `busy: ${busy.join("; ")}` : null, input.note].filter(Boolean).join(" · "));
+    if (releasing.length) {
+      const ids = releasing.map((h) => h.id);
+      await tx.reservation.updateMany({ where: { id: { in: ids } }, data: { state: "CANCELLED", note: "Released by the head: another place was asked instead", decidedById: userId, decidedAt: new Date() } });
+      await tx.reservationResource.updateMany({ where: { reservationId: { in: ids } }, data: { blocking: false } });
+    }
+    await event(
+      tx,
+      row.id,
+      actor,
+      "HOLDS_REQUESTED",
+      [dept.orgNode.name, `${asked.length} asked`, releasedNames.length ? `released: ${releasedNames.join(", ")}` : null, busy.length ? `busy: ${busy.join("; ")}` : null, input.note].filter(Boolean).join(" · "),
+    );
   });
+  for (const email of new Set(releasing.map((h) => h.lab.custodian.email))) {
+    const names = [...new Set(releasing.filter((h) => h.lab.custodian.email === email).map((h) => h.lab.name))];
+    await mailStaff(email, `${names.join(", ")}: no longer held for ${row.reference}`, [`Your head released ${esc(names.join(", "))} for this request and asked another place instead. Its calendar is free again.`], paths.outside(row.id));
+  }
   const custodians = await prisma.item.findMany({ where: { id: { in: input.labIds } }, select: { name: true, custodian: { select: { email: true } } } });
   for (const c of custodians) {
     await mailStaff(
@@ -1385,7 +1473,7 @@ export async function closeRequest(userId: string, id: string, input: CloseExter
     await event(tx, id, actor, "DECLINED", input.note);
   });
   const refundNote = row.status === "PAID" || row.status === "PAYMENT_SUBMITTED" ? "The university's office will contact you about returning your payment." : "";
-  await mailRequester(await requesterEmail(row), `Request ${row.reference}`, [`Dear ${esc(row.contactName)},`, `We are unable to provide what ${esc(row.organizationName)} asked for.`, esc(input.note), refundNote].filter(Boolean), { href: portalUrl(id), label: "View your request" });
+  await mailRequester(await requesterEmail(row), `Request ${row.reference}`, [`Dear ${esc(row.contactName)},`, `We are unable to provide what ${esc(row.organizationName)} asked for.`, esc(input.note), refundNote, "If you can change what you asked for (other dates, fewer places), open your request and choose <strong>Edit and send again</strong>: everything you sent is filled in for you."].filter(Boolean), { href: portalUrl(id), label: "View your request" });
   return getForActor(userId, id);
 }
 
