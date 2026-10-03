@@ -5389,3 +5389,56 @@ its model that make porting it as-is the wrong move.
   - **Browser checks use `http://127.0.0.1:3200`, not `localhost:3200`:** cookies ignore the port, so
     signing in on `localhost:3200` switches the account in a `localhost:3000` tab. That was the
     unexplained jump to /home noted earlier.
+
+- **2026-10-03 (the plan's last stretch: e2e, screenshots, diagrams; plus three asks made on the way)**
+  - **Asked on the way, built:**
+    - *Booking closes once everything is held.* **Book places…** is greyed out when the request is
+      fully covered; **Replace a held place…** releases a held lab and asks another instead
+      (`RequestHoldsInput.releaseLabIds`; the released lab's calendar is freed and its custodian told).
+      `requestHolds` refuses a plain booking on a covered request (409). The dialog lists labs that fit
+      first.
+    - *Edit and send again.* A declined (or expired, or cancelled) outside request can be edited and
+      sent again by its requester, once: the form opens filled in (`/portal/request?from=<id>`), the
+      letter is kept unless a new one is attached, and it goes in as a new request linked to the first
+      (`ExternalRequest.resubmitOfId`). The AVP sees which request it replaces and why that one was
+      closed; the decline email says how. Before this a decline was final.
+    - *Packaged offers.* `lib/domain/external-offers.ts`: Examination, Training, Workshop. The requester
+      picks one and a headcount; the labs are recommended ("2 × Lab, each with 20 × Workstation Setup
+      and 1 × Whiteboard") and filled in, still editable. A typical lab's seats are the median of what
+      the bookable labs hold (`publicCatalog().offers`). The request keeps `offerKey` and `peopleCount`,
+      so staff read "Training, for 40 people". The three offers are defined in code, not yet editable
+      by an administrator.
+    - Migration `20261003050000_external_offers_resubmit`, applied to `lrms_v2`.
+  - **A fix the campaign surfaced:** a custodian trying to change custody was told the person they
+    named "isn't eligible" (400) instead of that custody is Property Administration's (403), when that
+    person happened to be ineligible. Who may do it is now checked first (`mutate.ts`).
+  - **e2e, restated for every deliberate change of this round** (all on the `lrms_v2_e2e` clone, mail
+    sink on :2527, a production build on :3100):
+    - `e2e/validate-approval-lines.ts`: procurement as a process (a second request combined, a stage
+      skipped, lines edited, arrival), the import from the procurement, Distribute and a hand-picked
+      send (Property Admin → custodian), the borrower's return, lab setups with holds (a short lab
+      refused, a covered date refused, phones, the unanswered hold withdrawn), the receipt link and
+      account, offers, decline → edit → send again, and a new P15 "who does what" (bookings by post,
+      custody by Property Admin, the keeper's Mine, a store's changes decided by Property Admin, phones
+      by the ADAA not a dean). **182/182** (`e2e/validation-2026-10-03.json`).
+    - `e2e/suites/*` (the campaign): B (procurement stages, import from a procurement), R (a store's
+      edits are staged and approved by Property Admin; register rules shown through the administrator),
+      P (a dean manages nobody; Property Admin manages store staff), X (contacts from profiles), D-03.
+      **180/183**, the 3 ✘ being the long-standing design-decided O-11, S-14, S-18.
+    - `e2e/drive-cse-cycle.ts` is **retired** (it drove lab ideals and the request's own advance and
+      receive steps, all gone before this round); it says so and refuses to start.
+  - **Guide:** `e2e/stage-guide.ts` and `e2e/guide-shots.mjs` rebuilt for the new flows. All screenshots
+    retaken (**50**, was 41): new ones for the procurement timeline and line edit, Distribute, a store's
+    changes for Property Admin, Book places, a request being held, a hold request a lab is short for,
+    calibration, the profile phone, the offer picker and "Edit and send again". The two old pipeline
+    shots are removed. The appendix's "who approves what" table and two flows (need → stock, outside
+    request) are updated; new `scripts/render-diagrams.mjs` re-renders the flow SVGs (Mermaid from
+    jsDelivr in the installed Chrome), so the method is in the repo instead of a scratch folder.
+  - **Checks:** tsc clean, **645/645** unit tests, `next build` clean, `help:build` 13 chapters / 50
+    screenshots.
+  - **The plan (R1–R7) is finished.** Not merged, not pushed; `master` and Neon untouched. Neon needs,
+    with the user: migrations `payment_receipt_link`, `calibration_cycle` (then
+    `prisma/calibration-backfill.ts --apply`), `procurements`, `import_procurement_line`,
+    `external_setups`, `external_offers_resubmit`.
+  - **Known and left:** a 375px check of the new dialogs; older hand-made store handovers carry no
+    need ids, so Distribute may suggest a need they already answered.

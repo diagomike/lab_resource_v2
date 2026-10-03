@@ -110,7 +110,8 @@ The requester enters their payment reference; it is checked with the bank or tel
 - emails the requester, the custodians and the heads.
 
 > **Good to know**
-> - If no department can host it, decline the request with a reason instead of quoting.
+> - If no department can host it, decline the request with a reason instead of quoting. Say what would work ("any week after the exams"): the requester can **edit it and send it again**, and it comes back to you as a new request that says which one it replaces and why that one was closed.
+> - A request built from an offer says so under **Labs to build up**: "Training, for 40 people".
 > - A hold lapses on its own unless the request is quoted and paid by the deadline. The AVP, a dean or a head on the request can extend holds up to that deadline.
 > - If the payment check can't reach the bank, the requester can ask for **manual review**; you accept or reject it under **Payments**, then confirm the payment as usual.
 > - If a held slot was lost while a payment waited, **Confirm payment** says so and keeps the request paid; have a custodian hold a replacement, then confirm again.

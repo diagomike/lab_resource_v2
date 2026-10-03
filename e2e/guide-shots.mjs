@@ -33,6 +33,17 @@ const WHO = {
   proc: "procurement@astu.edu.et",
   keeper: "store.keeper@astu.edu.et",
   ali: "alikibretmuhamed@gmail.com",
+  hanna: "custodian.chem@astu.edu.et",
+  requester: "outside.requester@example.org",
+  requester2: "training.office@example.org",
+};
+/** The outside requester signed up with their own password (e2e/stage-guide.ts). */
+const PASSWORDS = { requester: "outside-pass-1", requester2: "outside-pass-1" };
+/** The register, filtered to everything that needs calibration. */
+const CALIBRATION = encodeURIComponent(JSON.stringify([{ id: "cal", field: "calibration", op: "inArray", values: ["OK", "DUE_SOON", "OVERDUE", "NEVER"] }]));
+const toPlacesHeld = async (p) => {
+  await p.getByText(/^Places held/).first().scrollIntoViewIfNeeded();
+  await p.mouse.wheel(0, 260);
 };
 
 /** Waits for the page to settle: no "Loading…" text and no skeleton rows. */
@@ -81,6 +92,7 @@ const SHOTS = [
   { file: "getting-started/07-home.jpg", as: "head", url: "/home" },
   { file: "getting-started/08-bell.jpg", as: "head", url: "/home", act: (p) => p.getByRole("button", { name: /^Updates/ }).click() },
   { file: "getting-started/09-account-menu.jpg", as: "head", url: "/home", act: (p) => p.getByRole("button", { name: "Your account" }).click() },
+  { file: "getting-started/10-profile.jpg", as: "hanna", url: "/me/profile", act: (p) => p.getByLabel("Phone number").fill("+251 911 000 222") },
 
   // ── Custodian (Ali) ──
   { file: "custodian/01-home.jpg", as: "ali", url: "/home" },
@@ -100,6 +112,8 @@ const SHOTS = [
   { file: "custodian/07-ask.jpg", as: "ali", url: "/purchasing?tab=needs" },
   { file: "custodian/08-bookings.jpg", as: "ali", url: "/schedule" },
   { file: "custodian/09-category.jpg", as: "ali", url: "/categories" , act: async (p) => { await p.getByText("Computer", { exact: true }).first().click(); } },
+  { file: "custodian/10-hold-request.jpg", as: "ali", url: () => `/external-requests?focus=${S.extHold}`, act: toPlacesHeld },
+  { file: "custodian/11-calibration.jpg", as: "hanna", url: () => `/register?mode=flat&rules=${CALIBRATION}&item=${S.calibrated}` },
 
   // ── Head ──
   { file: "head/01-home.jpg", as: "head", url: "/home" },
@@ -117,6 +131,9 @@ const SHOTS = [
     },
   },
 
+  { file: "head/07-book-places.jpg", as: "head", url: () => `/external-requests?focus=${S.extBook}`, act: (p) => p.getByRole("button", { name: "Book places…" }).click() },
+  { file: "head/08-outside-held.jpg", as: "head", url: () => `/external-requests?focus=${S.extHold}` },
+
   // ── ADAA ──
   { file: "adaa/01-home.jpg", as: "adaa", url: "/home" },
   { file: "adaa/02-labs.jpg", as: "adaa", url: "/places" },
@@ -124,16 +141,15 @@ const SHOTS = [
   // ── Approvers ──
   { file: "approvers/00-avp-home.jpg", as: "avp", url: "/home" },
   { file: "approvers/01-purchase-card.jpg", as: "dean", url: () => `/approvals?focus=purchase:${S.prDean}` },
-  { file: "approvers/02-send-back.jpg", as: "dean", url: () => `/approvals?focus=purchase:${S.prDean}`, act: (p) => p.getByRole("button", { name: "Send back for revision" }).click() },
+  { file: "approvers/02-send-back.jpg", as: "dean", url: () => `/approvals?focus=purchase:${S.prDean}`, act: (p) => p.getByRole("button", { name: /^Return to .* to revise/ }).first().click() },
   { file: "approvers/03-transfer-details.jpg", as: "cmd", url: () => `/approvals?focus=transfer:${S.perm}` },
-  { file: "approvers/05-procurement-approve.jpg", as: "proc", url: () => `/approvals?focus=purchase:${S.prProc}`, act: (p) => p.getByRole("button", { name: "Approve", exact: true }).first().click() },
+  { file: "approvers/05-procurement-approve.jpg", as: "proc", url: () => `/approvals?focus=purchase:${S.prProc}`, act: (p) => p.getByRole("button", { name: /^Approve: start the purchase/ }).first().click() },
   { file: "approvers/06-external-request.jpg", as: "avp", url: () => `/external-requests?focus=${S.extNew}` },
   { file: "approvers/08-send-quote.jpg", as: "avp", url: () => `/external-requests?focus=${S.extQuote}`, act: (p) => p.getByRole("button", { name: "Send quote…" }).click() },
 
   // ── Procurement ──
-  { file: "procurement/01-pipeline.jpg", as: "proc", url: "/purchasing?tab=pipeline" },
-  // Advance acts at once, so the shot shows the note typed in, not the click.
-  { file: "procurement/02-advance.jpg", as: "proc", url: "/purchasing?tab=pipeline", act: (p) => p.getByPlaceholder("Optional note").first().fill("Abyssinia Tech won the tender") },
+  { file: "procurement/01-procurement.jpg", as: "proc", url: () => `/purchasing?tab=procurement&procurement=${S.procMoving}` },
+  { file: "procurement/02-edit-lines.jpg", as: "proc", url: () => `/purchasing?tab=procurement&procurement=${S.procMoving}`, act: (p) => p.getByRole("button", { name: "Edit what is being bought…" }).click() },
 
   // ── Store keeper ──
   { file: "store-keeper/01-load.jpg", as: "keeper", url: () => `/purchasing?tab=arrivals&import=${S.imp}` },
@@ -143,6 +159,8 @@ const SHOTS = [
     await p.getByRole("dialog", { name: /^Move/ }).getByRole("button", { name: /Software Laboratory B510-R8/ }).first().click();
   } },
 
+  { file: "store-keeper/03-distribute.jpg", as: "keeper", url: "/purchasing?tab=distribute" },
+
   // ── System admin ──
   { file: "admin/01-home.jpg", as: "admin", url: "/home" },
   { file: "admin/02-organisation.jpg", as: "admin", url: "/admin/org-structure" },
@@ -150,11 +168,25 @@ const SHOTS = [
   { file: "admin/04-category.jpg", as: "admin", url: "/categories", act: async (p) => { await p.getByText("Computer", { exact: true }).first().click(); } },
 
   // ── Property Administration ──
-  { file: "property-admin/01-arrivals.jpg", as: "prop", url: () => `/purchasing?tab=arrivals&request=${S.prArrived}` },
+  { file: "property-admin/01-arrivals.jpg", as: "prop", url: () => `/purchasing?tab=arrivals&procurement=${S.procArrived}` },
   { file: "property-admin/02-approve-movement.jpg", as: "prop", url: () => `/approvals?focus=transfer:${S.handover}` },
+
+  { file: "property-admin/03-store-changes.jpg", as: "prop", url: "/approvals?kind=lab-commit" },
 
   // ── Portal ──
   { file: "portal/01-portal.jpg", as: null, url: "/portal" },
+  {
+    file: "portal/02-lab-setup.jpg",
+    as: "requester",
+    url: "/portal/request",
+    act: async (p) => {
+      await p.getByRole("radio", { name: /^Training/ }).check();
+      await p.getByLabel("For how many people").fill("40");
+      await p.getByText("What are you holding?").scrollIntoViewIfNeeded();
+      await p.mouse.wheel(0, 330);
+    },
+  },
+  { file: "portal/03-send-again.jpg", as: "requester2", url: () => `/portal/requests/${S.extDeclined}` },
 ];
 
 // ── helpers ──
@@ -192,10 +224,10 @@ async function nodeIdOf(request, code) {
   return flat.find((n) => n.code === code)?.id;
 }
 
-async function signIn(page, email) {
+async function signIn(page, email, password = PASSWORD) {
   await page.goto(`${BASE}/login`);
   await page.locator('input[type="email"]').fill(email);
-  await page.locator('input[type="password"]').fill(PASSWORD);
+  await page.locator('input[type="password"]').fill(password);
   await page.locator('input[type="password"]').press("Enter");
   await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 20_000 });
 }
@@ -213,7 +245,7 @@ async function contextFor(role) {
   });
   if (role) {
     const page = await ctx.newPage();
-    await signIn(page, WHO[role]);
+    await signIn(page, WHO[role], PASSWORDS[role] ?? PASSWORD);
     await page.close();
   }
   contexts.set(role, ctx);

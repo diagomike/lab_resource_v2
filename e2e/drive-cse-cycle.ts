@@ -1,4 +1,10 @@
 /**
+ * RETIRED (2026-10-03). It drives a flow the app no longer has: lab ideals (replaced by
+ * lab needs on 2026-10-01), the request's own "advance" and "receive" steps (replaced by
+ * procurements and import records). The current drivers are e2e/validate-approval-lines.ts
+ * (every approval line, end to end) and e2e/run-campaign.mjs (the suites). Kept for the
+ * record of how the 2026-09-22 cycle was run; it refuses to start.
+ *
  * Drives the CSE end-to-end cycle (Phase D of the 2026-09-22 fix round) through the app's
  * own HTTP API on :3100 — never by writing the database. Sessions are minted (the driver
  * never submits a password), one per person, on the E2E clone only.
@@ -25,6 +31,7 @@ import { generateToken, hashToken } from "../lib/server/auth/token";
  *  the "dev-nomail" launch config, so no step emails the real ARAs. */
 const dev = process.argv.includes("--dev");
 if (!dev && !process.env.DATABASE_URL?.includes("lrms_v2_e2e")) throw new Error("drive-cse-cycle.ts runs against lrms_v2_e2e (or lrms_v2 with --dev)");
+throw new Error("drive-cse-cycle.ts is retired: use e2e/validate-approval-lines.ts or e2e/run-campaign.mjs (see the note at the top of this file).");
 const db = new PrismaClient();
 const BASE = dev ? "http://localhost:3000/api" : "http://localhost:3100/api";
 const skipAli = process.argv.includes("--skip-ali");

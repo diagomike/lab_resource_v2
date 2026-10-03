@@ -1,11 +1,13 @@
-/** Suite B — purchasing: needs → compile → ladder with send-backs → pipeline → arrivals. H19–H21.
+/** Suite B — purchasing: needs → compile → ladder with send-backs → procurement → arrivals. H19–H21.
  *  2026-10-02: a need belongs to a lab its custodian runs; the ladder has the CMD after the
- *  dean; arrivals are import records (Property Administration records, the store keeper loads). */
+ *  dean; arrivals are import records (Property Administration records, the store keeper loads).
+ *  2026-10-03: procurement's step starts the purchase as a procurement (PROC-…), which moves by
+ *  picked stages; what arrived is recorded from the procurement. */
 import { get, post, check, ev, db, done, uniq, nodeId, S } from "../lib";
 
 const B = "B";
 const decide = (a: string, id: string, decision: "APPROVE" | "REJECT" | "REVISE", note?: string) => post(a, `/resources/purchase-requests/${id}/decide`, { decision, note });
-const advance = (a: string, id: string, note?: string) => post(a, `/resources/purchase-requests/${id}/advance`, { note });
+const move = (a: string, procurementId: string, body: Record<string, unknown>) => post(a, `/resources/procurements/${procurementId}/move`, body);
 const pr = (id: string) => db.purchaseRequest.findUniqueOrThrow({ where: { id }, include: { lines: true, events: true, steps: { orderBy: { order: "asc" } } } });
 
 async function catId(key: string) {
@@ -73,23 +75,36 @@ async function main() {
     return { ok: avpEarly.status === 403 && procEarly.status === 403 && rev.status === 200 && mid.stage === "REVISING" && rr.status < 300 && after.stage === "APPROVING", evidence: { avpEarly: avpEarly.status, procurementEarly: procEarly.status, afterRevise: mid.stage, resubmitKeepingCarriedNeed: rr.status, body: firstBody.slice(0, 160), workaroundWithoutNeedLink: retry?.status, afterResubmit: after.stage } };
   });
 
-  await check(B, "B-05", "dean → CMD → AVP → procurement approve → ORDER_PLACED; history kept across the send-back", async () => {
+  let procId = "";
+  await check(B, "B-05", "dean → CMD → AVP → procurement starts the purchase (a procurement, being prepared); history kept across the send-back", async () => {
     const d1 = await decide("deanCoeec", reqId, "APPROVE");
     const d1b = await decide("cmd", reqId, "APPROVE");
     const d2 = await decide("avp", reqId, "APPROVE");
     const d3 = await decide("procurement", reqId, "APPROVE", "Order via EGP");
+    procId = d3.body?.procurement?.id ?? "";
     const row = await pr(reqId);
-    return { ok: row.stage === "ORDER_PLACED" && row.events.length >= 5, evidence: { statuses: [d1.status, d1b.status, d2.status, d3.status], stage: row.stage, history: row.events.map((e) => `${e.stage}: ${e.note ?? ""}`) } };
+    const proc = procId ? await db.procurement.findUnique({ where: { id: procId } }) : null;
+    return {
+      ok: row.stage === "WITH_PROCUREMENT" && proc?.stage === "PREPARING" && /^PROC-\d{4}-\d{3}$/.test(proc.reference) && row.events.length >= 5,
+      evidence: { statuses: [d1.status, d1b.status, d2.status, d3.status], stage: row.stage, procurement: proc && [proc.reference, proc.stage], history: row.events.map((e) => `${e.stage}: ${e.note ?? ""}`) },
+    };
   });
 
-  await check(B, "B-06", "pipeline: only procurement advances; stops at IN_STORE", async () => {
-    const byHead = await advance("headSe", reqId);
-    const a1 = await advance("procurement", reqId, "Buyer found");
-    const a2 = await advance("procurement", reqId, "Shipped");
-    const a3 = await advance("procurement", reqId, "Arrived");
-    const a4 = await advance("procurement", reqId, "again");
+  await check(B, "B-06", "the procurement moves by picked stages: only procurement, the EGP number first, forward only; the request follows to IN_STORE", async () => {
+    const byHead = await move("headSe", procId, { stage: "PLACED_ON_EGP", egpReference: "EGP-E2E-1" });
+    const noEgp = await move("procurement", procId, { stage: "PLACED_ON_EGP" });
+    const a1 = await move("procurement", procId, { stage: "PLACED_ON_EGP", egpReference: "EGP-E2E-1", note: "Tender floated" });
+    const placed = (await pr(reqId)).stage;
+    const a2 = await move("procurement", procId, { stage: "BUYER_FOUND", supplier: "E2E Supplies" });
+    const back = await move("procurement", procId, { stage: "PLACED_ON_EGP" });
+    const a3 = await move("procurement", procId, { stage: "ARRIVED", note: "Delivered" }); // "On delivery" skipped
+    const again = await move("procurement", procId, { stage: "ARRIVED" });
+    const closeByHand = await move("procurement", procId, { stage: "CLOSED" });
     const row = await pr(reqId);
-    return { ok: byHead.status === 403 && [a1, a2, a3].every((x) => x.status === 200) && a4.status === 400 && row.stage === "IN_STORE", evidence: { head: byHead.status, advances: [a1.status, a2.status, a3.status], beyondInStore: a4.status, stage: row.stage } };
+    return {
+      ok: byHead.status === 403 && noEgp.status === 400 && [a1, a2, a3].every((x) => x.status < 300) && placed === "ORDER_PLACED" && back.status === 409 && again.status === 409 && closeByHand.status === 409 && row.stage === "IN_STORE",
+      evidence: { head: byHead.status, withoutEgp: noEgp.status, moves: [a1.status, a2.status, a3.status], requestAfterPlacing: placed, backwards: back.status, arrivedTwice: again.status, closedByHand: closeByHand.status, stage: row.stage },
+    };
   });
 
   await check(B, "B-07", "visibility and cost: ChemE head 404; SE staff/custodian can read and see estimated unit costs (canSeeCost=false)", async () => {
@@ -106,18 +121,23 @@ async function main() {
   const eth = lines.find((l) => l.name === "Ethanol")!;
   const record = (a: string, body: unknown) => post(a, "/resources/imports", body);
   const load = (a: string, impId: string, body: unknown) => post(a, `/resources/imports/${impId}/load`, body);
-  const fromPr = (lineItems: unknown[]) => ({ source: "PURCHASE_REQUEST", purchaseRequestId: reqId, supplier: "E2E Supplies", lines: lineItems });
+  // What arrived is recorded from the procurement that bought it, line by line.
+  const bought = await db.procurementLine.findMany({ where: { procurementId: procId } });
+  const boughtScope = bought.find((l) => l.purchaseLineId === scope.id)!;
+  const boughtEth = bought.find((l) => l.purchaseLineId === eth.id)!;
+  const fromPr = (lineItems: unknown[]) => ({ source: "PROCUREMENT", procurementId: procId, lines: lineItems });
   let impId = "";
   let impScope = "";
   let impEth = "";
 
   await check(B, "B-08", "arrivals: only Property Administration records; only the store keeper loads, and only into the store", async () => {
     const lineItems = [
-      { name: "Oscilloscope", categoryId: computer, qty: 2, unit: "pcs", purchaseLineId: scope.id },
-      { name: "Ethanol", categoryId: chemical, qty: 10, unit: "L", purchaseLineId: eth.id },
+      { name: "Oscilloscope", categoryId: computer, qty: 2, unit: "pcs", procurementLineId: boughtScope.id },
+      { name: "Ethanol", categoryId: chemical, qty: 10, unit: "L", procurementLineId: boughtEth.id },
     ];
     const byCust = await record("custSe", fromPr(lineItems));
     const byKeeper = await record("storekeeper", fromPr(lineItems));
+    const direct = await record("propadmin", { source: "PURCHASE_REQUEST", purchaseRequestId: reqId, lines: [{ name: "Oscilloscope", categoryId: computer, qty: 2, unit: "pcs", purchaseLineId: scope.id }] });
     const imp = await record("propadmin", fromPr(lineItems));
     impId = imp.body?.id;
     impScope = imp.body?.lines?.find((l: any) => l.name === "Oscilloscope")?.id;
@@ -125,13 +145,13 @@ async function main() {
     const loadByCust = await load("custSe", impId, { lineId: impScope, qty: 1, storeParentId: mainStore.id });
     const intoLab = await load("storekeeper", impId, { lineId: impScope, qty: 1, storeParentId: girmaLab.id });
     return {
-      ok: byCust.status === 403 && byKeeper.status === 403 && imp.status === 201 && loadByCust.status === 403 && intoLab.status >= 400 && intoLab.status < 500,
-      evidence: { custodianRecords: byCust.status, keeperRecords: byKeeper.status, propertyAdminRecords: imp.status, custodianLoads: loadByCust.status, keeperLoadsIntoALab: intoLab.status },
+      ok: byCust.status === 403 && byKeeper.status === 403 && direct.status === 409 && imp.status === 201 && loadByCust.status === 403 && intoLab.status >= 400 && intoLab.status < 500,
+      evidence: { custodianRecords: byCust.status, keeperRecords: byKeeper.status, recordedOnTheRequestItself: direct.status, propertyAdminRecords: imp.status, custodianLoads: loadByCust.status, keeperLoadsIntoALab: intoLab.status },
     };
   });
 
   await check(B, "B-09", "H21 — what arrived can't be recorded as a different kind than was ordered (line: Computer → recorded as Chair)", async () => {
-    const r = await record("propadmin", fromPr([{ name: "Oscilloscope", categoryId: chair, qty: 1, unit: "pcs", purchaseLineId: scope.id }]));
+    const r = await record("propadmin", fromPr([{ name: "Oscilloscope", categoryId: chair, qty: 1, unit: "pcs", procurementLineId: boughtScope.id }]));
     if (r.status === 201) await post("propadmin", `/resources/imports/${r.body.id}/cancel`, { note: "E2E cleanup" });
     return { ok: r.status === 400 || r.status === 409, evidence: { status: r.status, message: r.body?.message }, hypothesis: "H21" };
   });
@@ -180,9 +200,8 @@ async function main() {
     await decide("deanCoeec", id, "APPROVE");
     await decide("cmd", id, "APPROVE");
     await decide("avp", id, "APPROVE");
-    await decide("procurement", id, "APPROVE");
-    await advance("procurement", id);
-    await advance("procurement", id);
+    const started = await decide("procurement", id, "APPROVE");
+    await move("procurement", started.body.procurement.id, { stage: "ON_DELIVERY", egpReference: "EGP-E2E-2" });
     const cancel = await post("headSe", `/resources/purchase-requests/${id}/cancel`);
     const row = await pr(id);
     return { ok: cancel.status === 409, evidence: { stageAtCancel: "ON_DELIVERY", cancel: cancel.status, stageAfter: row.stage }, hypothesis: "H19" };

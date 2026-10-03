@@ -11,27 +11,32 @@
  *   node e2e/with-env.mjs npx next dev -p 3100             (in another terminal)
  *   node e2e/with-env.mjs npx tsx e2e/validate-approval-lines.ts
  *
- * Paths (the plan's Phase 6 list):
- *   P1 purchase ladder         head → dean → CMD → AVP → procurement → pipeline (✉ Property Admin)
- *   P2 import from the PR      Property Admin records it (✉ keeper) → keeper loads (over-load refused) → PR closes
+ * Paths:
+ *   P1 purchase ladder         head → dean → CMD → AVP → procurement starts the purchase: a procurement
+ *                              (a second request combined, a stage skipped, lines edited, arrival) (✉)
+ *   P2 import from it          Property Admin records what arrived (✉ keeper) → keeper loads → all close
  *   P3 standalone EGP import   recorded → loaded
- *   P4 store → a lab           receiving head → Property Admin → custodian accepts
+ *   P4 distribute              the store sends what a lab's need bought: Property Admin → custodian accepts
  *   P5 needs feed purchasing   custodian asks (✉ head, badge) → head declines one (✉) → builds a request from the other
  *   P6 request from the store  keeper → receiving head → Property Admin → receipt
  *   P7 return to the store     owning head → Property Admin → keeper accepts
  *   P8 permanent transfers     same college: … → CMD; across colleges: … → CMD → Property Admin
- *   P9 loan                    unchanged: no CMD, no Property Admin; the owner stays
- *   P10 external (rooms)       sign up → verify → request → AVP → dean → head → 2 custodians → back up → quote → pay → AVP confirms
- *   P11 external (sample)      a machine held instead of a room
+ *   P9 loan, and its return    no CMD, no Property Admin; the owner stays; the borrower sends it home
+ *   P10 external (lab setups)  sign up → request with setups → AVP → dean → head books places → custodians
+ *                              hold (only a lab that fits; none once covered) → phones → up → quote → pay → confirm
+ *                              a packaged offer (examination for 60) → declined → edited and sent again
+ *   P11 external (sample)      a machine held instead of a room, the custodian asked directly
  *   P12 places from above      an invited custodian; the head adds a lab for them (✉); custodians, other
  *                              departments' heads and the ADAA can't; the ADAA adds the college's store and
  *                              names its keeper (✉); the head changes who runs the lab (✉ both)
  *   P13 categories             a custodian's new category applies at once (✉ head); a change to data it
  *                              holds waits for the head, then converts the values
  *   P14 a lab's changes        staged in the lab's changes, not the register → sent (✉ head) → approved (✉)
+ *   P15 who does what          bookings and custody by post; the keeper's Mine; a store's changes decided by
+ *                              Property Administration; phones set by the ADAA, not a dean
  *   M  the mail tour           every emailed link: a real screen, the exact item, sign-in returns to it,
  *                              it opens for the person it was sent to, and the bell has the same notice
- * Writes e2e/validation-2026-10-02.json and prints a PASS/FAIL line per check.
+ * Writes e2e/validation-2026-10-03.json and prints a PASS/FAIL line per check.
  */
 import fs from "node:fs";
 import { PrismaClient } from "@prisma/client";
@@ -200,14 +205,26 @@ async function setup() {
 
 // ── P1–P3: purchase, import, load ───────────────────────────────────────────
 
+/** The need whose purchase the store later sends from (P4). */
+let chairNeedId = "";
+
+/** A request walked up the ladder to procurement's desk. */
+async function approvedByAll(id: string) {
+  for (const who of [DEAN, CMD, AVP]) await post(who, `/resources/purchase-requests/${id}/decide`, { decision: "APPROVE", note: "validated" });
+}
+
 async function purchaseAndImports() {
   const cse = await node("CSE");
-  const [chair, computer] = [await catId("chair"), await catId("computer")];
+  const aliLab = await labOf(ALI);
+  const [chair, computer, whiteboard] = [await catId("chair"), await catId("computer"), await catId("whiteboard")];
+  // The chairs answer a need Ali's lab raised: that is what the store later sends from.
+  const chairNeed = await post<any>(ALI, "/resources/needs", { labItemId: aliLab.id, name: "Lab Chair", qty: 2, unit: "pcs", priority: "ESSENTIAL", kind: "NEW", categoryId: chair, reason: "Two benches have no chair" });
+  chairNeedId = chairNeed.id;
   const pr = await post<any>(HEAD, "/resources/purchase-requests", {
     title: "Validation: two chairs and two desktops",
     orgNodeId: cse.id,
     lines: [
-      { name: "Lab Chair", qty: 2, unit: "pcs", categoryId: chair, estimatedUnitCost: 1500, fromNeedIds: [] },
+      { name: "Lab Chair", qty: 2, unit: "pcs", categoryId: chair, estimatedUnitCost: 1500, fromNeedIds: [chairNeed.id] },
       { name: "Desktop Computer", qty: 2, unit: "pcs", categoryId: computer, estimatedUnitCost: 45000, fromNeedIds: [] },
     ],
   });
@@ -236,41 +253,78 @@ async function purchaseAndImports() {
   await readsDetails(AVP);
   await post(AVP, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE", note: "validated" });
   await readsDetails(PROC);
-  const placed = await post<any>(PROC, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE", note: "validated" });
-  check("P1", "approved → Order placed", placed.stage === "ORDER_PLACED", placed.stage);
-  await post(PROC, `/resources/purchase-requests/${pr.id}/advance`, { note: "Buyer found" });
-  await post(PROC, `/resources/purchase-requests/${pr.id}/advance`, { note: "On delivery" });
-  m = mark();
-  const arrived = await post<any>(PROC, `/resources/purchase-requests/${pr.id}/advance`, { note: "Arrived" });
-  check("P1", "arrived at the main store", arrived.stage === "IN_STORE", arrived.stage);
-  check("P1", "✉ Property Admin (not the store keeper) is told it arrived", mailed(m, PROP, `${pr.reference} has arrived at the main store`) && !mailed(m, KEEPER, `${pr.reference} has arrived at the main store`));
 
-  // P2 — the import record from the PR, loaded by the keeper.
-  check("P2", "the store keeper can't record an import", await refused(403, () => post(KEEPER, "/resources/imports", { source: "PURCHASE_REQUEST", purchaseRequestId: pr.id, lines: [{ name: "x", categoryId: chair, qty: 1 }] })));
+  // Procurement's step is not an approval: it starts the purchase, as a procurement.
+  m = mark();
+  const started = await post<any>(PROC, `/resources/purchase-requests/${pr.id}/decide`, { decision: "APPROVE", note: "validated" });
+  check("P1", "procurement starts the purchase: With procurement, in a new procurement", started.stage === "WITH_PROCUREMENT" && /^PROC-\d{4}-\d{3}$/.test(started.procurement?.reference ?? "") && started.procurement.stage === "PREPARING", [started.stage, started.procurement]);
+  const procId: string = started.procurement.id;
+  const procRef: string = started.procurement.reference;
+  const move = (who: string, body: Record<string, unknown>) => post<any>(who, `/resources/procurements/${procId}/move`, body);
+  const stageOf = async (id: string) => (await get<any>(HEAD, `/resources/purchase-requests/${id}`)).stage;
+  check("P1", "✉ the head hears procurement started buying it", mailed(m, HEAD, `${procRef}: procurement started buying your request`));
+
+  // A second request is combined into the same procurement while it is being prepared.
+  const pr2 = await post<any>(HEAD, "/resources/purchase-requests", {
+    title: "Validation: a whiteboard",
+    orgNodeId: cse.id,
+    lines: [{ name: "Whiteboard", qty: 1, unit: "pcs", categoryId: whiteboard, estimatedUnitCost: 6000, fromNeedIds: [] }],
+  });
+  await approvedByAll(pr2.id);
+  const joined = await post<any>(PROC, `/resources/purchase-requests/${pr2.id}/decide`, { decision: "APPROVE", procurementId: procId });
+  let proc = await get<any>(PROC, `/resources/procurements/${procId}`);
+  check("P1", "a second request is combined into the same procurement", joined.procurement?.id === procId && proc.requests.length === 2 && proc.lines.length === 3, [joined.procurement, proc.requests.length, proc.lines.length]);
+  check("P1", "the store keeper doesn't run procurements", await refused(403, () => move(KEEPER, { stage: "PLACED_ON_EGP", egpReference: "x" })));
+  check("P1", "placing it needs the EGP number", await refused(400, () => move(PROC, { stage: "PLACED_ON_EGP" })));
+  await move(PROC, { stage: "PLACED_ON_EGP", egpReference: "EGP-2026/0398", note: "Tender floated" });
+  check("P1", "the requests follow it: Order placed", (await stageOf(pr.id)) === "ORDER_PLACED" && (await stageOf(pr2.id)) === "ORDER_PLACED");
+  // Progress is a stage picked, not a note and "advance": a later one in one step, never back.
+  await move(PROC, { stage: "ON_DELIVERY", supplier: "Validation Supplies PLC" });
+  check("P1", "a stage can be skipped, never undone", (await stageOf(pr.id)) === "ON_DELIVERY" && (await refused(409, () => move(PROC, { stage: "BUYER_FOUND" }))));
+
+  // Fewer found than asked: procurement edits what is bought, saying why.
+  const desk = proc.lines.find((l: any) => l.name === "Desktop Computer");
+  m = mark();
+  proc = await post<any>(PROC, `/resources/procurements/${procId}/lines`, {
+    reason: "Only one desktop of that model was in stock",
+    lines: proc.lines.map((l: any) => ({ id: l.id, name: l.name, categoryId: l.categoryId, qty: l.id === desk.id ? 1 : l.qty, unit: l.unit, unitCost: l.unitCost, spec: l.spec, purchaseLineId: l.purchaseLineId })),
+  });
+  const edit = proc.events.find((e: any) => e.lineChanges.length);
+  check("P1", "what is bought can be edited, with the reason on its timeline", proc.lines.find((l: any) => l.id === desk.id).qty === 1 && /Only one desktop/.test(edit?.note ?? ""), edit);
+  check("P1", "✉ the head hears less will be bought", mailed(m, HEAD, `${procRef}: less will be bought than you asked for`));
+  check("P1", "an edit needs a reason", await refused(400, () => post(PROC, `/resources/procurements/${procId}/lines`, { reason: "", lines: proc.lines.map((l: any) => ({ id: l.id, name: l.name, categoryId: l.categoryId, qty: l.qty })) })));
+
+  m = mark();
+  proc = await move(PROC, { stage: "ARRIVED", note: "Delivered to the main store" });
+  check("P1", "arrived at the main store, and the requests with it", proc.stage === "ARRIVED" && (await stageOf(pr.id)) === "IN_STORE", [proc.stage, await stageOf(pr.id)]);
+  check("P1", "✉ Property Admin (not the store keeper) is told it arrived", mailed(m, PROP, `${procRef} has arrived at the main store`) && !mailed(m, KEEPER, `${procRef} has arrived at the main store`));
+
+  // P2 — Property Administration records what arrived from the procurement; the keeper loads it.
+  check("P2", "the store keeper can't record an import", await refused(403, () => post(KEEPER, "/resources/imports", { source: "PROCUREMENT", procurementId: procId, lines: [{ name: "x", categoryId: chair, qty: 1 }] })));
+  check("P2", "a request bought through a procurement isn't recorded on its own", await refused(409, () => post(PROP, "/resources/imports", { source: "PURCHASE_REQUEST", purchaseRequestId: pr.id, lines: [{ name: "Lab Chair", categoryId: chair, qty: 1, purchaseLineId: pr.lines[0].id }] })));
   m = mark();
   const imp = await post<any>(PROP, "/resources/imports", {
-    source: "PURCHASE_REQUEST",
-    purchaseRequestId: pr.id,
-    supplier: "Validation Supplies PLC",
-    lines: [
-      { name: "Lab Chair", categoryId: chair, qty: 2, unit: "pcs", purchaseLineId: pr.lines[0].id },
-      { name: "Desktop Computer", categoryId: computer, qty: 2, unit: "pcs", spec: "HP ProDesk 400 G7", purchaseLineId: pr.lines[1].id },
-    ],
+    source: "PROCUREMENT",
+    procurementId: procId,
+    lines: proc.lines.map((l: any) => ({ name: l.name, categoryId: l.categoryId, qty: l.arrivedQty ?? l.qty, unit: l.unit ?? undefined, procurementLineId: l.id })),
   });
-  check("P2", "IMP reference", /^IMP-\d{4}-\d{3}$/.test(imp.reference), imp.reference);
+  check("P2", "IMP reference, with the procurement's EGP number and supplier", /^IMP-\d{4}-\d{3}$/.test(imp.reference) && imp.egpReference === "EGP-2026/0398" && imp.supplier === "Validation Supplies PLC", [imp.reference, imp.egpReference, imp.supplier]);
   check("P2", "✉ the store keeper is told to load it", mailed(m, KEEPER, `${imp.reference} is ready to load into the store`));
-  check("P2", "recording more than was ordered is refused", await refused(409, () => post(PROP, "/resources/imports", { source: "PURCHASE_REQUEST", purchaseRequestId: pr.id, lines: [{ name: "Lab Chair", categoryId: chair, qty: 1, purchaseLineId: pr.lines[0].id }] })));
+  check("P2", "recording more than arrived is refused", await refused(409, () => post(PROP, "/resources/imports", { source: "PROCUREMENT", procurementId: procId, lines: [{ name: "Lab Chair", categoryId: chair, qty: 1, procurementLineId: proc.lines.find((l: any) => l.name === "Lab Chair").id }] })));
   const store = await mainStore();
-  await post(KEEPER, `/resources/imports/${imp.id}/load`, { lineId: imp.lines[0].id, qty: 1, storeParentId: store.id });
-  check("P2", "loading more than arrived is refused", await refused(409, () => post(KEEPER, `/resources/imports/${imp.id}/load`, { lineId: imp.lines[0].id, qty: 5, storeParentId: store.id })));
-  await post(KEEPER, `/resources/imports/${imp.id}/load`, { lineId: imp.lines[0].id, qty: 1, storeParentId: store.id });
+  const line = (name: string) => imp.lines.find((l: any) => l.name === name);
+  const load = (name: string, qty: number) => post<any>(KEEPER, `/resources/imports/${imp.id}/load`, { lineId: line(name).id, qty, storeParentId: store.id });
+  await load("Lab Chair", 1);
+  check("P2", "loading more than arrived is refused", await refused(409, () => load("Lab Chair", 5)));
+  await load("Lab Chair", 1);
+  await load("Whiteboard", 1);
   m = mark();
-  const loaded = await post<any>(KEEPER, `/resources/imports/${imp.id}/load`, { lineId: imp.lines[1].id, qty: 2, storeParentId: store.id });
-  const closed = await get<any>(HEAD, `/resources/purchase-requests/${pr.id}`);
-  check("P2", "import LOADED and the PR CLOSED", loaded.status === "LOADED" && closed.stage === "CLOSED", [loaded.status, closed.stage]);
-  check("P2", "✉ the head is told it is in the store", mailed(m, HEAD, `${pr.reference} is in the store`));
+  const loaded = await load("Desktop Computer", 1);
+  const procEnd = await get<any>(PROC, `/resources/procurements/${procId}`);
+  check("P2", "import LOADED; the procurement and both requests CLOSED", loaded.status === "LOADED" && procEnd.stage === "CLOSED" && (await stageOf(pr.id)) === "CLOSED" && (await stageOf(pr2.id)) === "CLOSED", [loaded.status, procEnd.stage, await stageOf(pr.id), await stageOf(pr2.id)]);
+  check("P2", "✉ the head is told it is in the store", mailed(m, HEAD, `${procRef} is in the store`));
   const inStore = await db.item.count({ where: { parentId: store.id, deletedAt: null, name: { startsWith: "Desktop Computer" } } });
-  check("P2", "2 desktops are now items in the Main Store", inStore === 2, inStore);
+  check("P2", "the one desktop that came is now an item in the Main Store", inStore === 1, inStore);
 
   // P3 — a standalone EGP purchase.
   const egp = await post<any>(PROP, "/resources/imports", { source: "EGP", egpReference: "EGP-2026/0412", supplier: "Abyssinia Tech", lines: [{ name: "Laptop", categoryId: computer, qty: 2, unit: "pcs", spec: "Lenovo T14" }] });
@@ -292,16 +346,30 @@ async function movements() {
   const hannaLab = await labOf(HANNA);
   const aliUser = await db.user.findUniqueOrThrow({ where: { emailLower: ALI } });
 
-  // P4 — store → a lab.
-  const chair = await db.item.findFirstOrThrow({ where: { parentId: store.id, name: { startsWith: "Lab Chair" }, deletedAt: null } });
+  // P4 — Distribute: the store sends what a lab's need was bought for.
+  const keeperUser = await db.user.findUniqueOrThrow({ where: { emailLower: KEEPER } });
+  const dist = await get<any>(KEEPER, "/resources/distributions");
+  const suggested = dist.suggestions.find((x: any) => x.lab.id === aliLab.id)?.lines.find((l: any) => l.needId === chairNeedId);
+  check("P4", "Distribute suggests the chairs for the lab whose need bought them", !!suggested && suggested.items.length >= 2 && /^PR-/.test(suggested.purchaseReference ?? ""), suggested);
+  check("P4", "only the store keeper distributes", await refused(403, () => get(HEAD, "/resources/distributions")));
+  const chairIds: string[] = suggested.items.slice(0, 2).map((i: any) => i.id);
   let m = mark();
-  const p4 = await transfer(KEEPER, { itemIds: [chair.id], transfer: { targetParentId: aliLab.id, targetOrgNodeId: cse.id, targetCustodianId: aliUser.id, transferOwnership: true } });
-  check("P4", "chain: receiving head → Property Admin → custodian accepts", JSON.stringify(p4.request.steps.map((s: any) => s.selector)) === JSON.stringify(["TARGET_HEAD", "NODE_OCCUPANT", "TARGET_CUSTODIAN"]), approvers(p4.request));
-  check("P4", "✉ the receiving head, and the custodian it's for", mailed(m, HEAD, /A transfer is waiting for you/) && mailed(m, ALI, /Coming to you from the store/));
+  const sentOut = await post<any>(KEEPER, "/resources/distributions", { sends: [{ labId: aliLab.id, itemIds: chairIds, needIds: [chairNeedId] }] });
+  const p4row = await db.changeRequest.findFirstOrThrow({ where: { status: "PENDING", requesterId: keeperUser.id }, orderBy: { createdAt: "desc" } });
+  const p4 = { request: await get<any>(ADMIN, `/resources/transfers/${p4row.id}`) };
+  check("P4", "chain: Property Admin → the custodian accepts (the head is told, not asked)", sentOut.results[0]?.ok === true && JSON.stringify(p4.request.steps.map((s: any) => s.selector)) === JSON.stringify(["NODE_OCCUPANT", "TARGET_CUSTODIAN"]), approvers(p4.request));
+  check("P4", "✉ Property Admin is asked; the custodian and the head are told", mailed(m, PROP, /A transfer is waiting for you/) && mailed(m, ALI, /Coming to you from the store/) && mailed(m, HEAD, /Coming to your department from the store/));
   check("P4", "Procurement is not on it", !approvers(p4.request).some((a) => a.includes("Procurement")));
   const p4done = await walkTransfer(p4.request.id, "P4");
-  const chairAfter = await db.item.findUniqueOrThrow({ where: { id: chair.id } });
-  check("P4", "applied: owner CSE, custodian Ali, in his lab", p4done.status === "APPLIED" && chairAfter.ownerOrgNodeId === cse.id && chairAfter.custodianId === aliUser.id && chairAfter.parentId === aliLab.id);
+  const chairsAfter = await db.item.findMany({ where: { id: { in: chairIds } } });
+  check("P4", "applied: owner CSE, custodian Ali, in his lab", p4done.status === "APPLIED" && chairsAfter.every((c) => c.ownerOrgNodeId === cse.id && c.custodianId === aliUser.id && c.parentId === aliLab.id));
+  const distAfter = await get<any>(KEEPER, "/resources/distributions");
+  check("P4", "a need that was sent is not suggested again", !distAfter.suggestions.some((x: any) => x.lines.some((l: any) => l.needId === chairNeedId)));
+  // …and a send picked by hand takes the same line.
+  const desktop = await db.item.findFirstOrThrow({ where: { parentId: store.id, name: { startsWith: "Desktop Computer" }, deletedAt: null } });
+  const p4b = await transfer(KEEPER, { itemIds: [desktop.id], transfer: { targetParentId: aliLab.id, targetOrgNodeId: cse.id, targetCustodianId: aliUser.id, transferOwnership: true } });
+  check("P4", "a hand-picked send: the same two steps", JSON.stringify(p4b.request.steps.map((s: any) => s.selector)) === JSON.stringify(["NODE_OCCUPANT", "TARGET_CUSTODIAN"]), approvers(p4b.request));
+  await walkTransfer(p4b.request.id, "P4");
 
   // P6 — Ali asks for a table from the store.
   const table = await db.item.findFirstOrThrow({ where: { parentId: store.id, category: { key: "table" }, deletedAt: null } });
@@ -349,6 +417,15 @@ async function movements() {
   await walkTransfer(p9.request.id, "P9");
   const rackAfter = await db.item.findUniqueOrThrow({ where: { id: rack.id } });
   check("P9", "the owner stays CSE, custody stays with Ali", rackAfter.ownerOrgNodeId === cse.id && rackAfter.custodianId === aliUser.id && rackAfter.currentOrgNodeId === chem.id);
+
+  // …and the borrower sends it home on their own: nobody has to ask for it back.
+  const home = await get<any>(HANNA, `/resources/transfers/return-target?itemId=${rack.id}`);
+  check("P9", "the borrower may return it, to where it came from", home.side === "BORROWER" && home.suggested?.id === aliLab.id, home);
+  const back = await transfer(HANNA, { itemIds: [rack.id], transfer: { targetParentId: aliLab.id, targetOrgNodeId: "", targetCustodianId: null } });
+  check("P9", "a return the borrower starts has no step for the borrower", back.request.movement === "RETURN" && !back.request.steps.some((s: any) => s.status !== "SKIPPED" && s.approverId === hannaUser.id), approvers(back.request));
+  await walkTransfer(back.request.id, "P9");
+  const rackHome = await db.item.findUniqueOrThrow({ where: { id: rack.id } });
+  check("P9", "it is back in the owner's lab and unit", rackHome.parentId === aliLab.id && rackHome.currentOrgNodeId === cse.id);
 }
 
 // ── P5: needs feed purchasing ───────────────────────────────────────────────
@@ -360,7 +437,7 @@ async function needs() {
   const wanted = await post<any>(ALI, "/resources/needs", { labItemId: aliLab.id, name: "Soldering station", qty: 3, unit: "pcs", priority: "ESSENTIAL", kind: "NEW", reason: "The embedded systems practical has 3 benches without one", spec: "Temperature-controlled, 60 W" });
   check("P5", "✉ the head hears what the lab needs", mailed(m, HEAD, `${aliLab.name} needs Soldering station`));
   const counts = await get<any>(HEAD, "/home/counts");
-  check("P5", "the head's Purchasing badge counts it", counts.purchasing >= 1, counts);
+  check("P5", "the head's Purchasing badge counts it, and what is in progress beside it", counts.areas?.purchasing?.action >= 1 && counts.tabs?.["purchasing.needs"]?.action >= 1 && typeof counts.areas?.purchasing?.following === "number", counts.areas);
   const home = await get<any>(HEAD, "/home");
   check("P5", "the head's Home names a next step about it", /need/i.test(JSON.stringify(home.nextStep ?? null)), home.nextStep);
   const unwanted = await post<any>(ALI, "/resources/needs", { labItemId: aliLab.id, name: "Projector screen", qty: 1, priority: "NICE_TO_HAVE", kind: "NEW", reason: "Nice for presentations" });
@@ -498,6 +575,7 @@ async function exists(kind: string, id: string): Promise<boolean> {
     need: () => db.needLine.findUnique({ where: { id } }),
     import: () => db.importRecord.findUnique({ where: { id } }),
     request: () => db.purchaseRequest.findUnique({ where: { id } }),
+    procurement: () => db.procurement.findUnique({ where: { id } }),
   };
   return !!(await (find[kind] ?? (async () => null))());
 }
@@ -526,7 +604,7 @@ async function mailTour(fromMark: number) {
       else if (screen === "external-requests" && focus) ids.push(["external", focus]);
       if (screen === "places" && url.pathname.split("/")[2]) ids.push(["place", url.pathname.split("/")[2]]);
       if (screen === "schedule" && url.searchParams.get("lab")) ids.push(["place", url.searchParams.get("lab")!]);
-      for (const key of ["need", "import", "request"] as const) if (screen === "purchasing" && url.searchParams.get(key)) ids.push([key, url.searchParams.get(key)!]);
+      for (const key of ["need", "import", "request", "procurement"] as const) if (screen === "purchasing" && url.searchParams.get(key)) ids.push([key, url.searchParams.get(key)!]);
       if (screen === "categories" && url.searchParams.get("id")) ids.push(["category", url.searchParams.get("id")!]);
       if (screen === "categories" && url.searchParams.get("change")) ids.push(["category-change", url.searchParams.get("change")!]);
       if (!ids.length) generic.push(label);
@@ -585,15 +663,17 @@ async function requesterAccount(email: string, organisation: string): Promise<st
   return `cookie:${cookie}`;
 }
 
-async function submitExternal(requester: string, payload: Record<string, unknown>): Promise<{ id: string; reference: string }> {
+async function submitExternal(requester: string, payload: Record<string, unknown>, withLetter = true): Promise<{ id: string; reference: string }> {
   const form = new FormData();
   form.set("payload", JSON.stringify(payload));
-  form.set("letter", new Blob([PDF], { type: "application/pdf" }), "letter.pdf");
+  if (withLetter) form.set("letter", new Blob([PDF], { type: "application/pdf" }), "letter.pdf");
   return call(requester, "POST", "/portal/requests", form, true);
 }
 
-/** AVP → CoEEC → CSE, the head asking the given custodians. */
-async function downTheLine(id: string, custodians: Array<{ email: string; want: string }>) {
+const SHEET = "https://docs.google.com/spreadsheets/d/validation";
+
+/** AVP → CoEEC → CSE: the request reaches the head. */
+async function downTheLine(id: string) {
   const coeec = await node("COEEC");
   const cse = await node("CSE");
   let m = mark();
@@ -605,20 +685,12 @@ async function downTheLine(id: string, custodians: Array<{ email: string; want: 
   dto = await post<any>(DEAN, `/external-requests/assignments/${college.id}/forward`, { orgNodeIds: [cse.id] });
   check("P10", "✉ the CSE head gets it from the dean", mailed(m, HEAD, /^External request EXT-.* for Computer Science/));
   const dept = dto.assignments.find((a: any) => a.orgNodeId === cse.id);
-  const people = await db.user.findMany({ where: { emailLower: { in: custodians.map((c) => c.email) } } });
-  m = mark();
-  await post(HEAD, `/external-requests/assignments/${dept.id}/assign`, { tasks: custodians.map((c) => ({ custodianId: people.find((p) => p.emailLower === c.email)!.id, want: c.want })) });
-  check("P10", "✉ each custodian asked", custodians.every((c) => mailed(m, c.email, /^Hold (rooms|a machine) for EXT-/)));
   return { collegeId: college.id as string, deptId: dept.id as string };
 }
 
 async function upTheLine(id: string, parts: { collegeId: string; deptId: string }, amountSantim: number) {
   let m = mark();
-  await post(HEAD, `/external-requests/assignments/${parts.deptId}/submit`, {
-    sheetUrl: "https://docs.google.com/spreadsheets/d/validation",
-    amountSantim,
-    contacts: [{ name: "Ali Kibret Muhamed", role: "Lab responsible, B510-R8", phone: "+251911123456" }, { name: "CSE Department Office", phone: "+251221100000" }],
-  });
+  await post(HEAD, `/external-requests/assignments/${parts.deptId}/submit`, { sheetUrl: SHEET, amountSantim });
   check("P10", "✉ the dean gets the department's answer", mailed(m, DEAN, /answered EXT-/));
   await post(DEAN, `/external-requests/assignments/${parts.deptId}/review`, { decision: "APPROVE" });
   m = mark();
@@ -630,57 +702,98 @@ async function upTheLine(id: string, parts: { collegeId: string; deptId: string 
 async function external() {
   const requester = await requesterAccount("outside.requester@example.org", "Addis Data Institute");
   const date = dayAhead(20);
+  const [labKind, setupKind, whiteboard] = [await catId("lab"), await catId("setup"), await catId("whiteboard")];
+  const who = { organizationName: "Addis Data Institute", contactName: "Ms. Requester", contactEmail: "outside.requester@example.org", contactPhone: "+251911000777" };
+
+  // The requester builds the labs they need: the kind of place, how many, what each must have.
+  const catalog = await (await fetch(`${BASE}/public/catalog`)).json();
+  check("P10", "the public catalogue offers places to build on and what a lab can be asked to have", catalog.groups.flatMap((g: any) => g.categories).some((c: any) => c.id === labKind && c.isPlace) && catalog.setupKinds.some((k: any) => k.id === whiteboard), catalog.setupKinds?.length);
+  check("P10", "a lab setup must be built on a kind of place", await refused(400, () => submitExternal(requester, { kind: "FACILITY", ...who, purpose: "A workshop for forty people, two days.", windows: [{ date, start: "09:00", end: "12:00" }], lines: [], setups: [{ placeCategoryId: whiteboard, count: 1, needs: [] }] })));
   let m = mark();
   const created = await submitExternal(requester, {
     kind: "FACILITY",
-    organizationName: "Addis Data Institute",
-    contactName: "Ms. Requester",
-    contactEmail: "outside.requester@example.org",
-    contactPhone: "+251911000777",
+    ...who,
     purpose: "A two-day data science workshop for 40 government employees.",
     windows: [{ date, start: "09:00", end: "12:00" }],
-    lines: [{ description: "Two computer labs with internet", quantity: 2 }],
+    lines: [],
+    setups: [{ placeCategoryId: labKind, count: 2, needs: [{ categoryId: setupKind, qty: 10 }, { categoryId: whiteboard, qty: 1 }] }],
   });
   check("P10", "✉ requester and AVP told it arrived", mailed(m, "outside.requester@example.org", `Request ${created.reference} received`) && mailed(m, AVP, `New external request ${created.reference}`));
   check("P10", "a staff account can't read the requester's page", await refused(403, () => get(ALI, `/portal/requests/${created.id}`)));
 
+  const parts = await downTheLine(created.id);
+  const ext = `/external-requests/${created.id}`;
+  const book = `/external-requests/assignments/${parts.deptId}/book`;
+  const submit = `/external-requests/assignments/${parts.deptId}/submit`;
+
+  // The head books places: Ali's lab (its whiteboard went to ChemE in P8) and both of Yohannes's.
   const aliLab = await labOf(ALI);
-  const parts = await downTheLine(created.id, [
-    { email: ALI, want: "B510-R8, mornings" },
-    { email: YOHANNES, want: "Your lab, as a second room" },
-  ]);
-  const aliDto = await get<any>(ALI, `/external-requests/${created.id}`);
-  check("P10", "Ali may hold his own lab only", aliDto.role === "CUSTODIAN" && aliDto.holdRooms.map((r: any) => r.id).includes(aliLab.id));
-  await post(ALI, `/external-requests/${created.id}/hold`, { itemIds: [aliLab.id], date, start: "09:00", end: "12:00" });
-  check("P10", "the head can't answer while a custodian hasn't", await refused(409, () => post(HEAD, `/external-requests/assignments/${parts.deptId}/submit`, { sheetUrl: "https://docs.google.com/x", amountSantim: 1, contacts: [{ name: "x y", phone: "0911000000" }] })));
-  const tasks = (await get<any>(HEAD, `/external-requests/${created.id}`)).assignments.find((a: any) => a.id === parts.deptId).tasks;
-  let mm = mark();
-  await post(ALI, `/external-requests/tasks/${tasks.find((t: any) => t.custodianName.startsWith("Ali")).id}/finish`, { outcome: "DONE", note: "Held 09:00–12:00" });
-  await post(YOHANNES, `/external-requests/tasks/${tasks.find((t: any) => t.custodianName.startsWith("Yohannes")).id}/finish`, { outcome: "DECLINED", note: "My lab has an exam that day" });
-  check("P10", "✉ the head hears from both custodians", since(mm).filter((x) => x.to.some((t) => t.includes(HEAD))).length === 2);
+  const yUser = await db.user.findUniqueOrThrow({ where: { emailLower: YOHANNES } });
+  const yLabs = await db.item.findMany({ where: { custodianId: yUser.id, parentId: null, deletedAt: null, category: { key: "lab" } }, orderBy: { name: "asc" } });
+  const places = await get<any[]>(HEAD, `/external-requests/assignments/${parts.deptId}/places`);
+  const placeOf = (id: string) => places.find((p) => p.id === id);
+  check(
+    "P10",
+    "the head sees which labs fit: Ali's is short of a whiteboard, Yohannes's two fit",
+    JSON.stringify(placeOf(aliLab.id)?.missing.map((x: any) => x.categoryName)) === '["Whiteboard"]' && yLabs.length === 2 && yLabs.every((l) => placeOf(l.id)?.missing.length === 0),
+    [placeOf(aliLab.id)?.missing, yLabs.map((l) => placeOf(l.id)?.missing)],
+  );
+  check("P10", "another department's head can't book CSE's places", await refused(403, () => get(CHEM_HEAD, `/external-requests/assignments/${parts.deptId}/places`)));
+  m = mark();
+  let dto = await post<any>(HEAD, book, { labIds: [aliLab.id, ...yLabs.map((l) => l.id)], note: "For the data science workshop" });
+  check("P10", "✉ each custodian is asked to hold their place", mailed(m, ALI, `Hold ${aliLab.name} for ${created.reference}`) && mailed(m, YOHANNES, `Hold ${yLabs[0].name} for ${created.reference}`));
+  const asked = (labId: string) => dto.holds.find((h: any) => h.labItemId === labId && h.state === "REQUESTED");
+  const answer = (holdId: string) => `/external-requests/holds/${holdId}/answer`;
+  const aliHold = asked(aliLab.id);
+  const yHolds = yLabs.map((l) => asked(l.id));
+  check("P10", "a lab without what each lab must have can't be held", dto.holdChecks.some((c: any) => c.reservationId === aliHold.id && c.blocked === "SHORT") && (await refused(409, () => post(ALI, answer(aliHold.id), { decision: "HOLD" }))), dto.holdChecks);
+  check("P10", "a custodian answers only their own place", await refused(403, () => post(ALI, answer(yHolds[0].id), { decision: "HOLD" })));
+  m = mark();
+  await post(ALI, answer(aliHold.id), { decision: "WAIT", note: "Borrowing a whiteboard from Chemical Engineering" });
+  check("P10", "✉ the head hears Ali is waiting for a loan", mailed(m, HEAD, `${aliLab.name}: waiting for a loan for ${created.reference}`));
+  dto = await post<any>(YOHANNES, answer(yHolds[0].id), { decision: "HOLD" });
+  check("P10", "one lab held: the coverage counts it", dto.coverage.windows[0].rows[0].have === 1 && !dto.coverage.complete, dto.coverage);
+  dto = await post<any>(YOHANNES, answer(yHolds[1].id), { decision: "HOLD" });
+  check("P10", "everything covered: Ali's request is no longer needed and can't be held", dto.coverage.complete && dto.holdChecks.some((c: any) => c.reservationId === aliHold.id && c.blocked === "COVERED") && (await refused(409, () => post(ALI, answer(aliHold.id), { decision: "HOLD" }))), dto.holdChecks);
+  const spare = places.find((p) => !p.asked && ![aliLab.id, ...yLabs.map((l) => l.id)].includes(p.id));
+  check("P10", "nothing is left to book once covered (only a replacement)", await refused(409, () => post(HEAD, book, { labIds: [spare.id] })));
+
+  // The contact persons are the custodians holding the places; each needs a phone.
+  check("P10", "sending up is refused while a holder has no phone", await refused(400, () => post(HEAD, submit, { sheetUrl: SHEET, amountSantim: 1 })));
+  check("P10", "a phone number must look like one", await refused(400, () => post(YOHANNES, "/auth/phone", { phone: "call me" })));
+  await post(YOHANNES, "/auth/phone", { phone: "+251911123456" });
+  const headDept = (await get<any>(HEAD, ext)).assignments.find((a: any) => a.id === parts.deptId);
+  check("P10", "the contact is the custodian holding the places, with the phone they set", headDept.holders.length === 1 && headDept.holders[0].phone === "+251911123456" && headDept.holders[0].places.length === 2, headDept.holders);
+  check("P10", "the head may send up without waiting for Ali", headDept.can.submit === true);
   await upTheLine(created.id, parts, 1_250_000);
-  const avpView = await get<any>(AVP, `/external-requests/${created.id}`);
+  const sentUp = await get<any>(HEAD, ext);
+  check("P10", "Ali's unanswered hold request is withdrawn", sentUp.holds.find((h: any) => h.id === aliHold.id)?.state === "CANCELLED", sentUp.holds.map((h: any) => h.state));
+
+  const avpView = await get<any>(AVP, ext);
   check("P10", "the AVP can quote, suggested from the approved department", avpView.can.quote && avpView.suggestedQuoteSantim === 1_250_000, [avpView.can.quote, avpView.suggestedQuoteSantim]);
   m = mark();
-  await post(AVP, `/external-requests/${created.id}/quote`, { amountSantim: 1_250_000, paymentDeadline: dayAhead(10), note: "Includes lab assistants" });
+  await post(AVP, `${ext}/quote`, { amountSantim: 1_250_000, paymentDeadline: dayAhead(10), note: "Includes lab assistants" });
   check("P10", "✉ the requester gets the quote", mailed(m, "outside.requester@example.org", `Quote for request ${created.reference}`));
   let mine = await get<any>(requester, `/portal/requests/${created.id}`);
-  check("P10", "requester sees the breakdown, bank details and the held room — no contacts yet", mine.quote.breakdown.length === 1 && !!mine.quote.bank && mine.bookings.length === 1 && !mine.bookings[0].confirmed && mine.contacts.length === 0, { breakdown: mine.quote.breakdown, bookings: mine.bookings });
+  check("P10", "requester sees their setups, the breakdown, bank details and the two held labs: no contacts yet", mine.setups.length === 1 && mine.quote.breakdown.length === 1 && !!mine.quote.bank && mine.bookings.length === 2 && !mine.bookings[0].confirmed && mine.contacts.length === 0, { setups: mine.setups, bookings: mine.bookings });
 
   m = mark();
-  const paid = await post<any>(requester, `/portal/requests/${created.id}/payments`, { provider: "TELEBIRR", reference: "FAKE-12500" });
+  const receipt = "https://receipts.example.org/telebirr/FAKE-12500";
+  const paid = await post<any>(requester, `/portal/requests/${created.id}/payments`, { provider: "TELEBIRR", reference: "FAKE-12500", receiptLink: receipt });
   check("P10", "verified payment → PAID, waiting for the AVP", paid.outcome === "VERIFIED" && paid.tracking.status === "PAID", [paid.outcome, paid.tracking.status]);
   check("P10", "✉ the AVP is asked to confirm the payment", mailed(m, AVP, `${created.reference} is paid: confirm the payment`));
-  check("P10", "a head can't confirm the payment", await refused(403, () => post(HEAD, `/external-requests/${created.id}/confirm`, {})));
+  const avpPay = await get<any>(AVP, ext);
+  check("P10", "the AVP sees the requester's receipt link and the account to check it against", avpPay.payments[0]?.receiptLink === receipt && JSON.stringify(avpPay).includes("1000370930353"), avpPay.payments[0]);
+  check("P10", "a head can't confirm the payment", await refused(403, () => post(HEAD, `${ext}/confirm`, {})));
   m = mark();
-  const confirmed = await post<any>(AVP, `/external-requests/${created.id}/confirm`, {});
+  const confirmed = await post<any>(AVP, `${ext}/confirm`, {});
   check("P10", "the AVP confirms → SCHEDULED, contacts revealed", confirmed.status === "SCHEDULED" && !!confirmed.contactsRevealedAt);
-  check("P10", "✉ requester (with contacts), custodian and head", mailed(m, "outside.requester@example.org", `Booking confirmed: ${created.reference}`) && mailed(m, ALI, `Booking confirmed on your calendar: ${created.reference}`) && mailed(m, HEAD, `${created.reference} is paid and booked`));
-  check("P10", "the confirmation email lists the contact persons", /\+251911123456/.test(lastBodyTo("outside.requester@example.org")));
+  check("P10", "✉ requester (with contacts), custodian and head", mailed(m, "outside.requester@example.org", `Booking confirmed: ${created.reference}`) && mailed(m, YOHANNES, `Booking confirmed on your calendar: ${created.reference}`) && mailed(m, HEAD, `${created.reference} is paid and booked`));
+  check("P10", "the confirmation email lists the contact person's phone", /\+251911123456/.test(lastBodyTo("outside.requester@example.org")));
   mine = await get<any>(requester, `/portal/requests/${created.id}`);
-  check("P10", "requester now sees the booked room and who to call", mine.bookings.every((b: any) => b.confirmed) && mine.contacts[0]?.people.length === 2, { bookings: mine.bookings, contacts: mine.contacts });
+  check("P10", "requester now sees the booked labs and who to call", mine.bookings.every((b: any) => b.confirmed) && mine.contacts[0]?.people.length === 1 && mine.contacts[0].people[0].phone === "+251911123456", { bookings: mine.bookings, contacts: mine.contacts });
 
-  // P11 — a sample analysis on a machine.
+  // P11 — a sample analysis on a machine: the head asks the custodian directly.
   const sampleDate = dayAhead(22);
   const machine = await db.item.findFirstOrThrow({
     where: { category: { key: "computer" }, status: "WORKING", deletedAt: null, parent: { parentId: aliLab.id } },
@@ -688,23 +801,116 @@ async function external() {
   });
   const s = await submitExternal(requester, {
     kind: "SAMPLE_ANALYSIS",
-    organizationName: "Addis Data Institute",
-    contactName: "Ms. Requester",
-    contactEmail: "outside.requester@example.org",
-    contactPhone: "+251911000777",
+    ...who,
     purpose: "Benchmark our dataset on a lab workstation.",
     windows: [{ date: sampleDate, start: "09:00", end: "11:00" }],
     lines: [],
     sample: { categoryId: await catId("computer"), sampleCount: 3, analysis: "Run the benchmark suite and report timings" },
   });
-  const sParts = await downTheLine(s.id, [{ email: ALI, want: "One workstation computer" }]);
+  const sParts = await downTheLine(s.id);
+  const aliUser = await db.user.findUniqueOrThrow({ where: { emailLower: ALI } });
+  m = mark();
+  await post(HEAD, `/external-requests/assignments/${sParts.deptId}/assign`, { tasks: [{ custodianId: aliUser.id, want: "One workstation computer" }] });
+  check("P11", "✉ the custodian is asked", mailed(m, ALI, /^Hold (rooms|a machine) for EXT-/));
+  const aliDto = await get<any>(ALI, `/external-requests/${s.id}`);
+  check("P11", "Ali may hold in his own lab only", aliDto.role === "CUSTODIAN" && aliDto.holdRooms.map((r: any) => r.id).includes(aliLab.id));
   await post(ALI, `/external-requests/${s.id}/hold`, { itemIds: [machine.id], date: sampleDate, start: "09:00", end: "11:00" });
   const sTask = (await get<any>(ALI, `/external-requests/${s.id}`)).assignments.find((a: any) => a.id === sParts.deptId).tasks[0];
   await post(ALI, `/external-requests/tasks/${sTask.id}/finish`, { outcome: "DONE" });
+  // Ali is the contact, so he needs a phone: his head sets it for him.
+  const withPhone = await post<any>(HEAD, `/people/${aliUser.id}/phone`, { phone: "+251 911 555 010" });
+  check("P11", "the head sets a custodian's phone", withPhone.phone === "+251 911 555 010", withPhone.phone);
   await upTheLine(s.id, sParts, 300_000);
   await post(AVP, `/external-requests/${s.id}/quote`, { amountSantim: 300_000, paymentDeadline: dayAhead(10) });
   const sMine = await get<any>(requester, `/portal/requests/${s.id}`);
   check("P11", "the requester sees the machine held, in its lab", sMine.kind === "SAMPLE_ANALYSIS" && sMine.bookings[0]?.place === `${machine.name}: ${aliLab.name}`, sMine.bookings);
+
+  // A packaged offer, declined, then edited and sent again (a second requester: an account
+  // sends three requests a day).
+  const second = await requesterAccount("training.office@example.org", "Oromia Statistics Agency");
+  const who2 = { organizationName: "Oromia Statistics Agency", contactName: "Ms. Requester", contactEmail: "training.office@example.org", contactPhone: "+251911000777" };
+  const offer = catalog.offers?.find((o: any) => o.key === "EXAM");
+  check("P10", "the catalogue offers packaged requests, with the seats a typical lab has", !!offer && offer.placeCategoryId === labKind && offer.seatCategoryId === setupKind && offer.seatsPerPlace >= 1, catalog.offers?.map((o: any) => [o.key, o.seatsPerPlace]));
+  const labs = Math.ceil(60 / offer.seatsPerPlace);
+  const examBody = {
+    kind: "FACILITY",
+    ...who2,
+    purpose: "A recruitment examination for 60 candidates.",
+    windows: [{ date: dayAhead(24), start: "09:00", end: "12:00" }],
+    lines: [],
+    offerKey: "EXAM",
+    peopleCount: 60,
+    setups: [{ placeCategoryId: labKind, count: labs, needs: [{ categoryId: setupKind, qty: Math.ceil(60 / labs) }] }],
+  };
+  const exam = await submitExternal(second, examBody);
+  check("P10", "an offer that doesn't exist is refused", await refused(400, () => submitExternal(second, { ...examBody, offerKey: "PICNIC" })));
+  m = mark();
+  await post(AVP, `/external-requests/${exam.id}/decline`, { note: "That is the university's own examination week. Any week after it works." });
+  check("P10", "✉ the requester hears it was declined, and that they can send it again", mailed(m, "training.office@example.org", `Request ${exam.reference}`) && /Edit and send again/.test(lastBodyTo("training.office@example.org")));
+  const closed = await get<any>(second, `/portal/requests/${exam.id}`);
+  check("P10", "declined: the requester sees why, what they chose, and may edit and send it again", closed.status === "DECLINED" && closed.canSendAgain === true && closed.offer?.name === "Examination" && closed.offer.people === 60 && /examination week/.test(closed.closingNote ?? ""), [closed.status, closed.canSendAgain, closed.offer]);
+  check("P10", "another requester can't send it again", await refused(404, () => submitExternal(requester, { ...examBody, resubmitOf: exam.id }, false)));
+  m = mark();
+  const again = await submitExternal(second, { ...examBody, windows: [{ date: dayAhead(31), start: "09:00", end: "12:00" }], resubmitOf: exam.id }, false);
+  const avpAgain = await get<any>(AVP, `/external-requests/${again.id}`);
+  check(
+    "P10",
+    "sent again as a new request: linked to the first, its letter kept, the reason it was closed shown to the AVP",
+    again.reference !== exam.reference && avpAgain.resubmitOf?.reference === exam.reference && /examination week/.test(avpAgain.resubmitOf.closingNote ?? "") && avpAgain.letter.fileName === "letter.pdf" && avpAgain.offer?.people === 60,
+    [avpAgain.resubmitOf, avpAgain.letter, avpAgain.offer],
+  );
+  check("P10", "✉ the AVP is told it was edited and sent again", mailed(m, AVP, `New external request ${again.reference}`) && /sent it again/.test(lastBodyTo(AVP)));
+  const old = await get<any>(second, `/portal/requests/${exam.id}`);
+  check("P10", "the declined one points at what replaced it, and can't be sent again twice", old.resubmittedAs?.reference === again.reference && old.canSendAgain === false && (await refused(409, () => submitExternal(second, { ...examBody, resubmitOf: exam.id }, false))));
+}
+
+// ── P15: who does what (2026-10-02) ─────────────────────────────────────────
+
+async function whoDoesWhat() {
+  const aliLab = await labOf(ALI);
+  const store = await mainStore();
+  const aliUser = await db.user.findUniqueOrThrow({ where: { emailLower: ALI } });
+  const yUser = await db.user.findUniqueOrThrow({ where: { emailLower: YOHANNES } });
+  const keeperUser = await db.user.findUniqueOrThrow({ where: { emailLower: KEEPER } });
+  const changes = "/resources/items/changes";
+
+  // Bookings follow the post, not the "manager" label.
+  const slot = { itemIds: [aliLab.id], date: dayAhead(30), start: "09:00", end: "10:00", title: "Validation practical", onBehalfOfNote: "Second-year section B" };
+  const bars: boolean[] = [];
+  for (const who of [DEAN, AVP, CMD]) bars.push(await refused(403, () => post(who, "/scheduling/bookings", slot)));
+  check("P15", "a dean, the AVP and the CMD don't book rooms", bars.every(Boolean), bars);
+  const booked = await post<any>(ALI, "/scheduling/bookings", slot);
+  check("P15", "the custodian books their own lab", typeof booked.id === "string", booked.state);
+
+  // Custody and ownership are Property Administration's to change.
+  const chairInLab = await db.item.findFirstOrThrow({ where: { parentId: aliLab.id, category: { key: "chair" }, deletedAt: null } });
+  check("P15", "a custodian can't change who holds something", await refused(403, () => post(ALI, changes, { kind: "setCustodian", itemIds: [chairInLab.id], value: yUser.id, note: "Mine to give" })));
+  check("P15", "Property Administration must say why", await refused(400, () => post(PROP, changes, { kind: "setCustodian", itemIds: [chairInLab.id], value: yUser.id })));
+  await post(PROP, changes, { kind: "setCustodian", itemIds: [chairInLab.id], value: yUser.id, note: "Reassigned after the audit" });
+  check("P15", "Property Administration changes it, at once", (await db.item.findUniqueOrThrow({ where: { id: chairInLab.id } })).custodianId === yUser.id);
+  await post(PROP, changes, { kind: "setCustodian", itemIds: [chairInLab.id], value: aliUser.id, note: "Back to its lab's custodian" });
+
+  // The store keeper's "Mine" is the stores they keep.
+  const mine = await get<any>(KEEPER, "/resources/items?mode=flat");
+  const rows: any[] = mine.rows ?? mine.items ?? [];
+  check("P15", "the store keeper's Mine is what is in the stores they keep", rows.length > 0 && rows.every((r) => r.custodianId === keeperUser.id), rows.length);
+
+  // A store's changes are decided by Property Administration.
+  const table = await db.item.findFirstOrThrow({ where: { parentId: store.id, category: { key: "table" }, status: "WORKING", deletedAt: null } });
+  const staged = await post<any>(KEEPER, changes, { kind: "setStatus", itemIds: [table.id], value: "BROKEN", note: "A leg is cracked" });
+  check("P15", "the keeper's edit waits in the store's changes", staged.staged?.labItemId === store.id && (await db.item.findUniqueOrThrow({ where: { id: table.id } })).status === "WORKING", staged.staged);
+  let m = mark();
+  const sent = await post<any>(KEEPER, `/resources/labs/${store.id}/versions/draft/submit`);
+  check("P15", "✉ Property Administration is asked to decide", mailed(m, PROP, `${store.name}: changes are waiting for your approval`));
+  check("P15", "a department head can't decide a store's changes", await refused(403, () => post(HEAD, `/resources/lab-commits/${sent.id}/decide`, { decision: "APPROVE" })));
+  m = mark();
+  const decided = await post<any>(PROP, `/resources/lab-commits/${sent.id}/decide`, { decision: "APPROVE", note: "validated" });
+  check("P15", "approved by Property Administration: the register changes", decided.status === "APPLIED" && (await db.item.findUniqueOrThrow({ where: { id: table.id } })).status === "BROKEN", decided.status);
+  check("P15", "✉ the keeper hears it was approved", mailed(m, KEEPER, `${store.name}: your changes were approved`));
+
+  // People: the ADAA reaches the college's custodians; a dean manages nobody.
+  const byAdaa = await post<any>(ADAA, `/people/${aliUser.id}/phone`, { phone: "+251 911 555 011" });
+  check("P15", "the ADAA sets a college custodian's phone; a dean can't", byAdaa.phone === "+251 911 555 011" && (await refused(403, () => post(DEAN, `/people/${aliUser.id}/phone`, { phone: "+251 911 555 012" }))));
 }
 
 // ── Run ─────────────────────────────────────────────────────────────────────
@@ -717,6 +923,7 @@ async function main() {
     ["needs", needs],
     ["movements", movements],
     ["external requests", external],
+    ["who does what", whoDoesWhat],
     ["places", places],
     ["categories and lab changes", categoriesAndLabChanges],
     ["mail tour", () => mailTour(start)],
@@ -727,7 +934,7 @@ async function main() {
       check(name, "ran to the end", false, e instanceof Error ? e.message : String(e));
     }
   }
-  fs.writeFileSync("e2e/validation-2026-10-02.json", JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
+  fs.writeFileSync("e2e/validation-2026-10-03.json", JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
   if (failed.length) process.exitCode = 1;

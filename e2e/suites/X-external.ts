@@ -3,7 +3,9 @@
  *  and sends the request (letter attached); the AVP forwards it to a college, the dean to a
  *  department, the head asks a custodian to hold a slot; the answer goes back up (head →
  *  dean → AVP), the AVP quotes; the requester pays on their request's page, and the AVP
- *  confirms the payment. Same check ids where the intent survives. */
+ *  confirms the payment. Same check ids where the intent survives.
+ *  2026-10-03: the contact persons are the custodians holding the places, from their own
+ *  profiles (lab setups, booking and holds are the approval-lines validator's P10). */
 import fs from "node:fs";
 import { get, post, api, check, ev, db, done, uniq, nodeId, mintAs, BASE, S } from "../lib";
 
@@ -63,6 +65,10 @@ async function main() {
   const labVer = (await get("admin", "/resources/categories")).body.find((c: any) => c.key === "lab").version;
   await api("admin", "PATCH", `/resources/categories/${labCat.id}`, { expectedVersion: labVer, publicListed: true });
   await requester("reqMain");
+  // The contact persons are the custodians holding the places (2026-10-02): each needs a
+  // phone on their profile, which they set themselves.
+  await post("custChem", "/auth/phone", { phone: "+251911000111" });
+  await post("custSe", "/auth/phone", { phone: "+251911000222" });
 
   /** Down the line: AVP → CoMCME's dean → ChemE's head, who asks Hanna to hold her lab. */
   async function toChemCustodian(id: string) {
@@ -77,7 +83,7 @@ async function main() {
   async function answerUp(id: string, parts: { college: string; dept: string }, amountSantim: number) {
     const task = await db.externalCustodianTask.findFirstOrThrow({ where: { assignmentId: parts.dept } });
     await post("custChem", `/external-requests/tasks/${task.id}/finish`, { outcome: "DONE" });
-    await post("headChem", `/external-requests/assignments/${parts.dept}/submit`, { sheetUrl: "https://docs.google.com/sheet/x", amountSantim, contacts: [{ name: "Hanna Bekele", phone: "+251911000111" }] });
+    await post("headChem", `/external-requests/assignments/${parts.dept}/submit`, { sheetUrl: "https://docs.google.com/sheet/x", amountSantim });
     await post("deanComcme", `/external-requests/assignments/${parts.dept}/review`, { decision: "APPROVE" });
     await post("deanComcme", `/external-requests/assignments/${parts.college}/submit`, { note: "ChemE hosts it" });
     return post("avp", `/external-requests/assignments/${parts.college}/review`, { decision: "APPROVE" });

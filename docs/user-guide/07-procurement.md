@@ -21,7 +21,7 @@ A request reaches you after the head, the dean, the College Managing Director an
 
 Approving asks **Buy it through**: **A new procurement**, or a procurement you are still preparing (so one EGP purchase covers several requests). The head who asked is told that procurement has started buying it.
 
-![Approve, with a note](img/approvers/05-procurement-approve.jpg)
+![Start the purchase: a new procurement, or one still being prepared](img/approvers/05-procurement-approve.jpg)
 
 You can also start from **Purchasing → Procurement → Approved, waiting to be bought**: tick the requests one EGP purchase will cover and click **Start buying**, or choose a procurement still being prepared and **Add** them to it.
 
@@ -33,9 +33,13 @@ To move it, choose the stage under **Move to** (the next one, or any later one: 
 
 **Arrived at the main store** asks **how many of each came**. Each count starts at what was bought; change the ones that came short. Property Administration is told, checks your counts and records the import; the store keeper loads it. When everything is loaded the procurement reaches **In the store** on its own, and so do the requests it covered.
 
+![A procurement: its stages, what is being bought and its history](img/procurement/01-procurement.jpg)
+
 ## 3. Edit what is being bought
 
 Until it arrives, **Edit what is being bought…** lets you change any line (quantity, unit cost, category), drop a line, or add one, and asks **why**. The history records each change in words (*Chair: 40 → 32*), and the head whose request gets less is told. A line shows what was asked for beside what is bought (*32 pcs (asked 40)*).
+
+![Edit what is being bought, with the reason](img/procurement/02-edit-lines.jpg)
 
 ## 4. A standalone EGP purchase
 

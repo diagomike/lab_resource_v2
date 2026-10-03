@@ -143,6 +143,8 @@ Click your initials at the top right, then **Profile & password**.
 
 - **Display**: the **theme** (light or dark), the **text size** (Small to Extra large; **Large** is the default, go up or down to suit you) and the **typeface**. These are saved on this computer.
 - **Your account**: your name, email, roles and unit. An administrator changes these for you. Your **Phone** is yours to set: type it and click **Save phone**. An outside requester calls this number when you hold a lab for them.
+![Profile & password: your phone number](img/getting-started/10-profile.jpg)
+
 - **Email notifications**: tick or untick **Email me when something needs me or my request is decided**. See [10. Emails and updates](#10-emails-and-updates).
 - **Change password**: enter your current password, then the new one (at least 8 characters).
 

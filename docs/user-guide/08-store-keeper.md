@@ -39,6 +39,8 @@ You can't load **more than the record says arrived** ("Only 1 pcs of … are lef
 
 Each send is one store handover per lab: **Property Administration** approves it, then **the lab's custodian accepts** it into their care. The department's head is told it is coming. Follow your sends under **Approvals → Sent by me**.
 
+![Distribute: what each lab asked for, with stock already chosen](img/store-keeper/03-distribute.jpg)
+
 You can also do it from **Resources**, one lab at a time:
 
 1. In **Resources**, open the **ASTU Main Store** and the group you need (e.g. **Workstation Setup ×151**).

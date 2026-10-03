@@ -34,9 +34,12 @@ Then fill in:
 - **Who is asking**: filled in from your account; change it if this request has a different contact.
 - **The event** (or **The analysis**): what it's for. For a sample analysis, also the **machine** (or "not sure"), the number of **samples** and the **analysis needed**.
 - **When** (or **Preferred dates**): each day with its start and end time, in Addis Ababa time. Use **+ Another day** for several days.
+- **What are you holding?** (rooms or labs): the quick way. Choose **Examination**, **Training** or **Workshop** and say **for how many people**. The labs you need are worked out for you ("2 × Lab, each with 20 × Workstation Setup and 1 × Whiteboard") and filled in below, where you can still change them. Choose **Something else** to describe the labs yourself.
 - **The labs you need** (rooms or labs): click **+ Add a lab setup**, choose the **kind of place** (a computer lab, a workshop) and **how many**, then what **each one must have**: "25 × Workstation", "1 × Projector". **Per session** adds it all up. Add another setup for a different kind of place.
 - **Anything else you need**: other things in your own words, with quantities. Needed only if you didn't add a lab setup; optional for a sample analysis.
 - **Official letter**: a signed letter from your institution, as a PDF of at most 4 MB.
+
+![Choose what you are holding and for how many people](img/portal/02-lab-setup.jpg)
 
 Click **Send request**. You get a **reference** (EXT-2026-…), also emailed to you.
 
@@ -55,6 +58,10 @@ Click **Send request**. You get a **reference** (EXT-2026-…), also emailed to 
 | **Declined / Cancelled / Expired** | It won't go ahead; the reason is shown |
 
 You can **Cancel this request** at any time before you've paid.
+
+**If it is declined.** The reason is shown on the request, and emailed to you. If you can change what you asked for (other dates, fewer places), click **Edit and send again**: everything you sent is filled in, your letter is attached again unless you choose a new one, and it goes to the university as a new request linked to the first. A request can be sent again once; the same goes for one you cancelled or whose quote expired.
+
+![A declined request, with its reason and "Edit and send again"](img/portal/03-send-again.jpg)
 
 ## 4. Your quote
 

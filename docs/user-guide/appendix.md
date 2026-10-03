@@ -5,20 +5,24 @@
 | What | Raised by | Decided by, in order |
 |---|---|---|
 | A **lab's changes** (what broke, was mended, renamed, added or removed) | The lab's custodian | The lab's department head |
+| A **store's changes** (the same, in a store) | Its store keeper | Property Administration |
+| **Custody, the owning unit or the current unit** of a resource | Property Administration | Applies at once, with the reason kept in History |
 | A new **lab or store**, or a new custodian for one | The department's head (its labs and stores), the college's ADAA (the college's stores), or Property Administration (the Main Store) | Applies at once; the custodians are told |
 | A new **category**, or an addition to one | A custodian or head (for their department), the ADAA (for the college) | Applies at once; the head is told |
 | A **category change** that alters what items already hold | A custodian | The department head (a head's own change applies after its review) |
 | …that reaches **other departments' items** | A custodian or head | Their head → the administrator → Property Administration |
 | A **need** | A custodian, for a lab they run | Their department head: build it into a request, or decline |
-| A **purchase request** | A department head | Dean → College Managing Director → AVP → Procurement Office (the head's own step is done by sending it) |
-| An **import record** (what a purchase delivered) | Property Administration | The store keeper loads it into the Main Store |
-| A **move from the Main Store** to a lab | The store keeper | Receiving head → Property Administration → receiving custodian accepts |
+| A **purchase request** | A department head | Dean → College Managing Director → AVP → the Procurement Office starts the purchase, as a procurement (the head's own step is done by sending it) |
+| A **procurement** (one EGP purchase, for one or several requests) | The Procurement Office | Procurement moves it stage by stage and records what arrived |
+| An **import record** (what a procurement delivered) | Property Administration, checking the counts procurement recorded | The store keeper loads it into the Main Store |
+| A **move from the Main Store** to a lab (Distribute) | The store keeper | Property Administration → receiving custodian accepts (the receiving head is told) |
 | A **request from the Main Store** | A custodian | Store keeper releases → your head → Property Administration → you confirm receipt |
 | A **return to the Main Store** | A custodian | Owning head → Property Administration → store keeper accepts |
 | A **loan** from another unit | A custodian | Current custodian → their head → receiving head → you confirm receipt |
+| The **return of a loan** | Either custodian | The borrower sends it back: the owner's custodian confirms receipt. The owner asks for it back: the borrower releases it, then the owner's custodian confirms receipt |
 | A **permanent transfer** from another unit | A custodian | Current custodian → their head → receiving head → College Managing Director → *(another college only)* Property Administration → you confirm receipt |
 | A **booking** of a lab or machine | A custodian or head | The lab's custodian (a custodian's booking of their own lab is confirmed at once) |
-| An **outside institution's request** (rooms, or a sample analysis) | The institution, signed in to the portal | AVP → deans → heads → custodians hold; heads answer (cost, contacts) → deans approve → AVP approves and quotes → requester pays → AVP confirms the payment |
+| An **outside institution's request** (labs, or a sample analysis) | The institution, signed in to the portal | AVP → deans → heads book places → custodians hold (only a lab that has what was asked); heads answer (the cost; the custodians holding are the contacts) → deans approve → AVP approves and quotes → requester pays → AVP confirms the payment. If it is declined, the requester may edit it and send it again |
 
 ## The main flows
 
@@ -39,13 +43,13 @@ flowchart LR
 ```mermaid
 flowchart LR
   N[Custodians ask for<br/>what their labs need] --> H[Head builds a request<br/>from the chosen needs]
-  H --> DN[Dean] --> CMD[College Managing<br/>Director] --> AVP[AVP] --> P[Procurement]
+  H --> DN[Dean] --> CMD[College Managing<br/>Director] --> AVP[AVP] --> P[Procurement starts<br/>the purchase]
   DN -. send back .-> H
-  P --> O[With procurement → Order placed on EGP → Supplier found<br/>→ On delivery → Arrived]
-  O --> IR[Property Administration<br/>records the import]
+  P --> O[A procurement: Preparing → Placed on EGP<br/>→ Supplier found → On delivery → Arrived]
+  O --> IR[Property Administration checks<br/>and records what arrived]
   IR --> S[Store keeper loads it<br/>into the Main Store]
-  S --> HO[Move to the lab]
-  HO --> RH[Receiving head] --> PA[Property<br/>Administration] --> RC[Custodian accepts]
+  S --> HO[Store keeper distributes<br/>to the labs that asked]
+  HO --> PA[Property<br/>Administration] --> RC[Custodian accepts]
 ```
 
 ### Changing a category
@@ -77,11 +81,12 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  R[Requester's account:<br/>request + letter] --> A[AVP → colleges]
+  R[Requester's account: an offer<br/>or lab setups, + letter] --> A[AVP → colleges]
+  A -. declines + reason .-> RS[Requester edits it<br/>and sends it again]
   A --> DE[Dean → departments]
-  DE --> HD[Head asks custodians]
-  HD --> CU[Custodians hold<br/>rooms or a machine]
-  CU --> HA[Head: cost + contacts]
+  DE --> HD[Head books places]
+  HD --> CU[Custodians hold<br/>the labs that fit]
+  CU --> HA[Head: cost; the holders<br/>are the contacts]
   HA --> DA[Dean approves]
   DA --> AA[AVP approves, quotes]
   AA --> P[Requester pays<br/>verified with the bank]

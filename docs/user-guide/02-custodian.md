@@ -74,6 +74,8 @@ Click an item's **name** to open its details: its parts (**Contains**), its stat
 
 **Calibration.** For machines that are calibrated on a cycle, set **Last calibrated** in the item's details after each calibration (in your lab's changes, like any detail). In **Resources**, **+ Add filter… → Calibration** shows what is **overdue**, **due soon** or **never calibrated**; **Calibration due in (days)** with "at most 30" lists what falls due this month. Home's **Due soon** lists them too.
 
+![Resources filtered by Calibration, with one instrument open](img/custodian/11-calibration.jpg)
+
 **Working in the lab itself.** You can also edit directly on **My changes**: set a status from the drop-down, **rename**, **+ add** inside something, or **✕** remove it.
 
 > **Good to know**
@@ -166,6 +168,8 @@ For each one:
   - Once everything asked for on that date is held by other labs, yours isn't needed: the line reads **Not needed**. It opens again if a held lab is released.
 - **Waiting for a loan…**: your lab is short of something the requester needs (they listed what each lab must have under **Labs to build up**). Ask another department for it from **Resources → Whole university → Request to my lab**, and say here what you are borrowing. Your head sees the note. Hold the place once the things are in your lab.
 - **Can't hold it…**: say why (a class, maintenance, too few working machines). Your head is told and books another place.
+
+![A hold request: your lab is one workstation short, so "Hold it" waits](img/custodian/10-hold-request.jpg)
 
 A hold blocks the calendar. It lapses on its own unless the request is paid by the deadline; once paid, it becomes a booking on your calendar. You are one of the **contact persons** the requester calls once they have paid, so keep a phone number on **Profile & password** (your head can also set it for you).
 

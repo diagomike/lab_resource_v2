@@ -24,6 +24,8 @@ The university's Main Store is yours to manage in **Labs & stores**: its details
 
 **Store changes.** A store keeper's changes to what a store holds (a status, a name, a detail, something added or removed) come to you in **Approvals**, the same way a lab's come to its head. Approving applies them; returning them sends them back with your reason.
 
+![A store's changes waiting for you](img/property-admin/03-store-changes.jpg)
+
 **Custody and units.** Who answers for a resource, which unit owns it and which holds it are your records. Open any resource in **Resources** and click **Change custody or unit…**: choose the new custodian, owning unit or current unit, and say why (the reason is kept in its history). It applies at once.
 
 **Store staff.** **People & roles** lets you invite store keepers, change their roles and help them sign in.

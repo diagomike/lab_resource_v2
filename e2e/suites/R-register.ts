@@ -1,11 +1,20 @@
 /** Suite R — register: custodians & heads creating, moving, editing. H8–H12.
  *  2026-10-02: places are added from above (Labs & stores), so the head adds the SE store
- *  these cases work in, with Girma as its keeper. A store is worked directly (a lab's
- *  edits are staged for its head — suite D), so the register's own rules show here. */
+ *  these cases work in, with Girma as its keeper.
+ *  2026-10-03: a store's edits are staged too, and Property Administration decides them
+ *  (R-04, R-05 walk that path). The register's own rules (quantities, custom details,
+ *  placement, concurrency, derived status) are shown through the administrator, whose
+ *  edits apply at once; who may write stays tested as the custodian. */
 import { get, post, api, check, ev, db, done, uniq, nodeId, userId, S } from "../lib";
 
 const R = "R";
 const change = (actor: string, body: unknown) => post(actor, "/resources/items/changes", body);
+/** Sends a place's staged changes and has Property Administration approve them. */
+async function settle(actor: string, placeId: string) {
+  const sent = await post(actor, `/resources/labs/${placeId}/versions/draft/submit`);
+  const decided = await post("propadmin", `/resources/lab-commits/${sent.body?.id}/decide`, { decision: "APPROVE", note: "E2E" });
+  return { sent, decided };
+}
 const PNG_1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 
 async function catId(key: string) {
@@ -43,21 +52,29 @@ async function main() {
     return { ok: own.status === 201 && !!newLab && foreign.status === 403, evidence: { own: own.status, foreign: foreign.status } };
   });
 
-  await check(R, "R-04", "add 2 computers into the new store: template subtree instantiated, custody/ownership inherited", async () => {
+  await check(R, "R-04", "2 computers added to the new store wait in its changes; Property Administration (not the head) approves; template subtree instantiated, custody/ownership inherited", async () => {
     const r = await change("custSe", { kind: "createItem", parentId: newLab, categoryId: computer, count: 2, customProps: { "Asset tag": { type: "TEXT", value: "ASTU-001" } } });
-    const ids: string[] = r.body?.itemIds ?? [];
-    const kids = await db.item.findMany({ where: { parentId: { in: ids } } });
-    const roots = await db.item.findMany({ where: { id: { in: ids } } });
-    const inherited = roots.every((x) => x.ownerOrgNodeId === se && x.custodianId === S.custSe.id && x.parentId === newLab);
-    return { ok: r.status === 200 && ids.length === 2 && kids.length > 0 && inherited, evidence: { status: r.status, roots: ids.length, templateChildren: kids.length, inherited } };
+    const before = await db.item.count({ where: { parentId: newLab, categoryId: computer, deletedAt: null } });
+    const sent = await post("custSe", `/resources/labs/${newLab}/versions/draft/submit`);
+    const byHead = await post("headSe", `/resources/lab-commits/${sent.body?.id}/decide`, { decision: "APPROVE" });
+    const byPa = await post("propadmin", `/resources/lab-commits/${sent.body?.id}/decide`, { decision: "APPROVE", note: "E2E" });
+    const roots = await db.item.findMany({ where: { parentId: newLab, categoryId: computer, deletedAt: null } });
+    const kids = await db.item.findMany({ where: { parentId: { in: roots.map((x) => x.id) } } });
+    const inherited = roots.every((x) => x.ownerOrgNodeId === se && x.custodianId === S.custSe.id);
+    return {
+      ok: r.status === 200 && r.body?.staged?.labItemId === newLab && before === 0 && byHead.status === 403 && byPa.body?.status === "APPLIED" && roots.length === 2 && kids.length > 0 && inherited,
+      evidence: { staged: r.body?.staged, inRegisterBeforeApproval: before, headDecides: byHead.status, propertyAdmin: byPa.body?.status ?? byPa.status, roots: roots.length, templateChildren: kids.length, inherited },
+    };
   });
 
-  await check(R, "R-05", "H10 — child created under own lab cannot carry another unit/custodian chosen by the client", async () => {
-    const r = await change("custSe", { kind: "createItem", parentId: newLab, categoryId: chair, count: 1, ownerOrgNodeId: chem, currentOrgNodeId: mat, custodianId: S.custChem.id, name: uniq("E2E Smuggled Chair") });
-    const row = r.status === 200 ? await db.item.findUniqueOrThrow({ where: { id: r.body.itemIds[0] } }) : null;
+  await check(R, "R-05", "H10 — child created under own store cannot carry another unit/custodian chosen by the client", async () => {
+    const name = uniq("E2E Smuggled Chair");
+    const r = await change("custSe", { kind: "createItem", parentId: newLab, categoryId: chair, count: 1, ownerOrgNodeId: chem, currentOrgNodeId: mat, custodianId: S.custChem.id, name });
+    const done = r.status === 200 ? await settle("custSe", newLab) : null;
+    const row = await db.item.findFirst({ where: { name } });
     return {
-      ok: !(row && (row.ownerOrgNodeId !== se || row.custodianId !== S.custSe.id)),
-      evidence: { status: r.status, owner: row?.ownerOrgNodeId === chem ? "Chemical Engineering" : row?.ownerOrgNodeId, current: row?.currentOrgNodeId === mat ? "Materials Science" : row?.currentOrgNodeId, custodian: row?.custodianId === S.custChem.id ? "Hanna Bekele (ChemE)" : row?.custodianId },
+      ok: !(row && (row.ownerOrgNodeId !== se || row.custodianId !== S.custSe.id)) && (r.status >= 400 || !!row),
+      evidence: { status: r.status, approved: done?.decided.body?.status, owner: row?.ownerOrgNodeId === chem ? "Chemical Engineering" : row?.ownerOrgNodeId, current: row?.currentOrgNodeId === mat ? "Materials Science" : row?.currentOrgNodeId, custodian: row?.custodianId === S.custChem.id ? "Hanna Bekele (ChemE)" : row?.custodianId },
       hypothesis: "H10",
     };
   });
@@ -89,7 +106,7 @@ async function main() {
   });
 
   await check(R, "R-09", "H8 — custodian dumps custody on someone with no custody role / a disabled user / another department's custodian with no acceptance", async () => {
-    const c = await change("custSe", { kind: "createItem", parentId: newLab, categoryId: whiteboard, count: 3 });
+    const c = await change("admin", { kind: "createItem", parentId: newLab, categoryId: whiteboard, count: 3 });
     const [a, b, d] = c.body.itemIds;
     const toStudent = await change("custSe", { kind: "setCustodian", itemIds: [a], value: S.procurement.id });
     const toDisabled = await change("custSe", { kind: "setCustodian", itemIds: [b], value: S.disabled.id });
@@ -142,7 +159,7 @@ async function main() {
   await check(R, "R-14", "optimistic concurrency: two renames with the same expected version → one 200, one 409", async () => {
     const row = await db.item.findUniqueOrThrow({ where: { id: myComputer } });
     const [a, b] = await Promise.all([
-      change("custSe", { kind: "setName", itemIds: [myComputer], value: "E2E Computer A", expectedVersions: { [myComputer]: row.version } }),
+      change("admin", { kind: "setName", itemIds: [myComputer], value: "E2E Computer A", expectedVersions: { [myComputer]: row.version } }),
       change("admin", { kind: "setName", itemIds: [myComputer], value: "E2E Computer B", expectedVersions: { [myComputer]: row.version } }),
     ]);
     const s = [a.status, b.status].sort();
@@ -151,18 +168,18 @@ async function main() {
 
   await check(R, "R-15", "quantity rules: serialized ≠ 1 refused; bulk negative refused", async () => {
     const chem1 = await db.item.findFirstOrThrow({ where: { category: { key: "chemical" } } });
-    const serial = await change("custSe", { kind: "setQuantity", itemIds: [myComputer], value: 3 });
+    const serial = await change("admin", { kind: "setQuantity", itemIds: [myComputer], value: 3 });
     const negative = await change("custChem", { kind: "setQuantity", itemIds: [chem1.id], value: -2 });
     const fraction = await change("custChem", { kind: "setQuantity", itemIds: [chem1.id], value: 2.5 });
     return { ok: serial.status === 400 && negative.status === 400 && fraction.status === 200, evidence: { serialized3: serial.status, bulkNegative: negative.status, bulkFraction: fraction.status } };
   });
 
   await check(R, "R-16", "custom properties: add, collision with a category field refused, bad key refused, remove", async () => {
-    const add = await change("custSe", { kind: "addCustomProperty", itemIds: [myComputer], key: "Warranty until", type: "TEXT", value: "2027-01" });
+    const add = await change("admin", { kind: "addCustomProperty", itemIds: [myComputer], key: "Warranty until", type: "TEXT", value: "2027-01" });
     const field = (await db.categoryField.findFirst({ where: { categoryId: computer } }))?.key;
-    const collide = field ? await change("custSe", { kind: "addCustomProperty", itemIds: [myComputer], key: field, type: "TEXT", value: "x" }) : { status: 400 };
-    const badKey = await change("custSe", { kind: "addCustomProperty", itemIds: [myComputer], key: "1<script>", type: "TEXT", value: "x" });
-    const remove = await change("custSe", { kind: "removeCustomProperty", itemIds: [myComputer], key: "Warranty until" });
+    const collide = field ? await change("admin", { kind: "addCustomProperty", itemIds: [myComputer], key: field, type: "TEXT", value: "x" }) : { status: 400 };
+    const badKey = await change("admin", { kind: "addCustomProperty", itemIds: [myComputer], key: "1<script>", type: "TEXT", value: "x" });
+    const remove = await change("admin", { kind: "removeCustomProperty", itemIds: [myComputer], key: "Warranty until" });
     return { ok: add.status === 200 && collide.status === 400 && badKey.status === 400 && remove.status === 200, evidence: { add: add.status, collideWithField: collide.status, badKey: badKey.status, remove: remove.status } };
   });
 
@@ -186,16 +203,16 @@ async function main() {
   });
 
   await check(R, "R-18", "H12 — delete is a hard delete (row gone, not soft-deleted)", async () => {
-    const c = await change("custSe", { kind: "createItem", parentId: newLab, categoryId: whiteboard, count: 1, name: uniq("E2E Doomed") });
+    const c = await change("admin", { kind: "createItem", parentId: newLab, categoryId: whiteboard, count: 1, name: uniq("E2E Doomed") });
     const id = c.body.itemIds[0];
-    const d = await change("custSe", { kind: "deleteItem", itemIds: [id] });
+    const d = await change("admin", { kind: "deleteItem", itemIds: [id] });
     const row = await db.item.findUnique({ where: { id } });
     const log = await db.itemChange.count({ where: { itemId: id, kind: "deleteItem" } });
     return { ok: d.status === 200 && row !== null, evidence: { delete: d.status, rowStillExists: row !== null, softDeletedAt: row?.deletedAt ?? null, auditRow: log }, hypothesis: "H12" };
   });
 
   await check(R, "R-19", "placement rules: Lab under a computer refused; Computer as a top-level resource refused", async () => {
-    const labInComputer = await change("custSe", { kind: "createItem", parentId: myComputer, categoryId: lab, count: 1 });
+    const labInComputer = await change("admin", { kind: "createItem", parentId: myComputer, categoryId: lab, count: 1 });
     const computerRoot = await change("admin", { kind: "createItem", parentId: null, categoryId: computer, count: 1, ownerOrgNodeId: se, custodianId: S.custSe.id });
     return { ok: labInComputer.status === 400 && computerRoot.status === 400, evidence: { labInsideComputer: labInComputer.status, computerAsRoot: computerRoot.status } };
   });
@@ -203,9 +220,9 @@ async function main() {
   await check(R, "R-20", "derived status: a broken critical part impairs its computer, and the lab rolls up", async () => {
     const parts = await db.item.findMany({ where: { parentId: myComputer, critical: true } });
     const part = parts[0] ?? (await db.item.findFirstOrThrow({ where: { parentId: myComputer } }));
-    const broke = await change("custSe", { kind: "setStatus", itemIds: [part.id], value: "BROKEN" });
+    const broke = await change("admin", { kind: "setStatus", itemIds: [part.id], value: "BROKEN" });
     const comp = await get("custSe", `/resources/items/${myComputer}`);
-    await change("custSe", { kind: "setStatus", itemIds: [part.id], value: "WORKING" });
+    await change("admin", { kind: "setStatus", itemIds: [part.id], value: "WORKING" });
     return { ok: broke.status === 200 && (!part.critical || comp.body?.effectiveStatus !== "WORKING"), evidence: { partCritical: part.critical, setBroken: broke.status, computerEffectiveStatus: comp.body?.effectiveStatus } };
   });
 

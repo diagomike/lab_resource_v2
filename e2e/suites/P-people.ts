@@ -87,9 +87,10 @@ async function main() {
     };
   });
 
-  await check(P, "P-09", "dean cannot resend an invite for a department below them (list reach ≠ action reach)", async () => {
+  await check(P, "P-09", "a dean manages nobody (2026-10-02): resending an invite for a department below them is refused; the ADAA reads the college's people", async () => {
     const r = await post("deanCoeec", `/people/${headInvitee}/resend-invite`);
-    return { ok: r.status < 300, evidence: ev(r) };
+    const adaa = await get("adaa", "/people/reach");
+    return { ok: r.status === 403 && adaa.status === 200 && (adaa.body?.roles ?? []).includes("CUSTODIAN"), evidence: { dean: r.status, adaaMayGive: adaa.body?.roles } };
   });
 
   await check(P, "P-10", "H4 — a department head can deactivate, reactivate and change roles of their own staff", async () => {
@@ -182,13 +183,17 @@ async function main() {
 
   // The seeded Property Administrator occupies the Property office, and like any post's
   // occupant may invite into it — never into a department.
-  await check(P, "P-17", "PROPERTY_ADMIN reads everyone; invites only into the office they hold, never elsewhere", async () => {
+  await check(P, "P-17", "PROPERTY_ADMIN reads everyone; manages the store staff (a store keeper, homed at the university), never a department's people", async () => {
     const list = await get("propadmin", "/people");
     const elsewhere = await post("propadmin", "/people", { name: "x", email: email("p-pa"), roles: ["CUSTODIAN"], homeNodeId: se });
-    const own = await post("propadmin", "/people", { name: "P PA office clerk", email: email("p-pa-own"), roles: ["CUSTODIAN"] });
-    const prop = await db.orgNode.findFirstOrThrow({ where: { code: "PROP" } });
+    const own = await post("propadmin", "/people", { name: "P PA store keeper", email: email("p-pa-own"), roles: ["STORE_KEEPER"] });
+    const university = await db.orgNode.findFirstOrThrow({ where: { kind: "UNIVERSITY", active: true } });
     const home = own.status === 201 ? (await db.user.findUniqueOrThrow({ where: { id: own.body.id } })).homeNodeId : null;
-    return { ok: list.status === 200 && elsewhere.status === 403 && own.status === 201 && home === prop.id, evidence: { list: list.status, count: list.body?.length, inviteIntoSE: elsewhere.status, inviteIntoOwnOffice: own.status, homeIsPropertyOffice: home === prop.id } };
+    const phone = own.status === 201 ? await post("propadmin", `/people/${own.body.id}/phone`, { phone: "+251 911 000 333" }) : null;
+    return {
+      ok: list.status === 200 && elsewhere.status === 403 && own.status === 201 && home === university.id && phone?.body?.phone === "+251 911 000 333",
+      evidence: { list: list.status, count: list.body?.length, inviteIntoSE: elsewhere.status, inviteStoreKeeper: own.status, homeIsTheUniversity: home === university.id, setsTheirPhone: phone?.status },
+    };
   });
 
   await check(P, "P-18", "Materials head (two parent colleges) invites into Materials; both deans see the person", async () => {
