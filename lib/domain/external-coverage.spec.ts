@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coverageLine, coverageOf, type Setup } from "./external-coverage";
+import { coverageLine, coverageOf, shortfallLine, shortfallOf, type Setup } from "./external-coverage";
 
 const setups: Setup[] = [
   {
@@ -33,5 +33,19 @@ describe("outside-request coverage", () => {
   it("nothing held covers nothing; no windows is never complete", () => {
     expect(coverageOf(setups, ["d1"], []).complete).toBe(false);
     expect(coverageOf(setups, [], []).complete).toBe(false);
+  });
+
+  it("names what a place lacks against the setup of its kind, so it can't be held short", () => {
+    expect(shortfallOf(setups, "lab", { ws: 25, proj: 1 })).toEqual([]);
+    const short = shortfallOf(setups, "lab", { ws: 20 })!;
+    expect(short).toEqual([
+      { categoryId: "ws", categoryName: "Workstation", have: 20, need: 25 },
+      { categoryId: "proj", categoryName: "Projector", have: 0, need: 1 },
+    ]);
+    expect(shortfallLine(short)).toBe("5 × Workstation, 1 × Projector");
+    expect(shortfallOf(setups, "workshop", {})).toBeNull();
+    // Two setups of one kind: measured against the one it comes closest to.
+    const two: Setup[] = [...setups, { placeCategoryId: "lab", placeCategoryName: "Lab", count: 1, needs: [{ categoryId: "ws", categoryName: "Workstation", qty: 10 }] }];
+    expect(shortfallOf(two, "lab", { ws: 12 })).toEqual([]);
   });
 });

@@ -44,6 +44,10 @@ export default function ProfilePage() {
           <dd className="font-medium">{user?.name}</dd>
           <dt className="text-dim">Email</dt>
           <dd className="font-mono text-11">{user?.email}</dd>
+          <dt className="text-dim">Phone</dt>
+          <dd>
+            <PhoneField />
+          </dd>
           <dt className="text-dim">Roles</dt>
           <dd className="flex flex-wrap gap-4">
             {(user?.roles ?? []).map((r) => (
@@ -111,6 +115,51 @@ export default function ProfilePage() {
         </form>
       </Panel>
     </Screen>
+  );
+}
+
+/** Your phone number: what an outside requester calls when you hold a place for them. */
+function PhoneField() {
+  const { user, refresh } = useAuth();
+  const [phone, setPhone] = useState(user?.phone ?? "");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const saved = user?.phone ?? "";
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.post("/auth/phone", { phone: phone.trim() });
+      await refresh();
+      setMsg({ ok: true, text: phone.trim() ? "Saved." : "Cleared." });
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : "Could not save your phone number" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="flex flex-col gap-4">
+      <div className="flex gap-8 items-center flex-wrap">
+        <input
+          value={phone}
+          onChange={(e) => (setPhone(e.target.value), setMsg(null))}
+          placeholder="+251 911 234 567"
+          inputMode="tel"
+          autoComplete="tel"
+          aria-label="Phone number"
+          className="w-[200px] bg-panel2 border border-border2 rounded-2 h-26 px-9 text-12 outline-none focus:border-accent"
+        />
+        <Button type="submit" disabled={busy || phone.trim() === saved}>
+          {busy ? "Saving…" : "Save phone"}
+        </Button>
+      </div>
+      <span className="text-10.5 text-faint">Outside requesters call this number when you hold a place for them.</span>
+      {msg && <span className={`text-11 ${msg.ok ? "text-good" : "text-bad"}`}>{msg.text}</span>}
+    </form>
   );
 }
 

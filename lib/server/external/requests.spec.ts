@@ -253,8 +253,7 @@ describe("down the line and back: AVP → dean → head → custodians → head 
     // The hold really blocks the calendar.
     await expect(reservations.createStaffBooking(custodianId, { itemIds: [labId], date, start: "10:00", end: "11:00", title: "Clash", onBehalfOfNote: "A class" })).rejects.toMatchObject({ status: 409 });
 
-    // The head can't answer while a custodian still hasn't; "done" needs a hold.
-    await expect(requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_000_000 })).rejects.toMatchObject({ status: 409 });
+    // "Done" needs a hold. (The head no longer has to wait for every answer: 2026-10-03.)
     const task2 = tasks.find((t) => t.custodianId === custodian2Id)!;
     await expect(requests.finishTask(custodian2Id, task2.id, { outcome: "DONE" })).rejects.toMatchObject({ status: 400 });
     await requests.finishTask(custodian2Id, task2.id, { outcome: "DECLINED", note: "Lab Two is under maintenance" });
@@ -406,6 +405,8 @@ describe("lab setups: the head books places, their custodians hold them (2026-10
       ["Ext Lab", 1],
       ["Ext Lab Two", 0],
     ]);
+    // What each place lacks of what every lab must have: the one without an XRD can't be held as it is.
+    expect(places.filter((p) => [labId, lab2Id].includes(p.id)).map((p) => p.missing)).toEqual([[], [{ categoryName: "Ext XRD", have: 0, need: 1 }]]);
     await expect(requests.bookablePlaces(headBId, deptId)).rejects.toMatchObject({ status: 403 });
 
     let dto = await requests.requestHolds(headAId, deptId, { labIds: [labId, lab2Id] });
@@ -416,9 +417,12 @@ describe("lab setups: the head books places, their custodians hold them (2026-10
     // Asking again doesn't duplicate; the custodians see it waiting on them.
     await expect(requests.requestHolds(headAId, deptId, { labIds: [labId] })).rejects.toMatchObject({ status: 409 });
     expect((await requests.listForActor(custodianId)).find((x) => x.id === r.id)?.waitingOnMe).toBe(true);
-    // Not answerable as an ordinary booking, and the department can't answer up yet.
+    // Not answerable as an ordinary booking; nothing held yet to send up.
     await expect(reservations.decideBooking(custodianId, hold1.id, "APPROVE")).rejects.toMatchObject({ status: 409 });
-    await expect(requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100 })).rejects.toMatchObject({ status: 409 });
+    await expect(requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100 })).rejects.toMatchObject({ status: 400 });
+    // The place without an XRD can't be held until its custodian has borrowed one.
+    expect(dto.holdChecks).toEqual([{ reservationId: hold2.id, blocked: "SHORT", reason: expect.stringContaining("short of 1 × Ext XRD") }]);
+    await expect(requests.answerHold(custodian2Id, hold2.id, { decision: "HOLD" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("short of 1 × Ext XRD") });
 
     await expect(requests.answerHold(custodian2Id, hold1.id, { decision: "HOLD" })).rejects.toMatchObject({ status: 403 });
     dto = await requests.answerHold(custodianId, hold1.id, { decision: "HOLD" });
@@ -440,5 +444,27 @@ describe("lab setups: the head books places, their custodians hold them (2026-10
     await expect(requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100, contactIds: [custodian2Id], note: "One lab only" })).rejects.toMatchObject({ status: 400 });
     dto = await requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100, note: "One lab is all we have that week" });
     expect(dto.assignments.find((a) => a.id === deptId)!.contacts).toEqual([expect.objectContaining({ name: "Test custodian", phone: CONTACT_PHONE, role: "Custodian of Ext Lab" })]);
+  });
+
+  it("once a date is covered, other hold requests can't be held; the head sends up without waiting", async () => {
+    const date = dayAhead(51);
+    const r = await submit({ windows: [{ date, start: "09:00", end: "12:00" }], lines: [], setups: [{ placeCategoryId: roomCategoryId, count: 1, needs: [] }] });
+    await requests.forward(avpId, r.id, { orgNodeIds: [college] });
+    const collegePart = (await requests.getForActor(deanId, r.id)).assignments.find((a) => a.level === "COLLEGE")!;
+    const deptId = (await requests.forwardToDepartments(deanId, collegePart.id, { orgNodeIds: [nodeA] })).assignments.find((a) => a.orgNodeId === nodeA)!.id;
+    let dto = await requests.requestHolds(headAId, deptId, { labIds: [labId, lab2Id] });
+    const hold1 = dto.holds.find((h) => h.labItemId === labId)!;
+    const hold2 = dto.holds.find((h) => h.labItemId === lab2Id)!;
+    expect(dto.assignments.find((a) => a.id === deptId)!.can.submit).toBe(true);
+
+    dto = await requests.answerHold(custodianId, hold1.id, { decision: "HOLD" });
+    expect(dto.coverage?.complete).toBe(true);
+    expect(dto.holdChecks).toEqual([{ reservationId: hold2.id, blocked: "COVERED", reason: expect.stringContaining("already held") }]);
+    await expect(requests.answerHold(custodian2Id, hold2.id, { decision: "HOLD" })).rejects.toMatchObject({ status: 409 });
+    await expect(requests.placeHold(custodian2Id, r.id, { itemIds: [lab2Id], date, start: "09:00", end: "12:00" })).rejects.toMatchObject({ status: 409 });
+    // Booking more stays open (as a spare); the unanswered request is withdrawn on sending up.
+    dto = await requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100 });
+    expect(dto.holds.find((h) => h.id === hold2.id)).toMatchObject({ state: "CANCELLED" });
+    expect(dto.events.at(-1)?.note).toContain("1 unanswered hold request withdrawn");
   });
 });

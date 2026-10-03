@@ -162,10 +162,12 @@ When an outside institution asks for labs or a sample analysis, your head books 
 For each one:
 
 - **Hold it**: the place is held on that date for the request. The line then shows **Held** and can't be held twice.
+  - Your lab must have what every lab in the request must have (working). If it doesn't, **Hold it** is greyed out and the line says what is missing: "short of 1 × Projector". Borrow it first (next point), and hold once it is in your lab.
+  - Once everything asked for on that date is held by other labs, yours isn't needed: the line reads **Not needed**. It opens again if a held lab is released.
 - **Waiting for a loan…**: your lab is short of something the requester needs (they listed what each lab must have under **Labs to build up**). Ask another department for it from **Resources → Whole university → Request to my lab**, and say here what you are borrowing. Your head sees the note. Hold the place once the things are in your lab.
 - **Can't hold it…**: say why (a class, maintenance, too few working machines). Your head is told and books another place.
 
-A hold blocks the calendar. It lapses on its own unless the request is paid by the deadline; once paid, it becomes a booking on your calendar. You are one of the **contact persons** the requester calls once they have paid, so keep a phone number on **Profile & password**.
+A hold blocks the calendar. It lapses on its own unless the request is paid by the deadline; once paid, it becomes a booking on your calendar. You are one of the **contact persons** the requester calls once they have paid, so keep a phone number on **Profile & password** (your head can also set it for you).
 
 For a sample analysis your head may still ask you directly: open the request, click **Hold a slot…**, choose the room or only the machines in it and the window, and click **Hold slot** (it reads **Held** if that room and time is already held), then report **Done…** or **Can't…** on your line.
 

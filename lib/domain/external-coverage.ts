@@ -76,3 +76,36 @@ export function coverageOf(setups: Setup[], windowKeys: string[], held: HeldPlac
 export function coverageLine(w: WindowCoverage): string {
   return w.rows.map((r) => `${Math.min(r.have, r.need)} of ${r.need} ${r.label}`).join(" · ");
 }
+
+export interface Shortfall {
+  categoryId: string;
+  categoryName: string;
+  have: number;
+  need: number;
+}
+
+/** What a place lacks to be one of the requester's labs (2026-10-03): checked against the
+ *  setup of its kind it comes closest to. `null` when no setup asks for its kind of place;
+ *  `[]` when it has everything each one must have. A place is held only when it fits. */
+export function shortfallOf(setups: Setup[], placeCategoryId: string, counts: Record<string, number>): Shortfall[] | null {
+  const ofKind = setups.filter((s) => s.placeCategoryId === placeCategoryId);
+  if (!ofKind.length) return null;
+  let best: Shortfall[] | null = null;
+  let bestMissing = Infinity;
+  for (const s of ofKind) {
+    const short = s.needs
+      .map((n) => ({ categoryId: n.categoryId, categoryName: n.categoryName, have: counts[n.categoryId] ?? 0, need: n.qty }))
+      .filter((n) => n.have < n.need);
+    const missing = short.reduce((sum, n) => sum + n.need - n.have, 0);
+    if (missing < bestMissing) {
+      best = short;
+      bestMissing = missing;
+    }
+  }
+  return best;
+}
+
+/** "1 × Projector, 5 × Workstation": what is still missing. */
+export function shortfallLine(short: Shortfall[]): string {
+  return short.map((s) => `${s.need - s.have} × ${s.categoryName}`).join(", ");
+}

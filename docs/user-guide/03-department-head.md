@@ -119,7 +119,7 @@ Categories belong to the department that made them, and you are their head.
 **People & roles** lists your department's people.
 
 - **Add personnel** invites someone into your department as a **custodian**. They get an email with a registration link, and you get a copyable link in case the email doesn't arrive.
-- **Manage** on a person lets you switch their **email notifications** on or off, and offers **sign-in help**: **Email reset link**, **Set temporary password** (shown once, to give them directly), or **Copy invite link** for someone who hasn't accepted yet.
+- **Manage** on a person lets you set their **phone** (what an outside requester calls when they hold a lab), switch their **email notifications** on or off, and offers **sign-in help**: **Email reset link**, **Set temporary password** (shown once, to give them directly), or **Copy invite link** for someone who hasn't accepted yet.
 
 Other roles (another head, the store keeper, procurement, the ADAA) are set by the system administrator.
 
@@ -133,10 +133,10 @@ Other roles (another head, the store keeper, procurement, the ADAA) are set by t
 
 When your dean sends an outside institution's request to your department, you're told, and it appears in **Outside requests**, with what they asked for and on which dates. A request for labs lists its **Labs to build up**: the kind of place, how many, and what each must have ("2 × Computer lab, each with 25 × Workstation, 1 × Projector").
 
-1. Click **Book places…** on your department's line. Your department's bookable places are listed with their custodian and the working things in them. Tick the ones to use and click **Ask to hold**. Each place is asked for on every date of the request, and its custodian is told.
+1. Click **Book places…** on your department's line. Your department's bookable places are listed with their custodian and the working things in them. Each is marked **fits**, or **short of** what it lacks ("short of 1 × Projector"): a lab that falls short can't be held until its custodian has borrowed what is missing. The dialog also shows what each date still needs. Tick the places to use and click **Ask to hold**. Each place is asked for on every date of the request, and its custodian is told.
 2. Each custodian answers: **Held**, **Can't hold it** (with a reason, so you can book another place), or **Waiting for a loan** (they are borrowing what is missing).
-3. **Held so far** shows, per date, how far the held places cover what was asked: "1 of 2 Computer lab", "28 of 50 Workstation".
-4. When nobody's answer is still pending, click **Send up to the dean…** with a link to your **cost breakdown** and **your department's amount** in ETB. The **contact persons** are the custodians holding the places: untick any you don't want, and each needs a phone number on their profile. If the held places don't cover everything yet, say why in the note.
+3. **Held so far** shows, per date, how far the held places cover what was asked: "1 of 2 Computer lab", "28 of 50 Workstation". Once a date is fully covered, the other labs asked for that date read **Not needed** and can't be held. You can still book more: such a place is a spare, held only if a held one is released.
+4. Click **Send up to the dean…** with a link to your **cost breakdown** and **your department's amount** in ETB. You don't have to wait for every custodian: hold requests nobody answered are withdrawn when you send. The **contact persons** are the custodians holding the places: untick any you don't want, and each needs a phone number (they set it on their Profile, or you set it under **People & roles → Manage**). If the held places don't cover everything yet, say why in the note.
 5. Or **Decline…**, with a reason, if your department can't host it; anything held for it is released.
 
 For a sample analysis you can still click **Ask custodians…** and say what each should hold ("the XRD").

@@ -234,6 +234,9 @@ export function useRegisterState(opts?: {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const scope = opts?.scope;
+  // Every URL this hook writes keeps the page's scope: without it a filter picked in
+  // "Whole university" fell back to "Mine" (the value then showed as a bare id, matching nothing).
+  const qs = (m: RegisterMode, f: RegisterFilters, extra?: Record<string, string>) => toQueryString(m, f, { ...(scope ? { scope: "university" } : {}), ...extra });
 
   const defaultMode = opts?.defaultMode ?? "tree";
   const mode = opts?.fixedMode ?? readMode(searchParams, defaultMode);
@@ -349,14 +352,14 @@ export function useRegisterState(opts?: {
 
   const setFilters = useCallback(
     (patch: Partial<RegisterFilters>) => {
-      router.replace(`${pathname}${toQueryString(mode, { ...filters, ...patch }, keepGroup)}`);
+      router.replace(`${pathname}${qs(mode, { ...filters, ...patch }, keepGroup)}`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [router, pathname, mode, filters, groupByParam],
   );
 
   const clearFilters = useCallback(() => {
-    router.replace(`${pathname}${toQueryString(mode, EMPTY_FILTERS, keepGroup)}`);
+    router.replace(`${pathname}${qs(mode, EMPTY_FILTERS, keepGroup)}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, pathname, mode, groupByParam]);
 
@@ -364,7 +367,7 @@ export function useRegisterState(opts?: {
     (next: RegisterMode) => {
       setExpanded({});
       remember(next, groupBy);
-      router.replace(`${pathname}${toQueryString(next, filters, next === "grouped" ? { group: groupBy.join(",") } : undefined)}`);
+      router.replace(`${pathname}${qs(next, filters, next === "grouped" ? { group: groupBy.join(",") } : undefined)}`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [router, pathname, filters, groupBy],
@@ -373,7 +376,7 @@ export function useRegisterState(opts?: {
   const setGroupBy = useCallback(
     (next: GroupByKey[]) => {
       remember("grouped", next);
-      router.replace(`${pathname}${toQueryString("grouped", filters, { group: next.join(",") || "none" })}`);
+      router.replace(`${pathname}${qs("grouped", filters, { group: next.join(",") || "none" })}`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [router, pathname, filters],
@@ -381,7 +384,7 @@ export function useRegisterState(opts?: {
 
   const setPage = useCallback(
     (next: number) => {
-      router.replace(`${pathname}${toQueryString(mode, filters, { ...keepGroup, page: String(next) })}`);
+      router.replace(`${pathname}${qs(mode, filters, { ...keepGroup, page: String(next) })}`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [router, pathname, mode, filters, groupByParam],

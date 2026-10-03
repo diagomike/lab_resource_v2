@@ -219,6 +219,29 @@ function BookPlacesModal({ request, assignment, onClose, onDone }: { request: Ex
           {request.setups.map((s) => `${s.count} × ${s.placeCategoryName}${s.needs.length ? ` (each: ${s.needs.map((n) => `${n.qty} × ${n.categoryName}`).join(", ")})` : ""}`).join("; ")}
         </div>
       )}
+      {request.coverage && (
+        <div className="flex flex-col gap-4 text-11">
+          {request.coverage.windows.map((w) => (
+            <div key={w.label} className="flex flex-wrap items-center gap-6">
+              <span className="font-mono text-dim">{w.label}</span>
+              {w.complete ? (
+                <Tag tone="good">everything held</Tag>
+              ) : (
+                w.rows
+                  .filter((row) => row.have < row.need)
+                  .map((row) => (
+                    <Tag key={row.label} tone="warn">
+                      {row.need - row.have} more {row.label}
+                    </Tag>
+                  ))
+              )}
+            </div>
+          ))}
+          {request.coverage.complete && (
+            <div className="text-warn">Everything asked for is already held. A place you book now is a spare: its custodian can hold it only if a held one is released.</div>
+          )}
+        </div>
+      )}
       {loadError && <ErrorNote>{loadError}</ErrorNote>}
       {places === null ? (
         <PanelLoading rows={3} />
@@ -238,7 +261,15 @@ function BookPlacesModal({ request, assignment, onClose, onDone }: { request: Ex
                 <strong className="font-medium">{p.name}</strong> · {p.categoryName} · run by {p.custodianName}
                 {p.counts.length > 0 && <span className="block text-dim">{p.counts.map((c) => `${c.count} × ${c.categoryName}`).join(" · ")}</span>}
               </span>
-              {p.asked && <Tag>asked</Tag>}
+              {p.asked ? (
+                <Tag>asked</Tag>
+              ) : request.setups.length > 0 && p.missing.length > 0 ? (
+                <span title="Its custodian must borrow this before they can hold it">
+                  <Tag tone="warn">short of {p.missing.map((m) => `${m.need - m.have} × ${m.categoryName}`).join(", ")}</Tag>
+                </span>
+              ) : request.setups.length > 0 ? (
+                <Tag tone="good">fits</Tag>
+              ) : null}
             </label>
           ))}
         </div>
@@ -290,6 +321,9 @@ function SubmitDepartmentModal({ request, assignment, onClose, onDone }: { reque
         ))
       )}
       {noPhone.length > 0 && <div className="text-11 text-bad">{noPhone.map((h) => h.name).join(" and ")} must add a phone number under Profile & password first, or untick them: the requester will need to call.</div>}
+      {request.holds.some((h) => h.state === "REQUESTED") && (
+        <div className="text-11 text-dim">Hold requests your custodians haven&apos;t answered yet are withdrawn when you send this up.</div>
+      )}
       {short && <div className="text-11 text-warn">The held places don&apos;t yet cover everything the requester&apos;s lab setups need. Say in the note why this is your answer.</div>}
       {assignment.holdCount === 0 && (
         <label className="flex items-center gap-6 text-11">
@@ -756,6 +790,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
   if (error) return <ErrorNote>{error}</ErrorNote>;
   if (!request) return <PanelLoading rows={6} />;
   const r = request;
+  const blockOf = (holdId: string) => r.holdChecks.find((c) => c.reservationId === holdId);
 
   return (
     <>
@@ -894,10 +929,18 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
               {h.holdExpiresAt && h.state === "HELD" && <span className="text-faint text-11">until {new Date(h.holdExpiresAt).toLocaleDateString()}</span>}
               {h.note && <span className="text-dim italic">“{h.note}”</span>}
               <span className="flex-1" />
-              {h.state === "REQUESTED" && h.canDecide && (
+              {h.state === "REQUESTED" && blockOf(h.id) && <span className={`basis-full ${blockOf(h.id)!.blocked === "COVERED" ? "text-dim" : "text-warn"}`}>{blockOf(h.id)!.reason}</span>}
+              {h.state === "REQUESTED" && h.canDecide && blockOf(h.id)?.blocked === "COVERED" && (
+                <Button disabled title={blockOf(h.id)!.reason}>
+                  Not needed
+                </Button>
+              )}
+              {h.state === "REQUESTED" && h.canDecide && blockOf(h.id)?.blocked !== "COVERED" && (
                 <>
                   <Button
                     variant="primary"
+                    disabled={!!blockOf(h.id)}
+                    title={blockOf(h.id)?.reason}
                     onClick={() => setPending({ kind: "note", title: `Hold ${h.labName}`, intro: `Holds ${h.labName} on ${h.date} ${h.start}–${h.end} for this request. It shows as held to your head and up the line.`, confirmLabel: "Hold it", path: `/external-requests/holds/${h.id}/answer`, body: { decision: "HOLD" } })}
                   >
                     Hold it

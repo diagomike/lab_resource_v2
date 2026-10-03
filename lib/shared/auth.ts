@@ -28,6 +28,17 @@ export type ChangePasswordInput = z.infer<typeof ChangePasswordInput>;
 export const SetEmailNotificationsInput = z.object({ enabled: z.boolean() });
 export type SetEmailNotificationsInput = z.infer<typeof SetEmailNotificationsInput>;
 
+/** A phone number on an account: what an outside requester calls (a custodian holding a
+ *  place for them is their contact person). Empty clears it. */
+export const SetPhoneInput = z.object({
+  phone: z
+    .string()
+    .trim()
+    .max(30, "A phone number is at most 30 characters.")
+    .refine((v) => v === "" || (/^\+?[0-9 ()-]+$/.test(v) && v.replace(/\D/g, "").length >= 9), "Give a phone number of at least 9 digits, like +251 911 234 567 or 0911 234 567."),
+});
+export type SetPhoneInput = z.infer<typeof SetPhoneInput>;
+
 export const ForgotPasswordInput = z.object({
   email: z.string().email(),
 });

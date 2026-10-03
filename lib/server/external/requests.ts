@@ -30,7 +30,7 @@ import { HttpError } from "../http-error";
 import { storage } from "../resources/storage";
 import * as scope from "../resources/scope";
 import { DEFAULT_TIME_ZONE, addDays, civilToInstant, instantToCivil, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
-import { coverageOf } from "@/lib/domain/external-coverage";
+import { coverageOf, shortfallLine, shortfallOf } from "@/lib/domain/external-coverage";
 import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookingTarget, subtreeRows, toReservationDto, viewerOf } from "../scheduling/context";
 import { decideBooking, equipmentOf, writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, portalUrl } from "./mail";
@@ -369,6 +369,48 @@ function windowsOf(rows: Array<{ date: Date; startTimeLocal: string; endTimeLoca
 
 const windowKey = (w: { date: string; start: string; end: string }) => `${w.date} ${w.start}–${w.end}`;
 
+const windowKeyOf = (startsAt: Date, endsAt: Date) => {
+  const s = instantToCivil(startsAt, DEFAULT_TIME_ZONE);
+  return windowKey({ date: s.date, start: s.time, end: instantToCivil(endsAt, DEFAULT_TIME_ZONE).time });
+};
+
+/** The request's lab setups and how far the places held now cover them, per date asked
+ *  for; null for a request without setups. */
+async function coverageNow(row: { id: string; setups: Prisma.JsonValue | null; windows: Array<{ date: Date; startTimeLocal: string; endTimeLocal: string }> }) {
+  const setups = await setupDtos(storedSetups(row));
+  if (!setups.length) return null;
+  const live = await prisma.reservation.findMany({
+    where: { externalRequestId: row.id, state: { in: ["HELD", "CONFIRMED"] } },
+    select: { labItemId: true, startsAt: true, endsAt: true, lab: { select: { categoryId: true } } },
+  });
+  const counts = await countsByCategory([...new Set(live.map((h) => h.labItemId))]);
+  const coverage = coverageOf(
+    setups,
+    windowsOf(row.windows).map(windowKey),
+    live.map((h) => ({ windowKey: windowKeyOf(h.startsAt, h.endsAt), placeCategoryId: h.lab.categoryId, counts: counts.get(h.labItemId) ?? {} })),
+  );
+  return { setups, coverage };
+}
+
+/** Why a place can't be held for the request now, or null (2026-10-03): everything asked
+ *  for then is already held, or the place lacks something each lab must have (its
+ *  custodian borrows that first). */
+function holdBlocker(
+  cov: Awaited<ReturnType<typeof coverageNow>>,
+  place: { name: string; categoryId: string; counts: Record<string, number> },
+  key: string,
+): { blocked: "COVERED" | "SHORT"; reason: string } | null {
+  if (!cov) return null;
+  if (cov.coverage.windows.find((w) => w.windowKey === key)?.complete) {
+    return { blocked: "COVERED", reason: `Everything the requester asked for on ${key} is already held, so ${place.name} isn't needed then.` };
+  }
+  const short = shortfallOf(cov.setups, place.categoryId, place.counts);
+  if (short?.length) {
+    return { blocked: "SHORT", reason: `${place.name} is short of ${shortfallLine(short)} (working). Borrow it first (Resources → Whole university → Request to my lab), then hold it.` };
+  }
+  return null;
+}
+
 /** Working things inside each place, by kind (what a held place brings to a setup). */
 async function countsByCategory(labIds: string[]): Promise<Map<string, Record<string, number>>> {
   const out = new Map<string, Record<string, number>>();
@@ -609,7 +651,9 @@ function assignmentCan(access: Access, row: RequestRow, a: AssignmentRow): Exter
     forward: false,
     book: reviewing && mine && WORKING.includes(a.status),
     assign: reviewing && mine && WORKING.includes(a.status),
-    submit: reviewing && mine && WORKING.includes(a.status) && a.tasks.every((t) => t.status !== "PENDING") && !pendingHoldsIn(row, a.orgNodeId),
+    // The head may send up without waiting for every answer (2026-10-03): what is still
+    // unanswered is withdrawn then.
+    submit: reviewing && mine && WORKING.includes(a.status),
     review: reviewing && !!parent && leads(access, parent.orgNodeId) && WORKING.includes(parent.status) && (a.status === "SUBMITTED" || a.status === "APPROVED"),
     decline: reviewing && mine && WORKING.includes(a.status),
   };
@@ -630,19 +674,19 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
   ]);
   const heldOrBooked = (h: (typeof holdRows)[number]) => h.state === "HELD" || h.state === "CONFIRMED";
 
-  // How far the held places cover the setups, per date asked for.
-  const setups = await setupDtos(storedSetups(row));
-  let coverage: ExternalRequestDto["coverage"] = null;
-  if (setups.length) {
-    const wins = windowsOf(row.windows);
-    const held = holdRows.filter(heldOrBooked);
-    const counts = await countsByCategory([...new Set(held.map((h) => h.labItemId))]);
-    const heldPlaces = held.map((h) => {
-      const s = instantToCivil(h.startsAt, DEFAULT_TIME_ZONE);
-      return { windowKey: windowKey({ date: s.date, start: s.time, end: instantToCivil(h.endsAt, DEFAULT_TIME_ZONE).time }), placeCategoryId: h.lab.categoryId, counts: counts.get(h.labItemId) ?? {} };
-    });
-    const c = coverageOf(setups, wins.map(windowKey), heldPlaces);
-    coverage = { complete: c.complete, windows: c.windows.map((w) => ({ label: w.windowKey, complete: w.complete, rows: w.rows })) };
+  // How far the held places cover the setups, per date asked for; and which hold
+  // requests can't be held now (the date is covered, or the place falls short).
+  const cov = await coverageNow(row);
+  const setups = cov?.setups ?? [];
+  const coverage: ExternalRequestDto["coverage"] = cov ? { complete: cov.coverage.complete, windows: cov.coverage.windows.map((w) => ({ label: w.windowKey, complete: w.complete, rows: w.rows })) } : null;
+  const holdChecks: ExternalRequestDto["holdChecks"] = [];
+  const asked = holdRows.filter((h) => h.state === "REQUESTED");
+  if (cov && asked.length) {
+    const counts = await countsByCategory([...new Set(asked.map((h) => h.labItemId))]);
+    for (const h of asked) {
+      const b = holdBlocker(cov, { name: h.lab.name, categoryId: h.lab.categoryId, counts: counts.get(h.labItemId) ?? {} }, windowKeyOf(h.startsAt, h.endsAt));
+      if (b) holdChecks.push({ reservationId: h.id, ...b });
+    }
   }
   const liveHold = (h: (typeof holdRows)[number]) => h.state === "HELD" || h.state === "CONFIRMED";
   const inUnit = (h: (typeof holdRows)[number], nodeId: string) => h.lab.ownerOrgNodeId === nodeId || h.lab.currentOrgNodeId === nodeId;
@@ -716,6 +760,7 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
     lines: row.lines as unknown as Line[],
     setups,
     coverage,
+    holdChecks,
     letter: { fileName: row.letterFileName, byteSize: row.letterByteSize, url: `/api/external-requests/${row.id}/letter` },
     quoteAmountSantim: row.quoteAmountSantim,
     quoteNote: row.quoteNote,
@@ -948,6 +993,11 @@ export async function placeHold(userId: string, id: string, input: PlaceHoldInpu
     select: { state: true },
   });
   if (already) throw new HttpError(409, already.state === "REQUESTED" ? "Your head already asked you to hold this place then: answer that hold request instead." : "This place is already held for this request at that time.");
+  if (input.itemIds.length === 1 && input.itemIds[0] === target.lab.id) {
+    const placeRow = await prisma.item.findUniqueOrThrow({ where: { id: target.lab.id }, select: { name: true, categoryId: true } });
+    const blocker = holdBlocker(await coverageNow(row), { ...placeRow, counts: (await countsByCategory([target.lab.id])).get(target.lab.id) ?? {} }, windowKey(input));
+    if (blocker) throw new HttpError(409, blocker.reason);
+  }
   const units = row.assignments.filter((a) => a.level === "DEPARTMENT" && a.status !== "DECLINED" && (viewer.sysAdmin || a.tasks.some((t) => t.custodianId === userId && t.status !== "DECLINED"))).map((a) => a.orgNodeId);
   if (!units.includes(lab.ownerOrgNodeId) && !units.includes(lab.currentOrgNodeId)) throw new HttpError(403, "This room's department hasn't asked you to hold anything for this request.");
 
@@ -988,6 +1038,7 @@ export async function bookablePlaces(userId: string, departmentAssignmentId: str
   const wanted = new Map<string, string>();
   for (const s of setups) for (const n of s.needs) wanted.set(n.categoryId, n.categoryName);
   const counts = await countsByCategory(places.map((p) => p.id));
+  const shortOf = (p: (typeof places)[number]) => shortfallOf(setups, p.categoryId, counts.get(p.id) ?? {}) ?? [];
   const asked = new Set((await prisma.reservation.findMany({ where: { externalRequestId: dept.requestId, state: { in: ["REQUESTED", "HELD", "CONFIRMED"] } }, select: { labItemId: true } })).map((r) => r.labItemId));
   return places.map((p) => ({
     id: p.id,
@@ -997,6 +1048,7 @@ export async function bookablePlaces(userId: string, departmentAssignmentId: str
     custodianName: p.custodian.name,
     counts: [...wanted.entries()].map(([categoryId, categoryName]) => ({ categoryId, categoryName, count: counts.get(p.id)?.[categoryId] ?? 0 })),
     asked: asked.has(p.id),
+    missing: shortOf(p).map((s) => ({ categoryName: s.categoryName, have: s.have, need: s.need })),
   }));
 }
 
@@ -1057,7 +1109,10 @@ export async function requestHolds(userId: string, departmentAssignmentId: strin
 /** A custodian answers a hold request on a place they run: hold it (until the quote's
  *  deadline, or two weeks before one), can't (with a reason), or waiting for a loan. */
 export async function answerHold(userId: string, reservationId: string, input: AnswerHoldInput): Promise<ExternalRequestDto> {
-  const r = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { id: true, state: true, labItemId: true, externalRequestId: true, requestedById: true, lab: { select: { name: true } } } });
+  const r = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    select: { id: true, state: true, labItemId: true, startsAt: true, endsAt: true, externalRequestId: true, requestedById: true, lab: { select: { name: true, categoryId: true } } },
+  });
   if (!r?.externalRequestId) throw new HttpError(404, "Hold request not found");
   const viewer = await viewerOf(userId);
   if (!decidesFor(viewer, r.labItemId)) throw new HttpError(403, `Only the custodian of ${r.lab.name} answers its hold requests.`);
@@ -1076,6 +1131,8 @@ export async function answerHold(userId: string, reservationId: string, input: A
     await decideBooking(userId, r.id, "DECLINE", note, { quiet: true });
     await event(prisma, row.id, actor, "HOLD_DECLINED", `${r.lab.name} · ${note}`);
   } else {
+    const blocker = holdBlocker(await coverageNow(await loadRow(row.id)), { name: r.lab.name, categoryId: r.lab.categoryId, counts: (await countsByCategory([r.labItemId])).get(r.labItemId) ?? {} }, windowKeyOf(r.startsAt, r.endsAt));
+    if (blocker) throw new HttpError(409, blocker.reason);
     const twoWeeks = civilToInstant(addDays(todayCivil(), HOLD_DAYS_BEFORE_QUOTE), "23:59");
     const holdUntil = PAYABLE.includes(row.status) && row.paymentDeadline && row.paymentDeadline > new Date() ? row.paymentDeadline : twoWeeks;
     await decideBooking(userId, r.id, "APPROVE", note, { holdUntil, quiet: true });
@@ -1128,15 +1185,11 @@ export async function submitDepartment(userId: string, departmentAssignmentId: s
   if (!leads(access, dept.orgNodeId)) throw new HttpError(403, `Only the head of ${dept.orgNode.name} answers for it.`);
   assertUnderReview(dept.request);
   if (!WORKING.includes(dept.status)) throw new HttpError(409, "The department has already answered.");
-  if (dept.tasks.some((t) => t.status === "PENDING")) throw new HttpError(409, "Wait until every custodian you asked has answered.");
   if (!/^https:\/\//i.test(input.sheetUrl)) throw new HttpError(400, "The cost breakdown link must start with https://");
   const heldRows = await prisma.reservation.findMany({
     where: { externalRequestId: dept.requestId, state: "HELD", lab: { OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] } },
     select: { lab: { select: { name: true, custodian: { select: { id: true, name: true, email: true, phone: true } } } } },
   });
-  if (await prisma.reservation.count({ where: { externalRequestId: dept.requestId, state: "REQUESTED", lab: { OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] } } })) {
-    throw new HttpError(409, "Some custodians haven't answered their hold requests yet. Wait for them, or ask them to answer.");
-  }
   const holds = heldRows.length;
   if (!holds && !input.noCalendarNeeded) throw new HttpError(400, "Nothing is held on any of your department's calendars yet. Book places for the request (the custodians hold them), or confirm nothing needs a calendar.");
   // The contact persons are the custodians holding the places (2026-10-02): the head
@@ -1163,23 +1216,20 @@ export async function submitDepartment(userId: string, departmentAssignmentId: s
   // A request with lab setups: sending it up while they aren't fully covered needs a reason.
   const request = await loadRow(dept.requestId);
   if (storedSetups(request).length && !input.note?.trim()) {
-    const setups = await setupDtos(storedSetups(request));
-    const live = await prisma.reservation.findMany({ where: { externalRequestId: dept.requestId, state: { in: ["HELD", "CONFIRMED"] } }, select: { labItemId: true, startsAt: true, endsAt: true, lab: { select: { categoryId: true } } } });
-    const counts = await countsByCategory([...new Set(live.map((h) => h.labItemId))]);
-    const c = coverageOf(
-      setups,
-      windowsOf(request.windows).map(windowKey),
-      live.map((h) => ({
-        windowKey: windowKey({ date: instantToCivil(h.startsAt, DEFAULT_TIME_ZONE).date, start: instantToCivil(h.startsAt, DEFAULT_TIME_ZONE).time, end: instantToCivil(h.endsAt, DEFAULT_TIME_ZONE).time }),
-        placeCategoryId: h.lab.categoryId,
-        counts: counts.get(h.labItemId) ?? {},
-      })),
-    );
+    const c = (await coverageNow(request))!.coverage;
     if (!c.complete) throw new HttpError(400, "The held places don't yet cover everything the requester's lab setups need. Book more places, or say in the note why this is your answer.");
   }
 
   const actor = await actorOf(userId);
+  let withdrawn = 0;
   await prisma.$transaction(async (tx) => {
+    // Hold requests nobody answered aren't needed any more: withdrawn, with the reason.
+    withdrawn = (
+      await tx.reservation.updateMany({
+        where: { externalRequestId: dept.requestId, state: "REQUESTED", lab: { OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] } },
+        data: { state: "CANCELLED", note: "Not needed: the head sent the department's answer up", decidedById: userId, decidedAt: new Date() },
+      })
+    ).count;
     await tx.externalRequestAssignment.update({
       where: { id: dept.id },
       data: {
@@ -1193,7 +1243,7 @@ export async function submitDepartment(userId: string, departmentAssignmentId: s
         decidedAt: new Date(),
       },
     });
-    await event(tx, dept.requestId, actor, "DEPARTMENT_SUBMITTED", [dept.orgNode.name, `${holds} held`, etb(input.amountSantim), input.note].filter(Boolean).join(" · "));
+    await event(tx, dept.requestId, actor, "DEPARTMENT_SUBMITTED", [dept.orgNode.name, `${holds} held`, withdrawn ? `${withdrawn} unanswered hold request${withdrawn === 1 ? "" : "s"} withdrawn` : null, etb(input.amountSantim), input.note].filter(Boolean).join(" · "));
   });
   await mailStaff(
     await emailOf(dept.parent?.orgNode.userId ?? (await avpUserId())),

@@ -223,6 +223,32 @@ describe("Property Administration manages the store staff, not departments' peop
   });
 });
 
+describe("phone numbers (2026-10-03): the outside requester's contact", () => {
+  it("a head sets their own department's custodians' phones, an admin anyone's; strangers are refused", async () => {
+    const { SetPhoneInput } = await import("@/lib/shared");
+    const org = await import("../org/org");
+    const college = await makeNode("phone-college", 1);
+    await prisma.orgNode.update({ where: { id: college }, data: { kind: "COLLEGE" } });
+    const dept = await org.create({ name: `${testKey}-phone-dept-${userCounter++}`, level: 2, kind: "DEPARTMENT", parentIds: [college] });
+    createdNodeIds.push(dept.id);
+    const headId = await makeUser("phone-head", ["MANAGER"]);
+    await prisma.orgNode.update({ where: { id: dept.id }, data: { userId: headId } });
+    const araId = await makeUser("phone-ara", ["CUSTODIAN"]);
+    await prisma.user.update({ where: { id: araId }, data: { homeNodeId: dept.id } });
+    const adminId = (await prisma.user.findFirstOrThrow({ where: { roles: { some: { kind: "SYS_ADMIN" } } } })).id;
+    const strangerId = await makeUser("phone-stranger", ["MANAGER"]);
+
+    await expect(people.setPhone(headId, ["MANAGER"], araId, "+251 911 234 567")).resolves.toMatchObject({ phone: "+251 911 234 567" });
+    await expect(people.setPhone(strangerId, ["MANAGER"], araId, "0911000000")).rejects.toMatchObject({ status: 403 });
+    await expect(people.setPhone(adminId, ["SYS_ADMIN"], araId, "")).resolves.toMatchObject({ phone: null });
+    await expect(people.setPhone(araId, ["CUSTODIAN"], araId, "0911 222 333")).resolves.toMatchObject({ phone: "0911 222 333" });
+    // The input says how to write one.
+    expect(SetPhoneInput.safeParse({ phone: "call me" }).success).toBe(false);
+    expect(SetPhoneInput.safeParse({ phone: "12345" }).success).toBe(false);
+    expect(SetPhoneInput.safeParse({ phone: "" }).success).toBe(true);
+  });
+});
+
 describe("email notifications: a per-person switch", () => {
   it("an admin switches anyone; a head only their own department's staff; others are refused", async () => {
     const org = await import("../org/org");

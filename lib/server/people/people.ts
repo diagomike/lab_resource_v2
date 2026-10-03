@@ -328,6 +328,18 @@ export async function setEmailNotifications(actorUserId: string, actorRoles: Rol
   return one(id);
 }
 
+/** Sets or clears someone's phone number: what an outside requester calls when that
+ *  custodian holds a place for them. Same reach as every other staff action here. */
+export async function setPhone(actorUserId: string, actorRoles: RoleKind[], id: string, phone: string): Promise<PersonDto> {
+  const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
+  if (!user) throw new HttpError(404, "Person not found");
+  if (user.id !== actorUserId) {
+    await assertMayManageStaff(actorUserId, actorRoles, { id: user.id, homeNodeId: user.homeNodeId, roles: user.roles.map((r) => ({ kind: r.kind as RoleKind })) });
+  }
+  await prisma.user.update({ where: { id }, data: { phone: phone || null } });
+  return one(id);
+}
+
 export async function updateRoles(actorUserId: string, actorRoles: RoleKind[], id: string, input: UpdatePersonRolesInput): Promise<PersonDto> {
   const user = await prisma.user.findUnique({ where: { id }, include: { roles: true } });
   if (!user) throw new HttpError(404, "Person not found");

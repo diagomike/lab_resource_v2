@@ -5360,3 +5360,32 @@ its model that make porting it as-is the wrong move.
   - **Left:** e2e scripts still use the retired `/advance` and old STORE_OUT chain; screenshots and the
     appendix diagram to retake; 375px check of the new dialogs; Neon needs the five new migrations plus
     the calibration backfill (only with the user).
+
+- **2026-10-03 (follow-up: holds only when a lab fits, phones, the whole-university filter, calibration demo)**
+  - **A lab is held only when it fits.** `shortfallOf` (`lib/domain/external-coverage.ts`) measures a
+    place against the setup of its kind. `answerHold` and `placeHold` refuse a place that lacks
+    something each lab must have ("short of 1 × Projector": borrow it first), and refuse once the date
+    is fully covered. The request carries `holdChecks`; the screen greys **Hold it** with the reason, or
+    shows **Not needed**.
+  - **The head no longer waits for every answer.** `can.submit` and `submitDepartment` dropped the
+    "wait for custodians" rules (hold requests and the older tasks). Unanswered hold requests are
+    withdrawn (CANCELLED, with a note) when the answer goes up, and the history says how many.
+  - **Booking is requirement-aware.** `BookablePlaceDto.missing`; the dialog marks each place **fits** or
+    **short of …**, shows what each date still needs, and says a place booked after everything is held
+    is a spare.
+  - **Phones.** `SetPhoneInput`; `POST /api/auth/phone` (own, on Profile) and
+    `POST /api/people/:id/phone` (same reach as the other people actions: head, ADAA, Property Admin,
+    admin), with a Phone field in the Manage dialog.
+  - **Whole-university filters fixed.** Every URL the register state wrote dropped `scope=university`,
+    so picking any filter there fell back to "Mine" and showed the raw id, matching nothing.
+    `useRegisterState` now keeps the scope in every URL it writes.
+  - **Calibration demo (dev only):** `prisma/dev-calibration-demo.ts` (idempotent, refuses non-dev DBs)
+    added 8 instruments to two Chemical Engineering labs with every status: 5 in Mechanical Unit
+    Operations Laboratory (custodian.chem@), 3 in Chemical Reaction and Biochemical Engineering
+    Laboratory. No item in dev was in a calibrated category before, so nothing showed.
+  - Guide: getting started (Profile), custodian §11, head §9 and §11.
+  - Checks: tsc clean, 638/638 tests, build clean. On :3200 (via 127.0.0.1): the custodian filter in
+    Whole university, the calibration filter per status, the Profile phone, the booking dialog.
+  - **Browser checks use `http://127.0.0.1:3200`, not `localhost:3200`:** cookies ignore the port, so
+    signing in on `localhost:3200` switches the account in a `localhost:3000` tab. That was the
+    unexplained jump to /home noted earlier.

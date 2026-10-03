@@ -320,6 +320,9 @@ export const BookablePlaceDto = z.object({
   counts: z.array(z.object({ categoryId: z.string(), categoryName: z.string(), count: z.number().int() })),
   /** Already asked or held for this request. */
   asked: z.boolean(),
+  /** What it lacks of what each of the requester's labs must have ([] when it fits). Its
+   *  custodian borrows that first: a place is held only when it fits (2026-10-03). */
+  missing: z.array(z.object({ categoryName: z.string(), have: z.number().int(), need: z.number().int() })),
 });
 export type BookablePlaceDto = z.infer<typeof BookablePlaceDto>;
 
@@ -464,6 +467,9 @@ export const ExternalRequestDto = z.object({
   closingNote: z.string().nullable(),
   assignments: z.array(ExternalAssignmentDto),
   holds: z.array(ReservationDto),
+  /** Hold requests that can't be held now, and why: the date is already fully covered, or
+   *  the place lacks something each lab must have (2026-10-03). */
+  holdChecks: z.array(z.object({ reservationId: z.string(), blocked: z.enum(["COVERED", "SHORT"]), reason: z.string() })),
   events: z.array(z.object({ at: z.string(), actorLabel: z.string(), kind: z.string(), note: z.string().nullable() })),
   /** Units the viewer may forward to: colleges for the AVP, a dean's own departments. */
   forwardTargets: z.array(z.object({ id: z.string(), name: z.string(), headName: z.string().nullable(), parentAssignmentId: z.string().nullable() })),

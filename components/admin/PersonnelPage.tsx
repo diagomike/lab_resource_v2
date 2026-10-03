@@ -157,6 +157,17 @@ export default function PersonnelPage() {
     }
   }
 
+  /** Resolves to an error message, or null once saved (the dialog shows it in place). */
+  async function setPhone(personId: string, phone: string): Promise<string | null> {
+    try {
+      await api.post(`/people/${personId}/phone`, { phone });
+      reload();
+      return null;
+    } catch (e) {
+      return e instanceof ApiError ? e.message : "Could not save this phone number";
+    }
+  }
+
   async function updateRoles(personId: string, roles: RoleKind[]) {
     try {
       await api.post(`/people/${personId}/roles`, { roles });
@@ -257,6 +268,7 @@ export default function PersonnelPage() {
           onClose={() => setManageId(null)}
           onSaveRoles={(roles) => updateRoles(managing.id, roles)}
           onSetEmailNotifications={(enabled) => setEmailNotifications(managing.id, enabled)}
+          onSetPhone={(phone) => setPhone(managing.id, phone)}
           onAssignNode={(nodeId) => assignNode(managing.id, nodeId)}
           onMoveHomeNode={(nodeId) => moveHomeNode(managing.id, nodeId)}
           onDeactivate={() => deactivate(managing)}
@@ -366,6 +378,7 @@ function PersonManageModal({
   onClose,
   onSaveRoles,
   onSetEmailNotifications,
+  onSetPhone,
   onAssignNode,
   onMoveHomeNode,
   onDeactivate,
@@ -381,6 +394,7 @@ function PersonManageModal({
   onClose: () => void;
   onSaveRoles: (roles: RoleKind[]) => void;
   onSetEmailNotifications: (enabled: boolean) => void;
+  onSetPhone: (phone: string) => Promise<string | null>;
   onAssignNode: (nodeId: string | null) => void;
   onMoveHomeNode: (nodeId: string | null) => void;
   onDeactivate: () => void;
@@ -391,6 +405,10 @@ function PersonManageModal({
   // Shown at once; the reloaded person (or a failed save's reload) settles it.
   const [emailsOn, setEmailsOn] = useState(person.emailNotifications);
   useEffect(() => setEmailsOn(person.emailNotifications), [person.emailNotifications]);
+  const [phone, setPhone] = useState(person.phone ?? "");
+  const [phoneMsg, setPhoneMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  useEffect(() => setPhone(person.phone ?? ""), [person.phone]);
   const rolesDirty = JSON.stringify([...roleDraft].sort()) !== JSON.stringify([...person.roles].sort());
   // Only the roles the viewer may give (a head and the ADAA: custodian; Property
   // Administration: store keeper too). The server enforces the same floor.
@@ -474,6 +492,34 @@ function PersonManageModal({
           />
         </div>
       )}
+
+      {/* What an outside requester calls when this person holds a place for them. */}
+      <div>
+        <div className="text-11 uppercase tracking-wider text-dim font-semibold mb-8">Phone</div>
+        <div className="flex gap-8 items-center">
+          <input
+            value={phone}
+            onChange={(e) => (setPhone(e.target.value), setPhoneMsg(null))}
+            placeholder="+251 911 234 567"
+            inputMode="tel"
+            aria-label="Phone number"
+            className="w-[200px] bg-panel border border-border2 rounded-2 h-26 px-8 text-11.5 outline-none focus:border-accent"
+          />
+          <Button
+            disabled={phoneBusy || phone.trim() === (person.phone ?? "")}
+            onClick={async () => {
+              setPhoneBusy(true);
+              const err = await onSetPhone(phone.trim());
+              setPhoneBusy(false);
+              setPhoneMsg(err ? { ok: false, text: err } : { ok: true, text: phone.trim() ? "Saved." : "Cleared." });
+            }}
+          >
+            {phoneBusy ? "Saving…" : "Save phone"}
+          </Button>
+        </div>
+        <div className="mt-4 text-11 text-faint">Outside requesters call this number when this person holds a place for them.</div>
+        {phoneMsg && <div className={`mt-4 text-11 ${phoneMsg.ok ? "text-good" : "text-bad"}`}>{phoneMsg.text}</div>}
+      </div>
 
       {/* Whether approval and outcome emails reach this person — the same switch they have
           on their own Profile. Invitations and password resets are unaffected. */}

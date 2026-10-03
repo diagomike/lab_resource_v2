@@ -320,6 +320,11 @@ export async function setOwnEmailNotifications(userId: string, enabled: boolean)
   await prisma.user.update({ where: { id: userId }, data: { emailNotifications: enabled } });
 }
 
+/** The signed-in person sets (or clears) their own phone number (Profile). */
+export async function setOwnPhone(userId: string, phone: string): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { phone: phone || null } });
+}
+
 function toDto(
   user: { id: string; email: string; name: string; phone: string | null; organisation: string | null; status: string; mustChangePassword: boolean; emailNotifications: boolean },
   roles: RoleKind[],
