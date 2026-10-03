@@ -62,10 +62,14 @@ export const PublicCatalogDto = z.object({
           /** Working units (or, for stock, the working quantity) across the university. */
           count: z.number(),
           unit: z.string().nullable(),
+          /** A kind of place (a lab, a workshop): what a lab setup is built on. */
+          isPlace: z.boolean(),
         }),
       ),
     }),
   ),
+  /** The kinds of things a lab setup can ask for in each place (names only). */
+  setupKinds: z.array(z.object({ id: z.string(), name: z.string() })),
   generatedAt: z.string(),
 });
 export type PublicCatalogDto = z.infer<typeof PublicCatalogDto>;
@@ -81,6 +85,22 @@ export const ExternalRequestLineInput = z.object({
 export type ExternalRequestLineInput = z.infer<typeof ExternalRequestLineInput>;
 
 export const ExternalWindowInput = z.object({ date: CivilDate, start: CivilTime, end: CivilTime });
+
+/** A lab the requester needs built up: a kind of place, how many, and what each has. */
+export const SetupInput = z.object({
+  placeCategoryId: z.string().min(1, "Choose the kind of place."),
+  count: z.number().int().min(1, "Ask for at least one place.").max(20, "Ask for at most 20 places of one kind."),
+  needs: z.array(z.object({ categoryId: z.string().min(1, "Choose what it must have."), qty: z.number().int().min(1).max(1000) })).max(20).default([]),
+});
+export type SetupInput = z.infer<typeof SetupInput>;
+
+export const SetupDto = z.object({
+  placeCategoryId: z.string(),
+  placeCategoryName: z.string(),
+  count: z.number().int(),
+  needs: z.array(z.object({ categoryId: z.string(), categoryName: z.string(), qty: z.number().int() })),
+});
+export type SetupDto = z.infer<typeof SetupDto>;
 export type ExternalWindowInput = z.infer<typeof ExternalWindowInput>;
 
 export const SampleAnalysisInput = z.object({
@@ -101,7 +121,9 @@ export const SubmitExternalRequestInput = z.object({
   contactPhone: z.string().trim().min(6, "Give a phone number.").max(30),
   purpose: z.string().trim().min(10, "Say what the workshop or training is.").max(3000),
   windows: z.array(ExternalWindowInput).min(1, "Add at least one date.").max(10),
-  // At least one for a FACILITY request (checked by the service); a sample analysis may list none.
+  /** FACILITY: the labs to build up (a setup or a line is needed; checked by the service). */
+  setups: z.array(SetupInput).max(10).optional(),
+  // A FACILITY request needs a setup or a line (checked by the service); a sample analysis may list none.
   lines: z.array(ExternalRequestLineInput).max(30),
   /** Honeypot — a real person never fills this in. */
   website: z.string().optional(),
@@ -199,6 +221,7 @@ export const PublicTrackingDto = z.object({
   purpose: z.string(),
   windows: z.array(WindowDto),
   lines: z.array(LineDto),
+  setups: z.array(SetupDto),
   quote: z
     .object({
       amountSantim: z.number().int(),
@@ -270,11 +293,43 @@ export type AssignCustodiansInput = z.infer<typeof AssignCustodiansInput>;
 export const FinishTaskInput = z.object({ outcome: z.enum(["DONE", "DECLINED"]), note: z.string().trim().max(2000).optional() });
 export type FinishTaskInput = z.infer<typeof FinishTaskInput>;
 
+/** A head booking places of the department for the request: each becomes a hold request
+ *  to that place's custodian, for every date asked for. */
+export const RequestHoldsInput = z.object({
+  labIds: z.array(z.string()).min(1, "Choose at least one place.").max(20),
+  note: z.string().trim().max(2000).optional(),
+});
+export type RequestHoldsInput = z.infer<typeof RequestHoldsInput>;
+
+/** A custodian answering a hold request: hold it, can't (with a reason), or waiting for a
+ *  loan of what is missing. */
+export const AnswerHoldInput = z.object({
+  decision: z.enum(["HOLD", "DECLINE", "WAIT"]),
+  note: z.string().trim().max(2000).optional(),
+});
+export type AnswerHoldInput = z.infer<typeof AnswerHoldInput>;
+
+/** A place the head may book, with what it holds of the kinds the request needs. */
+export const BookablePlaceDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  custodianName: z.string(),
+  /** Working things in it, of each kind the setups need. */
+  counts: z.array(z.object({ categoryId: z.string(), categoryName: z.string(), count: z.number().int() })),
+  /** Already asked or held for this request. */
+  asked: z.boolean(),
+});
+export type BookablePlaceDto = z.infer<typeof BookablePlaceDto>;
+
 /** A head sending the department's answer up to the dean. */
 export const SubmitDepartmentInput = z.object({
   sheetUrl: z.string().trim().url("Paste the full link to the cost breakdown."),
   amountSantim: z.number().int().min(0),
-  contacts: z.array(ExternalContactDto).min(1, "Name at least one contact person for the requester.").max(10),
+  /** The contact persons are the custodians holding the places (2026-10-02): which of
+   *  them the requester calls. Empty: all of them. */
+  contactIds: z.array(z.string()).max(20).optional(),
   /** Answering with nothing held on a calendar needs this said out loud (e.g. consumables only). */
   noCalendarNeeded: z.boolean().optional(),
   note: z.string().trim().max(2000).optional(),
@@ -345,9 +400,12 @@ export const ExternalAssignmentDto = z.object({
   decidedAt: z.string().nullable(),
   holdCount: z.number().int(),
   tasks: z.array(ExternalTaskDto),
+  /** The custodians holding places for this department: the requester's contacts. */
+  holders: z.array(z.object({ userId: z.string(), name: z.string(), phone: z.string().nullable(), email: z.string(), places: z.array(z.string()) })),
   /** What the viewer may do on this unit's part. */
   can: z.object({
     forward: z.boolean(),
+    book: z.boolean(),
     assign: z.boolean(),
     submit: z.boolean(),
     review: z.boolean(),
@@ -390,6 +448,14 @@ export const ExternalRequestDto = z.object({
   createdAt: z.string(),
   windows: z.array(WindowDto),
   lines: z.array(LineDto),
+  setups: z.array(SetupDto),
+  /** How far the held places cover the setups, per date asked for (null: no setups). */
+  coverage: z
+    .object({
+      complete: z.boolean(),
+      windows: z.array(z.object({ label: z.string(), complete: z.boolean(), rows: z.array(z.object({ label: z.string(), have: z.number(), need: z.number() })) })),
+    })
+    .nullable(),
   letter: z.object({ fileName: z.string(), byteSize: z.number().int(), url: z.string() }),
   quoteAmountSantim: z.number().int().nullable(),
   quoteNote: z.string().nullable(),

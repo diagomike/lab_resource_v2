@@ -210,9 +210,19 @@ async function tellRequester(dto: ReservationDto, actorId: string, verb: string)
 
 // ── Decide & cancel ────────────────────────────────────────────────────────────
 
-export async function decideBooking(userId: string, id: string, decision: "APPROVE" | "DECLINE", note?: string): Promise<ReservationDto> {
+export async function decideBooking(
+  userId: string,
+  id: string,
+  decision: "APPROVE" | "DECLINE",
+  note?: string,
+  /** An outside request's hold request (lib/server/external/requests.ts `answerHold`):
+   *  approving HOLDS it until `holdUntil` instead of confirming it, and the requester is
+   *  told by that flow, not here. */
+  opts?: { holdUntil?: Date; quiet?: boolean },
+): Promise<ReservationDto> {
   const row = await prisma.reservation.findUnique({ where: { id }, include: { resources: true } });
   if (!row) throw new HttpError(404, "Booking not found");
+  if (row.source === "EXTERNAL" && !opts) throw new HttpError(409, "This is a hold request for an outside request: answer it on that request (Outside requests).");
   const viewer = await viewerOf(userId);
   if (!decidesFor(viewer, row.labItemId)) throw new HttpError(403, "Only this room's custodian decides its bookings.");
   if (row.state !== "REQUESTED") throw new HttpError(409, "This booking has already been decided.");
@@ -221,7 +231,7 @@ export async function decideBooking(userId: string, id: string, decision: "APPRO
   if (decision === "DECLINE") {
     await prisma.reservation.update({ where: { id }, data: { state: "DECLINED", decidedById: userId, decidedAt: now, note: note || row.note } });
     const declined = await loadDto(id, userId);
-    await tellRequester(declined, userId, "declined");
+    if (!opts?.quiet) await tellRequester(declined, userId, "declined");
     return declined;
   }
   if (row.startsAt < now) throw new HttpError(409, "This booking's time has already started, so it can only be declined.");
@@ -242,7 +252,12 @@ export async function decideBooking(userId: string, id: string, decision: "APPRO
           clashes: toClashDtos(blocking, new Map(tree.map((r) => [r.id, r.name])), meta),
         });
       }
-      await tx.reservation.update({ where: { id }, data: { state: "CONFIRMED", decidedById: userId, decidedAt: now, note: note || row.note } });
+      await tx.reservation.update({
+        where: { id },
+        data: opts?.holdUntil
+          ? { state: "HELD", holdExpiresAt: opts.holdUntil, decidedById: userId, decidedAt: now, note: note || row.note }
+          : { state: "CONFIRMED", decidedById: userId, decidedAt: now, note: note || row.note },
+      });
       await tx.reservationResource.updateMany({ where: { reservationId: id }, data: { blocking: true } });
     }, TX);
   } catch (err) {
@@ -250,7 +265,7 @@ export async function decideBooking(userId: string, id: string, decision: "APPRO
     throw err;
   }
   const approved = await loadDto(id, userId);
-  await tellRequester(approved, userId, "approved");
+  if (!opts?.quiet) await tellRequester(approved, userId, "approved");
   return approved;
 }
 
@@ -336,7 +351,8 @@ export async function listBookings(userId: string, box: "mine" | "inbox"): Promi
           // time has already passed is lapsed, not actionable — the inbox filters
           // it out directly rather than depending on the cron sweep
           // (expireLapsedRequests) having already turned it into EXPIRED.
-          where: { state: "REQUESTED", startsAt: { gt: new Date() }, ...(viewer.sysAdmin ? {} : { labItemId: { in: [...viewer.custody] } }) },
+          // Outside requests' hold requests are answered on the request, not here.
+          where: { state: "REQUESTED", source: { not: "EXTERNAL" }, startsAt: { gt: new Date() }, ...(viewer.sysAdmin ? {} : { labItemId: { in: [...viewer.custody] } }) },
           include: RESERVATION_INCLUDE,
           orderBy: { startsAt: "asc" },
           take: 200,

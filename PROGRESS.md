@@ -5337,3 +5337,26 @@ its model that make porting it as-is the wrong move.
     stock). Not sent from the UI (it is the user's own test data); the send path is covered by the spec.
   - **Known gap:** handovers made by hand before this round carry no `forNeedIds`, so a lab already served that way can
     still be offered its need here; the keeper sees the counts and decides.
+
+- **2026-10-03 (feedback round, R7: outside requests built from lab setups, filled by holds)**
+  - Migration `20261003040000_external_setups` (`ExternalRequest.setups` JSON), applied to `lrms_v2`.
+  - Portal: "The labs you need" builder (kind of place, how many, what each must have, a "Per session"
+    total). Free lines become "Anything else you need" and are optional once a setup exists. The
+    requester's page lists the setups.
+  - Head: **Book places…** lists the department's bookable places with working counts per needed kind.
+    Each pick becomes a REQUESTED hold per date, to the place's custodian. "Ask custodians…" stays for
+    sample analyses (and old requests with tasks).
+  - Custodian: **Hold it**, **Waiting for a loan…** (note required, points to Request to my lab),
+    **Can't hold it…** (reason required). A held line shows a disabled **Held**; the self-hold dialog
+    reads "Held" for a room and time already held.
+  - **Held so far** coverage meter (`lib/domain/external-coverage.ts`) for head, dean and AVP.
+  - **Send up to the dean**: contacts are the custodians holding places (tick or untick, phone required),
+    and a note is required when coverage is short. Waits until no hold answer is pending.
+  - Guide: custodian §11, head §11, dean/AVP §3, portal §2.
+  - Checks: tsc clean, 635/635 tests, build clean. Walked on :3200 end to end up to the head's send-up
+    dialog with EXT-2026-002 (dev test account `portal.tester@example.test`, seed password; B508-R10
+    and B508-R11 held on 2026-10-17 in dev). Not sent up: dev custodians have no phone numbers, so the
+    dialog blocks, as designed.
+  - **Left:** e2e scripts still use the retired `/advance` and old STORE_OUT chain; screenshots and the
+    appendix diagram to retake; 375px check of the new dialogs; Neon needs the five new migrations plus
+    the calibration backfill (only with the user).

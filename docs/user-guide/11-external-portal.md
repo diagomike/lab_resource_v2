@@ -34,7 +34,8 @@ Then fill in:
 - **Who is asking**: filled in from your account; change it if this request has a different contact.
 - **The event** (or **The analysis**): what it's for. For a sample analysis, also the **machine** (or "not sure"), the number of **samples** and the **analysis needed**.
 - **When** (or **Preferred dates**): each day with its start and end time, in Addis Ababa time. Use **+ Another day** for several days.
-- **What you need**: e.g. "A computer lab with 25 workstations and internet", with quantities. Optional for a sample analysis.
+- **The labs you need** (rooms or labs): click **+ Add a lab setup**, choose the **kind of place** (a computer lab, a workshop) and **how many**, then what **each one must have**: "25 × Workstation", "1 × Projector". **Per session** adds it all up. Add another setup for a different kind of place.
+- **Anything else you need**: other things in your own words, with quantities. Needed only if you didn't add a lab setup; optional for a sample analysis.
 - **Official letter**: a signed letter from your institution, as a PDF of at most 4 MB.
 
 Click **Send request**. You get a **reference** (EXT-2026-…), also emailed to you.

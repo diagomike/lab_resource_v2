@@ -17,6 +17,9 @@ const MAX_LETTER_BYTES = 4 * 1024 * 1024;
 type Kind = "FACILITY" | "SAMPLE_ANALYSIS";
 type WindowDraft = { date: string; start: string; end: string };
 type LineDraft = { description: string; quantity: string; categoryId: string };
+type SetupDraft = { placeCategoryId: string; count: string; needs: Array<{ categoryId: string; qty: string }> };
+
+const blankSetup = (): SetupDraft => ({ placeCategoryId: "", count: "1", needs: [{ categoryId: "", qty: "1" }] });
 
 /**
  * A signed-in requester's new request: rooms or labs for an event (FACILITY), or samples
@@ -36,6 +39,7 @@ function RequestForm() {
   const [purpose, setPurpose] = useState("");
   const [windows, setWindows] = useState<WindowDraft[]>([{ date: firstDate, start: "09:00", end: "17:00" }]);
   const [lines, setLines] = useState<LineDraft[]>([{ description: "", quantity: "1", categoryId: "" }]);
+  const [setups, setSetups] = useState<SetupDraft[]>([]);
   const [machineCategoryId, setMachineCategoryId] = useState("");
   const [sampleCount, setSampleCount] = useState("1");
   const [analysis, setAnalysis] = useState("");
@@ -53,6 +57,23 @@ function RequestForm() {
 
   const categories = catalog?.groups.flatMap((g) => g.categories) ?? [];
   const machines = categories.filter((c) => c.bookingMode === "EQUIPMENT");
+  const placeKinds = categories.filter((c) => c.isPlace && c.bookingMode === "ROOM");
+  const setupKinds = catalog?.setupKinds ?? [];
+  const nameOf = (id: string) => categories.find((c) => c.id === id)?.name ?? setupKinds.find((c) => c.id === id)?.name ?? "";
+  const cleanSetups = setups
+    .filter((s) => s.placeCategoryId)
+    .map((s) => ({ placeCategoryId: s.placeCategoryId, count: Number(s.count) || 1, needs: s.needs.filter((n) => n.categoryId).map((n) => ({ categoryId: n.categoryId, qty: Number(n.qty) || 1 })) }));
+  // "2 labs, 50 workstations, 2 projectors per session": what the setups add up to.
+  const totals = (() => {
+    const places = new Map<string, number>();
+    const things = new Map<string, number>();
+    for (const s of cleanSetups) {
+      places.set(s.placeCategoryId, (places.get(s.placeCategoryId) ?? 0) + s.count);
+      for (const n of s.needs) things.set(n.categoryId, (things.get(n.categoryId) ?? 0) + n.qty * s.count);
+    }
+    return [...places, ...things].map(([id, n]) => `${n} × ${nameOf(id)}`).join(", ");
+  })();
+  const updateSetup = (i: number, patch: Partial<SetupDraft>) => setSetups(setups.map((s, j) => (j === i ? { ...s, ...patch } : s)));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -70,8 +91,9 @@ function RequestForm() {
         purpose,
         website: website || undefined,
         windows,
+        setups: kind === "FACILITY" && cleanSetups.length ? cleanSetups : undefined,
         lines:
-          kind === "FACILITY"
+          kind === "FACILITY" && !cleanSetups.length
             ? lines.map((l) => ({ description: l.description, quantity: Number(l.quantity) || 0, categoryId: l.categoryId || undefined }))
             : lines.filter((l) => l.description.trim()).map((l) => ({ description: l.description, quantity: Number(l.quantity) || 1, categoryId: l.categoryId || undefined })),
         sample: kind === "SAMPLE_ANALYSIS" ? { categoryId: machineCategoryId || undefined, sampleCount: Number(sampleCount) || 0, analysis } : undefined,
@@ -214,12 +236,81 @@ function RequestForm() {
           </div>
         </Panel>
 
-        <Panel title={kind === "FACILITY" ? "What you need" : "Anything else you need (optional)"}>
+        {kind === "FACILITY" && (
+          <Panel title="The labs you need">
+            <div className="px-14 py-12 flex flex-col gap-10">
+              <div className="text-11 text-dim">
+                Describe each kind of lab you need and what every one of them must have, for example 2 computer labs with 25 workstations and a projector each. The departments hold labs until your setup is covered.
+              </div>
+              {setups.map((s, i) => (
+                <div key={i} className="rounded-2 border border-border2 px-10 py-8 flex flex-col gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_90px_60px] gap-6 items-center">
+                    <select value={s.placeCategoryId} onChange={(e) => updateSetup(i, { placeCategoryId: e.target.value })} className={inputClass} aria-label="Kind of place">
+                      <option value="">Kind of place…</option>
+                      {placeKinds.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input type="number" min={1} max={20} value={s.count} onChange={(e) => updateSetup(i, { count: e.target.value })} className={inputClass} aria-label="How many" title="How many" />
+                    <button type="button" onClick={() => setSetups(setups.filter((_, j) => j !== i))} className="text-11 text-bad">
+                      Remove
+                    </button>
+                  </div>
+                  <div className={labelClass}>Each one must have</div>
+                  {s.needs.map((n, k) => (
+                    <div key={k} className="grid grid-cols-[90px_minmax(0,1fr)_60px] gap-6 items-center">
+                      <input
+                        type="number"
+                        min={1}
+                        value={n.qty}
+                        onChange={(e) => updateSetup(i, { needs: s.needs.map((x, j) => (j === k ? { ...x, qty: e.target.value } : x)) })}
+                        className={inputClass}
+                        aria-label="How many in each"
+                      />
+                      <select value={n.categoryId} onChange={(e) => updateSetup(i, { needs: s.needs.map((x, j) => (j === k ? { ...x, categoryId: e.target.value } : x)) })} className={inputClass} aria-label="What it must have">
+                        <option value="">Choose…</option>
+                        {setupKinds.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={() => updateSetup(i, { needs: s.needs.filter((_, j) => j !== k) })} className="text-11 text-bad">
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  {s.needs.length < 20 && (
+                    <div>
+                      <button type="button" className="text-11 text-accent" onClick={() => updateSetup(i, { needs: [...s.needs, { categoryId: "", qty: "1" }] })}>
+                        + Something else it must have
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {totals && (
+                <div className="text-11">
+                  <span className={labelClass}>Per session</span> {totals}
+                </div>
+              )}
+              {setups.length < 10 && (
+                <div>
+                  <Button onClick={() => setSetups([...setups, blankSetup()])}>+ Add a lab setup</Button>
+                </div>
+              )}
+            </div>
+          </Panel>
+        )}
+
+        <Panel title={kind === "FACILITY" && !cleanSetups.length ? "What you need" : "Anything else you need (optional)"}>
           <div className="px-14 py-12 flex flex-col gap-8">
             {lines.map((l, i) => (
               <div key={i} className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_90px_190px_60px] gap-6 items-center">
                 <input
-                  required={kind === "FACILITY"}
+                  required={kind === "FACILITY" && !cleanSetups.length}
                   value={l.description}
                   onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
                   placeholder={kind === "FACILITY" ? "e.g. Workstations with internet, in 3 lab rooms" : "e.g. A written report in English"}

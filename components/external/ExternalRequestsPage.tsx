@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { ClashDto, ExternalAssignmentDto, ExternalContactDto, ExternalRequestDto, ExternalRequestSummaryDto, ExternalTaskDto } from "@/lib/shared";
+import type { BookablePlaceDto, ClashDto, ExternalAssignmentDto, ExternalRequestDto, ExternalRequestSummaryDto, ExternalTaskDto } from "@/lib/shared";
 import { addDays, instantToCivil } from "@/lib/domain/civil-time";
 import { api, ApiError } from "@/lib/api";
 import { Panel, Screen, ErrorNote, Button, Tag, Modal } from "@/components/ui";
@@ -191,12 +191,75 @@ function AssignModal({ request, assignment, onClose, onDone }: { request: Extern
   );
 }
 
-const blankContact = (): ExternalContactDto => ({ name: "", role: "", phone: "", email: "" });
+/** The head books the department's places for the request: each chosen place, for every
+ *  date asked for, becomes a hold request to its custodian. */
+function BookPlacesModal({ request, assignment, onClose, onDone }: { request: ExternalRequestDto; assignment: ExternalAssignmentDto; onClose: () => void; onDone: (r: ExternalRequestDto) => void }) {
+  const [places, setPlaces] = useState<BookablePlaceDto[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState("");
+  const action = useAction((r) => {
+    onDone(r);
+    onClose();
+  });
+  useEffect(() => {
+    api
+      .get<BookablePlaceDto[]>(`/external-requests/assignments/${assignment.id}/places`)
+      .then(setPlaces)
+      .catch((e) => setLoadError(message(e, "Could not load your department's places")));
+  }, [assignment.id]);
+  return (
+    <Modal title={`Book places for ${request.reference}: ${assignment.orgNodeName}`} onClose={onClose} width="600px">
+      <div className="text-11 text-dim">
+        Choose the places to hold on {request.windows.length === 1 ? "the date" : `all ${request.windows.length} dates`} asked for. Each one goes to its custodian, who holds it, says they are borrowing what is missing, or says why they can&apos;t.
+      </div>
+      {request.setups.length > 0 && (
+        <div className="text-11">
+          <span className={labelClass}>The requester needs</span>{" "}
+          {request.setups.map((s) => `${s.count} × ${s.placeCategoryName}${s.needs.length ? ` (each: ${s.needs.map((n) => `${n.qty} × ${n.categoryName}`).join(", ")})` : ""}`).join("; ")}
+        </div>
+      )}
+      {loadError && <ErrorNote>{loadError}</ErrorNote>}
+      {places === null ? (
+        <PanelLoading rows={3} />
+      ) : places.length === 0 ? (
+        <div className="text-11 text-dim">Your department has no bookable places.</div>
+      ) : (
+        <div className="flex flex-col gap-4 max-h-[320px] overflow-y-auto">
+          {places.map((p) => (
+            <label key={p.id} className={`flex items-start gap-8 rounded-2 border px-8 py-6 text-11 ${p.asked ? "opacity-60" : "cursor-pointer"} ${chosen.has(p.id) ? "border-accent bg-soft" : "border-border2"}`}>
+              <input
+                type="checkbox"
+                disabled={p.asked}
+                checked={chosen.has(p.id)}
+                onChange={(e) => setChosen((s) => (e.target.checked ? new Set(s).add(p.id) : new Set([...s].filter((x) => x !== p.id))))}
+              />
+              <span className="flex-1">
+                <strong className="font-medium">{p.name}</strong> · {p.categoryName} · run by {p.custodianName}
+                {p.counts.length > 0 && <span className="block text-dim">{p.counts.map((c) => `${c.count} × ${c.categoryName}`).join(" · ")}</span>}
+              </span>
+              {p.asked && <Tag>asked</Tag>}
+            </label>
+          ))}
+        </div>
+      )}
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note to the custodians (optional)" className={inputClass} />
+      {action.error && <ErrorNote>{action.error}</ErrorNote>}
+      <div className="flex gap-8">
+        <Button variant="primary" disabled={action.busy || !chosen.size} onClick={() => action.run(`/external-requests/assignments/${assignment.id}/book`, { labIds: [...chosen], note: note || undefined })}>
+          {action.busy ? "Asking…" : `Ask to hold ${chosen.size || ""} place${chosen.size === 1 ? "" : "s"}`.replace("  ", " ")}
+        </Button>
+        <Button onClick={onClose}>Cancel</Button>
+      </div>
+    </Modal>
+  );
+}
 
-function SubmitDepartmentModal({ assignment, onClose, onDone }: { assignment: ExternalAssignmentDto; onClose: () => void; onDone: (r: ExternalRequestDto) => void }) {
+function SubmitDepartmentModal({ request, assignment, onClose, onDone }: { request: ExternalRequestDto; assignment: ExternalAssignmentDto; onClose: () => void; onDone: (r: ExternalRequestDto) => void }) {
   const [sheetUrl, setSheetUrl] = useState(assignment.sheetUrl ?? "");
   const [amount, setAmount] = useState(assignment.amountSantim !== null ? (assignment.amountSantim / 100).toFixed(2) : "");
-  const [contacts, setContacts] = useState<ExternalContactDto[]>(assignment.contacts.length ? assignment.contacts : [blankContact()]);
+  // The contact persons are the custodians holding the places: all of them to start with.
+  const [chosen, setChosen] = useState<Set<string>>(() => new Set(assignment.holders.map((h) => h.userId)));
   const [noCalendar, setNoCalendar] = useState(false);
   const [note, setNote] = useState("");
   const action = useAction((r) => {
@@ -204,46 +267,45 @@ function SubmitDepartmentModal({ assignment, onClose, onDone }: { assignment: Ex
     onClose();
   });
   const santim = parseEtb(amount);
-  const cleaned = contacts
-    .map((c) => ({ name: c.name.trim(), role: c.role?.trim() || undefined, phone: c.phone.trim(), email: c.email?.trim() || undefined }))
-    .filter((c) => c.name && c.phone);
-  const update = (i: number, patch: Partial<ExternalContactDto>) => setContacts(contacts.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const short = request.coverage !== null && !request.coverage.complete;
+  const noPhone = assignment.holders.filter((h) => chosen.has(h.userId) && !h.phone);
   return (
-    <Modal title={`Send the answer to the dean: ${assignment.orgNodeName}`} onClose={onClose} width="560px">
+    <Modal title={`Send up to the dean: ${assignment.orgNodeName}`} onClose={onClose} width="560px">
       <div className="text-11 text-dim">
-        {assignment.holdCount} slot{assignment.holdCount === 1 ? "" : "s"} held by your custodians. Add the cost breakdown, and who the requester should call once they have paid. They see these people only after the AVP confirms the payment.
+        {assignment.holdCount} slot{assignment.holdCount === 1 ? "" : "s"} held by your custodians. Add the cost breakdown, and choose who the requester calls once they have paid (the custodians holding the places). They see these people only after the AVP confirms the payment.
       </div>
       <input value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/… (cost breakdown)" className={inputClass} />
       <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Your department's amount, ETB" className={inputClass} />
       <div className={labelClass}>Contact persons</div>
-      {contacts.map((c, i) => (
-        <div key={i} className="grid grid-cols-2 gap-6">
-          <input value={c.name} onChange={(e) => update(i, { name: e.target.value })} placeholder="Name" className={inputClass} />
-          <input value={c.role ?? ""} onChange={(e) => update(i, { role: e.target.value })} placeholder="Role (e.g. lab assistant)" className={inputClass} />
-          <input value={c.phone} onChange={(e) => update(i, { phone: e.target.value })} placeholder="Phone" className={inputClass} />
-          <input value={c.email ?? ""} onChange={(e) => update(i, { email: e.target.value })} placeholder="Email (optional)" className={inputClass} />
-        </div>
-      ))}
-      <div>
-        <button type="button" className="text-11 text-accent" onClick={() => setContacts([...contacts, blankContact()])}>
-          + Another contact
-        </button>
-      </div>
+      {assignment.holders.length === 0 ? (
+        <div className="text-11 text-dim">Nobody holds a place for this request yet. Book places first, and the custodians who hold them become the contacts.</div>
+      ) : (
+        assignment.holders.map((h) => (
+          <label key={h.userId} className="flex items-start gap-6 text-11">
+            <input type="checkbox" checked={chosen.has(h.userId)} onChange={(e) => setChosen((s) => (e.target.checked ? new Set(s).add(h.userId) : new Set([...s].filter((x) => x !== h.userId))))} />
+            <span>
+              <strong className="font-medium">{h.name}</strong> · custodian of {h.places.join(", ")} · {h.phone ?? <span className="text-bad">no phone on their profile</span>} · {h.email}
+            </span>
+          </label>
+        ))
+      )}
+      {noPhone.length > 0 && <div className="text-11 text-bad">{noPhone.map((h) => h.name).join(" and ")} must add a phone number under Profile & password first, or untick them: the requester will need to call.</div>}
+      {short && <div className="text-11 text-warn">The held places don&apos;t yet cover everything the requester&apos;s lab setups need. Say in the note why this is your answer.</div>}
       {assignment.holdCount === 0 && (
         <label className="flex items-center gap-6 text-11">
           <input type="checkbox" checked={noCalendar} onChange={(e) => setNoCalendar(e.target.checked)} />
           Nothing of ours needs a calendar slot (e.g. consumables only)
         </label>
       )}
-      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note to the dean (optional)" className={inputClass} />
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={short ? "Note to the dean: why this covers less than asked" : "Note to the dean (optional)"} className={inputClass} />
       {action.error && <ErrorNote>{action.error}</ErrorNote>}
       <div className="flex gap-8">
         <Button
           variant="primary"
-          disabled={action.busy || santim === null || !sheetUrl || !cleaned.length}
-          onClick={() => action.run(`/external-requests/assignments/${assignment.id}/submit`, { sheetUrl, amountSantim: santim, contacts: cleaned, noCalendarNeeded: noCalendar || undefined, note: note || undefined })}
+          disabled={action.busy || santim === null || !sheetUrl || (!noCalendar && !chosen.size) || noPhone.length > 0 || (short && !note.trim())}
+          onClick={() => action.run(`/external-requests/assignments/${assignment.id}/submit`, { sheetUrl, amountSantim: santim, contactIds: [...chosen], noCalendarNeeded: noCalendar || undefined, note: note || undefined })}
         >
-          Send to the dean
+          Send up to the dean
         </Button>
         <Button onClick={onClose}>Cancel</Button>
       </div>
@@ -334,6 +396,8 @@ function HoldModal({ request, onClose, onDone }: { request: ExternalRequestDto; 
   }, [windowIndex, request.windows]);
 
   const itemIds = machines.length ? machines : roomId ? [roomId] : [];
+  // Already held (or asked) for this room at this time: the button says so and can't be pressed.
+  const already = request.holds.find((h) => h.labItemId === roomId && h.date === date && h.start === start && h.end === end && ["REQUESTED", "HELD", "CONFIRMED"].includes(h.state));
   return (
     <Modal title={`Hold a slot: ${request.reference}`} onClose={onClose} width="520px">
       <div className="text-11 text-dim">A hold blocks the calendar for this request. It lapses on its own unless the request is quoted and paid.</div>
@@ -388,8 +452,8 @@ function HoldModal({ request, onClose, onDone }: { request: ExternalRequestDto; 
       {action.error && <ErrorNote>{action.error}</ErrorNote>}
       <ClashList clashes={action.clashes} heading="Already on the calendar" />
       <div className="flex gap-8">
-        <Button variant="primary" disabled={action.busy || !itemIds.length} onClick={() => action.run(`/external-requests/${request.id}/hold`, { itemIds, date, start, end })}>
-          Hold slot
+        <Button variant="primary" disabled={action.busy || !itemIds.length || !!already} onClick={() => action.run(`/external-requests/${request.id}/hold`, { itemIds, date, start, end })}>
+          {already ? (already.state === "REQUESTED" ? "Asked: answer it below" : "Held") : "Hold slot"}
         </Button>
         <Button onClick={onClose}>Cancel</Button>
       </div>
@@ -402,6 +466,7 @@ function HoldModal({ request, onClose, onDone }: { request: ExternalRequestDto; 
 type Pending =
   | { kind: "forward"; assignment: ExternalAssignmentDto }
   | { kind: "assign"; assignment: ExternalAssignmentDto }
+  | { kind: "book"; assignment: ExternalAssignmentDto }
   | { kind: "submit-dept"; assignment: ExternalAssignmentDto }
   | { kind: "note"; title: string; intro: string; confirmLabel: string; tone?: "primary" | "danger" | "warn"; noteRequired?: boolean; path: string; body: Record<string, unknown> };
 
@@ -433,7 +498,7 @@ function TaskLine({ task, onAct }: { task: ExternalTaskDto; onAct: (p: Pending) 
   );
 }
 
-function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto; onAct: (p: Pending) => void }) {
+function PartLine({ assignment: a, labs, onAct }: { assignment: ExternalAssignmentDto; labs: boolean; onAct: (p: Pending) => void }) {
   const college = a.level === "COLLEGE";
   const who = college ? "Dean" : "Head";
   const decline = () =>
@@ -492,7 +557,12 @@ function PartLine({ assignment: a, onAct }: { assignment: ExternalAssignmentDto;
         </div>
         <Tag tone={assignmentTone(a.status)}>{assignmentStatusLabel(a.level, a.status)}</Tag>
         {a.can.forward && <Button onClick={() => onAct({ kind: "forward", assignment: a })}>Forward to departments…</Button>}
-        {a.can.assign && <Button onClick={() => onAct({ kind: "assign", assignment: a })}>Ask custodians…</Button>}
+        {a.can.book && labs && (
+          <Button variant="primary" onClick={() => onAct({ kind: "book", assignment: a })}>
+            Book places…
+          </Button>
+        )}
+        {a.can.assign && (!labs || a.tasks.length > 0) && <Button onClick={() => onAct({ kind: "assign", assignment: a })}>Ask custodians…</Button>}
         {a.can.submit && !college && (
           <Button variant="primary" onClick={() => onAct({ kind: "submit-dept", assignment: a })}>
             Send up to the dean…
@@ -540,12 +610,12 @@ function TheLine({ request, onAct }: { request: ExternalRequestDto; onAct: (p: P
       ) : (
         top.map((c) => (
           <div key={c.id} className="px-14 py-10 border-b border-border last:border-0 flex flex-col gap-10">
-            <PartLine assignment={c} onAct={onAct} />
+            <PartLine assignment={c} labs={request.kind === "FACILITY"} onAct={onAct} />
             {request.assignments
               .filter((d) => d.parentId === c.id)
               .map((d) => (
                 <div key={d.id} className="ml-14 pl-12 border-l-2 border-border2">
-                  <PartLine assignment={d} onAct={onAct} />
+                  <PartLine assignment={d} labs={request.kind === "FACILITY"} onAct={onAct} />
                 </div>
               ))}
           </div>
@@ -747,8 +817,35 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
               </div>
             </div>
           )}
+          {r.setups.length > 0 && (
+            <div className="flex flex-col gap-4 md:col-span-2">
+              <div className={labelClass}>Labs to build up</div>
+              {r.setups.map((s, i) => (
+                <div key={i}>
+                  <span className="font-mono">{s.count} ×</span> {s.placeCategoryName}
+                  {s.needs.length > 0 && <span className="text-dim">, each with {s.needs.map((n) => `${n.qty} × ${n.categoryName}`).join(", ")}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {r.coverage && (
+            <div className="flex flex-col gap-4 md:col-span-2">
+              <div className={labelClass}>Held so far {r.coverage.complete ? "· everything covered" : ""}</div>
+              {r.coverage.windows.map((w) => (
+                <div key={w.label} className="flex flex-wrap items-center gap-6">
+                  <span className="font-mono text-dim">{w.label}</span>
+                  {w.rows.map((row) => (
+                    <Tag key={row.label} tone={row.have >= row.need ? "good" : row.have > 0 ? "warn" : "neutral"}>
+                      {Math.min(row.have, row.need)} of {row.need} {row.label}
+                    </Tag>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+          {(r.lines.length > 0 || r.setups.length === 0) && (
           <div className="flex flex-col gap-4 md:col-span-2">
-            <div className={labelClass}>Asked for</div>
+            <div className={labelClass}>{r.setups.length ? "Also asked for" : "Asked for"}</div>
             {r.lines.length === 0 && <div className="text-dim">–</div>}
             {r.lines.map((l, i) => (
               <div key={i}>
@@ -757,6 +854,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
               </div>
             ))}
           </div>
+          )}
           {r.quoteAmountSantim !== null && (
             <div className="flex flex-col gap-4 md:col-span-2">
               <div className={labelClass}>Quote</div>
@@ -780,7 +878,7 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
 
       <TheLine request={r} onAct={setPending} />
 
-      <Panel title={`Held slots (${r.holds.filter((h) => h.state === "HELD" || h.state === "CONFIRMED").length})`}>
+      <Panel title={`Places held (${r.holds.filter((h) => h.state === "HELD" || h.state === "CONFIRMED").length})${r.holds.some((h) => h.state === "REQUESTED") ? ` · ${r.holds.filter((h) => h.state === "REQUESTED").length} asked` : ""}`}>
         {r.holds.length === 0 ? (
           <div className="px-14 py-10 text-11 text-dim">Nothing held on any calendar yet.</div>
         ) : (
@@ -792,8 +890,46 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
               <span>{h.labName}</span>
               {/* A whole-room hold's one resource is the lab itself — don't name it twice (G-16). */}
               <span className="text-dim">{h.resources.some((x) => x.name !== h.labName) ? h.resources.map((x) => x.name).join(", ") : "whole room"}</span>
-              <Tag tone={h.state === "CONFIRMED" ? "good" : h.state === "HELD" ? "cross" : "neutral"}>{STATE_LABEL[h.state]}</Tag>
+              <Tag tone={h.state === "CONFIRMED" ? "good" : h.state === "HELD" ? "cross" : h.state === "REQUESTED" ? "warn" : "neutral"}>{h.state === "REQUESTED" ? "Asked to hold" : STATE_LABEL[h.state]}</Tag>
               {h.holdExpiresAt && h.state === "HELD" && <span className="text-faint text-11">until {new Date(h.holdExpiresAt).toLocaleDateString()}</span>}
+              {h.note && <span className="text-dim italic">“{h.note}”</span>}
+              <span className="flex-1" />
+              {h.state === "REQUESTED" && h.canDecide && (
+                <>
+                  <Button
+                    variant="primary"
+                    onClick={() => setPending({ kind: "note", title: `Hold ${h.labName}`, intro: `Holds ${h.labName} on ${h.date} ${h.start}–${h.end} for this request. It shows as held to your head and up the line.`, confirmLabel: "Hold it", path: `/external-requests/holds/${h.id}/answer`, body: { decision: "HOLD" } })}
+                  >
+                    Hold it
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      setPending({
+                        kind: "note",
+                        title: `Waiting for a loan: ${h.labName}`,
+                        intro: "Short of something the requester needs? Ask another department for it (Resources → Whole university → Request to my lab), and say here what you are borrowing. Hold the place once it is in your lab.",
+                        confirmLabel: "Tell my head",
+                        noteRequired: true,
+                        path: `/external-requests/holds/${h.id}/answer`,
+                        body: { decision: "WAIT" },
+                      })
+                    }
+                  >
+                    Waiting for a loan…
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => setPending({ kind: "note", title: `Can't hold ${h.labName}`, intro: "Say why, so your head can book another place.", confirmLabel: "Can't hold it", tone: "danger", noteRequired: true, path: `/external-requests/holds/${h.id}/answer`, body: { decision: "DECLINE" } })}
+                  >
+                    Can&apos;t hold it…
+                  </Button>
+                </>
+              )}
+              {h.state === "HELD" && h.canCancel && (
+                <Button disabled title="Already held">
+                  Held
+                </Button>
+              )}
             </div>
           ))
         )}
@@ -833,7 +969,8 @@ function RequestDetail({ id, onChanged }: { id: string; onChanged: () => void })
         />
       )}
       {pending?.kind === "assign" && <AssignModal request={r} assignment={pending.assignment} onClose={() => setPending(null)} onDone={updated} />}
-      {pending?.kind === "submit-dept" && <SubmitDepartmentModal assignment={pending.assignment} onClose={() => setPending(null)} onDone={updated} />}
+      {pending?.kind === "submit-dept" && <SubmitDepartmentModal request={r} assignment={pending.assignment} onClose={() => setPending(null)} onDone={updated} />}
+      {pending?.kind === "book" && <BookPlacesModal request={r} assignment={pending.assignment} onClose={() => setPending(null)} onDone={updated} />}
       {pending?.kind === "note" && <NoteModal {...pending} onClose={() => setPending(null)} onDone={updated} />}
       {modal === "quote" && <QuoteModal request={r} onClose={() => setModal(null)} onDone={updated} />}
       {modal === "decline" && <DeclineModal request={r} onClose={() => setModal(null)} onDone={updated} />}

@@ -14,8 +14,12 @@ import type {
   PublicTrackingDto,
   RequesterRequestSummaryDto,
   ReservationDto,
+  AnswerHoldInput,
+  BookablePlaceDto,
+  RequestHoldsInput,
   ReviewAssignmentInput,
   SendQuoteInput,
+  SetupDto,
   SubmitCollegeInput,
   SubmitDepartmentInput,
   SubmitExternalRequestInput,
@@ -26,8 +30,9 @@ import { HttpError } from "../http-error";
 import { storage } from "../resources/storage";
 import * as scope from "../resources/scope";
 import { DEFAULT_TIME_ZONE, addDays, civilToInstant, instantToCivil, isCivilDate, minutesOf } from "@/lib/domain/civil-time";
+import { coverageOf } from "@/lib/domain/external-coverage";
 import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookingTarget, subtreeRows, toReservationDto, viewerOf } from "../scheduling/context";
-import { equipmentOf, writeReservation } from "../scheduling/reservations";
+import { decideBooking, equipmentOf, writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, portalUrl } from "./mail";
 import { PROVIDER_INPUT } from "@/lib/domain/payment-receipt";
 import { enabledProviders, receiverConfig } from "../payments/config";
@@ -133,11 +138,18 @@ interface Access {
   sysAdmin: boolean;
   /** Nodes the viewer occupies — the colleges they are dean of, the departments they head. */
   occupies: Set<string>;
+  /** The places (labs, workshops) the viewer runs: where hold requests reach them. */
+  labs: Set<string>;
 }
 
 async function accessFor(userId: string): Promise<Access> {
-  const [avp, sysAdmin, occupied] = await Promise.all([isAvp(userId), scope.isSysAdmin(userId), prisma.orgNode.findMany({ where: { userId, active: true }, select: { id: true } })]);
-  return { userId, avp, sysAdmin, occupies: new Set(occupied.map((n) => n.id)) };
+  const [avp, sysAdmin, occupied, labs] = await Promise.all([
+    isAvp(userId),
+    scope.isSysAdmin(userId),
+    prisma.orgNode.findMany({ where: { userId, active: true }, select: { id: true } }),
+    prisma.item.findMany({ where: { custodianId: userId, parentId: null, deletedAt: null, category: { isPlace: true } }, select: { id: true } }),
+  ]);
+  return { userId, avp, sysAdmin, occupies: new Set(occupied.map((n) => n.id)), labs: new Set(labs.map((l) => l.id)) };
 }
 
 const leads = (access: Access, nodeId: string) => access.sysAdmin || access.occupies.has(nodeId);
@@ -154,18 +166,48 @@ const requestInclude = {
     orderBy: { createdAt: "asc" },
   },
   payments: { include: { reviewedBy: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+  reservations: { select: { id: true, labItemId: true, state: true, lab: { select: { ownerOrgNodeId: true, currentOrgNodeId: true } } } },
 } satisfies Prisma.ExternalRequestInclude;
 
 type RequestRow = Prisma.ExternalRequestGetPayload<{ include: typeof requestInclude }>;
 type AssignmentRow = RequestRow["assignments"][number];
 
+/** A lab setup as stored on the request (names are looked up when shown). */
+interface StoredSetup {
+  placeCategoryId: string;
+  count: number;
+  needs: Array<{ categoryId: string; qty: number }>;
+}
+const storedSetups = (row: { setups: Prisma.JsonValue | null }): StoredSetup[] => (Array.isArray(row.setups) ? (row.setups as unknown as StoredSetup[]) : []);
+
+async function setupDtos(setups: StoredSetup[]): Promise<SetupDto[]> {
+  if (!setups.length) return [];
+  const ids = [...new Set(setups.flatMap((s) => [s.placeCategoryId, ...s.needs.map((n) => n.categoryId)]))];
+  const names = new Map((await prisma.resourceCategory.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]));
+  return setups.map((s) => ({
+    placeCategoryId: s.placeCategoryId,
+    placeCategoryName: names.get(s.placeCategoryId) ?? "A place",
+    count: s.count,
+    needs: s.needs.map((n) => ({ categoryId: n.categoryId, categoryName: names.get(n.categoryId) ?? "Something", qty: n.qty })),
+  }));
+}
+
+/** Hold requests still waiting on a custodian, in a department's places. */
+const pendingHoldsIn = (row: Pick<RequestRow, "reservations">, nodeId: string) =>
+  row.reservations.some((r) => r.state === "REQUESTED" && (r.lab.ownerOrgNodeId === nodeId || r.lab.currentOrgNodeId === nodeId));
+
 type Role = "AVP" | "DEAN" | "HEAD" | "CUSTODIAN";
 
-function roleOn(access: Access, row: { assignments: Array<{ orgNodeId: string; level: string; parentId: string | null; tasks: Array<{ custodianId: string }> }> }): Role | null {
+function roleOn(
+  access: Access,
+  row: { assignments: Array<{ orgNodeId: string; level: string; parentId: string | null; tasks: Array<{ custodianId: string }> }>; reservations?: Array<{ labItemId: string }> },
+): Role | null {
   if (access.avp) return "AVP";
   if (row.assignments.some((a) => a.level === "COLLEGE" && access.occupies.has(a.orgNodeId))) return "DEAN";
   if (row.assignments.some((a) => a.level === "DEPARTMENT" && access.occupies.has(a.orgNodeId))) return "HEAD";
   if (row.assignments.some((a) => a.tasks.some((t) => t.custodianId === access.userId))) return "CUSTODIAN";
+  // A place they run was asked to hold (or holds) something for it.
+  if (row.reservations?.some((r) => access.labs.has(r.labItemId))) return "CUSTODIAN";
   return null;
 }
 
@@ -209,7 +251,17 @@ export async function submitRequest(
   if (!requester || requester.status !== "ACTIVE" || !requester.roles.some((r) => r.kind === "EXTERNAL")) throw new HttpError(403, "Sign in with your requester account to send a request.");
   if (letter.bytes.length > MAX_LETTER_BYTES) throw new HttpError(400, "The letter must be a PDF of at most 4 MB.");
   if (!isPdf(letter.bytes)) throw new HttpError(400, "The official letter must be a PDF file.");
-  if (input.kind === "FACILITY" && !input.lines.length) throw new HttpError(400, "List at least one thing you need.");
+  const setups = input.kind === "FACILITY" ? (input.setups ?? []) : [];
+  if (input.kind === "FACILITY" && !input.lines.length && !setups.length) throw new HttpError(400, "Add the labs you need (a lab setup), or list at least one thing you need.");
+  if (setups.length) {
+    const ids = [...new Set(setups.flatMap((s) => [s.placeCategoryId, ...s.needs.map((n) => n.categoryId)]))];
+    const kinds = new Map((await prisma.resourceCategory.findMany({ where: { id: { in: ids }, active: true }, select: { id: true, isPlace: true, bookingMode: true, name: true } })).map((c) => [c.id, c]));
+    for (const s of setups) {
+      const place = kinds.get(s.placeCategoryId);
+      if (!place?.isPlace || place.bookingMode !== "ROOM") throw new HttpError(400, "A lab setup must be a kind of place that can be booked (a lab, a workshop). Choose it again.");
+      if (s.needs.some((n) => !kinds.get(n.categoryId) || kinds.get(n.categoryId)!.isPlace)) throw new HttpError(400, `What a ${place.name.toLowerCase()} must have has to be a kind of thing, not a place. Choose it again.`);
+    }
+  }
   if (input.kind === "SAMPLE_ANALYSIS" && !input.sample) throw new HttpError(400, "Describe your samples and the analysis you need.");
 
   const since = new Date(Date.now() - 86_400_000);
@@ -262,6 +314,7 @@ export async function submitRequest(
               contactPhone: input.contactPhone,
               purpose: input.purpose,
               lines: lines as unknown as Prisma.InputJsonValue,
+              setups: setups.length ? (setups as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
               letterStorageKey: storageKey,
               letterFileName: letter.fileName.slice(0, 200) || "letter.pdf",
               letterByteSize: letter.bytes.length,
@@ -314,6 +367,30 @@ function windowsOf(rows: Array<{ date: Date; startTimeLocal: string; endTimeLoca
   return rows.map((w) => ({ date: civilDateOf(w.date), start: w.startTimeLocal, end: w.endTimeLocal }));
 }
 
+const windowKey = (w: { date: string; start: string; end: string }) => `${w.date} ${w.start}–${w.end}`;
+
+/** Working things inside each place, by kind (what a held place brings to a setup). */
+async function countsByCategory(labIds: string[]): Promise<Map<string, Record<string, number>>> {
+  const out = new Map<string, Record<string, number>>();
+  if (!labIds.length) return out;
+  const rows = await prisma.$queryRaw<{ root: string; categoryId: string; n: bigint }[]>`
+    WITH RECURSIVE t AS (
+      SELECT id, id AS root FROM "Item" WHERE id = ANY(${labIds}) AND "deletedAt" IS NULL
+      UNION ALL
+      SELECT i.id, t.root FROM "Item" i INNER JOIN t ON i."parentId" = t.id WHERE i."deletedAt" IS NULL
+    )
+    SELECT t.root, i."categoryId", count(*) AS n FROM t INNER JOIN "Item" i ON i.id = t.id
+    WHERE t.id <> t.root AND i.status = 'WORKING'
+    GROUP BY t.root, i."categoryId"
+  `;
+  for (const r of rows) {
+    const m = out.get(r.root) ?? {};
+    m[r.categoryId] = Number(r.n);
+    out.set(r.root, m);
+  }
+  return out;
+}
+
 function sampleOf(row: { sample: Prisma.JsonValue }): { sampleCount: number; analysis: string; categoryName: string | null } | null {
   const s = row.sample as Sample | null;
   return s ? { sampleCount: s.sampleCount, analysis: s.analysis, categoryName: s.categoryName } : null;
@@ -358,6 +435,7 @@ export async function requesterView(id: string): Promise<PublicTrackingDto> {
     purpose: row.purpose,
     windows: windowsOf(row.windows),
     lines: row.lines as unknown as Line[],
+    setups: await setupDtos(storedSetups(row)),
     quote: quoted
       ? {
           amountSantim: row.quoteAmountSantim!,
@@ -453,12 +531,15 @@ function waitingOn(access: Access, row: RequestRow): boolean {
     if (row.status === "SUBMITTED" || row.status === "PAID" || row.payments.some((p) => p.status === "PENDING_REVIEW")) return true;
     return row.assignments.some((a) => a.level === "COLLEGE" && a.status === "SUBMITTED") || (row.status === "UNDER_REVIEW" && canQuote(row));
   }
+  // A hold request on a place they run, waiting for their answer.
+  if (HOLDABLE.includes(row.status) && row.reservations.some((r) => r.state === "REQUESTED" && access.labs.has(r.labItemId))) return true;
   if (row.status !== "UNDER_REVIEW") return false;
   return row.assignments.some((a) => {
     if (a.level === "COLLEGE" && access.occupies.has(a.orgNodeId)) {
       return a.status === "PENDING" || row.assignments.some((d) => d.parentId === a.id && d.status === "SUBMITTED") || (WORKING.includes(a.status) && collegeReady(row, a));
     }
-    if (a.level === "DEPARTMENT" && access.occupies.has(a.orgNodeId)) return a.status === "PENDING" || a.status === "RETURNED" || (a.status === "FORWARDED" && a.tasks.every((t) => t.status !== "PENDING"));
+    if (a.level === "DEPARTMENT" && access.occupies.has(a.orgNodeId))
+      return a.status === "PENDING" || a.status === "RETURNED" || (a.status === "FORWARDED" && a.tasks.every((t) => t.status !== "PENDING") && !pendingHoldsIn(row, a.orgNodeId));
     return a.tasks.some((t) => t.custodianId === access.userId && t.status === "PENDING" && WORKING.includes(a.status));
   });
 }
@@ -467,7 +548,14 @@ export async function listForActor(userId: string): Promise<ExternalRequestSumma
   const access = await accessFor(userId);
   const nodeIds = [...access.occupies];
   const rows = await prisma.externalRequest.findMany({
-    where: access.avp ? {} : { assignments: { some: { OR: [{ orgNodeId: { in: nodeIds } }, { tasks: { some: { custodianId: userId } } }] } } },
+    where: access.avp
+      ? {}
+      : {
+          OR: [
+            { assignments: { some: { OR: [{ orgNodeId: { in: nodeIds } }, { tasks: { some: { custodianId: userId } } }] } } },
+            ...(access.labs.size ? [{ reservations: { some: { labItemId: { in: [...access.labs] } } } }] : []),
+          ],
+        },
     include: requestInclude,
     orderBy: { createdAt: "desc" },
     take: 200,
@@ -509,6 +597,7 @@ function assignmentCan(access: Access, row: RequestRow, a: AssignmentRow): Exter
   if (a.level === "COLLEGE") {
     return {
       forward: reviewing && mine && WORKING.includes(a.status),
+      book: false,
       assign: false,
       submit: reviewing && mine && WORKING.includes(a.status) && collegeReady(row, a),
       review: reviewing && access.avp && a.status === "SUBMITTED",
@@ -518,8 +607,9 @@ function assignmentCan(access: Access, row: RequestRow, a: AssignmentRow): Exter
   const parent = a.parentId ? row.assignments.find((p) => p.id === a.parentId) : null;
   return {
     forward: false,
+    book: reviewing && mine && WORKING.includes(a.status),
     assign: reviewing && mine && WORKING.includes(a.status),
-    submit: reviewing && mine && WORKING.includes(a.status) && a.tasks.every((t) => t.status !== "PENDING"),
+    submit: reviewing && mine && WORKING.includes(a.status) && a.tasks.every((t) => t.status !== "PENDING") && !pendingHoldsIn(row, a.orgNodeId),
     review: reviewing && !!parent && leads(access, parent.orgNodeId) && WORKING.includes(parent.status) && (a.status === "SUBMITTED" || a.status === "APPROVED"),
     decline: reviewing && mine && WORKING.includes(a.status),
   };
@@ -528,9 +618,32 @@ function assignmentCan(access: Access, row: RequestRow, a: AssignmentRow): Exter
 export async function getForActor(userId: string, id: string): Promise<ExternalRequestDto> {
   const { row, access, role } = await loadForActor(userId, id);
   const [holdRows, viewer] = await Promise.all([
-    prisma.reservation.findMany({ where: { externalRequestId: id }, include: { ...RESERVATION_INCLUDE, lab: { select: { name: true, ownerOrgNodeId: true, currentOrgNodeId: true } } }, orderBy: { startsAt: "asc" } }),
+    prisma.reservation.findMany({
+      where: { externalRequestId: id },
+      include: {
+        ...RESERVATION_INCLUDE,
+        lab: { select: { name: true, ownerOrgNodeId: true, currentOrgNodeId: true, categoryId: true, custodian: { select: { id: true, name: true, email: true, phone: true } } } },
+      },
+      orderBy: { startsAt: "asc" },
+    }),
     viewerOf(userId),
   ]);
+  const heldOrBooked = (h: (typeof holdRows)[number]) => h.state === "HELD" || h.state === "CONFIRMED";
+
+  // How far the held places cover the setups, per date asked for.
+  const setups = await setupDtos(storedSetups(row));
+  let coverage: ExternalRequestDto["coverage"] = null;
+  if (setups.length) {
+    const wins = windowsOf(row.windows);
+    const held = holdRows.filter(heldOrBooked);
+    const counts = await countsByCategory([...new Set(held.map((h) => h.labItemId))]);
+    const heldPlaces = held.map((h) => {
+      const s = instantToCivil(h.startsAt, DEFAULT_TIME_ZONE);
+      return { windowKey: windowKey({ date: s.date, start: s.time, end: instantToCivil(h.endsAt, DEFAULT_TIME_ZONE).time }), placeCategoryId: h.lab.categoryId, counts: counts.get(h.labItemId) ?? {} };
+    });
+    const c = coverageOf(setups, wins.map(windowKey), heldPlaces);
+    coverage = { complete: c.complete, windows: c.windows.map((w) => ({ label: w.windowKey, complete: w.complete, rows: w.rows })) };
+  }
   const liveHold = (h: (typeof holdRows)[number]) => h.state === "HELD" || h.state === "CONFIRMED";
   const inUnit = (h: (typeof holdRows)[number], nodeId: string) => h.lab.ownerOrgNodeId === nodeId || h.lab.currentOrgNodeId === nodeId;
 
@@ -601,6 +714,8 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
     createdAt: row.createdAt.toISOString(),
     windows: windowsOf(row.windows),
     lines: row.lines as unknown as Line[],
+    setups,
+    coverage,
     letter: { fileName: row.letterFileName, byteSize: row.letterByteSize, url: `/api/external-requests/${row.id}/letter` },
     quoteAmountSantim: row.quoteAmountSantim,
     quoteNote: row.quoteNote,
@@ -623,6 +738,17 @@ export async function getForActor(userId: string, id: string): Promise<ExternalR
       decidedByName: a.decidedBy?.name ?? null,
       decidedAt: a.decidedAt?.toISOString() ?? null,
       holdCount: holdRows.filter((h) => liveHold(h) && (a.level === "DEPARTMENT" ? inUnit(h, a.orgNodeId) : row.assignments.some((d) => d.parentId === a.id && inUnit(h, d.orgNodeId)))).length,
+      holders: (() => {
+        if (a.level !== "DEPARTMENT") return [];
+        const byPerson = new Map<string, { userId: string; name: string; phone: string | null; email: string; places: string[] }>();
+        for (const h of holdRows.filter((x) => heldOrBooked(x) && inUnit(x, a.orgNodeId))) {
+          const c = h.lab.custodian;
+          const entry = byPerson.get(c.id) ?? { userId: c.id, name: c.name, phone: c.phone, email: c.email, places: [] };
+          if (!entry.places.includes(h.lab.name)) entry.places.push(h.lab.name);
+          byPerson.set(c.id, entry);
+        }
+        return [...byPerson.values()];
+      })(),
       tasks: a.tasks.map((t) => ({
         id: t.id,
         custodianId: t.custodianId,
@@ -811,6 +937,17 @@ export async function placeHold(userId: string, id: string, input: PlaceHoldInpu
   const viewer = await viewerOf(userId);
   if (!decidesFor(viewer, target.lab.id)) throw new HttpError(403, "Only the room's custodian holds slots on its calendar.");
   const lab = await prisma.item.findUniqueOrThrow({ where: { id: target.lab.id }, select: { ownerOrgNodeId: true, currentOrgNodeId: true } });
+  const already = await prisma.reservation.findFirst({
+    where: {
+      externalRequestId: id,
+      labItemId: target.lab.id,
+      state: { in: ["REQUESTED", "HELD", "CONFIRMED"] },
+      startsAt: civilToInstant(input.date, input.start, DEFAULT_TIME_ZONE),
+      endsAt: civilToInstant(input.date, input.end, DEFAULT_TIME_ZONE),
+    },
+    select: { state: true },
+  });
+  if (already) throw new HttpError(409, already.state === "REQUESTED" ? "Your head already asked you to hold this place then: answer that hold request instead." : "This place is already held for this request at that time.");
   const units = row.assignments.filter((a) => a.level === "DEPARTMENT" && a.status !== "DECLINED" && (viewer.sysAdmin || a.tasks.some((t) => t.custodianId === userId && t.status !== "DECLINED"))).map((a) => a.orgNodeId);
   if (!units.includes(lab.ownerOrgNodeId) && !units.includes(lab.currentOrgNodeId)) throw new HttpError(403, "This room's department hasn't asked you to hold anything for this request.");
 
@@ -830,6 +967,127 @@ export async function placeHold(userId: string, id: string, input: PlaceHoldInpu
   });
   await event(prisma, id, await actorOf(userId), "HOLD_PLACED", `${target.lab.name} · ${input.date} ${input.start}–${input.end}`);
   return getForActor(userId, id);
+}
+
+// ── The head books places; their custodians hold them (2026-10-02) ───────────
+
+/** The places a head may book for a request: the department's own bookable rooms, with
+ *  what each holds of the kinds the request's lab setups need. Other departments' things
+ *  come by loan, through the custodian. */
+export async function bookablePlaces(userId: string, departmentAssignmentId: string): Promise<BookablePlaceDto[]> {
+  const dept = await loadAssignment(departmentAssignmentId);
+  if (dept.level !== "DEPARTMENT") throw new HttpError(400, "Places are booked by a department.");
+  const access = await accessFor(userId);
+  if (!leads(access, dept.orgNodeId)) throw new HttpError(403, `Only the head of ${dept.orgNode.name} books its places.`);
+  const places = await prisma.item.findMany({
+    where: { parentId: null, deletedAt: null, status: "WORKING", category: { isPlace: true, bookingMode: "ROOM" }, OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] },
+    select: { id: true, name: true, categoryId: true, category: { select: { name: true } }, custodian: { select: { name: true } } },
+    orderBy: { name: "asc" },
+  });
+  const setups = await setupDtos(storedSetups(dept.request));
+  const wanted = new Map<string, string>();
+  for (const s of setups) for (const n of s.needs) wanted.set(n.categoryId, n.categoryName);
+  const counts = await countsByCategory(places.map((p) => p.id));
+  const asked = new Set((await prisma.reservation.findMany({ where: { externalRequestId: dept.requestId, state: { in: ["REQUESTED", "HELD", "CONFIRMED"] } }, select: { labItemId: true } })).map((r) => r.labItemId));
+  return places.map((p) => ({
+    id: p.id,
+    name: p.name,
+    categoryId: p.categoryId,
+    categoryName: p.category.name,
+    custodianName: p.custodian.name,
+    counts: [...wanted.entries()].map(([categoryId, categoryName]) => ({ categoryId, categoryName, count: counts.get(p.id)?.[categoryId] ?? 0 })),
+    asked: asked.has(p.id),
+  }));
+}
+
+/** The head books places for the request: each place, for every date asked for, becomes a
+ *  hold request to its custodian. A place already asked (or held) then is skipped; one busy
+ *  then is named in the history. */
+export async function requestHolds(userId: string, departmentAssignmentId: string, input: RequestHoldsInput): Promise<ExternalRequestDto> {
+  const dept = await loadAssignment(departmentAssignmentId);
+  if (dept.level !== "DEPARTMENT") throw new HttpError(400, "Places are booked by a department.");
+  const access = await accessFor(userId);
+  if (!leads(access, dept.orgNodeId)) throw new HttpError(403, `Only the head of ${dept.orgNode.name} books its places.`);
+  assertUnderReview(dept.request);
+  if (!WORKING.includes(dept.status)) throw new HttpError(409, "The department has already answered.");
+  const allowed = new Set((await bookablePlaces(userId, departmentAssignmentId)).map((p) => p.id));
+  const refused = input.labIds.filter((id) => !allowed.has(id));
+  if (refused.length) throw new HttpError(400, "Choose bookable places of your own department. Something from another department comes by loan: the custodian borrows it first.");
+
+  const row = await loadRow(dept.requestId);
+  const wins = windowsOf(row.windows);
+  const asked: string[] = [];
+  const busy: string[] = [];
+  for (const labId of [...new Set(input.labIds)]) {
+    const target = await resolveBookingTarget(prisma, [labId]);
+    for (const w of wins) {
+      const startsAt = civilToInstant(w.date, w.start, DEFAULT_TIME_ZONE);
+      const exists = await prisma.reservation.findFirst({ where: { externalRequestId: row.id, labItemId: labId, startsAt, state: { in: ["REQUESTED", "HELD", "CONFIRMED"] } }, select: { id: true } });
+      if (exists) continue;
+      try {
+        await writeReservation(target, w, { source: "EXTERNAL", state: "REQUESTED", title: `${row.reference} · ${row.organizationName}`, requestedById: userId, externalRequestId: row.id, note: input.note || undefined });
+        asked.push(`${target.lab.name} · ${windowKey(w)}`);
+      } catch (err) {
+        if (!(err instanceof HttpError)) throw err;
+        busy.push(`${target.lab.name} · ${windowKey(w)}: ${err.message}`);
+      }
+    }
+  }
+  if (!asked.length) throw new HttpError(409, busy.length ? `None could be asked: ${busy.join("; ")}` : "Those places are already asked or held for every date.");
+  const actor = await actorOf(userId);
+  await prisma.$transaction(async (tx) => {
+    if (dept.status === "PENDING") await tx.externalRequestAssignment.update({ where: { id: dept.id }, data: { status: "FORWARDED" } });
+    await event(tx, row.id, actor, "HOLDS_REQUESTED", [dept.orgNode.name, `${asked.length} asked`, busy.length ? `busy: ${busy.join("; ")}` : null, input.note].filter(Boolean).join(" · "));
+  });
+  const custodians = await prisma.item.findMany({ where: { id: { in: input.labIds } }, select: { name: true, custodian: { select: { email: true } } } });
+  for (const c of custodians) {
+    await mailStaff(
+      c.custodian.email,
+      `Hold ${c.name} for ${row.reference}`,
+      [
+        `Your head asks you to hold <strong>${esc(c.name)}</strong> for ${esc(row.organizationName)} on the dates they asked for.${input.note ? ` Note: ${esc(input.note)}` : ""}`,
+        "Open the request and answer each hold: hold it, say you are waiting for a loan of what is missing, or say why you can't.",
+      ],
+      paths.outside(row.id),
+    );
+  }
+  return getForActor(userId, row.id);
+}
+
+/** A custodian answers a hold request on a place they run: hold it (until the quote's
+ *  deadline, or two weeks before one), can't (with a reason), or waiting for a loan. */
+export async function answerHold(userId: string, reservationId: string, input: AnswerHoldInput): Promise<ExternalRequestDto> {
+  const r = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { id: true, state: true, labItemId: true, externalRequestId: true, requestedById: true, lab: { select: { name: true } } } });
+  if (!r?.externalRequestId) throw new HttpError(404, "Hold request not found");
+  const viewer = await viewerOf(userId);
+  if (!decidesFor(viewer, r.labItemId)) throw new HttpError(403, `Only the custodian of ${r.lab.name} answers its hold requests.`);
+  if (r.state !== "REQUESTED") throw new HttpError(409, r.state === "HELD" ? "Already held." : "This hold request has already been answered.");
+  const row = await prisma.externalRequest.findUniqueOrThrow({ where: { id: r.externalRequestId }, select: { id: true, reference: true, status: true, paymentDeadline: true } });
+  if (!HOLDABLE.includes(row.status)) throw new HttpError(409, "This request is no longer taking holds.");
+  const actor = await actorOf(userId);
+  const note = input.note?.trim() || undefined;
+
+  if (input.decision === "WAIT") {
+    if (!note) throw new HttpError(400, "Say what you are borrowing, and from where, so your head knows.");
+    await prisma.reservation.update({ where: { id: r.id }, data: { note: `Waiting for a loan: ${note}` } });
+    await event(prisma, row.id, actor, "HOLD_WAITING", `${r.lab.name} · ${note}`);
+  } else if (input.decision === "DECLINE") {
+    if (!note) throw new HttpError(400, "Say why you can't hold it, so your head can book another place.");
+    await decideBooking(userId, r.id, "DECLINE", note, { quiet: true });
+    await event(prisma, row.id, actor, "HOLD_DECLINED", `${r.lab.name} · ${note}`);
+  } else {
+    const twoWeeks = civilToInstant(addDays(todayCivil(), HOLD_DAYS_BEFORE_QUOTE), "23:59");
+    const holdUntil = PAYABLE.includes(row.status) && row.paymentDeadline && row.paymentDeadline > new Date() ? row.paymentDeadline : twoWeeks;
+    await decideBooking(userId, r.id, "APPROVE", note, { holdUntil, quiet: true });
+    await event(prisma, row.id, actor, "HOLD_PLACED", r.lab.name);
+  }
+  await mailStaff(
+    await emailOf(r.requestedById),
+    `${r.lab.name}: ${input.decision === "HOLD" ? "held" : input.decision === "WAIT" ? "waiting for a loan" : "can't be held"} for ${row.reference}`,
+    [note ? esc(note) : "No note."],
+    paths.outside(row.id),
+  );
+  return getForActor(userId, row.id);
 }
 
 /** A custodian reporting back to their head: held what was asked, or can't. */
@@ -872,8 +1130,53 @@ export async function submitDepartment(userId: string, departmentAssignmentId: s
   if (!WORKING.includes(dept.status)) throw new HttpError(409, "The department has already answered.");
   if (dept.tasks.some((t) => t.status === "PENDING")) throw new HttpError(409, "Wait until every custodian you asked has answered.");
   if (!/^https:\/\//i.test(input.sheetUrl)) throw new HttpError(400, "The cost breakdown link must start with https://");
-  const holds = await prisma.reservation.count({ where: { externalRequestId: dept.requestId, state: "HELD", lab: { OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] } } });
-  if (!holds && !input.noCalendarNeeded) throw new HttpError(400, "Nothing is held on any of your department's calendars yet. Have a custodian hold the slots first, or confirm nothing needs a calendar.");
+  const heldRows = await prisma.reservation.findMany({
+    where: { externalRequestId: dept.requestId, state: "HELD", lab: { OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] } },
+    select: { lab: { select: { name: true, custodian: { select: { id: true, name: true, email: true, phone: true } } } } },
+  });
+  if (await prisma.reservation.count({ where: { externalRequestId: dept.requestId, state: "REQUESTED", lab: { OR: [{ ownerOrgNodeId: dept.orgNodeId }, { currentOrgNodeId: dept.orgNodeId }] } } })) {
+    throw new HttpError(409, "Some custodians haven't answered their hold requests yet. Wait for them, or ask them to answer.");
+  }
+  const holds = heldRows.length;
+  if (!holds && !input.noCalendarNeeded) throw new HttpError(400, "Nothing is held on any of your department's calendars yet. Book places for the request (the custodians hold them), or confirm nothing needs a calendar.");
+  // The contact persons are the custodians holding the places (2026-10-02): the head
+  // chooses which of them, never types anyone in.
+  const holders = new Map<string, { name: string; email: string; phone: string | null; places: string[] }>();
+  for (const h of heldRows) {
+    const c = h.lab.custodian;
+    const e = holders.get(c.id) ?? { name: c.name, email: c.email, phone: c.phone, places: [] };
+    if (!e.places.includes(h.lab.name)) e.places.push(h.lab.name);
+    holders.set(c.id, e);
+  }
+  const chosen = input.contactIds?.length ? input.contactIds : [...holders.keys()];
+  const unknown = chosen.filter((id) => !holders.has(id));
+  if (unknown.length) throw new HttpError(400, "A contact person must be one of the custodians holding a place for this request.");
+  const missingPhone = chosen.map((id) => holders.get(id)!).filter((p) => !p.phone);
+  if (missingPhone.length) {
+    throw new HttpError(400, `${missingPhone.map((p) => p.name).join(" and ")} ${missingPhone.length === 1 ? "has" : "have"} no phone number on their profile, and the requester will need to call. Ask them to add it under Profile & password, or untick them.`);
+  }
+  const contacts: ExternalContactDto[] = chosen.map((id) => {
+    const p = holders.get(id)!;
+    return { name: p.name, role: `Custodian of ${p.places.join(", ")}`, phone: p.phone!, email: p.email };
+  });
+  if (!input.noCalendarNeeded && !contacts.length) throw new HttpError(400, "Choose at least one custodian as a contact person for the requester.");
+  // A request with lab setups: sending it up while they aren't fully covered needs a reason.
+  const request = await loadRow(dept.requestId);
+  if (storedSetups(request).length && !input.note?.trim()) {
+    const setups = await setupDtos(storedSetups(request));
+    const live = await prisma.reservation.findMany({ where: { externalRequestId: dept.requestId, state: { in: ["HELD", "CONFIRMED"] } }, select: { labItemId: true, startsAt: true, endsAt: true, lab: { select: { categoryId: true } } } });
+    const counts = await countsByCategory([...new Set(live.map((h) => h.labItemId))]);
+    const c = coverageOf(
+      setups,
+      windowsOf(request.windows).map(windowKey),
+      live.map((h) => ({
+        windowKey: windowKey({ date: instantToCivil(h.startsAt, DEFAULT_TIME_ZONE).date, start: instantToCivil(h.startsAt, DEFAULT_TIME_ZONE).time, end: instantToCivil(h.endsAt, DEFAULT_TIME_ZONE).time }),
+        placeCategoryId: h.lab.categoryId,
+        counts: counts.get(h.labItemId) ?? {},
+      })),
+    );
+    if (!c.complete) throw new HttpError(400, "The held places don't yet cover everything the requester's lab setups need. Book more places, or say in the note why this is your answer.");
+  }
 
   const actor = await actorOf(userId);
   await prisma.$transaction(async (tx) => {
@@ -884,7 +1187,7 @@ export async function submitDepartment(userId: string, departmentAssignmentId: s
         sheetUrl: input.sheetUrl,
         amountSantim: input.amountSantim,
         noCalendarNeeded: Boolean(input.noCalendarNeeded),
-        contacts: input.contacts as unknown as Prisma.InputJsonValue,
+        contacts: contacts as unknown as Prisma.InputJsonValue,
         note: input.note || null,
         decidedById: userId,
         decidedAt: new Date(),

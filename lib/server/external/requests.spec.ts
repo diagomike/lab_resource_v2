@@ -65,7 +65,8 @@ const createdNodes: string[] = [];
 
 const dayAhead = (n: number) => addDays(instantToCivil(new Date()).date, n);
 const SHEET = "https://docs.google.com/spreadsheets/d/abc";
-const CONTACT = { name: "Ato Lab Contact", role: "Lab assistant", phone: "+251911111111" };
+/** The contact persons are the custodians holding the places (2026-10-02). */
+const CONTACT_PHONE = "+251911111111";
 
 async function makeUser(suffix: string, roles: string[], extra: Record<string, unknown> = {}) {
   const email = `${testKey}-${suffix}@astu.edu.et`;
@@ -120,7 +121,7 @@ async function upTheLine(id: string, parts: { collegeId: string; deptId: string 
   await requests.placeHold(custodianId, id, { itemIds: [labId], date, start: "09:00", end: "12:00" });
   const task = (await requests.getForActor(custodianId, id)).assignments.find((a) => a.id === parts.deptId)!.tasks.find((t) => t.custodianId === custodianId)!;
   await requests.finishTask(custodianId, task.id, { outcome: "DONE" });
-  await requests.submitDepartment(headAId, parts.deptId, { sheetUrl: SHEET, amountSantim, contacts: [CONTACT] });
+  await requests.submitDepartment(headAId, parts.deptId, { sheetUrl: SHEET, amountSantim });
   await requests.reviewAssignment(deanId, parts.deptId, { decision: "APPROVE" });
   await requests.submitCollege(deanId, parts.collegeId, {});
   return requests.reviewAssignment(avpId, parts.collegeId, { decision: "APPROVE" });
@@ -148,8 +149,8 @@ beforeAll(async () => {
   nodeA = await makeNode("dept-a", "DEPARTMENT", 2, headAId, college);
   nodeB = await makeNode("dept-b", "DEPARTMENT", 2, headBId, college);
   outsideDept = await makeNode("dept-outside", "DEPARTMENT", 2, null);
-  custodianId = await makeUser("custodian", ["CUSTODIAN"], { homeNodeId: nodeA });
-  custodian2Id = await makeUser("custodian-2", ["CUSTODIAN"], { homeNodeId: nodeA });
+  custodianId = await makeUser("custodian", ["CUSTODIAN"], { homeNodeId: nodeA, phone: CONTACT_PHONE });
+  custodian2Id = await makeUser("custodian-2", ["CUSTODIAN"], { homeNodeId: nodeA, phone: "+251911111112" });
 
   groupId = (await prisma.categoryGroup.create({ data: { name: testKey, sortOrder: 999 } })).id;
   roomCategoryId = (await prisma.resourceCategory.create({ data: { key: `${testKey}-room`, name: "Ext Room", iconKey: "Package", groupId, countingMode: "SERIALIZED", isPlace: true, bookingMode: "ROOM", publicListed: true } })).id;
@@ -253,7 +254,7 @@ describe("down the line and back: AVP → dean → head → custodians → head 
     await expect(reservations.createStaffBooking(custodianId, { itemIds: [labId], date, start: "10:00", end: "11:00", title: "Clash", onBehalfOfNote: "A class" })).rejects.toMatchObject({ status: 409 });
 
     // The head can't answer while a custodian still hasn't; "done" needs a hold.
-    await expect(requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_000_000, contacts: [CONTACT] })).rejects.toMatchObject({ status: 409 });
+    await expect(requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_000_000 })).rejects.toMatchObject({ status: 409 });
     const task2 = tasks.find((t) => t.custodianId === custodian2Id)!;
     await expect(requests.finishTask(custodian2Id, task2.id, { outcome: "DONE" })).rejects.toMatchObject({ status: 400 });
     await requests.finishTask(custodian2Id, task2.id, { outcome: "DECLINED", note: "Lab Two is under maintenance" });
@@ -263,15 +264,17 @@ describe("down the line and back: AVP → dean → head → custodians → head 
     await requests.declineAssignment(headBId, deptB.id, { note: "No capacity that week" });
     const deanRow = await prisma.user.findUniqueOrThrow({ where: { id: deanId } });
     sent.length = 0;
-    dto = await requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_250_000, contacts: [CONTACT] });
-    expect(dto.assignments.find((a) => a.id === deptA.id)).toMatchObject({ status: "SUBMITTED", holdCount: 1, amountSantim: 1_250_000, contacts: [CONTACT] });
+    dto = await requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_250_000 });
+    expect(dto.assignments.find((a) => a.id === deptA.id)).toMatchObject({ status: "SUBMITTED", holdCount: 1, amountSantim: 1_250_000 });
+    // The contact is the custodian who holds the place, from their own account.
+    expect(dto.assignments.find((a) => a.id === deptA.id)!.contacts).toEqual([expect.objectContaining({ name: "Test custodian", phone: CONTACT_PHONE, role: expect.stringMatching(/^Custodian of /) })]);
     expect(sent.filter((m) => m.to === deanRow.email).map((m) => m.subject)).toEqual([`${testKey}-dept-a answered ${r.reference}`]);
 
     // The AVP can't quote before the college has answered; the dean sends A back once, then approves.
     await expect(requests.sendQuote(avpId, r.id, { amountSantim: 100, paymentDeadline: dayAhead(10) })).rejects.toMatchObject({ status: 409 });
     await expect(requests.submitCollege(deanId, collegePart.id, {})).rejects.toMatchObject({ status: 409 });
     await requests.reviewAssignment(deanId, deptA.id, { decision: "RETURN", note: "Add the lab assistant's fee" });
-    dto = await requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_350_000, contacts: [CONTACT] });
+    dto = await requests.submitDepartment(headAId, deptA.id, { sheetUrl: SHEET, amountSantim: 1_350_000 });
     await requests.reviewAssignment(deanId, deptA.id, { decision: "APPROVE" });
     dto = await requests.submitCollege(deanId, collegePart.id, { note: "One department can host it" });
     expect(dto.assignments.find((a) => a.id === collegePart.id)).toMatchObject({ status: "SUBMITTED", amountSantim: 1_350_000 });
@@ -324,7 +327,7 @@ describe("down the line and back: AVP → dean → head → custodians → head 
     await requests.placeHold(custodianId, r.id, { itemIds: [machineId], date, start: "09:00", end: "12:00" });
     const task = dto.assignments.find((a) => a.id === parts.deptId)!.tasks[0];
     await requests.finishTask(custodianId, task.id, { outcome: "DONE" });
-    await requests.submitDepartment(headAId, parts.deptId, { sheetUrl: SHEET, amountSantim: 300_000, contacts: [CONTACT] });
+    await requests.submitDepartment(headAId, parts.deptId, { sheetUrl: SHEET, amountSantim: 300_000 });
     await requests.reviewAssignment(deanId, parts.deptId, { decision: "APPROVE" });
     await requests.submitCollege(deanId, parts.collegeId, {});
     await requests.reviewAssignment(avpId, parts.collegeId, { decision: "APPROVE" });
@@ -377,5 +380,65 @@ describe("holds and the quote's lifetime", () => {
     await requests.placeHold(custodianId, r.id, { itemIds: [labId], date, start: "09:00", end: "12:00" });
     const dto = await requests.closeRequest(avpId, r.id, { note: "Dates unavailable" });
     expect([dto.status, dto.holds.map((h) => h.state)]).toEqual(["DECLINED", ["CANCELLED"]]);
+  });
+});
+
+describe("lab setups: the head books places, their custodians hold them (2026-10-02)", () => {
+  it("a setup asks for places and things; holds fill the coverage; contacts are the holders", async () => {
+    const date = dayAhead(50);
+    const setups = [{ placeCategoryId: roomCategoryId, count: 2, needs: [{ categoryId: machineCategoryId, qty: 1 }] }];
+    // A setup must be built on a bookable kind of place.
+    await expect(
+      requests.submitRequest(otherRequesterId, input({ lines: [], setups: [{ placeCategoryId: machineCategoryId, count: 1, needs: [] }] }) as never, { bytes: PDF, fileName: "l.pdf" }, null),
+    ).rejects.toMatchObject({ status: 400 });
+    const r = await submit({ windows: [{ date, start: "09:00", end: "12:00" }], lines: [], setups });
+    expect((await requests.viewForRequester(r.requesterId, r.id)).setups).toEqual([
+      { placeCategoryId: roomCategoryId, placeCategoryName: "Ext Room", count: 2, needs: [{ categoryId: machineCategoryId, categoryName: "Ext XRD", qty: 1 }] },
+    ]);
+
+    await requests.forward(avpId, r.id, { orgNodeIds: [college] });
+    const collegePart = (await requests.getForActor(deanId, r.id)).assignments.find((a) => a.level === "COLLEGE")!;
+    const deptId = (await requests.forwardToDepartments(deanId, collegePart.id, { orgNodeIds: [nodeA] })).assignments.find((a) => a.orgNodeId === nodeA)!.id;
+
+    // The head sees the department's places with what each holds of what is needed.
+    const places = await requests.bookablePlaces(headAId, deptId);
+    expect(places.filter((p) => [labId, lab2Id].includes(p.id)).map((p) => [p.name, p.counts[0].count])).toEqual([
+      ["Ext Lab", 1],
+      ["Ext Lab Two", 0],
+    ]);
+    await expect(requests.bookablePlaces(headBId, deptId)).rejects.toMatchObject({ status: 403 });
+
+    let dto = await requests.requestHolds(headAId, deptId, { labIds: [labId, lab2Id] });
+    const hold1 = dto.holds.find((h) => h.labItemId === labId)!;
+    const hold2 = dto.holds.find((h) => h.labItemId === lab2Id)!;
+    expect([hold1.state, hold2.state]).toEqual(["REQUESTED", "REQUESTED"]);
+    expect(dto.coverage).toMatchObject({ complete: false, windows: [{ rows: [{ label: "Ext Room", have: 0, need: 2 }, { label: "Ext XRD", have: 0, need: 2 }] }] });
+    // Asking again doesn't duplicate; the custodians see it waiting on them.
+    await expect(requests.requestHolds(headAId, deptId, { labIds: [labId] })).rejects.toMatchObject({ status: 409 });
+    expect((await requests.listForActor(custodianId)).find((x) => x.id === r.id)?.waitingOnMe).toBe(true);
+    // Not answerable as an ordinary booking, and the department can't answer up yet.
+    await expect(reservations.decideBooking(custodianId, hold1.id, "APPROVE")).rejects.toMatchObject({ status: 409 });
+    await expect(requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100 })).rejects.toMatchObject({ status: 409 });
+
+    await expect(requests.answerHold(custodian2Id, hold1.id, { decision: "HOLD" })).rejects.toMatchObject({ status: 403 });
+    dto = await requests.answerHold(custodianId, hold1.id, { decision: "HOLD" });
+    expect(dto.holds.find((h) => h.id === hold1.id)?.state).toBe("HELD");
+    await expect(requests.answerHold(custodianId, hold1.id, { decision: "HOLD" })).rejects.toMatchObject({ status: 409, message: "Already held." });
+    // A self-placed hold of the same place and time is refused.
+    await expect(requests.placeHold(custodianId, r.id, { itemIds: [labId], date, start: "09:00", end: "12:00" })).rejects.toMatchObject({ status: 409 });
+
+    await expect(requests.answerHold(custodian2Id, hold2.id, { decision: "WAIT" })).rejects.toMatchObject({ status: 400 });
+    dto = await requests.answerHold(custodian2Id, hold2.id, { decision: "WAIT", note: "Borrowing an XRD from Physics" });
+    expect(dto.holds.find((h) => h.id === hold2.id)).toMatchObject({ state: "REQUESTED" });
+    await expect(requests.answerHold(custodian2Id, hold2.id, { decision: "DECLINE" })).rejects.toMatchObject({ status: 400 });
+    dto = await requests.answerHold(custodian2Id, hold2.id, { decision: "DECLINE", note: "The loan fell through" });
+    expect(dto.coverage).toMatchObject({ complete: false, windows: [{ rows: [{ label: "Ext Room", have: 1, need: 2 }, { label: "Ext XRD", have: 1, need: 2 }] }] });
+
+    // Not fully covered: sending it up needs a reason. The contact is the holder, from their account.
+    expect(dto.assignments.find((a) => a.id === deptId)!.holders.map((h) => h.userId)).toEqual([custodianId]);
+    await expect(requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100 })).rejects.toMatchObject({ status: 400 });
+    await expect(requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100, contactIds: [custodian2Id], note: "One lab only" })).rejects.toMatchObject({ status: 400 });
+    dto = await requests.submitDepartment(headAId, deptId, { sheetUrl: SHEET, amountSantim: 100, note: "One lab is all we have that week" });
+    expect(dto.assignments.find((a) => a.id === deptId)!.contacts).toEqual([expect.objectContaining({ name: "Test custodian", phone: CONTACT_PHONE, role: "Custodian of Ext Lab" })]);
   });
 });

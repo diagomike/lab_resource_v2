@@ -1678,6 +1678,10 @@ model ExternalRequest {
   purpose            String
   /// What they asked for, as free text lines: [{ description, quantity, categoryName? }]
   lines              Json
+  /// FACILITY: the labs the requester needs built up (2026-10-02): per kind of place,
+  /// how many, and what each must have — [{placeCategoryId, count, needs: [{categoryId,
+  /// qty}]}]. The department books places against it (lib/domain/external-coverage.ts).
+  setups             Json?
   /// The official letter (PDF), stored through the same StorageDriver as images.
   letterStorageKey   String
   letterFileName     String

@@ -434,11 +434,19 @@ export async function publicCatalog(): Promise<PublicCatalogDto> {
     const count = counts.get(c.id) ?? 0;
     if (count === 0) continue;
     const g = groups.get(c.groupId) ?? { name: c.group.name, sortOrder: c.group.sortOrder, categories: [] };
-    g.categories.push({ id: c.id, name: c.name, iconKey: c.iconKey, bookingMode: c.bookingMode, count, unit: c.unit });
+    g.categories.push({ id: c.id, name: c.name, iconKey: c.iconKey, bookingMode: c.bookingMode, count, unit: c.unit, isPlace: c.isPlace });
     groups.set(c.groupId, g);
   }
   const rank = (mode: string) => (mode === "ROOM" ? 0 : mode === "EQUIPMENT" ? 1 : 2);
+  // What a lab setup can ask for: every kind of thing the university has in a place
+  // (names only, never counts or where).
+  const present = new Set(forest.items.map((i) => i.categoryId));
+  const setupKinds = Object.values(forest.categories)
+    .filter((c) => !c.isPlace && present.has(c.id))
+    .map((c) => ({ id: c.id, name: c.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   return {
+    setupKinds,
     groups: [...groups.values()]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
       .map((g) => ({ name: g.name, categories: g.categories.sort((a, b) => rank(a.bookingMode) - rank(b.bookingMode) || a.name.localeCompare(b.name)) })),

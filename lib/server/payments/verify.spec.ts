@@ -76,7 +76,7 @@ async function makeUser(suffix: string, roles: string[]) {
   return u.id;
 }
 
-const CONTACT = { name: "Ato Contact", role: "Lab assistant", phone: "+251911222333" };
+
 let requesterSeq = 0;
 
 /** A request taken all the way to QUOTED along the whole line (AVP → dean → head →
@@ -108,7 +108,7 @@ async function quoted(slots: Array<{ day: number; start: string; end: string }>,
   for (const s of slots) await requests.placeHold(custodianId, result.id, { itemIds: [labId], date: dayAhead(s.day), start: s.start, end: s.end });
   const task = await prisma.externalCustodianTask.findFirstOrThrow({ where: { assignmentId: dept } });
   await requests.finishTask(custodianId, task.id, { outcome: "DONE" });
-  await requests.submitDepartment(headId, dept, { sheetUrl: "https://docs.google.com/spreadsheets/d/t", amountSantim, contacts: [CONTACT] });
+  await requests.submitDepartment(headId, dept, { sheetUrl: "https://docs.google.com/spreadsheets/d/t", amountSantim });
   await requests.reviewAssignment(deanId, dept, { decision: "APPROVE" });
   await requests.submitCollege(deanId, college, {});
   await requests.reviewAssignment(avpId, college, { decision: "APPROVE" });
@@ -134,6 +134,8 @@ beforeAll(async () => {
   deanId = await makeUser("dean", ["MANAGER"]);
   headId = await makeUser("head", ["MANAGER"]);
   custodianId = await makeUser("custodian", ["CUSTODIAN"]);
+  // The requester's contact person is the custodian holding the place: they need a phone.
+  await prisma.user.update({ where: { id: custodianId }, data: { phone: "+251911222333" } });
   requesterId = await makeUser("requester", ["EXTERNAL"]);
 
   universityNode = (await prisma.orgNode.create({ data: { name: `${testKey}-uni`, level: 0, kind: "UNIVERSITY", active: true, userId: avpId } })).id;
@@ -190,7 +192,7 @@ describe("automatic verification", () => {
     const mine = await requests.viewForRequester(r.requesterId, r.id);
     expect(mine.status).toBe("SCHEDULED");
     expect(mine.bookings.map((b) => [b.place, b.confirmed])).toEqual([["Pay Lab", true]]);
-    expect(mine.contacts).toEqual([{ departmentName: `${testKey}-dept`, people: [CONTACT] }]);
+    expect(mine.contacts).toEqual([{ departmentName: `${testKey}-dept`, people: [expect.objectContaining({ name: "Test custodian", phone: "+251911222333" })] }]);
     expect(mine.timeline.map((t) => t.label)).toContain("Payment confirmed: booking confirmed");
 
     // One receipt pays once — here or anywhere else.

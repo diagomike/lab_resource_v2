@@ -157,14 +157,17 @@ Booking requests also appear in **Approvals** and on **Home**.
 
 ## 11. Outside requests
 
-When an outside institution asks for rooms or a sample analysis, your head may ask you to hold something for it. You're told, and it appears in **Outside requests**.
+When an outside institution asks for labs or a sample analysis, your head books the places it needs. If one of them is yours, you're told, and the request appears in **Outside requests** with **Places held** listing each date your place was asked for, marked **Asked to hold**.
 
-1. Open the request and click **Hold a slot…**
-2. Choose the **Room**, or only the machines in it (for an analysis), and the **window** requested.
-3. Click **Hold slot**. Repeat for each day you can host.
-4. Then report back on your line: **Done…** or **Can't…** with the reason.
+For each one:
 
-A hold blocks the calendar. It lapses on its own unless the request is paid by the deadline; once paid, it becomes a booking on your calendar.
+- **Hold it**: the place is held on that date for the request. The line then shows **Held** and can't be held twice.
+- **Waiting for a loan…**: your lab is short of something the requester needs (they listed what each lab must have under **Labs to build up**). Ask another department for it from **Resources → Whole university → Request to my lab**, and say here what you are borrowing. Your head sees the note. Hold the place once the things are in your lab.
+- **Can't hold it…**: say why (a class, maintenance, too few working machines). Your head is told and books another place.
+
+A hold blocks the calendar. It lapses on its own unless the request is paid by the deadline; once paid, it becomes a booking on your calendar. You are one of the **contact persons** the requester calls once they have paid, so keep a phone number on **Profile & password**.
+
+For a sample analysis your head may still ask you directly: open the request, click **Hold a slot…**, choose the room or only the machines in it and the window, and click **Hold slot** (it reads **Held** if that room and time is already held), then report **Done…** or **Can't…** on your line.
 
 ## 12. Categories
 

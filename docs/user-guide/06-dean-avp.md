@@ -86,7 +86,7 @@ Outside institutions sign up on the portal and ask for **rooms or labs** (a work
 
 The request reaches you by email. On the college's line, click **Forward to departments…** and tick your departments that could host it, or **Decline…** the college's part, with a reason (its departments' parts end too, and anything they held is released).
 
-Each department's head then asks their custodians to hold rooms or machines, and answers you with the **cost breakdown** (a sheet link and an amount) and the **contact persons** the requester should call once they have paid. For each department's answer:
+Each department's head then books places, their custodians hold them, and the head answers you with the **cost breakdown** (a sheet link and an amount) and the **contact persons** (the custodians holding the places) the requester calls once they have paid. **Held so far** shows how far the held places cover the labs the requester asked for. For each department's answer:
 
 - **Approve…**: it goes into the college's answer;
 - **Send back…**: it goes back to the head with your note, to answer again.

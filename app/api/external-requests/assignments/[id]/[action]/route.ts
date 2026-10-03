@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AssignCustodiansInput, DeclineAssignmentInput, ForwardExternalRequestInput, ReviewAssignmentInput, SubmitCollegeInput, SubmitDepartmentInput, type ExternalRequestDto } from "@/lib/shared";
+import { AssignCustodiansInput, DeclineAssignmentInput, RequestHoldsInput, ForwardExternalRequestInput, ReviewAssignmentInput, SubmitCollegeInput, SubmitDepartmentInput, type ExternalRequestDto } from "@/lib/shared";
 import { parseBody } from "@/lib/server/validate";
 import { errorResponse, HttpError } from "@/lib/server/http-error";
 import { requireSession } from "@/lib/server/auth/session";
 import { prisma } from "@/lib/server/prisma";
-import { assignCustodians, declineAssignment, forwardToDepartments, reviewAssignment, submitCollege, submitDepartment } from "@/lib/server/external/requests";
+import { assignCustodians, declineAssignment, requestHolds, forwardToDepartments, reviewAssignment, submitCollege, submitDepartment } from "@/lib/server/external/requests";
 
 type Params = { params: Promise<{ id: string; action: string }> };
 
@@ -12,7 +12,8 @@ type Params = { params: Promise<{ id: string; action: string }> };
  * One unit's part of an external request — a college (its dean) or a department (its
  * head). Authorization lives in the service:
  *  - forward — the dean sends the college's part to its departments;
- *  - assign — the head asks custodians to hold rooms or machines;
+ *  - book — the head books the department's places: hold requests to their custodians;
+ *  - assign — the head asks custodians to hold rooms or machines (older requests);
  *  - submit — the head sends the department's answer to the dean, or the dean the
  *    college's to the AVP;
  *  - review — the dean on a department's answer, the AVP on a college's (approve / return);
@@ -26,6 +27,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     switch (action) {
       case "forward":
         result = await forwardToDepartments(user.id, id, await parseBody(ForwardExternalRequestInput, request));
+        break;
+      case "book":
+        result = await requestHolds(user.id, id, await parseBody(RequestHoldsInput, request));
         break;
       case "assign":
         result = await assignCustodians(user.id, id, await parseBody(AssignCustodiansInput, request));

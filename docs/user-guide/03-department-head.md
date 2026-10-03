@@ -131,11 +131,14 @@ Other roles (another head, the store keeper, procurement, the ADAA) are set by t
 
 ## 11. Outside requests
 
-When your dean sends an outside institution's request to your department, you're told, and it appears in **Outside requests**, with what they asked for (rooms, or a sample analysis on a machine) and on which dates.
+When your dean sends an outside institution's request to your department, you're told, and it appears in **Outside requests**, with what they asked for and on which dates. A request for labs lists its **Labs to build up**: the kind of place, how many, and what each must have ("2 × Computer lab, each with 25 × Workstation, 1 × Projector").
 
-1. Click **Ask custodians…** on your department's line. Say what each custodian should hold: "B510-R8, mornings", "the XRD".
-2. Each custodian holds slots and reports back (**Held** or **Can't**, with a reason).
-3. When everyone has answered, click **Send to the dean…** with a link to your **cost breakdown**, **your department's amount** in ETB, and the **contact persons** the requester should call once they have paid.
-4. Or **Decline…**, with a reason, if your department can't host it; anything held for it is released.
+1. Click **Book places…** on your department's line. Your department's bookable places are listed with their custodian and the working things in them. Tick the ones to use and click **Ask to hold**. Each place is asked for on every date of the request, and its custodian is told.
+2. Each custodian answers: **Held**, **Can't hold it** (with a reason, so you can book another place), or **Waiting for a loan** (they are borrowing what is missing).
+3. **Held so far** shows, per date, how far the held places cover what was asked: "1 of 2 Computer lab", "28 of 50 Workstation".
+4. When nobody's answer is still pending, click **Send up to the dean…** with a link to your **cost breakdown** and **your department's amount** in ETB. The **contact persons** are the custodians holding the places: untick any you don't want, and each needs a phone number on their profile. If the held places don't cover everything yet, say why in the note.
+5. Or **Decline…**, with a reason, if your department can't host it; anything held for it is released.
+
+For a sample analysis you can still click **Ask custodians…** and say what each should hold ("the XRD").
 
 The dean approves your answer or sends it back with a note. Once the payment is confirmed, the held slots become bookings and you're told.

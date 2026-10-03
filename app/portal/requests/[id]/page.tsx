@@ -174,6 +174,12 @@ function RequestView({ id }: { id: string }) {
                   {w.date} · {w.start}–{w.end}
                 </div>
               ))}
+              {data.setups.map((s, i) => (
+                <div key={`s${i}`}>
+                  <span className="font-mono">{s.count} ×</span> {s.placeCategoryName}
+                  {s.needs.length > 0 && <span className="text-faint">, each with {s.needs.map((n) => `${n.qty} × ${n.categoryName}`).join(", ")}</span>}
+                </div>
+              ))}
               {data.lines.map((l, i) => (
                 <div key={i}>
                   <span className="font-mono">{l.quantity} ×</span> {l.description}
