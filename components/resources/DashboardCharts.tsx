@@ -123,7 +123,9 @@ export function DashboardRankedBars({
   if (rows.length === 0) return <div className="px-14 py-24 text-center text-11 text-faint">{emptyText}</div>;
 
   return (
-    <div className="space-y-7 p-14">
+    // A long list scrolls inside its card (about eight rows show), so the two cards stay
+    // the same height and the page doesn't grow with the number of categories or places.
+    <div className="max-h-[340px] space-y-7 overflow-y-auto p-14">
       {rows.map((row) => (
         <button
           key={row.key}
