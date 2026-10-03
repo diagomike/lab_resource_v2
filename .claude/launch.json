@@ -104,6 +104,22 @@
         "3100"
       ],
       "port": 3100
+    },
+    {
+      "name": "prodcopy",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "e2e/with-env.mjs",
+        "npx",
+        "next",
+        "start",
+        "-p",
+        "3300"
+      ],
+      "port": 3300,
+      "env": {
+        "E2E_DB": "lrms_v2_prodcopy"
+      }
     }
   ]
 }

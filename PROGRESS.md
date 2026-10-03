@@ -5442,3 +5442,43 @@ its model that make porting it as-is the wrong move.
     `external_setups`, `external_offers_resubmit`.
   - **Known and left:** a 375px check of the new dialogs; older hand-made store handovers carry no
     need ids, so Distribute may suggest a need they already answered.
+
+- **2026-10-03 (before the release: two asks, and a rehearsal on a copy of production)**
+  - **Insights:** "What we own most of" and "Where the problems are" are capped at 340px and scroll inside
+    their cards.
+  - **Declines are told and counted.** `Notification.declined` (migration
+    `20261003060000_notification_declined`); `Notice.declined` / `mailStaff(..., { declined })`.
+    - A red badge per sidebar area (`AreaCountDto.declined`, counted from unread declined notices by
+      path), cleared by opening that area (`POST /api/notifications/read { declinedInArea }`) or reading
+      the notice; the bell marks such notices **Declined**.
+    - Marked as declined: a need declined; a purchase request rejected, sent back or cancelled by
+      procurement; a procurement cancelled or buying less; a transfer rejected or stale; a lab's changes
+      sent back or stale; a booking declined or cancelled; a category change not approved; an outside
+      hold or task declined, a department's answer sent back, a part or the whole request declined.
+    - **Others involved now hear too:** earlier approvers of a rejected transfer or purchase request;
+      the deans, heads and custodians working on an outside request (or one part of it) that is declined.
+  - **Checks on this code:** 646/646 unit tests; validator 182/182; campaign 180/183 (O-11, S-14, S-18).
+  - **What the release ships:** `feat/ux-flow` is 22 commits and **13 migrations** ahead of `master`
+    (the UX-flow round of 2026-10-01/02 was never merged, so its six migrations go too; the earlier
+    note of "six migrations" was wrong).
+  - **Rehearsal** (nothing on Neon changed by it):
+    - Backup: `backups/neon-prod-2026-10-03-before-ux-flow.dump` (`pg_dump -Fc`, 57 tables).
+    - Restored into local `lrms_v2_prodcopy`; `prisma migrate deploy` applied all 13 cleanly.
+    - Production before: 9,702 items, 32 users, 41 categories, 38 labs, 3 stores; one purchase
+      request in approval, one lab change waiting for its head; no needs, transfers, bookings, imports
+      or outside requests.
+    - What the migrations remove there, by design of the UX-flow round: 26 STAFF role rows, 31 approved
+      lab ideals with their 31 decided requests, the access-view and approval-policy tables (1 and 52
+      rows), `OrgNode.draftWorkflowEnabled`, the category placement columns.
+    - The new build on the copy (`prodcopy` launch config, :3300, minted sessions): every screen and
+      list API as ten kinds of account, no server error; PR-2026-001 walked through its remaining
+      steps into PROC-2026-001; the waiting lab change approved; a custodian's edit staged.
+  - **To do on production afterwards (not done by the release):**
+    - `ICT Maintenance Officer` held only the removed STAFF role, so it is left with no role.
+    - ChemLab01 and B529 01 are run by the Chemical Engineering head, who holds no custodian role:
+      their contents can't be edited until he hands them to a custodian (Labs & stores).
+    - Lab is not a bookable room and not public there, so outside requests and offers show nothing
+      until the administrator sets that on the Lab category.
+    - No category has a calibration cycle (production has 41 categories, none from the catalogue); no
+      account has a phone; 33 place names still carry a dash.
+    - Vercel's payment variables should name CBE account 1000370930353.
