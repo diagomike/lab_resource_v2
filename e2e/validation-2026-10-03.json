@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-03T07:22:16.321Z",
+  "at": "2026-10-03T08:17:13.712Z",
   "results": [
     {
       "path": "P1",
@@ -11,7 +11,7 @@
       "path": "P1",
       "check": "coeec.dean@astu.edu.et reads every line's details",
       "ok": true,
-      "detail": "{\"lines\":[{\"lineId\":\"cmus27pkj0006v53wn77r7oux\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus27pep0001v53wrl5g72pt\",\"raisedById\":\"cmus27bri00wqv5mcoseasv9m\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus279730005v5qwpv3j5agv\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus27bbh002ev5mcsvb64uqq\",\"categoryName\":\"Chair\",\"labItemId\":\"imus27btf358k3r\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T07:17:31.873Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus2798o000yv5qwf2s5vqap\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T07:17:32.084Z\",\"note\":null,\"purchaseLineId\":\"cmus27pkj0006v53wn77r7oux\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus27pkk0008v53wz75zzjxy\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
+      "detail": "{\"lines\":[{\"lineId\":\"cmus49b4d0006v5qkeapmsuso\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus49b2v0001v5qkh8g1i51q\",\"raisedById\":\"cmus48gqu00wqv5pc3hkbxrp6\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus48fdn0005v5usxn556jcu\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus48gi7002ev5pcw307iyhm\",\"categoryName\":\"Chair\",\"labItemId\":\"imus48gri35pboc\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T08:14:45.848Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus48feh000yv5us99lzhtdd\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T08:14:45.900Z\",\"note\":null,\"purchaseLineId\":\"cmus49b4d0006v5qkeapmsuso\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus49b4d0008v5qkg26c087d\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
     },
     {
       "path": "P1",
@@ -27,7 +27,7 @@
       "path": "P1",
       "check": "cmd@astu.edu.et reads every line's details",
       "ok": true,
-      "detail": "{\"lines\":[{\"lineId\":\"cmus27pkj0006v53wn77r7oux\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus27pep0001v53wrl5g72pt\",\"raisedById\":\"cmus27bri00wqv5mcoseasv9m\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus279730005v5qwpv3j5agv\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus27bbh002ev5mcsvb64uqq\",\"categoryName\":\"Chair\",\"labItemId\":\"imus27btf358k3r\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T07:17:31.873Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus2798o000yv5qwf2s5vqap\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T07:17:32.084Z\",\"note\":null,\"purchaseLineId\":\"cmus27pkj0006v53wn77r7oux\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus27pkk0008v53wz75zzjxy\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
+      "detail": "{\"lines\":[{\"lineId\":\"cmus49b4d0006v5qkeapmsuso\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus49b2v0001v5qkh8g1i51q\",\"raisedById\":\"cmus48gqu00wqv5pc3hkbxrp6\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus48fdn0005v5usxn556jcu\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus48gi7002ev5pcw307iyhm\",\"categoryName\":\"Chair\",\"labItemId\":\"imus48gri35pboc\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T08:14:45.848Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus48feh000yv5us99lzhtdd\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T08:14:45.900Z\",\"note\":null,\"purchaseLineId\":\"cmus49b4d0006v5qkeapmsuso\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus49b4d0008v5qkg26c087d\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
     },
     {
       "path": "P1",
@@ -38,19 +38,19 @@
       "path": "P1",
       "check": "avp@astu.edu.et reads every line's details",
       "ok": true,
-      "detail": "{\"lines\":[{\"lineId\":\"cmus27pkj0006v53wn77r7oux\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus27pep0001v53wrl5g72pt\",\"raisedById\":\"cmus27bri00wqv5mcoseasv9m\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus279730005v5qwpv3j5agv\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus27bbh002ev5mcsvb64uqq\",\"categoryName\":\"Chair\",\"labItemId\":\"imus27btf358k3r\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T07:17:31.873Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus2798o000yv5qwf2s5vqap\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T07:17:32.084Z\",\"note\":null,\"purchaseLineId\":\"cmus27pkj0006v53wn77r7oux\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus27pkk0008v53wz75zzjxy\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
+      "detail": "{\"lines\":[{\"lineId\":\"cmus49b4d0006v5qkeapmsuso\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus49b2v0001v5qkh8g1i51q\",\"raisedById\":\"cmus48gqu00wqv5pc3hkbxrp6\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus48fdn0005v5usxn556jcu\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus48gi7002ev5pcw307iyhm\",\"categoryName\":\"Chair\",\"labItemId\":\"imus48gri35pboc\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T08:14:45.848Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus48feh000yv5us99lzhtdd\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T08:14:45.900Z\",\"note\":null,\"purchaseLineId\":\"cmus49b4d0006v5qkeapmsuso\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus49b4d0008v5qkg26c087d\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
     },
     {
       "path": "P1",
       "check": "procurement@astu.edu.et reads every line's details",
       "ok": true,
-      "detail": "{\"lines\":[{\"lineId\":\"cmus27pkj0006v53wn77r7oux\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus27pep0001v53wrl5g72pt\",\"raisedById\":\"cmus27bri00wqv5mcoseasv9m\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus279730005v5qwpv3j5agv\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus27bbh002ev5mcsvb64uqq\",\"categoryName\":\"Chair\",\"labItemId\":\"imus27btf358k3r\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T07:17:31.873Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus2798o000yv5qwf2s5vqap\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T07:17:32.084Z\",\"note\":null,\"purchaseLineId\":\"cmus27pkj0006v53wn77r7oux\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus27pkk0008v53wz75zzjxy\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
+      "detail": "{\"lines\":[{\"lineId\":\"cmus49b4d0006v5qkeapmsuso\",\"categoryName\":\"Chair\",\"needs\":[{\"id\":\"cmus49b2v0001v5qkh8g1i51q\",\"raisedById\":\"cmus48gqu00wqv5pc3hkbxrp6\",\"raisedByName\":\"Ali Kibret Muhamed\",\"orgNodeId\":\"cmus48fdn0005v5usxn556jcu\",\"orgNodeName\":\"Computer Science and Engineering\",\"name\":\"Lab Chair\",\"qty\":2,\"unit\":\"pcs\",\"categoryId\":\"cmus48gi7002ev5pcw307iyhm\",\"categoryName\":\"Chair\",\"labItemId\":\"imus48gri35pboc\",\"labName\":\"Software Laboratory B510-R8\",\"priority\":\"ESSENTIAL\",\"kind\":\"NEW\",\"replacesItems\":[],\"spec\":null,\"reason\":\"Two benches have no chair\",\"createdAt\":\"2026-10-03T08:14:45.848Z\",\"status\":\"CARRIED\",\"handledById\":\"cmus48feh000yv5us99lzhtdd\",\"handledByName\":\"CSE Department Head\",\"handledAt\":\"2026-10-03T08:14:45.900Z\",\"note\":null,\"purchaseLineId\":\"cmus49b4d0006v5qkeapmsuso\",\"purchaseReference\":\"PR-2026-001\",\"purchaseStage\":\"APPROVING\"}]},{\"lineId\":\"cmus49b4d0008v5qkg26c087d\",\"categoryName\":\"Computer\",\"needs\":[]}]}"
     },
     {
       "path": "P1",
       "check": "procurement starts the purchase: With procurement, in a new procurement",
       "ok": true,
-      "detail": "[\"WITH_PROCUREMENT\",{\"id\":\"cmus280u4000vv53wncn656f8\",\"reference\":\"PROC-2026-001\",\"stage\":\"PREPARING\"}]"
+      "detail": "[\"WITH_PROCUREMENT\",{\"id\":\"cmus49gz7000vv5qkd76u9690\",\"reference\":\"PROC-2026-001\",\"stage\":\"PREPARING\"}]"
     },
     {
       "path": "P1",
@@ -61,7 +61,7 @@
       "path": "P1",
       "check": "a second request is combined into the same procurement",
       "ok": true,
-      "detail": "[{\"id\":\"cmus280u4000vv53wncn656f8\",\"reference\":\"PROC-2026-001\",\"stage\":\"PREPARING\"},2,3]"
+      "detail": "[{\"id\":\"cmus49gz7000vv5qkd76u9690\",\"reference\":\"PROC-2026-001\",\"stage\":\"PREPARING\"},2,3]"
     },
     {
       "path": "P1",
@@ -87,7 +87,7 @@
       "path": "P1",
       "check": "what is bought can be edited, with the reason on its timeline",
       "ok": true,
-      "detail": "{\"at\":\"2026-10-03T07:17:53.291Z\",\"byName\":\"Procurement Officer\",\"stage\":\"ON_DELIVERY\",\"note\":\"What is bought changed: Only one desktop of that model was in stock\",\"lineChanges\":[\"Desktop Computer: 2 → 1 pcs\"]}"
+      "detail": "{\"at\":\"2026-10-03T08:14:57.215Z\",\"byName\":\"Procurement Officer\",\"stage\":\"ON_DELIVERY\",\"note\":\"What is bought changed: Only one desktop of that model was in stock\",\"lineChanges\":[\"Desktop Computer: 2 → 1 pcs\"]}"
     },
     {
       "path": "P1",
@@ -173,7 +173,7 @@
       "path": "P5",
       "check": "the head's Purchasing badge counts it, and what is in progress beside it",
       "ok": true,
-      "detail": "{\"approvals\":{\"action\":0,\"following\":0},\"purchasing\":{\"action\":1,\"following\":0},\"places\":{\"action\":0,\"following\":0},\"outside\":{\"action\":0,\"following\":0},\"bookings\":{\"action\":0,\"following\":0}}"
+      "detail": "{\"approvals\":{\"action\":0,\"following\":0,\"declined\":0},\"purchasing\":{\"action\":1,\"following\":0,\"declined\":1},\"places\":{\"action\":0,\"following\":0,\"declined\":0},\"outside\":{\"action\":0,\"following\":0,\"declined\":0},\"bookings\":{\"action\":0,\"following\":0,\"declined\":0}}"
     },
     {
       "path": "P5",
@@ -218,7 +218,7 @@
       "path": "P4",
       "check": "Distribute suggests the chairs for the lab whose need bought them",
       "ok": true,
-      "detail": "{\"needId\":\"cmus27pep0001v53wrl5g72pt\",\"name\":\"Lab Chair\",\"qty\":2,\"categoryId\":\"cmus27bbh002ev5mcsvb64uqq\",\"categoryName\":\"Chair\",\"purchaseReference\":\"PR-2026-001\",\"items\":[{\"id\":\"imus27bpj5e07m\",\"name\":\"Chair 01\"},{\"id\":\"imus27bpj6xla2\",\"name\":\"Chair 02\"},{\"id\":\"imus27bpj7v0uq\",\"name\":\"Chair 03\"},{\"id\":\"imus28j80152ig\",\"name\":\"Lab Chair\"},{\"id\":\"imus28jef3cwih\",\"name\":\"Lab Chair 02\"}],\"bulk\":false}"
+      "detail": "{\"needId\":\"cmus49b2v0001v5qkh8g1i51q\",\"name\":\"Lab Chair\",\"qty\":2,\"categoryId\":\"cmus48gi7002ev5pcw307iyhm\",\"categoryName\":\"Chair\",\"purchaseReference\":\"PR-2026-001\",\"items\":[{\"id\":\"imus48gpc552yh\",\"name\":\"Chair 01\"},{\"id\":\"imus48gpc6ixg4\",\"name\":\"Chair 02\"},{\"id\":\"imus48gpc71cdu\",\"name\":\"Chair 03\"},{\"id\":\"imus49qto1l7xp\",\"name\":\"Lab Chair\"},{\"id\":\"imus49qw03wjwk\",\"name\":\"Lab Chair 02\"}],\"bulk\":false}"
     },
     {
       "path": "P4",
@@ -245,13 +245,13 @@
       "path": "P4",
       "check": "Property Administration: reads the details (2 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus27bpj5e07m\",\"name\":\"Chair 01\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false},{\"id\":\"imus27bpj6xla2\",\"name\":\"Chair 02\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus48gpc552yh\",\"name\":\"Chair 01\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false},{\"id\":\"imus48gpc6ixg4\",\"name\":\"Chair 02\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P4",
       "check": "Receiving custodian accepts: reads the details (2 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus27bpj5e07m\",\"name\":\"Chair 01\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false},{\"id\":\"imus27bpj6xla2\",\"name\":\"Chair 02\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus48gpc552yh\",\"name\":\"Chair 01\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false},{\"id\":\"imus48gpc6ixg4\",\"name\":\"Chair 02\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P4",
@@ -273,13 +273,13 @@
       "path": "P4",
       "check": "Property Administration: reads the details (1 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus28llu7jp4j\",\"name\":\"Desktop Computer\",\"categoryName\":\"Computer\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[{\"name\":\"Cable\",\"count\":2},{\"name\":\"Speaker\",\"count\":2},{\"name\":\"Keyboard\",\"count\":1},{\"name\":\"Monitor\",\"count\":1},{\"name\":\"Motherboard\",\"count\":1},{\"name\":\"Mouse\",\"count\":1},{\"name\":\"RAM\",\"count\":1},{\"name\":\"Storage\",\"count\":1}],\"partsTotal\":10,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus49s107a7wj\",\"name\":\"Desktop Computer\",\"categoryName\":\"Computer\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[{\"name\":\"Cable\",\"count\":2},{\"name\":\"Speaker\",\"count\":2},{\"name\":\"Keyboard\",\"count\":1},{\"name\":\"Monitor\",\"count\":1},{\"name\":\"Motherboard\",\"count\":1},{\"name\":\"Mouse\",\"count\":1},{\"name\":\"RAM\",\"count\":1},{\"name\":\"Storage\",\"count\":1}],\"partsTotal\":10,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P4",
       "check": "Receiving custodian accepts: reads the details (1 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus28llu7jp4j\",\"name\":\"Desktop Computer\",\"categoryName\":\"Computer\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[{\"name\":\"Cable\",\"count\":2},{\"name\":\"Speaker\",\"count\":2},{\"name\":\"Keyboard\",\"count\":1},{\"name\":\"Monitor\",\"count\":1},{\"name\":\"Motherboard\",\"count\":1},{\"name\":\"Mouse\",\"count\":1},{\"name\":\"RAM\",\"count\":1},{\"name\":\"Storage\",\"count\":1}],\"partsTotal\":10,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Store handover\",\"items\":[{\"id\":\"imus49s107a7wj\",\"name\":\"Desktop Computer\",\"categoryName\":\"Computer\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[{\"name\":\"Cable\",\"count\":2},{\"name\":\"Speaker\",\"count\":2},{\"name\":\"Keyboard\",\"count\":1},{\"name\":\"Monitor\",\"count\":1},{\"name\":\"Motherboard\",\"count\":1},{\"name\":\"Mouse\",\"count\":1},{\"name\":\"RAM\",\"count\":1},{\"name\":\"Storage\",\"count\":1}],\"partsTotal\":10,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P6",
@@ -291,25 +291,25 @@
       "path": "P6",
       "check": "Current custodian: reads the details (1 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus27bpj2163h\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus48gpc26zce\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P6",
       "check": "Receiving head: Computer Science and Engineering: reads the details (1 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus27bpj2163h\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus48gpc26zce\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P6",
       "check": "Property Administration: reads the details (1 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus27bpj2163h\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus48gpc26zce\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P6",
       "check": "Confirm receipt: reads the details (1 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus27bpj2163h\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Request from the store\",\"items\":[{\"id\":\"imus48gpc26zce\",\"name\":\"Table 01\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"ASTU Main Store\"],\"ownerUnitName\":\"Adama Science and Technology University\",\"holderUnitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P6",
@@ -326,19 +326,19 @@
       "path": "P7",
       "check": "Head: Computer Science and Engineering: reads the details (1 item(s) → ASTU Main Store)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Return to the store\",\"items\":[{\"id\":\"imus27btgaz6ako\",\"name\":\"Teacher Chair\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"ASTU Main Store\"],\"unitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Return to the store\",\"items\":[{\"id\":\"imus48griaz7p6g\",\"name\":\"Teacher Chair\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"ASTU Main Store\"],\"unitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P7",
       "check": "Property Administration: reads the details (1 item(s) → ASTU Main Store)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Return to the store\",\"items\":[{\"id\":\"imus27btgaz6ako\",\"name\":\"Teacher Chair\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"ASTU Main Store\"],\"unitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Return to the store\",\"items\":[{\"id\":\"imus48griaz7p6g\",\"name\":\"Teacher Chair\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"ASTU Main Store\"],\"unitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P7",
       "check": "Receiving custodian accepts: reads the details (1 item(s) → ASTU Main Store)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Return to the store\",\"items\":[{\"id\":\"imus27btgaz6ako\",\"name\":\"Teacher Chair\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"ASTU Main Store\"],\"unitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Return to the store\",\"items\":[{\"id\":\"imus48griaz7p6g\",\"name\":\"Teacher Chair\",\"categoryName\":\"Chair\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"ASTU Main Store\"],\"unitName\":\"Adama Science and Technology University\",\"custodianName\":\"Main Store Keeper\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P7",
@@ -355,25 +355,25 @@
       "path": "P8",
       "check": "Current custodian: reads the details (1 item(s) → Software Laboratory B508-R15)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgaydpcr\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48griay2iql\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "Head: Computer Science and Engineering: reads the details (1 item(s) → Software Laboratory B508-R15)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgaydpcr\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48griay2iql\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "College Managing Director: reads the details (1 item(s) → Software Laboratory B508-R15)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgaydpcr\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48griay2iql\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "Confirm receipt: reads the details (1 item(s) → Software Laboratory B508-R15)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgaydpcr\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48griay2iql\",\"name\":\"Teacher Table\",\"categoryName\":\"Table\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B508-R15\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":\"Yohannes Alemu\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
@@ -390,37 +390,37 @@
       "path": "P8",
       "check": "Current custodian: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgb02msl\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48grib0xptf\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "Head: Computer Science and Engineering: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgb02msl\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48grib0xptf\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "Receiving head: Chemical Engineering: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgb02msl\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48grib0xptf\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "College Managing Director: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgb02msl\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48grib0xptf\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "Property Administration: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgb02msl\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48grib0xptf\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
       "check": "Confirm receipt: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus27btgb02msl\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
+      "detail": "{\"movementTitle\":\"Permanent transfer\",\"items\":[{\"id\":\"imus48grib0xptf\",\"name\":\"Whiteboard\",\"categoryName\":\"Whiteboard\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[],\"partsTotal\":0,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":\"Hanna Bekele\",\"ownershipMoves\":true}}"
     },
     {
       "path": "P8",
@@ -437,25 +437,25 @@
       "path": "P9",
       "check": "Current custodian: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus27btgb1l4u3\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
+      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus48grib1jqwk\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
     },
     {
       "path": "P9",
       "check": "Head: Computer Science and Engineering: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus27btgb1l4u3\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
+      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus48grib1jqwk\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
     },
     {
       "path": "P9",
       "check": "Receiving head: Chemical Engineering: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus27btgb1l4u3\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
+      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus48grib1jqwk\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
     },
     {
       "path": "P9",
       "check": "Confirm receipt: reads the details (1 item(s) → Mechanical Unit Operations Laboratory)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus27btgb1l4u3\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
+      "detail": "{\"movementTitle\":\"Loan between units\",\"items\":[{\"id\":\"imus48grib1jqwk\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Software Laboratory B510-R8\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Computer Science and Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Mechanical Unit Operations Laboratory\"],\"unitName\":\"Chemical Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
     },
     {
       "path": "P9",
@@ -466,7 +466,7 @@
       "path": "P9",
       "check": "the borrower may return it, to where it came from",
       "ok": true,
-      "detail": "{\"suggested\":{\"id\":\"imus27btf358k3r\",\"name\":\"Software Laboratory B510-R8\"},\"options\":[{\"id\":\"imus27bvl6afey6p\",\"name\":\"Software Laboratory B508-R10\"},{\"id\":\"imus27bty1ibojka\",\"name\":\"Software Laboratory B508-R11\"},{\"id\":\"imus27btw119abk0\",\"name\":\"Software Laboratory B508-R12\"},{\"id\":\"imus27bvb61whmmg\",\"name\":\"Software Laboratory B508-R13\"},{\"id\":\"imus27bw3700v10x\",\"name\":\"Software Laboratory B508-R14\"},{\"id\":\"imus27btuk72a1e\",\"name\":\"Software Laboratory B508-R15\"},{\"id\":\"imus27btvsqt5ii\",\"name\":\"Software Laboratory B508-R16\"},{\"id\":\"imus27bux52m5yij\",\"name\":\"Software Laboratory B508-R9\"},{\"id\":\"imus27bv25kujays\",\"name\":\"Software Laboratory B509-R1\"},{\"id\":\"imus27buc2xvkjq9\",\"name\":\"Software Laboratory B509-R2\"},{\"id\":\"imus27bu72gf8gd3\",\"name\":\"Software Laboratory B509-R3\"},{\"id\":\"imus27bup4d1uvlo\",\"name\":\"Software Laboratory B509-R4\"},{\"id\":\"imus27bw678jby6l\",\"name\":\"Software Laboratory B509-R5\"},{\"id\":\"imus27bu21zd7kul\",\"name\":\"Software Laboratory B509-R6\"},{\"id\":\"imus27bu11qupkcd\",\"name\":\"Software Laboratory B509-R7\"},{\"id\":\"imus27btx19s4sj1\",\"name\":\"Software Laboratory B509-R8\"},{\"id\":\"imus27bua2oyjj1i\",\"name\":\"Software Laboratory B510-R1\"},{\"id\":\"imus27bud36esx4o\",\"name\":\"Software Laboratory B510-R11\"},{\"id\":\"imus27bus4lk79ci\",\"name\":\"Software Laboratory B510-R12\"},{\"id\":\"imus27bv85td3q8x\",\"name\":\"Software Laboratory B510-R13\"},{\"id\":\"imus27buf3ex4pmy\",\"name\":\"Software Laboratory B510-R14\"},{\"id\":\"imus27bui3ng422r\",\"name\":\"Software Laboratory B510-R15\"},{\"id\":\"imus27buv4u3jv09\",\"name\":\"Software Laboratory B510-R16\"},{\"id\":\"imus27bvu6iylcx9\",\"name\":\"Software Laboratory B510-R17\"},{\"id\":\"imus27bv05bju3hs\",\"name\":\"Software Laboratory B510-R2\"},{\"id\":\"imus27buk3vzbafg\",\"name\":\"Software Laboratory B510-R3\"},{\"id\":\"imus27bvy6rhg1m0\",\"name\":\"Software Laboratory B510-R4\"},{\"id\":\"imus27bun44ig2hv\",\"name\":\"Software Laboratory B510-R5\"},{\"id\":\"imus27bu527w73e2\",\"name\":\"Software Laboratory B510-R6\"},{\"id\":\"imus27btf358k3r\",\"name\":\"Software Laboratory B510-R8\"},{\"id\":\"imus27btsboo3oc\",\"name\":\"Software Laboratory B510-R9\"}],\"side\":\"BORROWER\"}"
+      "detail": "{\"suggested\":{\"id\":\"imus48gri35pboc\",\"name\":\"Software Laboratory B510-R8\"},\"options\":[{\"id\":\"imus48gsu6af48w4\",\"name\":\"Software Laboratory B508-R10\"},{\"id\":\"imus48grt1ibb7xt\",\"name\":\"Software Laboratory B508-R11\"},{\"id\":\"imus48grr119ap2l\",\"name\":\"Software Laboratory B508-R12\"},{\"id\":\"imus48gsp61wv6p3\",\"name\":\"Software Laboratory B508-R13\"},{\"id\":\"imus48gt2700eiiv\",\"name\":\"Software Laboratory B508-R14\"},{\"id\":\"imus48grqk7jaht\",\"name\":\"Software Laboratory B508-R15\"},{\"id\":\"imus48grqsqchqr\",\"name\":\"Software Laboratory B508-R16\"},{\"id\":\"imus48gsc52mlado\",\"name\":\"Software Laboratory B508-R9\"},{\"id\":\"imus48gsg5kue24j\",\"name\":\"Software Laboratory B509-R1\"},{\"id\":\"imus48gs02xv28dt\",\"name\":\"Software Laboratory B509-R2\"},{\"id\":\"imus48gry2gf9q5n\",\"name\":\"Software Laboratory B509-R3\"},{\"id\":\"imus48gs84d1wss4\",\"name\":\"Software Laboratory B509-R4\"},{\"id\":\"imus48gt678jjr8o\",\"name\":\"Software Laboratory B509-R5\"},{\"id\":\"imus48grv1zdr0gn\",\"name\":\"Software Laboratory B509-R6\"},{\"id\":\"imus48grv1qu8yf5\",\"name\":\"Software Laboratory B509-R7\"},{\"id\":\"imus48grs19s6w7q\",\"name\":\"Software Laboratory B509-R8\"},{\"id\":\"imus48gs02oy34nv\",\"name\":\"Software Laboratory B510-R1\"},{\"id\":\"imus48gs136ewdox\",\"name\":\"Software Laboratory B510-R11\"},{\"id\":\"imus48gsa4lkv4c9\",\"name\":\"Software Laboratory B510-R12\"},{\"id\":\"imus48gsm5td2t2m\",\"name\":\"Software Laboratory B510-R13\"},{\"id\":\"imus48gs23exfht4\",\"name\":\"Software Laboratory B510-R14\"},{\"id\":\"imus48gs43ngai6i\",\"name\":\"Software Laboratory B510-R15\"},{\"id\":\"imus48gsb4u3wexy\",\"name\":\"Software Laboratory B510-R16\"},{\"id\":\"imus48gsx6iy2vru\",\"name\":\"Software Laboratory B510-R17\"},{\"id\":\"imus48gse5bj691v\",\"name\":\"Software Laboratory B510-R2\"},{\"id\":\"imus48gs53vzcckz\",\"name\":\"Software Laboratory B510-R3\"},{\"id\":\"imus48gt06rh3bth\",\"name\":\"Software Laboratory B510-R4\"},{\"id\":\"imus48gs644iypvp\",\"name\":\"Software Laboratory B510-R5\"},{\"id\":\"imus48grw27w0wk2\",\"name\":\"Software Laboratory B510-R6\"},{\"id\":\"imus48gri35pboc\",\"name\":\"Software Laboratory B510-R8\"},{\"id\":\"imus48grpbo97b6\",\"name\":\"Software Laboratory B510-R9\"}],\"side\":\"BORROWER\"}"
     },
     {
       "path": "P9",
@@ -478,7 +478,7 @@
       "path": "P9",
       "check": "Confirm receipt: reads the details (1 item(s) → Software Laboratory B510-R8)",
       "ok": true,
-      "detail": "{\"movementTitle\":\"Return to its owner\",\"items\":[{\"id\":\"imus27btgb1l4u3\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Mechanical Unit Operations Laboratory\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Chemical Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
+      "detail": "{\"movementTitle\":\"Return to its owner\",\"items\":[{\"id\":\"imus48grib1jqwk\",\"name\":\"Switch Rack\",\"categoryName\":\"Switch Rack\",\"status\":\"Working\",\"qty\":null,\"unit\":null,\"from\":[\"Mechanical Unit Operations Laboratory\"],\"ownerUnitName\":\"Computer Science and Engineering\",\"holderUnitName\":\"Chemical Engineering\",\"custodianName\":\"Ali Kibret Muhamed\",\"details\":[],\"parts\":[{\"name\":\"Network Outlet\",\"count\":20},{\"name\":\"Network Switch\",\"count\":2}],\"partsTotal\":22,\"changedSinceAsked\":false,\"removed\":false}],\"to\":{\"place\":[\"Software Laboratory B510-R8\"],\"unitName\":\"Computer Science and Engineering\",\"custodianName\":null,\"ownershipMoves\":false}}"
     },
     {
       "path": "P9",
@@ -556,7 +556,7 @@
       "path": "P10",
       "check": "a lab without what each lab must have can't be held",
       "ok": true,
-      "detail": "[{\"reservationId\":\"cmus2a2of007zv53wbm48i9fd\",\"blocked\":\"SHORT\",\"reason\":\"Software Laboratory B510-R8 is short of 1 × Whiteboard (working). Borrow it first (Resources → Whole university → Request to my lab), then hold it.\"}]"
+      "detail": "[{\"reservationId\":\"cmus4aj0h007zv5qk85x0jdlg\",\"blocked\":\"SHORT\",\"reason\":\"Software Laboratory B510-R8 is short of 1 × Whiteboard (working). Borrow it first (Resources → Whole university → Request to my lab), then hold it.\"}]"
     },
     {
       "path": "P10",
@@ -578,7 +578,7 @@
       "path": "P10",
       "check": "everything covered: Ali's request is no longer needed and can't be held",
       "ok": true,
-      "detail": "[{\"reservationId\":\"cmus2a2of007zv53wbm48i9fd\",\"blocked\":\"COVERED\",\"reason\":\"Everything the requester asked for on 2026-10-23 09:00–12:00 is already held, so Software Laboratory B510-R8 isn't needed then.\"}]"
+      "detail": "[{\"reservationId\":\"cmus4aj0h007zv5qk85x0jdlg\",\"blocked\":\"COVERED\",\"reason\":\"Everything the requester asked for on 2026-10-23 09:00–12:00 is already held, so Software Laboratory B510-R8 isn't needed then.\"}]"
     },
     {
       "path": "P10",
@@ -599,7 +599,7 @@
       "path": "P10",
       "check": "the contact is the custodian holding the places, with the phone they set",
       "ok": true,
-      "detail": "[{\"userId\":\"cmus27brr00wsv5mcdtzm19ss\",\"name\":\"Yohannes Alemu\",\"phone\":\"+251911123456\",\"email\":\"yohanesalemu0069@gmail.com\",\"places\":[\"Software Laboratory B508-R15\",\"Software Laboratory B508-R16\"]}]"
+      "detail": "[{\"userId\":\"cmus48gqx00wsv5pccsz66tkt\",\"name\":\"Yohannes Alemu\",\"phone\":\"+251911123456\",\"email\":\"yohanesalemu0069@gmail.com\",\"places\":[\"Software Laboratory B508-R15\",\"Software Laboratory B508-R16\"]}]"
     },
     {
       "path": "P10",
@@ -637,7 +637,7 @@
       "path": "P10",
       "check": "requester sees their setups, the breakdown, bank details and the two held labs: no contacts yet",
       "ok": true,
-      "detail": "{\"setups\":[{\"placeCategoryId\":\"cmus27b9t000hv5mc44m7patb\",\"placeCategoryName\":\"Lab\",\"count\":2,\"needs\":[{\"categoryId\":\"cmus27bae0014v5mc4pjvgfxy\",\"categoryName\":\"Workstation Setup\",\"qty\":10},{\"categoryId\":\"cmus27bbi002gv5mc5a8osd9y\",\"categoryName\":\"Whiteboard\",\"qty\":1}]}],\"bookings\":[{\"place\":\"Software Laboratory B508-R15\",\"date\":\"2026-10-23\",\"start\":\"09:00\",\"end\":\"12:00\",\"confirmed\":false},{\"place\":\"Software Laboratory B508-R16\",\"date\":\"2026-10-23\",\"start\":\"09:00\",\"end\":\"12:00\",\"confirmed\":false}]}"
+      "detail": "{\"setups\":[{\"placeCategoryId\":\"cmus48ghg000hv5pcnu907fu7\",\"placeCategoryName\":\"Lab\",\"count\":2,\"needs\":[{\"categoryId\":\"cmus48ghr0014v5pctobl15af\",\"categoryName\":\"Workstation Setup\",\"qty\":10},{\"categoryId\":\"cmus48gi8002gv5pc7gtt3jj2\",\"categoryName\":\"Whiteboard\",\"qty\":1}]}],\"bookings\":[{\"place\":\"Software Laboratory B508-R15\",\"date\":\"2026-10-23\",\"start\":\"09:00\",\"end\":\"12:00\",\"confirmed\":false},{\"place\":\"Software Laboratory B508-R16\",\"date\":\"2026-10-23\",\"start\":\"09:00\",\"end\":\"12:00\",\"confirmed\":false}]}"
     },
     {
       "path": "P10",
@@ -654,7 +654,7 @@
       "path": "P10",
       "check": "the AVP sees the requester's receipt link and the account to check it against",
       "ok": true,
-      "detail": "{\"id\":\"cmus2arls0099v53w59l3ep67\",\"provider\":\"TELEBIRR\",\"reference\":\"FAKE-12500\",\"status\":\"VERIFIED\",\"amountSantim\":1250000,\"payerName\":\"Fake Payer\",\"receiverName\":\"Adama Science and Technology University\",\"receiverAccount\":null,\"paidAt\":\"2026-10-03T07:19:00.000Z\",\"reason\":null,\"requesterNote\":null,\"reviewedByName\":null,\"createdAt\":\"2026-10-03T07:19:54.688Z\",\"canReview\":false,\"receiptUrl\":null,\"receiptLink\":\"https://receipts.example.org/telebirr/FAKE-12500\"}"
+      "detail": "{\"id\":\"cmus4avnv0099v5qkq3wkycw9\",\"provider\":\"TELEBIRR\",\"reference\":\"FAKE-12500\",\"status\":\"VERIFIED\",\"amountSantim\":1250000,\"payerName\":\"Fake Payer\",\"receiverName\":\"Adama Science and Technology University\",\"receiverAccount\":null,\"paidAt\":\"2026-10-03T08:15:00.000Z\",\"reason\":null,\"requesterNote\":null,\"reviewedByName\":null,\"createdAt\":\"2026-10-03T08:15:59.180Z\",\"canReview\":false,\"receiptUrl\":null,\"receiptLink\":\"https://receipts.example.org/telebirr/FAKE-12500\"}"
     },
     {
       "path": "P10",
@@ -775,7 +775,7 @@
       "path": "P10",
       "check": "sent again as a new request: linked to the first, its letter kept, the reason it was closed shown to the AVP",
       "ok": true,
-      "detail": "[{\"id\":\"cmus2bzn800b1v53wqznn51ho\",\"reference\":\"EXT-2026-003\",\"closingNote\":\"That is the university's own examination week. Any week after it works.\"},{\"fileName\":\"letter.pdf\",\"byteSize\":77,\"url\":\"/api/external-requests/cmus2c7sc00bav53w551hzcfx/letter\"},{\"key\":\"EXAM\",\"name\":\"Examination\",\"people\":60}]"
+      "detail": "[{\"id\":\"cmus4bhuf00b1v5qk95xwzko3\",\"reference\":\"EXT-2026-003\",\"closingNote\":\"That is the university's own examination week. Any week after it works.\"},{\"fileName\":\"letter.pdf\",\"byteSize\":77,\"url\":\"/api/external-requests/cmus4bmc900bav5qkl324d35w/letter\"},{\"key\":\"EXAM\",\"name\":\"Examination\",\"people\":60}]"
     },
     {
       "path": "P10",
@@ -824,7 +824,7 @@
       "path": "P15",
       "check": "the keeper's edit waits in the store's changes",
       "ok": true,
-      "detail": "{\"labItemId\":\"imus27bpj1ckhz\",\"labName\":\"ASTU Main Store\"}"
+      "detail": "{\"labItemId\":\"imus48gpc1qh8d\",\"labName\":\"ASTU Main Store\"}"
     },
     {
       "path": "P15",
@@ -887,7 +887,7 @@
       "path": "P12",
       "check": "…and the bell has it, linking to the lab",
       "ok": true,
-      "detail": "/places/imus2cq381ctttw"
+      "detail": "/places/imus4bvu41cd6s0"
     },
     {
       "path": "P12",
@@ -935,7 +935,7 @@
       "path": "P14",
       "check": "the edits are kept in the lab's changes",
       "ok": true,
-      "detail": "[{\"labItemId\":\"imus27btf358k3r\",\"labName\":\"Software Laboratory B510-R8\"},{\"labItemId\":\"imus27btf358k3r\",\"labName\":\"Software Laboratory B510-R8\"}]"
+      "detail": "[{\"labItemId\":\"imus48gri35pboc\",\"labName\":\"Software Laboratory B510-R8\"},{\"labItemId\":\"imus48gri35pboc\",\"labName\":\"Software Laboratory B510-R8\"}]"
     },
     {
       "path": "P14",
