@@ -309,6 +309,7 @@ export async function decideChange(actorId: string, changeId: string, input: Dec
       paragraphs: [`${esc(me.name)} did not approve your change to <strong>${esc(c.category.name)}</strong>.${quoted(note)}`, "The category stays as it was. A category of your own department's may fit better. Open it and choose “Make a copy for my department”."],
       path: categoryPath(c.categoryId),
       action: "Open the category",
+      declined: true,
     });
     return changeDto(changeId, actorId);
   }

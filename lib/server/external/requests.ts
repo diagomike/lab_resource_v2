@@ -35,6 +35,7 @@ import { OFFERS } from "@/lib/domain/external-offers";
 import { RESERVATION_INCLUDE, civilDateOf, dateColumn, decidesFor, resolveBookingTarget, subtreeRows, toReservationDto, viewerOf } from "../scheduling/context";
 import { decideBooking, equipmentOf, writeReservation } from "../scheduling/reservations";
 import { esc, etb, mailRequester, mailStaff, portalUrl } from "./mail";
+import { notify, quoted } from "../mail/notify";
 import { PROVIDER_INPUT } from "@/lib/domain/payment-receipt";
 import { enabledProviders, receiverConfig } from "../payments/config";
 import { paths } from "@/lib/paths";
@@ -588,6 +589,20 @@ function cancellable(row: { status: ExternalRequestStatus; payments: Array<{ sta
 
 export function paidSantimOf(payments: Array<{ status: string; amountSantim: number | null }>): number {
   return payments.filter((p) => (COUNTED_PAYMENTS as readonly string[]).includes(p.status)).reduce((sum, p) => sum + (p.amountSantim ?? 0), 0);
+}
+
+/** The staff working on a request (the deans and heads of its parts, the custodians asked
+ *  or holding for it), optionally only within some units: who hears when it stops. */
+async function staffOn(requestId: string, onlyNodeIds?: string[]): Promise<string[]> {
+  const inUnits = onlyNodeIds ? { OR: [{ ownerOrgNodeId: { in: onlyNodeIds } }, { currentOrgNodeId: { in: onlyNodeIds } }] } : undefined;
+  const [parts, holds] = await Promise.all([
+    prisma.externalRequestAssignment.findMany({
+      where: { requestId, ...(onlyNodeIds ? { orgNodeId: { in: onlyNodeIds } } : {}) },
+      select: { orgNode: { select: { userId: true } }, tasks: { select: { custodianId: true } } },
+    }),
+    prisma.reservation.findMany({ where: { externalRequestId: requestId, state: { in: ["REQUESTED", "HELD", "CONFIRMED"] }, ...(inUnits ? { lab: inUnits } : {}) }, select: { lab: { select: { custodianId: true } } } }),
+  ]);
+  return [...new Set([...parts.flatMap((p) => [p.orgNode.userId, ...p.tasks.map((t) => t.custodianId)]), ...holds.map((h) => h.lab.custodianId)].filter((id): id is string => Boolean(id)))];
 }
 
 async function releaseHolds(tx: Prisma.TransactionClient, requestId: string, state: "CANCELLED" | "EXPIRED", onlyNodeIds?: string[]) {
@@ -1231,6 +1246,7 @@ export async function answerHold(userId: string, reservationId: string, input: A
     `${r.lab.name}: ${input.decision === "HOLD" ? "held" : input.decision === "WAIT" ? "waiting for a loan" : "can't be held"} for ${row.reference}`,
     [note ? esc(note) : "No note."],
     paths.outside(row.id),
+    { declined: input.decision === "DECLINE" },
   );
   return getForActor(userId, row.id);
 }
@@ -1258,6 +1274,7 @@ export async function finishTask(userId: string, taskId: string, input: FinishTa
     `${task.custodian.name} ${input.outcome === "DONE" ? "has held" : "can't hold"} ${task.want}: ${task.assignment.request.reference}`,
     [input.note ? esc(input.note) : "No note.", "When every custodian has answered, send the dean the booked rooms, the cost breakdown and the contact persons."],
     paths.outside(task.assignment.request.id),
+    { declined: input.outcome === "DECLINED" },
   );
   return getForActor(userId, task.assignment.requestId);
 }
@@ -1365,7 +1382,7 @@ export async function reviewAssignment(userId: string, assignmentId: string, inp
     await event(tx, a.requestId, actor, approve ? "ANSWER_APPROVED" : "ANSWER_RETURNED", [a.orgNode.name, input.note].filter(Boolean).join(" · "));
   });
   if (!approve) {
-    await mailStaff(await emailOf(a.orgNode.userId), `${a.request.reference} was sent back to ${a.orgNode.name}`, [input.note ? esc(input.note) : "No note.", "Revise the answer and submit it again."], paths.outside(a.request.id));
+    await mailStaff(await emailOf(a.orgNode.userId), `${a.request.reference} was sent back to ${a.orgNode.name}`, [input.note ? esc(input.note) : "No note.", "Revise the answer and submit it again."], paths.outside(a.request.id), { declined: true });
   }
   return getForActor(userId, a.requestId);
 }
@@ -1399,12 +1416,26 @@ export async function declineAssignment(userId: string, assignmentId: string, in
   if (!WORKING.includes(a.status)) throw new HttpError(409, "This part has already been answered.");
   const nodeIds = [a.orgNodeId, ...a.children.map((c) => c.orgNodeId)];
   const actor = await actorOf(userId);
+  // Read before the holds are released: the heads and custodians of this part.
+  const involved = await staffOn(a.requestId, nodeIds);
   await prisma.$transaction(async (tx) => {
     await tx.externalRequestAssignment.updateMany({ where: { id: { in: [a.id, ...a.children.map((c) => c.id)] } }, data: { status: "DECLINED", note: input.note, decidedById: userId, decidedAt: new Date() } });
     await releaseHolds(tx, a.requestId, "CANCELLED", nodeIds);
     await event(tx, a.requestId, actor, a.level === "COLLEGE" ? "COLLEGE_DECLINED" : "DEPARTMENT_DECLINED", [a.orgNode.name, input.note].filter(Boolean).join(" · "));
   });
-  await mailStaff(await emailOf(a.parent?.orgNode.userId ?? (await avpUserId())), `${a.orgNode.name} declined its part of ${a.request.reference}`, [esc(input.note)], paths.outside(a.request.id));
+  const upward = a.parent?.orgNode.userId ?? (await avpUserId());
+  await mailStaff(await emailOf(upward), `${a.orgNode.name} declined its part of ${a.request.reference}`, [esc(input.note)], paths.outside(a.request.id), { declined: true });
+  // Everyone working on that part hears it stopped, and that what they held is released.
+  await notify(
+    involved.filter((id) => id !== upward),
+    userId,
+    {
+      subject: `${a.orgNode.name} declined its part of ${a.request.reference}`,
+      paragraphs: [`${esc(a.orgNode.name)} will not host ${esc(a.request.reference)}. Anything held for it there is released, and there is nothing left for you to do on it.${quoted(input.note)}`],
+      path: paths.outside(a.request.id),
+      declined: true,
+    },
+  );
   return getForActor(userId, a.requestId);
 }
 
@@ -1467,6 +1498,8 @@ export async function closeRequest(userId: string, id: string, input: CloseExter
   if (!row) throw new HttpError(404, "Request not found");
   if (!OPEN_STATUSES.includes(row.status)) throw new HttpError(409, "This request is already closed.");
   const actor = await actorOf(userId);
+  // Read before the holds are released: everyone who was working on it.
+  const involved = await staffOn(id);
   await prisma.$transaction(async (tx) => {
     await releaseHolds(tx, id, "CANCELLED");
     await tx.externalRequest.update({ where: { id }, data: { status: "DECLINED", closingNote: input.note } });
@@ -1474,6 +1507,13 @@ export async function closeRequest(userId: string, id: string, input: CloseExter
   });
   const refundNote = row.status === "PAID" || row.status === "PAYMENT_SUBMITTED" ? "The university's office will contact you about returning your payment." : "";
   await mailRequester(await requesterEmail(row), `Request ${row.reference}`, [`Dear ${esc(row.contactName)},`, `We are unable to provide what ${esc(row.organizationName)} asked for.`, esc(input.note), refundNote, "If you can change what you asked for (other dates, fewer places), open your request and choose <strong>Edit and send again</strong>: everything you sent is filled in for you."].filter(Boolean), { href: portalUrl(id), label: "View your request" });
+  // The deans, heads and custodians who were working on it hear it stopped.
+  await notify(involved, userId, {
+    subject: `${row.reference} was declined`,
+    paragraphs: [`The AVP's office declined ${esc(row.organizationName)}'s request. Anything held for it is released, and there is nothing left for you to do on it.${quoted(input.note)}`],
+    path: paths.outside(id),
+    declined: true,
+  });
   return getForActor(userId, id);
 }
 

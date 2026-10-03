@@ -379,6 +379,9 @@ describe("holds and the quote's lifetime", () => {
     await requests.placeHold(custodianId, r.id, { itemIds: [labId], date, start: "09:00", end: "12:00" });
     const dto = await requests.closeRequest(avpId, r.id, { note: "Dates unavailable" });
     expect([dto.status, dto.holds.map((h) => h.state)]).toEqual(["DECLINED", ["CANCELLED"]]);
+    // Everyone who was working on it hears it stopped, as bad news (the sidebar's red badge).
+    const told = await prisma.notification.findMany({ where: { title: `${r.reference} was declined`, declined: true }, select: { userId: true } });
+    expect(new Set(told.map((n) => n.userId))).toEqual(new Set([deanId, headAId, custodianId]));
   });
 });
 

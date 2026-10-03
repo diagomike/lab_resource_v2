@@ -763,7 +763,19 @@ async function tellRequesterOutcome(request: ChangeRequestDto, actorId: string):
     subject: `Your transfer ${outcome[0]}: ${request.summary}`,
     paragraphs: [`<strong>${esc(request.summary)}</strong>: ${outcome[1]}${quoted(request.resolution)}`],
     path: paths.mine("transfer", request.id),
+    declined: request.status !== "APPLIED",
   });
+  // Whoever already approved it hears that it stopped, so nobody waits for something
+  // that isn't coming (2026-10-03).
+  if (request.status !== "APPLIED") {
+    const approved = request.steps.filter((s) => s.status === "APPROVED" && s.approverId && s.approverId !== request.requesterId).map((s) => s.approverId);
+    await notify(approved, actorId, {
+      subject: `A transfer you approved ${outcome[0]}: ${request.summary}`,
+      paragraphs: [`<strong>${esc(request.summary)}</strong>, asked for by ${esc(request.requesterName)}: ${outcome[1]}${quoted(request.resolution)}`],
+      path: paths.decide("transfer", request.id).replace("?focus=", "?box=mine&focus="),
+      declined: true,
+    });
+  }
 }
 
 // ── Deciding a step ──────────────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
+import { api } from "../../lib/api";
 import NavIcon from "./NavIcon";
 import { usePathname } from "next/navigation";
 import { navFor, screenKeyForPath } from "../../lib/nav";
@@ -30,9 +32,24 @@ export default function Sidebar({
   const pathname = usePathname();
   const { me } = useAuth();
   const facts = useNavFacts();
-  const { counts } = useHomeCounts();
+  const { counts, refresh } = useHomeCounts();
   const isAdmin = facts.roles.includes("SYS_ADMIN");
   const activeKey = screenKeyForPath(pathname);
+  // Opening an area reads its bad news (declined, sent back): its red badge clears. Only
+  // on arriving there, so a decline that lands while the page is open still shows.
+  const declinedHere = BADGE[activeKey] && counts ? counts.areas[BADGE[activeKey]].declined : 0;
+  const declinedRef = useRef(0);
+  declinedRef.current = declinedHere;
+  useEffect(() => {
+    const area = BADGE[activeKey];
+    if (!area) return;
+    const timer = window.setTimeout(() => {
+      if (!declinedRef.current) return;
+      api.post("/notifications/read", { declinedInArea: area }).then(refresh, () => {});
+    }, 2500);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
 
   return (
     <div className="bg-panel2 md:border-r border-border flex flex-col min-h-0 h-full overflow-hidden">
@@ -85,7 +102,9 @@ export default function Sidebar({
             {group.items.map((item) => {
               const on = item.key === activeKey;
               const area = BADGE[item.key] && counts ? counts.areas[BADGE[item.key]] : null;
-              const words = area && (area.action || area.following) ? [area.action ? `${area.action} waiting for you` : "", area.following ? `${area.following} in progress` : ""].filter(Boolean).join(", ") : "";
+              const words = area
+                ? [area.declined ? `${area.declined} declined or sent back` : "", area.action ? `${area.action} waiting for you` : "", area.following ? `${area.following} in progress` : ""].filter(Boolean).join(", ")
+                : "";
               return (
                 <Link
                   key={item.key}
@@ -104,7 +123,7 @@ export default function Sidebar({
                 >
                   <NavIcon name={item.icon} />
                   <span className="flex-1 whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>
-                  {area && <CountChips action={area.action} following={area.following} />}
+                  {area && <CountChips action={area.action} following={area.following} declined={area.declined} />}
                 </Link>
               );
             })}

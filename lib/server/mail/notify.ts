@@ -44,6 +44,9 @@ export interface Notice {
   path: string;
   /** Button text; defaults to "Open it in Lab Resources". */
   action?: string;
+  /** Bad news (declined, rejected, sent back, cancelled): the sidebar counts it in red
+   *  until the person has read it. */
+  declined?: boolean;
 }
 
 /** A notice's first paragraph as plain text — what the bell and Home show under the title. */
@@ -72,7 +75,7 @@ export async function notify(recipientIds: Array<string | null | undefined> | st
   const recipients = await prisma.user.findMany({ where: { id: { in: ids }, status: "ACTIVE" }, select: { id: true, email: true, emailNotifications: true } });
   try {
     await prisma.notification.createMany({
-      data: recipients.map((u) => ({ userId: u.id, actorId, title: notice.subject, body: plainText(notice.paragraphs[0] ?? ""), path: notice.path })),
+      data: recipients.map((u) => ({ userId: u.id, actorId, title: notice.subject, body: plainText(notice.paragraphs[0] ?? ""), path: notice.path, declined: Boolean(notice.declined) })),
     });
   } catch (err) {
     // Like a failed email, a failed notification row never breaks the action behind it.

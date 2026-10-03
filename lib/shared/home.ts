@@ -8,6 +8,8 @@ export const NotificationDto = z.object({
   path: z.string(),
   actorName: z.string().nullable(),
   read: z.boolean(),
+  /** Bad news: declined, rejected, sent back or cancelled. */
+  declined: z.boolean(),
   createdAt: z.string(),
 });
 export type NotificationDto = z.infer<typeof NotificationDto>;
@@ -16,7 +18,12 @@ export const NotificationsDto = z.object({ items: z.array(NotificationDto), unre
 export type NotificationsDto = z.infer<typeof NotificationsDto>;
 
 /** Mark some notices read — or all of them. */
-export const MarkNotificationsReadInput = z.object({ ids: z.array(z.string()).max(200).optional(), all: z.boolean().optional() });
+export const MarkNotificationsReadInput = z.object({
+  ids: z.array(z.string()).max(200).optional(),
+  all: z.boolean().optional(),
+  /** Opening an area of the app reads its bad-news notices, which clears its red badge. */
+  declinedInArea: z.enum(["approvals", "purchasing", "places", "outside", "bookings"]).optional(),
+});
 export type MarkNotificationsReadInput = z.infer<typeof MarkNotificationsReadInput>;
 
 export const waitingKinds = ["transfer", "lab-commit", "purchase", "booking", "category-change", "needs", "procure", "arrivals", "loads", "external"] as const;
@@ -59,7 +66,9 @@ export type HomeDto = z.infer<typeof HomeDto>;
 /** One area's live counts: what waits for this person's action, and what they started
  *  or take part in that is still moving (it stops counting once it reaches its end,
  *  and at once when it fails: rejected, cancelled, declined). */
-export const AreaCountDto = z.object({ action: z.number().int(), following: z.number().int() });
+/** `action`: waiting for this person. `following`: theirs, still in progress. `declined`:
+ *  bad news about something of theirs (declined, rejected, sent back) they haven't read. */
+export const AreaCountDto = z.object({ action: z.number().int(), following: z.number().int(), declined: z.number().int().default(0) });
 export type AreaCountDto = z.infer<typeof AreaCountDto>;
 
 export const countAreas = ["approvals", "purchasing", "places", "outside", "bookings"] as const;

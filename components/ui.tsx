@@ -177,11 +177,16 @@ export function Table<T>({
  * this person's action, a quieter slate-blue chip for what they follow that is still
  * moving (it disappears once everything reaches its end).
  */
-export function CountChips({ action = 0, following = 0 }: { action?: number; following?: number }) {
-  if (!action && !following) return null;
-  const words = [action ? `${action} waiting for you` : "", following ? `${following} in progress` : ""].filter(Boolean).join(", ");
+export function CountChips({ action = 0, following = 0, declined = 0 }: { action?: number; following?: number; declined?: number }) {
+  if (!action && !following && !declined) return null;
+  const words = [declined ? `${declined} declined or sent back` : "", action ? `${action} waiting for you` : "", following ? `${following} in progress` : ""].filter(Boolean).join(", ");
   return (
     <span className="flex items-center gap-3 flex-none" title={words}>
+      {declined > 0 && (
+        <span className="text-10.5 font-semibold font-mono px-5 rounded-full bg-bad text-white leading-relaxed" aria-hidden="true">
+          {declined}
+        </span>
+      )}
       {action > 0 && (
         <span className="text-10.5 font-semibold font-mono px-5 rounded-full bg-accent text-white leading-relaxed" aria-hidden="true">
           {action}

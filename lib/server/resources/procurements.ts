@@ -206,8 +206,8 @@ async function raisersOf(procurementId: string): Promise<string[]> {
   return [...new Set(rows.map((r) => r.purchaseRequest.raisedById))];
 }
 
-async function tellRaisers(dto: ProcurementDto, actorId: string, subject: string, paragraphs: string[]): Promise<void> {
-  await notify(await raisersOf(dto.id), actorId, { subject, paragraphs, path: paths.procurement(dto.id), action: "Open the procurement" });
+async function tellRaisers(dto: ProcurementDto, actorId: string, subject: string, paragraphs: string[], declined = false): Promise<void> {
+  await notify(await raisersOf(dto.id), actorId, { subject, paragraphs, path: paths.procurement(dto.id), action: "Open the procurement", declined });
 }
 
 const requestList = (dto: ProcurementDto) => dto.requests.map((r) => `<strong>${esc(r.reference)}</strong>`).join(", ");
@@ -345,6 +345,7 @@ export async function editLines(actorId: string, id: string, input: EditProcurem
       paragraphs: [`Procurement changed what <strong>${esc(dto.reference)}</strong> buys:`, changes.map((c) => esc(c)).join("<br>"), `Why: ${esc(input.reason)}`],
       path: paths.procurement(dto.id),
       action: "Open the procurement",
+      declined: true,
     });
   }
   return dto;
@@ -408,9 +409,13 @@ export async function cancelProcurement(actorId: string, id: string, input: Canc
     await mirror(tx, id, actorId, "CANCELLED", row.reference, input.note);
   });
   const dto = await load(id, actorId);
-  await tellRaisers(dto, actorId, `${dto.reference} was cancelled`, [
-    `Procurement cancelled <strong>${esc(dto.reference)}</strong>. ${requestList(dto)} ${dto.requests.length === 1 ? "is" : "are"} back with procurement, to be bought another way.${quoted(input.note)}`,
-  ]);
+  await tellRaisers(
+    dto,
+    actorId,
+    `${dto.reference} was cancelled`,
+    [`Procurement cancelled <strong>${esc(dto.reference)}</strong>. ${requestList(dto)} ${dto.requests.length === 1 ? "is" : "are"} back with procurement, to be bought another way.${quoted(input.note)}`],
+    true,
+  );
   return dto;
 }
 

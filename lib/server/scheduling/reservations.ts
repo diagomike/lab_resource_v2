@@ -205,6 +205,7 @@ async function tellRequester(dto: ReservationDto, actorId: string, verb: string)
     subject: `Your booking of ${dto.labName} on ${dto.date} was ${verb}`,
     paragraphs: [`“${esc(dto.title)}”, ${when(dto)}, was <strong>${verb}</strong>${dto.decidedByName ? ` by ${esc(dto.decidedByName)}` : ""}.${quoted(dto.note)}`],
     path: paths.mine("booking", dto.id),
+    declined: verb !== "confirmed" && verb !== "approved",
   });
 }
 

@@ -153,7 +153,7 @@ describe("Home", () => {
     await purchasing.raiseNeed(custodianId, { labItemId: labId, name: "Oscilloscope", qty: 2, reason: "Two broke this term" });
     const counts = await home.homeCounts(headId);
     expect(counts.areas.purchasing.action).toBe(1);
-    expect(counts.tabs["purchasing.needs"]).toEqual({ action: 1, following: 0 });
+    expect(counts.tabs["purchasing.needs"]).toEqual({ action: 1, following: 0, declined: 0 });
     // The custodian who asked keeps seeing it as in progress until it reaches its end.
     expect((await home.homeCounts(custodianId)).tabs["purchasing.needs"].following).toBeGreaterThanOrEqual(1);
     const h = await home.homeFor(headId);
@@ -163,6 +163,30 @@ describe("Home", () => {
 
     const mine = await home.homeFor(custodianId);
     expect(mine.mine.map((r) => r.label)).toContain(`Oscilloscope × 2 · ${testKey} Lab`);
+  });
+
+  it("a declined need is bad news: a red badge on Purchasing until it is read, there or under the bell", async () => {
+    const need = await purchasing.raiseNeed(custodianId, { labItemId: labId, name: "Function generator", qty: 1, reason: "For the signals practical" });
+    expect((await home.homeCounts(custodianId)).areas.purchasing.declined).toBe(0);
+    const mark = sent.length;
+    await purchasing.declineNeed(headId, need.id, { note: "Not this budget year" });
+    // An email, a notice under the bell marked as declined, and the area's badge.
+    expect(sent.slice(mark).map((m) => m.subject)).toEqual([`Your need "Function generator" was declined`]);
+    const bell = await notifications.listNotifications(custodianId);
+    expect(bell.items[0]).toMatchObject({ title: `Your need "Function generator" was declined`, declined: true, read: false });
+    let counts = await home.homeCounts(custodianId);
+    expect([counts.areas.purchasing.declined, counts.areas.approvals.declined, counts.areas.outside.declined]).toEqual([1, 0, 0]);
+    // The head who declined it has no bad news of their own.
+    expect((await home.homeCounts(headId)).areas.purchasing.declined).toBe(0);
+    // Opening another area doesn't clear it; opening Purchasing does, and only for them.
+    expect(await notifications.markRead(custodianId, { declinedInArea: "approvals" })).toBe(0);
+    expect(await notifications.markRead(headId, { declinedInArea: "purchasing" })).toBe(0);
+    expect(await notifications.markRead(custodianId, { declinedInArea: "purchasing" })).toBe(1);
+    counts = await home.homeCounts(custodianId);
+    expect(counts.areas.purchasing.declined).toBe(0);
+    // Good news is never counted as declined.
+    await notify.notify(custodianId, headId, { subject: `${testKey}: approved`, paragraphs: ["Done."], path: "/purchasing?tab=needs" });
+    expect((await home.homeCounts(custodianId)).areas.purchasing.declined).toBe(0);
   });
 
   it("changes made in a lab and not sent are unfinished work: on Home and the Labs & stores badge", async () => {

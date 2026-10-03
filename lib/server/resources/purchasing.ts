@@ -383,6 +383,7 @@ export async function declineNeed(actorId: string, needId: string, input: Declin
     subject: `Your need "${need.name}" was declined`,
     paragraphs: [`The head declined your need for <strong>${esc(need.name)}</strong> (× ${esc(String(need.qty))}).${quoted(input.note)}`],
     path: paths.need(needId),
+    declined: true,
   });
   return (await toNeedDtos([row]))[0];
 }
@@ -751,14 +752,24 @@ export async function decideStep(
 
   const dto = await loadDto(requestId, actorId);
   const cited = documentsSentWith(dto);
+  const alreadyApproved = dto.steps.filter((s) => s.status === "APPROVED" && s.approverId && s.approverId !== dto.raisedById).map((s) => s.approverId);
   if (dto.stage === "APPROVING") await tellNextApprover(dto, actorId);
-  else if (dto.stage === "REJECTED")
-    await tellRaiser(dto, actorId, `${dto.reference} was rejected`, [`${summary(dto)} was rejected and won't go further. Any needs carried into it are open again.${quoted(note)}`, ...cited]);
-  else if (dto.stage === "REVISING")
-    await tellRaiser(dto, actorId, `${dto.reference} was sent back for revision`, [
-      `${summary(dto)} was sent back to you. Edit it and resubmit; the approval chain starts again.${quoted(note)}`,
-      ...cited,
-    ]);
+  else if (dto.stage === "REJECTED") {
+    await tellRaiser(dto, actorId, `${dto.reference} was rejected`, [`${summary(dto)} was rejected and won't go further. Any needs carried into it are open again.${quoted(note)}`, ...cited], true);
+    // Those who approved it before the rejection hear that it stopped.
+    await notify(
+      alreadyApproved,
+      actorId,
+      { subject: `${dto.reference}, which you approved, was rejected`, paragraphs: [`${summary(dto)} was rejected at a later step and won't go further.${quoted(note)}`], path: paths.mine("purchase", dto.id), declined: true },
+    );
+  } else if (dto.stage === "REVISING")
+    await tellRaiser(
+      dto,
+      actorId,
+      `${dto.reference} was sent back for revision`,
+      [`${summary(dto)} was sent back to you. Edit it and resubmit; the approval chain starts again.${quoted(note)}`, ...cited],
+      true,
+    );
   else if (dto.stage === FIRST_PIPELINE_STAGE && !dto.procurement)
     await tellRaiser(dto, actorId, `${dto.reference} is approved`, [`${summary(dto)} passed every approval and is with procurement: <strong>${STAGE_LABEL[dto.stage]}</strong>.`]);
   return dto;
@@ -810,10 +821,7 @@ export async function cancelPurchaseRequest(actorId: string, requestId: string, 
       path: "/approvals",
     });
   } else {
-    await tellRaiser(dto, actorId, `${dto.reference} was cancelled by procurement`, [
-      `Procurement cancelled ${summary(dto)}. Any needs carried into it are open again.${quoted(note)}`,
-      ...documentsSentWith(dto),
-    ]);
+    await tellRaiser(dto, actorId, `${dto.reference} was cancelled by procurement`, [`Procurement cancelled ${summary(dto)}. Any needs carried into it are open again.${quoted(note)}`, ...documentsSentWith(dto)], true);
   }
 }
 
@@ -876,8 +884,8 @@ async function tellNextApprover(dto: PurchaseRequestDto, actorId: string): Promi
   });
 }
 
-async function tellRaiser(dto: PurchaseRequestDto, actorId: string, subject: string, paragraphs: string[]): Promise<void> {
-  await notify(dto.raisedById, actorId, { subject, paragraphs, path: paths.mine("purchase", dto.id) });
+async function tellRaiser(dto: PurchaseRequestDto, actorId: string, subject: string, paragraphs: string[], declined = false): Promise<void> {
+  await notify(dto.raisedById, actorId, { subject, paragraphs, path: paths.mine("purchase", dto.id), declined });
 }
 
 // ── Reading ──────────────────────────────────────────────────────────────────────

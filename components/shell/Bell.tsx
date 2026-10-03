@@ -123,9 +123,12 @@ export default function Bell() {
                   onClick={() => void openItem(n)}
                   className={`w-full text-left border-0 border-b border-border px-12 py-8 flex gap-8 cursor-pointer hover:bg-panel3 ${n.read ? "bg-transparent" : "bg-soft"}`}
                 >
-                  <span className={`w-6 h-6 rounded-full mt-5 flex-none ${n.read ? "bg-transparent" : "bg-accent"}`} aria-hidden="true" />
+                  <span className={`w-6 h-6 rounded-full mt-5 flex-none ${n.read ? "bg-transparent" : n.declined ? "bg-bad" : "bg-accent"}`} aria-hidden="true" />
                   <span className="min-w-0 flex-1">
-                    <span className={`block text-11.5 leading-snug ${n.read ? "text-dim" : "text-text font-medium"}`}>{n.title}</span>
+                    <span className={`block text-11.5 leading-snug ${n.read ? "text-dim" : "text-text font-medium"}`}>
+                      {n.declined && <span className="mr-5 rounded-2 bg-badbg px-4 py-1 text-10.5 font-medium text-bad">Declined</span>}
+                      {n.title}
+                    </span>
                     {n.body && <span className="block text-11 text-dim leading-normal mt-2 line-clamp-2">{n.body}</span>}
                     <span className="block text-11 text-faint mt-3">
                       {n.actorName ? `${n.actorName} · ` : ""}

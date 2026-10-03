@@ -78,7 +78,8 @@ If you are locked out, an administrator (or your department head) can set a **te
 The menu says the same thing in short. Beside **Approvals**, **Purchasing**, **Labs & stores**, **Bookings** or **Outside requests**:
 
 - a **solid blue** number is how much **waits for you** there;
-- a **quieter grey-blue** number is how much of **yours is still in progress** (sent and not yet at its end). It stays until each one finishes: a purchase until it's in the store, a transfer until it's received. Anything rejected, withdrawn or declined stops counting at once.
+- a **quieter grey-blue** number is how much of **yours is still in progress** (sent and not yet at its end). It stays until each one finishes: a purchase until it's in the store, a transfer until it's received. Anything rejected, withdrawn or declined stops counting at once;
+- a **red** number is **bad news you haven't read**: something of yours was declined, rejected, sent back or cancelled, or something you had approved or were holding was stopped later on. It clears when you open that part of the app or read the update under the bell.
 
 The same two numbers sit on the tabs inside each screen (**Waiting for me**, **Sent by me**, **Lab needs**…), so you know where to look before you open it. In **Sent by me**, finished items step aside into **Finished**, at the bottom.
 
@@ -164,6 +165,7 @@ Whenever something **waits for you**, or something **you asked for** moves on, L
 | A purchase request reaches your step, or yours is decided, sent back, or moves on to the next order stage | Each approver in turn; the head who raised it |
 | An order arrives at the main store, or an arrival is recorded | Property Administration; the store keeper |
 | A transfer reaches your step (including "confirm receipt"), or yours is done or refused | Whoever the step waits on; the person who asked |
+| Something is **declined, rejected, sent back or cancelled** (a need, a purchase request, a transfer, a lab's changes, a booking, a category change, a procurement, an outside request or a hold for one) | The person who asked for it, and everyone who had already approved it or was holding something for it. These updates are marked **Declined** under the bell and counted in red on the menu |
 | Someone asks to book your lab, or your booking is decided | The lab's custodian; the person who booked |
 | Invitations, password resets, and outside institutions' requests | As described in their own sections |
 

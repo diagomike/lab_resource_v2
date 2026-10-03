@@ -1884,6 +1884,9 @@ model Notification {
   body      String
   path      String
   readAt    DateTime?
+  /// Bad news about something this person asked for or took part in (declined, rejected,
+  /// sent back, cancelled): counted on the sidebar in red until it is read (2026-10-03).
+  declined  Boolean   @default(false)
   createdAt DateTime  @default(now())
 
   user  User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)

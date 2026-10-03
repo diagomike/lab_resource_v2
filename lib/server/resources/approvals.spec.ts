@@ -228,7 +228,11 @@ describe("requestTransfer: who may ask (pull: the requester holds the destinatio
     expect(sent.slice(mark).map((m) => m.to)).toEqual([await emailOf(ownerHeadId)]);
     mark = sent.length;
     await approvals.decideStep(ownerHeadId, result.request.id, "REJECT", "Needed here this term");
-    expect(sent.slice(mark)).toEqual([{ to: await emailOf(requesterId), subject: `Your transfer was rejected: ${result.request.summary}` }]);
+    // The requester hears it, and so does the lender who had already approved it.
+    expect(sent.slice(mark)).toEqual([
+      { to: await emailOf(requesterId), subject: `Your transfer was rejected: ${result.request.summary}` },
+      { to: await emailOf(lenderId), subject: `A transfer you approved was rejected: ${result.request.summary}` },
+    ]);
 
     expect(result.request.steps.map((s) => s.selector)).toEqual(["ITEM_CUSTODIAN", "OWNER_HEAD", "TARGET_HEAD", "REQUESTER_RECEIPT"]);
     expect([result.request.steps[0].status, result.request.steps[0].approverId]).toEqual(["PENDING", lenderId]);

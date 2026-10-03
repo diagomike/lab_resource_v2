@@ -435,6 +435,7 @@ export async function decideCommit(actorId: string, requestId: string, decision:
     subject: outcome.subject,
     paragraphs: [`${esc(dto.decidedByName ?? "The approver")} decided the changes for <strong>${esc(dto.labName)}</strong>. ${outcome.text}${quoted(dto.resolution)}`],
     path: dto.status === "APPLIED" ? `/places/${dto.labItemId}` : `/places/${dto.labItemId}?tab=draft`,
+    declined: dto.status !== "APPLIED",
   });
   return dto;
 }

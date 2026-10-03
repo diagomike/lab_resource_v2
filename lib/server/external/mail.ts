@@ -44,7 +44,7 @@ export async function mailRequester(to: string, subject: string, paragraphs: str
   await send({ to, subject, html: layout(subject, body) });
 }
 
-export async function mailStaff(to: string | null | undefined, subject: string, paragraphs: string[], path: string): Promise<void> {
+export async function mailStaff(to: string | null | undefined, subject: string, paragraphs: string[], path: string, opts: { declined?: boolean } = {}): Promise<void> {
   if (!to) return;
   // Staff can switch notification emails off (User.emailNotifications); the requester
   // always gets theirs (mailRequester) — it is how their request moves.
@@ -52,7 +52,7 @@ export async function mailStaff(to: string | null | undefined, subject: string, 
   // The bell and Home show it too, whatever the email setting.
   if (staff?.status === "ACTIVE") {
     await prisma.notification
-      .create({ data: { userId: staff.id, title: subject, body: plainText(paragraphs[0] ?? ""), path } })
+      .create({ data: { userId: staff.id, title: subject, body: plainText(paragraphs[0] ?? ""), path, declined: Boolean(opts.declined) } })
       .catch((err) => console.error("mailStaff: could not record the notification", err));
   }
   if (staff && !staff.emailNotifications) return;

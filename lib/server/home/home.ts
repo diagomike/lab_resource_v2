@@ -1,5 +1,5 @@
 import "server-only";
-import type { CapabilitiesDto, DueSoonDto, HomeCountsDto, HomeDto, MyRequestDto, UnfinishedDto, WaitingDto } from "@/lib/shared";
+import type { CapabilitiesDto, CountArea, DueSoonDto, HomeCountsDto, HomeDto, MyRequestDto, UnfinishedDto, WaitingDto } from "@/lib/shared";
 import { daysUntil, nextStep, WAITING_LABEL, type WaitingKind } from "@/lib/domain/home-logic";
 import { STAGE_LABEL } from "@/lib/domain/purchasing";
 import { CALIBRATION_FIELD_KEY, calibrationOf, todayIso } from "@/lib/domain/calibration";
@@ -13,7 +13,7 @@ import * as procurements from "../resources/procurements";
 import * as governance from "../resources/category-governance";
 import * as external from "../external/requests";
 import { listBookings } from "../scheduling/reservations";
-import { listNotifications, unreadCount } from "./notifications";
+import { declinedByArea, listNotifications, unreadCount } from "./notifications";
 
 /**
  * Home: what is waiting for this person, what they left unfinished, where their own
@@ -280,34 +280,38 @@ async function followingFor(userId: string, caps: CapabilitiesDto) {
 /** The sidebar's badges, the screens' tab counts and the bell: the same facts as Home. */
 export async function homeCounts(userId: string): Promise<HomeCountsDto> {
   const caps = await capabilitiesOf(userId);
-  const [waiting, drafts, unread, f] = await Promise.all([
+  const [waiting, drafts, unread, f, declined] = await Promise.all([
     waitingFor(userId, caps),
     caps.isCustodian || caps.isStoreKeeper ? safe([], () => labVersions.unsentDrafts(userId)) : Promise.resolve([]),
     unreadCount(userId),
     followingFor(userId, caps),
+    declinedByArea(userId),
   ]);
   const sum = (kinds: WaitingKind[]) => waiting.filter((w) => kinds.includes(w.kind)).reduce((n, w) => n + w.count, 0);
   const tabs = {
-    "approvals.inbox": { action: sum(["transfer", "lab-commit", "purchase", "booking", "category-change"]), following: 0 },
-    "approvals.mine": { action: 0, following: f.transfersOpen + f.labOpen + f.purchasesOpen + f.bookingsOpen + f.categoryOpen },
-    "purchasing.needs": { action: sum(["needs"]), following: f.needsOpen },
-    "purchasing.requests": { action: 0, following: f.purchasesOpen },
-    "purchasing.procurement": { action: sum(["procure"]), following: f.pipelineOpen },
-    "purchasing.arrivals": { action: sum(["arrivals", "loads"]), following: f.importsOpen },
-    "places.changes": { action: drafts.length, following: f.labOpen },
-    "bookings.requests": { action: sum(["booking"]), following: f.bookingsOpen },
+    "approvals.inbox": { action: sum(["transfer", "lab-commit", "purchase", "booking", "category-change"]), following: 0, declined: 0 },
+    "approvals.mine": { action: 0, following: f.transfersOpen + f.labOpen + f.purchasesOpen + f.bookingsOpen + f.categoryOpen, declined: declined.approvals },
+    "purchasing.needs": { action: sum(["needs"]), following: f.needsOpen, declined: 0 },
+    "purchasing.requests": { action: 0, following: f.purchasesOpen, declined: 0 },
+    "purchasing.procurement": { action: sum(["procure"]), following: f.pipelineOpen, declined: 0 },
+    "purchasing.arrivals": { action: sum(["arrivals", "loads"]), following: f.importsOpen, declined: 0 },
+    "places.changes": { action: drafts.length, following: f.labOpen, declined: 0 },
+    "bookings.requests": { action: sum(["booking"]), following: f.bookingsOpen, declined: 0 },
   };
-  const area = (...keys: Array<keyof typeof tabs>) => ({
+  // `declined`: unread bad news per area (a decline, a rejection, something sent back),
+  // counted from the notices themselves so the badge clears when they are read.
+  const area = (name: CountArea, ...keys: Array<keyof typeof tabs>) => ({
     action: keys.reduce((n, k) => n + tabs[k].action, 0),
     following: keys.reduce((n, k) => n + tabs[k].following, 0),
+    declined: declined[name],
   });
   return {
     areas: {
-      approvals: area("approvals.inbox", "approvals.mine"),
-      purchasing: area("purchasing.needs", "purchasing.requests", "purchasing.procurement", "purchasing.arrivals"),
-      places: area("places.changes"),
-      outside: { action: sum(["external"]), following: f.outsideOpen },
-      bookings: area("bookings.requests"),
+      approvals: area("approvals", "approvals.inbox", "approvals.mine"),
+      purchasing: area("purchasing", "purchasing.needs", "purchasing.requests", "purchasing.procurement", "purchasing.arrivals"),
+      places: area("places", "places.changes"),
+      outside: { action: sum(["external"]), following: f.outsideOpen, declined: declined.outside },
+      bookings: area("bookings", "bookings.requests"),
     },
     tabs,
     unread,
